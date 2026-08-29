@@ -31,9 +31,9 @@
     --fs-count: clamp(40px, min(12vw, 20vh), 156px);
     --fs-h2: clamp(20px, 2.3vw, 24px);
     --fs-lead: clamp(19px, 2.3vw, 24px);
-    --fs-body: clamp(15px, 1.5vw, 17px);
-    --fs-small: clamp(13.5px, 1.4vw, 14.5px);
-    --fs-label: 12px;
+    --fs-body: 18px;
+    --fs-small: clamp(14px, 1.5vw, 16px);
+    --fs-label: clamp(12px, 1.6vw, 16px);
 
     --page-color: #F3FAFF;
     --page-image:
@@ -86,7 +86,6 @@
     color: var(--ink);
     background-color: var(--page-color);
     background-image: var(--page-image);
-    background-attachment: fixed;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -131,7 +130,7 @@
   .center {
     flex: 1; width: 100%; max-width: 1100px; margin-inline: auto; text-align: center;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
-    gap: clamp(30px, 5vh, 56px);
+    gap: clamp(32px, 8vh, 90px);
   }
   .center > * { animation: rise .6s cubic-bezier(.2, .7, .2, 1) both; }
   .center > *:nth-child(2) { animation-delay: .08s; }
@@ -142,30 +141,30 @@
   h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 10.3cqw, 66px); line-height: 1.02; letter-spacing: -.025em; font-kerning: none; white-space: nowrap; background: var(--heading); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; padding-bottom: .04em; }
   .sub { font-family: var(--body); font-weight: 500; font-size: clamp(11px, 3.92cqw, 26px); margin-top: 3cqw; font-kerning: none; white-space: nowrap; color: var(--ink-soft); }
 
-  .clockwrap { display: flex; flex-direction: column; align-items: center; gap: clamp(16px, 2.4vh, 28px); width: 100%; }
+  .clockwrap { display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.5vh, 18px); width: 100%; }
   .count { display: flex; align-items: center; justify-content: space-between; gap: clamp(4px, 1vw, 16px); padding-bottom: clamp(30px, 4vh, 46px); width: 100%; }
   .grp { position: relative; display: flex; justify-content: center; }
   .big { font-family: var(--display); font-weight: 700; font-size: var(--fs-count); line-height: .9; letter-spacing: -.03em; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
   .lbl { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: clamp(10px, 1.5vh, 18px); font-family: var(--body); font-weight: 600; font-size: var(--fs-label); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
   .count-sep { display: flex; flex-direction: column; justify-content: center; gap: clamp(7px, 1.5vw, 16px); }
   .count-sep i { width: clamp(6px, 1.1vw, 12px); aspect-ratio: 1; border-radius: 50%; background: var(--colon); display: block; }
-  .saleline { font-family: var(--body); font-weight: 500; font-size: var(--fs-body); color: var(--ink-soft); }
+  .saleline { font-family: var(--body); font-weight: 600; font-size: var(--fs-label); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
 
   .cta-block { display: flex; flex-direction: column; align-items: center; gap: clamp(14px, 1.8vh, 20px); }
   .perk-note { font-family: var(--body); font-weight: 500; font-size: var(--fs-body); color: var(--ink-soft); line-height: 1.45; }
-  .perk-note b { color: var(--primary); font-weight: 700; }
+  .perk-br { display: none; }
 
-  .pay { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: clamp(26px, 4vh, 42px); }
+  .pay { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 14px; }
   .pay-note { font-family: var(--body); font-size: var(--fs-small); font-weight: 500; color: var(--ink-soft); }
-  .pay-row { display: flex; flex-direction: row-reverse; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .pay-row { display: flex; flex-direction: row-reverse; flex-wrap: wrap; justify-content: center; gap: clamp(10px, 1.6vw, 16px); }
   .pay-btn {
-    display: inline-flex; align-items: center; gap: 9px;
-    font-family: var(--body); font-size: var(--fs-body); font-weight: 600;
-    padding: 12px 22px 12px 16px; border-radius: 999px;
-    background: var(--chip); border: 1px solid var(--chip-line); color: var(--ink-soft);
-    cursor: not-allowed;
+    appearance: none; -webkit-appearance: none;
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--body); font-size: var(--fs-small); font-weight: 500;
+    padding: 0; border: none; background: none; color: var(--ink-soft);
+    cursor: default;
   }
-  .pay-btn svg { width: 25px; height: 25px; display: block; flex: none; }
+  .pay-btn svg { width: 21px; height: 21px; display: block; flex: none; }
   .sym .sym-back { fill: var(--sym-back); }
 
   .footer {
@@ -173,10 +172,9 @@
     display: flex; flex-direction: column; align-items: center; gap: 10px;
     text-align: center; padding-top: clamp(14px, 2vh, 22px);
   }
-  .register-note { font-family: var(--body); font-weight: 500; font-size: var(--fs-body); color: var(--ink-soft); }
   .footer-links {
     display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px;
-    font-family: var(--body); font-size: var(--fs-body); color: var(--ink-soft);
+    font-family: var(--body); font-size: var(--fs-small); color: var(--ink-soft);
   }
   .footer-links a, .footer-links button { appearance: none; -webkit-appearance: none; font-family: var(--body); font-size: inherit; font-weight: 500; font-style: normal; line-height: normal; letter-spacing: normal; color: var(--primary); background: none; border: none; padding: 0; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
   .footer-links a:hover, .footer-links button:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -224,9 +222,12 @@
   .contact-mail:hover { text-decoration: underline; text-underline-offset: 4px; }
 
   @media (max-width: 560px) {
-    .pay-row { gap: 6px; }
-    .pay-btn { font-size: 11px; gap: 5px; padding: 8px 10px 8px 8px; }
+    .pay-btn { gap: 6px; }
     .pay-btn svg { width: 18px; height: 18px; }
+  }
+
+  @media (max-width: 540px) {
+    .perk-br { display: inline; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -267,23 +268,27 @@
       </div>
 
       <div class="clockwrap">
+        <p class="saleline">Sale starts on <span id="saleWhen">Dec 12, 2026, 18:00 UTC</span>, in</p>
         <div class="count" aria-label="Time until the public sale">
-          <div class="grp"><span class="big" id="d">--</span><span class="lbl">days</span></div>
+          <div class="grp"><span class="big" id="d">--</span><span class="lbl" id="dLabel">days</span></div>
           <span class="count-sep" aria-hidden="true"><i></i><i></i></span>
-          <div class="grp"><span class="big" id="h">--</span><span class="lbl">hours</span></div>
+          <div class="grp"><span class="big" id="h">--</span><span class="lbl">hrs</span></div>
           <span class="count-sep" aria-hidden="true"><i></i><i></i></span>
-          <div class="grp"><span class="big" id="m">--</span><span class="lbl">minutes</span></div>
+          <div class="grp"><span class="big" id="m">--</span><span class="lbl">min</span></div>
           <span class="count-sep" aria-hidden="true"><i></i><i></i></span>
-          <div class="grp"><span class="big" id="s">--</span><span class="lbl">seconds</span></div>
+          <div class="grp"><span class="big" id="s">--</span><span class="lbl">sec</span></div>
         </div>
-        <p class="saleline">Public sale starts on Dec 12, 2026, 18:00 UTC<span id="localTime"></span></p>
       </div>
 
       <div class="cta-block">
         <button class="pill pill--primary" id="openFund">Claim your name</button>
-        <p class="perk-note">Invest in SimpleX Chat crowdfunding until Sep 22 to get a name for <b>7 years</b></p>
+        <p class="perk-note">Invest in SimpleX Chat until Sep&nbsp;22 <br class="perk-br">to get a name for 7&nbsp;years</p>
+      </div>
+    </section>
+
+    <footer class="footer">
         <div class="pay">
-          <span class="pay-note">Payment options available when the sale starts</span>
+          <span class="pay-note">Pay at launch with</span>
           <div class="pay-row">
             <button class="pay-btn" disabled>
               <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#FF6600"/><path fill="#fff" d="M16 4.5A11.5 11.5 0 0 0 4.5 16c0 1 .13 1.966.373 2.888H8.9V10.02L16 17.12l7.1-7.1v8.868h4.027c.243-.922.373-1.889.373-2.888A11.5 11.5 0 0 0 16 4.5z"/><path fill="#4C4C4C" d="M14.03 19.16L10.4 15.53v3.358H5.86A11.503 11.503 0 0 0 16 27.5a11.503 11.503 0 0 0 10.14-8.612H21.6V15.53l-3.63 3.63L16 21.13z"/></svg>
@@ -292,10 +297,6 @@
             <button class="pay-btn" disabled>
               <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#fff" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26v-.009l-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></svg>
               Bitcoin
-            </button>
-            <button class="pay-btn" disabled>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19"/></svg>
-              Card
             </button>
             <button class="pay-btn" disabled>
               <svg class="sym" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -307,13 +308,8 @@
             </button>
           </div>
         </div>
-      </div>
-    </section>
-
-    <footer class="footer">
-      <p class="register-note">Crowdfunding investors and trademark owners can register first</p>
       <div class="footer-links">
-        <button id="openContact">Contact us</button>
+        <button id="openContact">Trademark owners</button>
         <span class="sep">&middot;</span>
         <a href="https://github.com/simplex-chat/simplex-chat/blob/master/docs/guide/register-simplex-name.md" target="_blank" rel="noopener">How to register a test name<svg class="ext" viewBox="0 0 100 100" aria-hidden="true"><path d="M18.8,85.1h56l0,0c2.2,0,4-1.8,4-4v-32h-8v28h-48v-48h28v-8h-32l0,0c-2.2,0-4,1.8-4,4v56C14.8,83.3,16.6,85.1,18.8,85.1z"/><polygon points="45.7,48.7 51.3,54.3 77.2,28.5 77.2,37.2 85.2,37.2 85.2,14.9 62.8,14.9 62.8,22.9 71.5,22.9"/></svg></a>
       </div>
@@ -342,7 +338,7 @@
     </div>
 
     <div class="mini-clock" aria-label="Time until the 7-year registration closes">
-      <div class="mini"><div class="mini-num" id="pd">--</div><div class="mini-lbl">days</div></div>
+      <div class="mini"><div class="mini-num" id="pd">--</div><div class="mini-lbl" id="pdLabel">days</div></div>
       <div class="mini"><div class="mini-num" id="ph">--</div><div class="mini-lbl">hrs</div></div>
       <div class="mini"><div class="mini-num" id="pm">--</div><div class="mini-lbl">min</div></div>
       <div class="mini"><div class="mini-num" id="ps">--</div><div class="mini-lbl">sec</div></div>
@@ -369,24 +365,25 @@
 
     function set(id, value) { document.getElementById(id).textContent = value; }
 
-    function render(target, ids) {
+    function render(target, ids, dayLabelId) {
       const t = Math.max(0, target - Date.now());
       const sec = Math.floor(t / 1000);
-      set(ids[0], Math.floor(sec / 86400));
+      const days = Math.floor(sec / 86400);
+      set(ids[0], days);
       set(ids[1], pad(Math.floor((sec % 86400) / 3600)));
       set(ids[2], pad(Math.floor((sec % 3600) / 60)));
       set(ids[3], pad(sec % 60));
+      document.getElementById(dayLabelId).textContent = days === 1 ? "day" : "days";
     }
 
     function tick() {
-      render(SALE, ["d", "h", "m", "s"]);
-      render(PERK, ["pd", "ph", "pm", "ps"]);
+      render(SALE, ["d", "h", "m", "s"], "dLabel");
+      render(PERK, ["pd", "ph", "pm", "ps"], "pdLabel");
     }
     tick();
     setInterval(tick, 1000);
 
-    const localTime = new Date(SALE).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
-    document.getElementById("localTime").textContent = " (" + localTime + ")";
+    document.getElementById("saleWhen").textContent = new Date(SALE).toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 
     const themeToggle = document.getElementById("themeToggle");
     themeToggle.addEventListener("click", () => {
