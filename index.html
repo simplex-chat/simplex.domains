@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>simplex.domains — Your SimpleX domain</title>
+<meta name="description" content="Your SimpleX domain — one name for your public channel and contact address. Public sale opens December 12, 2026.">
+<script>if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark')</script>
+<link rel="preload" href="img/logo-light.png" as="image">
+<link rel="preload" href="img/logo-dark.png" as="image">
+<link rel="preload" href="fonts/GT-Walsheim/GT-Walsheim-LC-Bold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/GT-Walsheim/GT-Walsheim-LC-Light.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/Manrope/Manrope-Medium.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preload" href="fonts/Manrope/Manrope-SemiBold.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preload" href="fonts/Manrope/Manrope-Bold.ttf" as="font" type="font/ttf" crossorigin>
+<style>
+  @font-face { font-family: "GT-Walsheim"; src: url("fonts/GT-Walsheim/GT-Walsheim-LC-Light.woff2") format("woff2"); font-weight: 300; font-style: normal; font-display: swap; }
+  @font-face { font-family: "GT-Walsheim"; src: url("fonts/GT-Walsheim/GT-Walsheim-LC-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+  @font-face { font-family: "GT-Walsheim"; src: url("fonts/GT-Walsheim/GT-Walsheim-LC-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+  @font-face { font-family: "GT-Walsheim"; src: url("fonts/GT-Walsheim/GT-Walsheim-LC-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Manrope"; src: url("fonts/Manrope/Manrope-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Manrope"; src: url("fonts/Manrope/Manrope-Medium.ttf") format("truetype"); font-weight: 500; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Manrope"; src: url("fonts/Manrope/Manrope-SemiBold.ttf") format("truetype"); font-weight: 600; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Manrope"; src: url("fonts/Manrope/Manrope-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Manrope"; src: url("fonts/Manrope/Manrope-ExtraBold.ttf") format("truetype"); font-weight: 800; font-style: normal; font-display: swap; }
+
+  :root {
+    --display: "GT-Walsheim", Gilroy, Helvetica, sans-serif;
+    --body: "Manrope", sans-serif;
+
+    --fs-count: clamp(40px, min(12vw, 20vh), 156px);
+    --fs-h2: clamp(20px, 2.3vw, 24px);
+    --fs-lead: clamp(19px, 2.3vw, 24px);
+    --fs-body: clamp(15px, 1.5vw, 17px);
+    --fs-small: clamp(13.5px, 1.4vw, 14.5px);
+    --fs-label: 12px;
+
+    --page-color: #F3FAFF;
+    --page-image:
+      radial-gradient(95% 62% at 85% 4%, oklch(0.90 0.07 255 / 0.45), transparent 62%),
+      radial-gradient(135% 108% at 50% 122%, oklch(0.92 0.075 255) 0%, oklch(0.965 0.035 253) 46%, oklch(0.995 0.008 250) 100%);
+    --heading: linear-gradient(to bottom, #53C1FF -50%, #0053D0 160%);
+    --ink: #0D1B3A;
+    --ink-soft: rgba(13, 27, 58, .62);
+    --primary: #0053D0;
+    --accent: #0197FF;
+    --toggle: #001796;
+    --sym-back: #023789;
+    --colon: rgba(0, 83, 208, .28);
+    --line-strong: rgba(0, 83, 208, .4);
+    --chip: rgba(0, 83, 208, .06);
+    --chip-line: rgba(0, 83, 208, .14);
+    --primary-ink: #ffffff;
+    --surface: #ffffff;
+    --surface-line: rgba(0, 83, 208, .14);
+    --surface-shadow: 0 30px 70px rgba(6, 24, 70, .22);
+    --backdrop: rgba(6, 20, 56, .38);
+  }
+  html.dark {
+    --page-color: #000832;
+    --page-image:
+      radial-gradient(92% 62% at 82% -2%, oklch(0.44 0.135 256 / 0.38), transparent 60%),
+      radial-gradient(140% 118% at 50% -12%, oklch(0.30 0.105 258) 0%, oklch(0.19 0.088 260) 46%, oklch(0.135 0.075 263) 100%);
+    --heading: linear-gradient(to bottom, #70F0F9 0%, #70F0F9 33%, #50D8F1 100%);
+    --ink: #EAF2FF;
+    --ink-soft: rgba(234, 242, 255, .70);
+    --primary: #70F0F9;
+    --accent: #02C0FF;
+    --toggle: #ffffff;
+    --sym-back: #ffffff;
+    --colon: rgba(112, 240, 249, .34);
+    --line-strong: rgba(112, 240, 249, .42);
+    --chip: rgba(112, 240, 249, .08);
+    --chip-line: rgba(112, 240, 249, .2);
+    --primary-ink: #041038;
+    --surface: #0A1C44;
+    --surface-line: rgba(112, 240, 249, .18);
+    --surface-shadow: 0 30px 70px rgba(0, 0, 0, .5);
+    --backdrop: rgba(2, 8, 26, .58);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--body);
+    color: var(--ink);
+    background-color: var(--page-color);
+    background-image: var(--page-image);
+    background-attachment: fixed;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  .hero {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: clamp(18px, 3.5vw, 44px);
+  }
+
+  .topbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: inline-flex; align-items: center; }
+  .brand-logo { height: clamp(36px, 4.4vw, 52px); width: auto; display: block; }
+  .logo-dark { display: none; }
+  html.dark .logo-light { display: none; }
+  html.dark .logo-dark { display: block; }
+
+  .theme-switch-btn { display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; cursor: pointer; padding: 6px; margin: -6px -6px 0 0; align-self: flex-start; }
+  .theme-switch-btn svg { width: 22px; height: auto; display: block; overflow: visible; }
+  .theme-switch-btn svg path { fill: var(--toggle); transition: fill .2s ease; }
+  .theme-switch-btn .sun { display: none; }
+  html.dark .theme-switch-btn .sun { display: block; }
+  html.dark .theme-switch-btn .moon { display: none; }
+
+  .ext { width: .82em; height: .82em; margin-left: .4em; fill: currentColor; vertical-align: -.06em; flex: none; }
+
+  .pill {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: var(--body); font-size: var(--fs-body); font-weight: 600; letter-spacing: .01em;
+    border-radius: 999px; border: 1px solid transparent; cursor: pointer;
+    text-decoration: none; white-space: nowrap; transition: filter .15s ease;
+  }
+  .pill--primary { background: var(--primary); color: var(--primary-ink); padding: 16px 32px; }
+  .pill--primary:hover { filter: brightness(1.06); }
+  .pill--primary:active { transform: translateY(1px); }
+  .pill .ext { margin-left: 0; }
+
+  .center {
+    flex: 1; width: 100%; max-width: 1100px; margin-inline: auto; text-align: center;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: clamp(30px, 5vh, 56px);
+  }
+  .center > * { animation: rise .6s cubic-bezier(.2, .7, .2, 1) both; }
+  .center > *:nth-child(2) { animation-delay: .08s; }
+  .center > *:nth-child(3) { animation-delay: .16s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  .headline { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 600px; margin-inline: auto; container-type: inline-size; }
+  h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 10.3cqw, 66px); line-height: 1.02; letter-spacing: -.025em; font-kerning: none; white-space: nowrap; background: var(--heading); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; padding-bottom: .04em; }
+  .sub { font-family: var(--body); font-weight: 500; font-size: clamp(11px, 3.92cqw, 26px); margin-top: 3cqw; font-kerning: none; white-space: nowrap; color: var(--ink-soft); }
+
+  .clockwrap { display: flex; flex-direction: column; align-items: center; gap: clamp(16px, 2.4vh, 28px); width: 100%; }
+  .count { display: flex; align-items: center; justify-content: space-between; gap: clamp(4px, 1vw, 16px); padding-bottom: clamp(30px, 4vh, 46px); width: 100%; }
+  .grp { position: relative; display: flex; justify-content: center; }
+  .big { font-family: var(--display); font-weight: 700; font-size: var(--fs-count); line-height: .9; letter-spacing: -.03em; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+  .lbl { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: clamp(10px, 1.5vh, 18px); font-family: var(--body); font-weight: 600; font-size: var(--fs-label); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
+  .count-sep { display: flex; flex-direction: column; justify-content: center; gap: clamp(7px, 1.5vw, 16px); }
+  .count-sep i { width: clamp(6px, 1.1vw, 12px); aspect-ratio: 1; border-radius: 50%; background: var(--colon); display: block; }
+  .saleline { font-family: var(--body); font-weight: 500; font-size: var(--fs-body); color: var(--ink-soft); }
+
+  .cta-block { display: flex; flex-direction: column; align-items: center; gap: clamp(14px, 1.8vh, 20px); }
+  .perk-note { font-family: var(--body); font-weight: 500; font-size: var(--fs-body); color: var(--ink-soft); line-height: 1.45; }
+  .perk-note b { color: var(--primary); font-weight: 700; }
+
+  .pay { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: clamp(26px, 4vh, 42px); }
+  .pay-note { font-family: var(--body); font-size: var(--fs-small); font-weight: 500; color: var(--ink-soft); }
+  .pay-row { display: flex; flex-direction: row-reverse; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .pay-btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--body); font-size: var(--fs-body); font-weight: 600;
+    padding: 12px 22px 12px 16px; border-radius: 999px;
+    background: var(--chip); border: 1px solid var(--chip-line); color: var(--ink-soft);
+    cursor: not-allowed;
+  }
+  .pay-btn svg { width: 25px; height: 25px; display: block; flex: none; }
+  .sym .sym-back { fill: var(--sym-back); }
+
+  .footer {
+    flex: none;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    text-align: center; padding-top: clamp(14px, 2vh, 22px);
+  }
+  .register-note { font-family: var(--body); font-weight: 500; font-size: var(--fs-body); color: var(--ink-soft); }
+  .footer-links {
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px;
+    font-family: var(--body); font-size: var(--fs-body); color: var(--ink-soft);
+  }
+  .footer-links a, .footer-links button { appearance: none; -webkit-appearance: none; font-family: var(--body); font-size: inherit; font-weight: 500; font-style: normal; line-height: normal; letter-spacing: normal; color: var(--primary); background: none; border: none; padding: 0; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+  .footer-links a:hover, .footer-links button:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .footer-links .sep { color: var(--line-strong); font-weight: 400; }
+
+  dialog {
+    width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto;
+    border: 1px solid var(--surface-line); border-radius: 22px;
+    background: var(--surface); color: var(--ink); box-shadow: var(--surface-shadow);
+    padding: clamp(26px, 3.6vw, 40px);
+  }
+  dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); }
+  .dlg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .dlg-head h2 { font-family: var(--display); font-weight: 700; font-size: var(--fs-h2); letter-spacing: -.015em; line-height: 1.15; }
+  .dlg-close {
+    flex: none; width: 36px; height: 36px; border-radius: 999px;
+    border: 1px solid var(--surface-line); background: var(--chip); color: var(--ink);
+    font-size: 19px; line-height: 1; cursor: pointer;
+  }
+  .dlg-close:hover { background: var(--chip-line); }
+  .dlg p { font-family: var(--body); font-weight: 500; color: var(--ink-soft); font-size: var(--fs-body); line-height: 1.55; }
+  .dlg strong { color: var(--ink); font-weight: 700; }
+
+  .grouplabel { font-family: var(--body); font-size: var(--fs-label); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); margin: 26px 0 12px; }
+  .rows { display: flex; flex-direction: column; gap: 9px; }
+  .row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; border-radius: 13px; border: 1px solid var(--chip-line);
+  }
+  .row.lead { background: var(--chip); border-color: var(--line-strong); }
+  .row .k { font-family: var(--display); font-weight: 700; font-size: var(--fs-body); color: var(--ink); }
+  .row .v { font-family: var(--body); font-weight: 500; font-size: var(--fs-small); color: var(--ink-soft); }
+  .row .yrs { font-family: var(--body); font-weight: 700; font-size: var(--fs-body); color: var(--primary); white-space: nowrap; }
+
+  .mini-clock { display: flex; gap: 9px; margin: 26px 0 10px; }
+  .mini { flex: 1; text-align: center; padding: 14px 4px; border-radius: 12px; background: var(--chip); border: 1px solid var(--chip-line); }
+  .mini-num { font-family: var(--display); font-weight: 700; font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: 1; }
+  .mini-lbl { font-family: var(--body); font-size: var(--fs-label); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); margin-top: 7px; }
+  .deadline-note { font-family: var(--body); font-weight: 500; font-size: var(--fs-small); color: var(--ink-soft); }
+
+  .dlg-cta { margin-top: 28px; width: 100%; padding: 16px 20px; }
+  .dlg-link { display: inline-flex; align-items: center; margin-top: 18px; font-family: var(--body); color: var(--primary); text-decoration: none; font-weight: 600; font-size: var(--fs-small); }
+  .dlg-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .contact-mail { display: inline-block; margin-top: 8px; font-family: var(--display); font-size: var(--fs-lead); font-weight: 700; color: var(--primary); text-decoration: none; letter-spacing: -.01em; }
+  .contact-mail:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+  @media (max-width: 560px) {
+    .pay-row { gap: 6px; }
+    .pay-btn { font-size: 11px; gap: 5px; padding: 8px 10px 8px 8px; }
+    .pay-btn svg { width: 18px; height: 18px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .center > * { animation: none; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <main class="hero">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="simplex.domains">
+        <img class="brand-logo logo-light" src="img/logo-light.png" alt="SimpleX" width="400" height="99">
+        <img class="brand-logo logo-dark" src="img/logo-dark.png" alt="SimpleX" width="401" height="101">
+      </a>
+      <button class="theme-switch-btn" id="themeToggle" aria-label="Switch light or dark theme">
+        <svg class="sun" viewBox="0 0 469 469" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M225.768 1.44594C220.301 3.84594 214.701 10.6459 213.768 15.9793C213.234 18.3793 213.101 31.7126 213.368 45.7126L213.768 71.1793L217.634 76.1126C226.701 88.1126 242.968 87.5793 252.301 75.0459C254.968 71.5793 255.101 69.5793 255.101 42.2459C255.101 14.9126 254.968 12.9126 252.301 9.44594C250.834 7.44594 248.034 4.51261 246.168 3.17928C241.768 -0.154057 231.101 -1.08739 225.768 1.44594Z"/>
+          <path d="M72.9687 65.3128C63.7687 71.5794 60.1687 81.4461 63.7687 91.1794C65.502 95.4461 98.702 129.446 104.035 132.379C106.035 133.446 110.569 134.246 114.035 134.246C126.035 134.246 134.435 125.846 134.435 113.846C134.435 110.379 133.635 105.846 132.569 103.846C129.635 98.5128 95.6353 65.3128 91.3687 63.5794C85.102 61.3128 77.902 61.9794 72.9687 65.3128Z"/>
+          <path d="M377.102 63.7128C373.102 65.3128 338.969 98.7794 336.302 103.846C335.236 105.846 334.436 110.379 334.436 113.846C334.436 125.846 342.836 134.246 354.836 134.246C358.302 134.246 362.836 133.446 364.836 132.379C370.169 129.446 403.369 95.4461 405.102 91.1794C408.702 81.4461 405.102 71.5794 395.902 65.3128C391.102 61.9794 383.102 61.3128 377.102 63.7128Z"/>
+          <path d="M211.635 108.246C185.635 113.179 163.502 125.046 144.302 144.112C117.902 170.512 104.968 203.579 106.835 240.246C109.768 297.712 149.102 344.912 205.902 359.179C218.568 362.379 250.302 362.379 262.968 359.179C310.435 347.312 345.768 312.646 358.702 265.046C362.435 251.446 362.835 219.446 359.368 205.712C347.368 158.112 312.302 122.379 265.235 110.112C251.768 106.512 225.502 105.579 211.635 108.246Z"/>
+          <path d="M12.4349 214.779C-0.498477 220.379 -4.09848 237.579 5.23486 248.246C11.2349 255.046 15.6349 255.846 45.3682 255.313C74.0349 254.913 75.1015 254.646 81.6349 245.713C85.9015 239.979 85.5015 228.113 80.8349 221.979C74.4349 213.713 71.2349 212.913 42.1682 212.913C23.7682 213.046 15.2349 213.579 12.4349 214.779Z"/>
+          <path d="M396.035 215.179C393.635 216.379 390.035 219.445 388.035 221.979C383.368 228.112 382.968 239.979 387.235 245.712C394.035 254.779 394.301 254.912 426.435 254.912C458.568 254.912 458.835 254.779 465.635 245.712C469.501 240.512 469.501 227.979 465.635 222.779C458.968 213.845 458.301 213.579 428.035 213.179C404.435 212.912 399.768 213.179 396.035 215.179Z"/>
+          <path d="M103.101 336.779C96.7013 340.779 65.368 373.179 63.768 377.313C57.368 394.513 74.168 411.313 91.368 404.913C95.6347 403.179 129.635 369.979 132.568 364.646C135.368 359.446 134.968 349.046 131.768 343.846C126.168 334.646 112.035 331.179 103.101 336.779Z"/>
+          <path d="M344.035 336.912C341.635 338.379 338.569 341.445 337.102 343.845C333.902 349.045 333.502 359.445 336.302 364.645C339.235 369.979 373.235 403.179 377.502 404.912C387.235 408.512 397.102 404.912 403.369 395.712C406.702 390.779 407.369 383.579 405.102 377.312C403.369 373.045 370.169 339.045 364.835 336.112C359.635 333.312 349.235 333.712 344.035 336.912Z"/>
+          <path d="M225.368 385.712C222.968 387.046 219.368 390.112 217.368 392.646L213.768 397.312V426.379C213.768 458.246 213.901 458.779 222.968 465.446C228.168 469.312 240.701 469.312 245.901 465.446C254.834 458.779 255.101 457.979 255.501 428.246C256.034 397.579 255.234 394.379 246.834 387.979C241.101 383.579 231.634 382.512 225.368 385.712Z"/>
+        </svg>
+        <svg class="moon" viewBox="3 5 24 25" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10.895 7.574c0 7.55 5.179 13.67 11.567 13.67 1.588 0 3.101-0.38 4.479-1.063-1.695 4.46-5.996 7.636-11.051 7.636-6.533 0-11.83-5.297-11.83-11.83 0-4.82 2.888-8.959 7.023-10.803-0.116 0.778-0.188 1.573-0.188 2.39z"/>
+        </svg>
+      </button>
+    </header>
+
+    <section class="center">
+      <div class="headline">
+        <h1>Your SimpleX domain</h1>
+        <p class="sub">One name for your public channel and contact address</p>
+      </div>
+
+      <div class="clockwrap">
+        <div class="count" aria-label="Time until the public sale">
+          <div class="grp"><span class="big" id="d">--</span><span class="lbl">days</span></div>
+          <span class="count-sep" aria-hidden="true"><i></i><i></i></span>
+          <div class="grp"><span class="big" id="h">--</span><span class="lbl">hours</span></div>
+          <span class="count-sep" aria-hidden="true"><i></i><i></i></span>
+          <div class="grp"><span class="big" id="m">--</span><span class="lbl">minutes</span></div>
+          <span class="count-sep" aria-hidden="true"><i></i><i></i></span>
+          <div class="grp"><span class="big" id="s">--</span><span class="lbl">seconds</span></div>
+        </div>
+        <p class="saleline">Public sale starts on Dec 12, 2026, 18:00 UTC<span id="localTime"></span></p>
+      </div>
+
+      <div class="cta-block">
+        <button class="pill pill--primary" id="openFund">Claim your name</button>
+        <p class="perk-note">Invest in SimpleX Chat crowdfunding until Sep 22 to get a name for <b>7 years</b></p>
+        <div class="pay">
+          <span class="pay-note">Payment options available when the sale starts</span>
+          <div class="pay-row">
+            <button class="pay-btn" disabled>
+              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#FF6600"/><path fill="#fff" d="M16 4.5A11.5 11.5 0 0 0 4.5 16c0 1 .13 1.966.373 2.888H8.9V10.02L16 17.12l7.1-7.1v8.868h4.027c.243-.922.373-1.889.373-2.888A11.5 11.5 0 0 0 16 4.5z"/><path fill="#4C4C4C" d="M14.03 19.16L10.4 15.53v3.358H5.86A11.503 11.503 0 0 0 16 27.5a11.503 11.503 0 0 0 10.14-8.612H21.6V15.53l-3.63 3.63L16 21.13z"/></svg>
+              Monero
+            </button>
+            <button class="pay-btn" disabled>
+              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#fff" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26v-.009l-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></svg>
+              Bitcoin
+            </button>
+            <button class="pay-btn" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19"/></svg>
+              Card
+            </button>
+            <button class="pay-btn" disabled>
+              <svg class="sym" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path class="sym-back" fill-rule="evenodd" clip-rule="evenodd" d="M3.02972 8.59396L8.62219 14.186L14.3703 8.43848L17.1668 11.2346L11.4182 16.982L17.0112 22.5742L14.1371 25.448L8.5441 19.8557L2.79651 25.6035L0 22.8074L5.74813 17.0597L0.155656 11.4678L3.02972 8.59396Z"/>
+                <path fill="url(#simgrad)" fill-rule="evenodd" clip-rule="evenodd" d="M14.0922 25.5L16.9434 22.6486L16.9423 22.6478L22.6464 16.9456L17.0112 11.3519L17.0518 11.3514L14.2542 8.55418L8.65961 2.95973L11.5114 0.108337L17.106 5.70288L22.8095 0L25.607 2.79722L19.903 8.5L25.4981 14.0943L31.2022 8.39169L33.9997 11.1889L28.2957 16.8914L33.8914 22.4861L31.0396 25.3375L25.4439 19.7428L19.7404 25.4454L25.3361 31.0403L22.4843 33.8917L16.8887 28.2968L11.1862 34L8.38867 31.2028L14.0922 25.5Z"/>
+                <defs><linearGradient id="simgrad" x1="12.8379" y1="-0.693875" x2="9.54344" y2="31.4337" gradientUnits="userSpaceOnUse"><stop stop-color="#01F1FF"/><stop offset="1" stop-color="#0197FF"/></linearGradient></defs>
+              </svg>
+              In-app
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p class="register-note">Crowdfunding investors and trademark owners can register first</p>
+      <div class="footer-links">
+        <button id="openContact">Contact us</button>
+        <span class="sep">&middot;</span>
+        <a href="https://github.com/simplex-chat/simplex-chat/blob/master/docs/guide/register-simplex-name.md" target="_blank" rel="noopener">How to register a test name<svg class="ext" viewBox="0 0 100 100" aria-hidden="true"><path d="M18.8,85.1h56l0,0c2.2,0,4-1.8,4-4v-32h-8v28h-48v-48h28v-8h-32l0,0c-2.2,0-4,1.8-4,4v56C14.8,83.3,16.6,85.1,18.8,85.1z"/><polygon points="45.7,48.7 51.3,54.3 77.2,28.5 77.2,37.2 85.2,37.2 85.2,14.9 62.8,14.9 62.8,22.9 71.5,22.9"/></svg></a>
+      </div>
+    </footer>
+  </main>
+
+  <dialog id="fundDialog">
+    <div class="dlg-head">
+      <h2>Get a name before the public sale</h2>
+      <button class="dlg-close" data-close aria-label="Close">&times;</button>
+    </div>
+    <p>Until the public sale, the only way to get a name is to invest in the SimpleX Chat crowdfunding. Investors receive <strong>priority registration</strong> ahead of the public sale.</p>
+
+    <div class="grouplabel">Minimum investment sets the shortest name</div>
+    <div class="rows">
+      <div class="row"><span class="k">$500+</span><span class="v">8-letter names and longer</span></div>
+      <div class="row"><span class="k">$1,000+</span><span class="v">7-letter names and longer</span></div>
+      <div class="row"><span class="k">$5,000+</span><span class="v">6-letter names and longer</span></div>
+    </div>
+
+    <div class="grouplabel">Registration period</div>
+    <div class="rows">
+      <div class="row lead"><span class="v">Invest until Sep 22, 18:00 UTC</span><span class="yrs">7 years</span></div>
+      <div class="row"><span class="v">During the early-bird period</span><span class="yrs">5 years</span></div>
+      <div class="row"><span class="v">After the early-bird period</span><span class="yrs">3 years</span></div>
+    </div>
+
+    <div class="mini-clock" aria-label="Time until the 7-year registration closes">
+      <div class="mini"><div class="mini-num" id="pd">--</div><div class="mini-lbl">days</div></div>
+      <div class="mini"><div class="mini-num" id="ph">--</div><div class="mini-lbl">hrs</div></div>
+      <div class="mini"><div class="mini-num" id="pm">--</div><div class="mini-lbl">min</div></div>
+      <div class="mini"><div class="mini-num" id="ps">--</div><div class="mini-lbl">sec</div></div>
+    </div>
+    <div class="deadline-note">Invest until Sep 22, 2026, 18:00 UTC to get a name for 7 years.</div>
+
+    <a class="pill pill--primary dlg-cta" href="https://wefunder.com/simplex.chat" target="_blank" rel="noopener">Invest on Wefunder<svg class="ext" viewBox="0 0 100 100" aria-hidden="true"><path d="M18.8,85.1h56l0,0c2.2,0,4-1.8,4-4v-32h-8v28h-48v-48h28v-8h-32l0,0c-2.2,0-4,1.8-4,4v56C14.8,83.3,16.6,85.1,18.8,85.1z"/><polygon points="45.7,48.7 51.3,54.3 77.2,28.5 77.2,37.2 85.2,37.2 85.2,14.9 62.8,14.9 62.8,22.9 71.5,22.9"/></svg></a>
+    <a class="dlg-link" href="https://github.com/simplex-chat/simplex-chat/blob/master/docs/guide/register-simplex-name.md" target="_blank" rel="noopener">Prefer to try first? How to register a test name<svg class="ext" viewBox="0 0 100 100" aria-hidden="true"><path d="M18.8,85.1h56l0,0c2.2,0,4-1.8,4-4v-32h-8v28h-48v-48h28v-8h-32l0,0c-2.2,0-4,1.8-4,4v56C14.8,83.3,16.6,85.1,18.8,85.1z"/><polygon points="45.7,48.7 51.3,54.3 77.2,28.5 77.2,37.2 85.2,37.2 85.2,14.9 62.8,14.9 62.8,22.9 71.5,22.9"/></svg></a>
+  </dialog>
+
+  <dialog id="contactDialog">
+    <div class="dlg-head">
+      <h2>Priority registration for trademark owners</h2>
+      <button class="dlg-close" data-close aria-label="Close">&times;</button>
+    </div>
+    <p>Crowdfunding investors and trademark owners register before the public sale. Own a trademark? Contact us to reserve the matching name.</p>
+    <a class="contact-mail" href="mailto:domains@simplex.chat">domains@simplex.chat</a>
+  </dialog>
+
+  <script>
+    const SALE = Date.UTC(2026, 11, 12, 18, 0, 0);
+    const PERK = Date.UTC(2026, 8, 22, 18, 0, 0);
+    const pad = n => String(n).padStart(2, "0");
+
+    function set(id, value) { document.getElementById(id).textContent = value; }
+
+    function render(target, ids) {
+      const t = Math.max(0, target - Date.now());
+      const sec = Math.floor(t / 1000);
+      set(ids[0], Math.floor(sec / 86400));
+      set(ids[1], pad(Math.floor((sec % 86400) / 3600)));
+      set(ids[2], pad(Math.floor((sec % 3600) / 60)));
+      set(ids[3], pad(sec % 60));
+    }
+
+    function tick() {
+      render(SALE, ["d", "h", "m", "s"]);
+      render(PERK, ["pd", "ph", "pm", "ps"]);
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    const localTime = new Date(SALE).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+    document.getElementById("localTime").textContent = " (" + localTime + ")";
+
+    const themeToggle = document.getElementById("themeToggle");
+    themeToggle.addEventListener("click", () => {
+      const dark = document.documentElement.classList.toggle("dark");
+      localStorage.setItem("theme", dark ? "dark" : "light");
+    });
+
+    const fundDialog = document.getElementById("fundDialog");
+    const contactDialog = document.getElementById("contactDialog");
+    document.getElementById("openFund").addEventListener("click", () => fundDialog.showModal());
+    document.getElementById("openContact").addEventListener("click", () => contactDialog.showModal());
+
+    document.querySelectorAll("[data-close]").forEach(b =>
+      b.addEventListener("click", () => b.closest("dialog").close())
+    );
+    document.querySelectorAll("dialog").forEach(dlg =>
+      dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); })
+    );
+  </script>
+</body>
+</html>
