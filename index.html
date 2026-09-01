@@ -436,10 +436,14 @@
 
     function setSignupSource() {
       const field = document.querySelector('input[name="SOURCE"]');
-      if (!field) return;
       const inHash = new URLSearchParams(location.hash.replace(/^#\??/, '')).get('utm_source');
       const source = inHash ?? new URLSearchParams(location.search).get('utm_source');
-      if (source && /^[\w.-]{1,40}$/.test(source)) field.value = source;
+      if (source && /^[\w.-]{1,40}$/.test(source)) {
+        if (field) field.value = source;
+        document.querySelectorAll('a[href^="https://simplex.chat/livestream/"]').forEach(a => {
+          a.href = "https://simplex.chat/livestream/#?utm_source=" + source;
+        });
+      }
     }
     setSignupSource();
   </script>
