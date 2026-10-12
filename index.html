@@ -335,7 +335,7 @@
           </div>
         </div>
       <div class="footer-links">
-        <a href="https://simplex.chat/livestream/#?utm_source=domains" target="_blank" rel="noopener">Join livestream on Sep 15</a>
+        <a href="https://wefunder.com/simplex.chat?utm_source=domains" target="_blank" rel="noopener">SimpleX crowdfunding (Wefunder)</a>
         <span class="sep">&middot;</span>
         <a href="#trademarks">Trademark owners</a>
         <span class="sep">&middot;</span>
@@ -359,7 +359,6 @@
       </div>
 
       <a class="pill pill--primary modal-cta" href="https://wefunder.com/simplex.chat?utm_source=domains" target="_blank" rel="noopener">Learn more on Wefunder</a>
-      <a class="modal-link" href="https://simplex.chat/livestream/#?utm_source=domains" target="_blank" rel="noopener">Join livestream on Sep 15</a>
     </div>
   </div>
 
@@ -439,8 +438,8 @@
       const source = inHash ?? new URLSearchParams(location.search).get('utm_source');
       if (source && /^[\w.-]{1,40}$/.test(source)) {
         if (field) field.value = source;
-        document.querySelectorAll('a[href^="https://simplex.chat/livestream/"]').forEach(a => {
-          a.href = "https://simplex.chat/livestream/#?utm_source=" + source;
+        document.querySelectorAll('a[href^="https://wefunder.com/simplex.chat"]').forEach(a => {
+          a.href = "https://wefunder.com/simplex.chat?utm_source=" + source;
         });
       }
     }
