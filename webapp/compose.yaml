@@ -1,0 +1,53 @@
+# The names webapp with everything it needs, on a fresh local chain at each start:
+#   docker compose up --build        then open http://localhost:5173 (the chain deploys in about 2 minutes)
+# The page's source is mounted, so it follows the host's files; the mock and the production build need --build.
+#   docker compose --profile prod up --build preview   the production build on http://localhost:4173
+# The mock's controls (README) are on http://localhost:8099/control/..., the chain's RPC on http://localhost:8545.
+# Open the page on localhost: plain http on another address is no secure context, and the page's crypto needs one.
+name: simplex-names
+
+x-app: &app
+  build: { context: .., dockerfile: webapp/dev/Dockerfile }
+  image: simplex-names-webapp
+
+services:
+  backend:
+    <<: *app
+    command: dev/start.sh
+    environment:
+      MIN_COMMITMENT_AGE: "10"
+      MOCK_HOST: 0.0.0.0
+      ANVIL_HOST: 0.0.0.0
+    ports: ["127.0.0.1:8099:8099", "127.0.0.1:8545:8545"]
+    # healthy once the contracts are deployed and the mock answers
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://127.0.0.1:8099/control/state"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+
+  web:
+    <<: *app
+    command: npx vite --host 0.0.0.0
+    environment:
+      MOCK_URL: http://backend:8099
+      # a mounted folder may not pass on file events, so the dev server looks for changes itself
+      CHOKIDAR_USEPOLLING: "1"
+    # the page's source as it is on the host, so a change shows on reload without building the image again
+    volumes:
+      - ./src:/repo/webapp/src:ro
+      - ./index.html:/repo/webapp/index.html:ro
+    ports: ["127.0.0.1:5173:5173"]
+    depends_on:
+      backend: { condition: service_healthy }
+
+  preview:
+    <<: *app
+    profiles: [prod]
+    command: sh -c "npm run build && npx vite preview --host 0.0.0.0"
+    environment:
+      MOCK_URL: http://backend:8099
+    ports: ["127.0.0.1:4173:4173"]
+    depends_on:
+      backend: { condition: service_healthy }
