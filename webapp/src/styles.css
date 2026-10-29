@@ -1,0 +1,733 @@
+/* Text shows at once in a system font sized to match, and the brand fonts take over without moving it. Each font comes
+   as its Latin letters and as the rest, over ranges that do not meet, so most pages load only the small files, a display
+   name in another script loads the rest, and a sign neither has (↗) goes to the system font without loading anything. */
+@font-face { font-family: "GT-Walsheim"; src: url("/fonts/GT-Walsheim/GT-Walsheim-LC-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; unicode-range: U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303, U+0305-0307, U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-2190, U+2192, U+2194-2196, U+2198-2211, U+2213-2214, U+2216-2260, U+2262-2712, U+2714, U+2716-FEFE, U+FF00-FFFC, U+FFFE-10FFFF; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope/Manrope-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; unicode-range: U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303, U+0305-0307, U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-2190, U+2192, U+2194-2196, U+2198-2211, U+2213-2214, U+2216-2260, U+2262-2712, U+2714, U+2716-FEFE, U+FF00-FFFC, U+FFFE-10FFFF; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope/Manrope-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: swap; unicode-range: U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303, U+0305-0307, U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-2190, U+2192, U+2194-2196, U+2198-2211, U+2213-2214, U+2216-2260, U+2262-2712, U+2714, U+2716-FEFE, U+FF00-FFFC, U+FFFE-10FFFF; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope/Manrope-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; unicode-range: U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303, U+0305-0307, U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-2190, U+2192, U+2194-2196, U+2198-2211, U+2213-2214, U+2216-2260, U+2262-2712, U+2714, U+2716-FEFE, U+FF00-FFFC, U+FFFE-10FFFF; }
+@font-face { font-family: "GT-Walsheim"; src: url("/fonts/GT-Walsheim/GT-Walsheim-LC-Bold-latin.woff2") format("woff2"); font-weight: 700; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2197, U+2212, U+2215, U+2261, U+2713, U+2715, U+FEFF, U+FFFD; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope/Manrope-Medium-latin.woff2") format("woff2"); font-weight: 500; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2197, U+2212, U+2215, U+2261, U+2713, U+2715, U+FEFF, U+FFFD; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope/Manrope-SemiBold-latin.woff2") format("woff2"); font-weight: 600; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2197, U+2212, U+2215, U+2261, U+2713, U+2715, U+FEFF, U+FFFD; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope/Manrope-Bold-latin.woff2") format("woff2"); font-weight: 700; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2197, U+2212, U+2215, U+2261, U+2713, U+2715, U+FEFF, U+FFFD; }
+/* Arial (or its metric twin Liberation Sans) scaled to each font's average letter width, with its line height */
+@font-face { font-family: "Manrope fallback"; src: local("Arial"), local("Liberation Sans"); font-weight: 400 500; size-adjust: 105.3%; ascent-override: 101.2%; descent-override: 28.5%; line-gap-override: 0%; }
+@font-face { font-family: "Manrope fallback"; src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"); font-weight: 600 700; size-adjust: 100.8%; ascent-override: 105.8%; descent-override: 29.8%; line-gap-override: 0%; }
+@font-face { font-family: "GT-Walsheim fallback"; src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"); size-adjust: 100.5%; ascent-override: 89.5%; descent-override: 24.4%; line-gap-override: 0%; }
+/* simplex.domains' tokens (landing index.html:30-83); status colours from the badges webapp (public/styles.css:33-45, 97-105) */
+/* The theme's colours are typed, so a switch of theme eases them rather than cutting from one to the other. */
+@property --ink { syntax: "<color>"; inherits: true; initial-value: #0D1B3A; }
+@property --ink-soft { syntax: "<color>"; inherits: true; initial-value: #0D1B3A; }
+@property --primary { syntax: "<color>"; inherits: true; initial-value: #0053D0; }
+@property --primary-ink { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --accent { syntax: "<color>"; inherits: true; initial-value: #0197FF; }
+@property --surface { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --surface-line { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --chip { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --chip-line { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --hd-a { syntax: "<color>"; inherits: true; initial-value: #3FA7F4; }
+@property --hd-b { syntax: "<color>"; inherits: true; initial-value: #3296EC; }
+@property --hd-c { syntax: "<color>"; inherits: true; initial-value: #1872DD; }
+:root {
+  color-scheme: light;
+  --display: "GT-Walsheim", "GT-Walsheim fallback", Gilroy, Helvetica, sans-serif;
+  --body: "Manrope", "Manrope fallback", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+
+  --fs-h1: 40px;
+  --fs-h2: 22px;
+  --fs-lead: 16px;
+  --fs-body: 16px;
+  --fs-small: 14px;
+  --fs-label: 12px;
+  --column: 600px;
+  --control-h: 44px;
+  --field-h: 48px;
+  --screen-top: 29px;
+  --step-h: 540px;
+
+  --fast: 150ms;
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  transition-property: --ink, --ink-soft, --primary, --primary-ink, --accent, --surface, --surface-line, --chip, --chip-line, --hd-a, --hd-b, --hd-c;
+  transition-duration: 200ms;
+
+  --page-color: #F3FAFF;
+  --page-light:
+    radial-gradient(95% 62% at 85% 4%, oklch(0.90 0.07 255 / 0.45), transparent 62%),
+    radial-gradient(135% 108% at 50% 122%, oklch(0.92 0.075 255) 0%, oklch(0.965 0.035 253) 46%, oklch(0.995 0.008 250) 100%);
+  --page-dark:
+    radial-gradient(92% 62% at 82% -2%, oklch(0.44 0.135 256 / 0.38), transparent 60%),
+    radial-gradient(140% 118% at 50% -12%, oklch(0.30 0.105 258) 0%, oklch(0.19 0.088 260) 46%, oklch(0.135 0.075 263) 100%);
+  /* the landing's linear-gradient(to bottom, #53C1FF -50%, #0053D0 160%) as stops the dark theme's three can ease to */
+  --hd-a: #3FA7F4; --hd-b: #3296EC; --hd-c: #1872DD;
+  --heading: linear-gradient(to bottom, var(--hd-a) 0%, var(--hd-b) 33%, var(--hd-c) 100%);
+  --ink: #0D1B3A;
+  --ink-soft: rgba(13, 27, 58, .651);
+  --faint: rgba(13, 27, 58, .45);
+  --primary: #0053D0;
+  --accent: #0197FF;
+  --toggle: #001796;
+  --sym-back: #023789;
+  --line-strong: rgba(0, 83, 208, .32);
+  --chip: rgba(0, 83, 208, .06);
+  --chip-line: rgba(0, 83, 208, .14);
+  --primary-ink: #ffffff;
+  --surface: #ffffff;
+  --surface-line: rgba(0, 83, 208, .14);
+  --backdrop: rgba(6, 20, 56, .38);
+  --disabled: rgba(13, 27, 58, .07);
+  --on-disabled: rgba(13, 27, 58, .50);
+  /* the app's secondaryVariant, the tint of its default chat pictures */
+  --avatar: #C9D1DE;
+  --menu-bg: #FFFFFF;
+  --menu-ink: #001796;
+
+  --ok-fg: #1c7c3f;     --ok-bg: #e8f5ec;     --ok-line: #bfe3cc;
+  --warn-fg: #8a6100;   --warn-bg: #fff8e6;   --warn-line: #f0dcae;
+  --danger-fg: #b3261e; --danger-bg: #fdecec; --danger-line: #f3c9c6;
+}
+html.dark {
+  color-scheme: dark;
+  --page-color: #000832;
+  --hd-a: #70F0F9; --hd-b: #70F0F9; --hd-c: #50D8F1;
+  --ink: #EAF2FF;
+  --ink-soft: rgba(234, 242, 255, .735);
+  --faint: rgba(234, 242, 255, .5);
+  --primary: #70F0F9;
+  --accent: #02C0FF;
+  --toggle: #ffffff;
+  --sym-back: #ffffff;
+  --line-strong: rgba(112, 240, 249, .4);
+  --chip: rgba(112, 240, 249, .08);
+  --chip-line: rgba(112, 240, 249, .2);
+  --primary-ink: #041038;
+  --surface: #0A1C44;
+  --surface-line: rgba(112, 240, 249, .18);
+  --backdrop: rgba(2, 8, 26, .6);
+  --disabled: rgba(255, 255, 255, .13);
+  --on-disabled: rgba(255, 255, 255, .62);
+  --avatar: #3E4E72;
+  --menu-bg: #0A0F2B;
+  --menu-ink: #FFFFFF;
+
+  --ok-fg: #7FE3A6;     --ok-bg: rgba(127, 227, 166, .12);     --ok-line: rgba(127, 227, 166, .28);
+  --warn-fg: #F5C86A;   --warn-bg: rgba(245, 200, 106, .12);   --warn-line: rgba(245, 200, 106, .28);
+  --danger-fg: #FF9F98; --danger-bg: rgba(255, 159, 152, .12); --danger-line: rgba(255, 159, 152, .28);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+html { background: var(--page-color); }
+/* the window holds the header, the page and the invest note; the footer is below the fold, as the badges store's */
+body { --footer-h: 78px; position: relative; isolation: isolate; min-height: calc(100dvh + var(--footer-h)); display: grid;
+  grid-template: "header" auto "main" 1fr "invest" auto "footer" var(--footer-h);
+  font: 500 var(--fs-body)/1.5 var(--body); color: var(--ink);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; text-wrap: pretty; }
+/* the two themes' grounds, one over the other, so a switch of theme fades between them */
+body::before, body::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--page-light); }
+body::after { background: var(--page-dark); opacity: 0; transition: opacity 200ms; }
+html.dark body::after { opacity: 1; }
+a, .text-link { color: var(--primary); text-decoration: none; font-weight: 600; }
+a:hover, .text-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+button { font: inherit; color: inherit; }
+.text-link { background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.mono { font-family: var(--mono); }
+.nowrap { white-space: nowrap; }
+.soft { color: var(--ink-soft); }
+h1 { font: 700 var(--fs-h1)/1.1 var(--display); letter-spacing: -.02em; background: var(--heading); -webkit-background-clip: text;
+  background-clip: text; -webkit-text-fill-color: transparent; color: transparent; padding-bottom: .04em; text-wrap: balance; }
+h2 { font: 700 var(--fs-h2)/1.2 var(--display); letter-spacing: -.01em; }
+.lead { font-size: var(--fs-lead); color: var(--ink-soft); }
+.note { font-size: var(--fs-small); color: var(--ink-soft); }
+.label { font-size: var(--fs-label); line-height: 1.4; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+
+/* the header, as the direction 1 mockup's: the logo, and the toolbar's text links and theme icon */
+.topbar { grid-area: header; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 96px; padding-inline: clamp(16px, 3.4vw, 44px); }
+.brand { display: inline-flex; }
+.brand img { width: 168px; height: auto; display: block; }
+.brand .logo-dark, html.dark .brand .logo-light, .brand svg.sym, .menu-button, .menu { display: none; }
+html.dark .brand .logo-dark { display: block; }
+.top-links { display: flex; align-items: center; gap: 22px; font-size: 15px; }
+.top-links a { white-space: nowrap; }
+:is(.top-links, .menu) a[aria-current="page"] { color: var(--ink); }
+.theme-switch { display: inline-flex; align-items: center; gap: 12px; background: none; border: 0; cursor: pointer; padding: 6px; margin: -6px; color: var(--menu-ink); }
+.theme-switch svg { width: 22px; height: auto; display: block; overflow: visible; }
+.theme-switch svg path { fill: var(--toggle); }
+.theme-switch .sun, html.dark .theme-switch .moon, .to-light, html.dark .to-dark { display: none; }
+html.dark .theme-switch .sun, html.dark .to-light { display: block; }
+.sym .sym-back { fill: var(--sym-back); }
+.code-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 6px 4px 14px; border: 1px solid var(--surface-line); border-radius: 999px;
+  background: var(--surface); font-size: var(--fs-small); font-weight: 600; white-space: nowrap; }
+.code-chip .unlink { width: 26px; height: 26px; }
+body > main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
+html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-top)); }
+/* a phone's header, as simplex.chat's: the symbol, and a menu button that opens the menu over the page */
+@media (max-width: 520px) {
+  .topbar { height: 54px; padding: 0 16px; }
+  .brand img, .top-links { display: none !important; }
+  .brand svg.sym { display: block; width: 32px; height: 32px; }
+  .menu-button { display: grid; place-items: center; width: 36px; height: 36px; margin-right: -8px; background: none; border: 0; border-radius: 8px; cursor: pointer; }
+  .menu-button svg { width: 20px; height: auto; fill: var(--toggle); }
+  .menu-button .cross, .menu-button[aria-expanded="true"] .burger { display: none; }
+  .menu-button[aria-expanded="true"] .cross { display: block; width: 16px; }
+  /* the menu covers the whole page under the header, so the page needs no hold that would take its scrollbar away */
+  .menu { position: absolute; inset: 54px 0 0; z-index: 30; display: grid; align-content: start; padding: 8px 0; background: var(--menu-bg); }
+  .menu > :is(a, button) { font: 500 26px/1.2 var(--body); color: var(--menu-ink); padding: 14px 32px; text-align: left; background: none; border: 0; cursor: pointer; }
+  .menu > .small { font-size: 18px; padding-block: 8px; }
+  .menu hr { border: 0; border-top: 1px solid var(--surface-line); margin: 6px 32px; }
+  .menu > .theme-line { margin: 0; font-size: 18px; padding-block: 14px; }
+  .theme-line::before { content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset -7px -3px 0 0 var(--toggle); rotate: -20deg; }
+  .topbar:has(> .menu:not([hidden])) { background: var(--menu-bg); }
+  /* the chip says what its code pays for; its word "Code" is for screen readers only, while "Balance" stays */
+  .code-chip:not(.balance) .code-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
+
+/* the invest note under the page, and the footer's links after a rule (badges styles.css .invest, footer) */
+/* the room above it keeps the last link of a step 48 px from it, however short the window */
+.invest { grid-area: invest; padding: 46px 16px 32px; text-align: center; }
+.invest .half { display: inline-block; }
+.invest-link { display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; white-space: nowrap; }
+/* the wordmark, a touch taller than the text and lifted so its baseline sits with the text's */
+.invest-link .wefunder { height: 22px; width: auto; display: block; transform: translateY(-2px); }
+.footer { grid-area: footer; width: min(100% - 32px, var(--column) + 40px); margin-inline: auto; border-top: 1px solid var(--surface-line); text-align: center; }
+.footer a { display: inline-block; padding: 22px 12px 34px; font-size: var(--fs-small); line-height: 1.5; }
+
+/* the primary button, a field's companion at a control's height, its width its label's */
+.btn { --spin: var(--primary-ink); position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: var(--control-h);
+  min-width: 200px; padding: 0 28px; border-radius: 999px; border: 1px solid transparent; background: var(--primary); color: var(--primary-ink);
+  font: 600 16px/1 var(--body); white-space: nowrap; cursor: pointer; }
+.btn:hover { text-decoration: none; }
+.btn.small { height: 38px; min-width: 0; padding: 0 18px; font-size: 14px; }
+.btn.lens { width: 38px; height: 38px; min-width: 0; padding: 0; flex: none; }
+.btn.quiet { --spin: var(--primary); background: none; color: var(--primary); border-color: var(--line-strong); }
+.btn.danger { background: var(--danger-fg); color: var(--page-color); }
+.btn[disabled] { background: var(--disabled); color: var(--on-disabled); border-color: transparent; cursor: default; }
+/* a button at work keeps its size and colour, a spinner in place of its words */
+.btn[aria-busy="true"] { background: var(--primary); color: transparent; cursor: progress; }
+.btn.quiet[aria-busy="true"] { background: none; border-color: var(--line-strong); }
+.btn[aria-busy="true"]::after { content: ""; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--spin); border-right-color: transparent; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
+
+.card { background: var(--surface); border: 1px solid var(--surface-line); border-radius: 18px; padding: 20px 22px; }
+/* pill fields, as the mockup's search field, ringed while in use */
+.field { display: flex; align-items: center; gap: 10px; height: var(--field-h); padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface); cursor: text; }
+/* an input draws no ring of its own, so its pill shows the focus ring */
+.field:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field > svg.i { color: var(--faint); }
+.field input { flex: 1; min-width: 0; height: 24px; border: 0; background: none; outline: none; font: 600 var(--fs-body) var(--body); color: var(--ink); }
+.field input::placeholder { color: var(--ink-soft); font-weight: 500; }
+.field.bad { border-color: var(--danger-fg); }
+.field.ok { border-color: var(--ok-fg); }
+.notice { display: flex; gap: 12px; padding: 12px 16px; border-radius: 16px; border: 1px solid; font-size: var(--fs-small); text-align: left; }
+.notice.ok { color: var(--ok-fg); background: var(--ok-bg); border-color: var(--ok-line); }
+.notice.warn { color: var(--warn-fg); background: var(--warn-bg); border-color: var(--warn-line); }
+.notice.danger { color: var(--danger-fg); background: var(--danger-bg); border-color: var(--danger-line); }
+.notice.info { color: var(--ink); background: var(--chip); border-color: var(--chip-line); }
+:is(.chip, .room > .sizer) { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--chip); color: var(--primary); }
+.chip.ok { background: var(--ok-bg); color: var(--ok-fg); }
+.chip.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.chip.bad { background: var(--danger-bg); color: var(--danger-fg); }
+:is(.chip, .room > .sizer) .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+
+/* Every screen is one centred column: its heading block, Back beside the heading as the badges store draws it, then its
+   content and its actions' row. A step is a frame of one height, so Back, the heading and the main button stand at one
+   place on every step; the content runs down from under the heading, so nothing above a change moves as it comes. */
+.screen { --back-w: 72px; --row-gap: 22px; width: 100%; max-width: calc(var(--column) + 32px); margin-inline: auto; padding: var(--screen-top) 16px 0; display: grid;
+  grid-template-columns: minmax(0, 1fr); align-content: start; row-gap: var(--row-gap); }
+.screen.step { height: calc(var(--step-h) + var(--screen-top)); grid-template-rows: auto minmax(0, 1fr) 78px; }
+/* a step with no action gives the action row's room to its content */
+.screen.step:not(:has(> .actions-row)) { grid-template-rows: auto minmax(0, 1fr); }
+/* the card page is as tall as its content, so Pay and what follows it stay under Stripe's form as the form grows */
+.screen.step:has(> .screen-body > .stripe) { height: auto; grid-template-rows: auto; }
+/* a step grows under its content to hold a name code's QR, shown under everything */
+.screen.step:has(> .screen-body > .code-qr svg) { height: auto; min-height: calc(var(--step-h) + var(--screen-top)); }
+.screen-head { display: grid; grid-template-columns: var(--back-w) minmax(0, 1fr) var(--back-w); row-gap: 10px; }
+.screen-head h1 { grid-area: 1 / 2; text-align: center; }
+/* Back's word 12 px under the heading's top, its tap area 40 px tall */
+.back { grid-area: 1 / 1; align-self: start; justify-self: start; display: inline-flex; align-items: center; gap: 2px; min-height: 40px; margin: 4px 0 0 -6px;
+  color: var(--primary); }
+.back svg.i { width: 22px; height: 22px; }
+.back:hover { text-decoration: none; color: var(--accent); }
+/* A heading with a name spans the column, as only screens without Back carry one. A name that does not fit a line whole
+   at the heading's size draws the heading smaller, where the name breaks only if it is still too long. */
+.screen-head h1:has(.nt) { grid-column: 1 / -1; }
+.screen-head:has(h1 .nt:not(.whole)) { --fs-h1: 26px; }
+.screen-head h1:has(.nt:not(.whole)) { line-height: 1.2; }
+.screen-head .lead { grid-area: 2 / 1 / auto / -1; max-width: 52ch; margin-inline: auto; text-align: center; text-wrap: balance; }
+.screen-body { --body-gap: 14px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--body-gap); }
+/* the main button centred, its text-link alternative under it */
+.actions-row { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.actions-row > .btn { flex-shrink: 0; min-width: 280px; }
+.actions-row > .alt { order: 1; font-size: 15px; text-align: center; }
+/* with no main button, the link keeps the place it has under one */
+.actions-row:not(:has(> .btn)) { padding-top: calc(var(--control-h) + 10px); }
+.note.reading { text-align: center; }
+.end-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; font-size: 15px; }
+
+.grad { background: var(--heading); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.name { font: 700 22px/1.2 var(--display); overflow-wrap: anywhere; }
+.name .tld { color: var(--faint); }
+/* mockup v6: 16 px after the name with the space before it */
+.cmark { all: unset; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; margin-left: 11px; font: 600 14px/1 var(--body); color: var(--primary); white-space: nowrap; }
+.cmark svg.i { width: 17px; height: 17px; align-self: center; position: relative; top: -0.14em; }
+.cmark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* the home, as the direction 1 mockup: the headline under the header, the search, and below it the room its answers take,
+   kept from the start; an answer taller than the room grows it downwards, so nothing above it moves */
+.home { --room: 156px; flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; padding: 32px 16px; text-align: center; }
+/* the descenders' room under the headline takes no room from the page */
+.home h1 { --fs-h1: 56px; line-height: 1.05; letter-spacing: -.015em; margin-bottom: -.04em; }
+.home .sub { margin-top: 12px; font-size: 19px; color: var(--ink-soft); text-wrap: balance; }
+.home > .notice { width: 100%; max-width: var(--column); margin-top: 24px; }
+.search { width: 100%; max-width: var(--column); display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 36px; text-align: left; }
+.search-field { padding: 0 5px 0 20px; }
+.search-field .tld { color: var(--faint); font-weight: 600; }
+.answer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; min-height: var(--room); }
+/* codes-only mode's search without a code: greyed, nothing in it takes the pointer, and the code's button leads on */
+.search-field.off { background: var(--disabled); border-color: transparent; }
+.search-field.off, .search-field.off :is(input, .btn) { cursor: not-allowed; }
+.search-field.off :is(input, .tld), .search-field.off input::placeholder { color: var(--on-disabled); }
+.answer > .btn { justify-self: center; }
+/* one row as the app lists a chat: the name, the chats it opens, and whose it is or its price; the same room above and
+   under them whether the name takes one line or four */
+.row { display: flex; align-items: center; gap: 16px; min-height: 72px; padding: 16px 18px 16px 22px; }
+.row .name { flex: 1 1 auto; min-width: 0; }
+/* only the name gives way to a row too narrow for all of it; its price, button and chats keep their size */
+.row > :not(.name) { flex-shrink: 0; }
+/* A name too long for the row takes its own line, the rest moving under it, so a name that fits a line whole is never
+   broken (fitNames marks it whole). One longer than a line breaks beside a buy row's price or the order's chats, as the
+   mockup draws a name of 63 letters. */
+.row { flex-wrap: wrap; row-gap: 6px; }
+.row > .name + * { margin-left: auto; }
+.order > .row > .name:not(.whole) { flex-basis: 0; }
+@media (min-width: 521px) { .row.buy > .name:not(.whole) { flex-basis: 0; } }
+.row .soft, .row > a { font-size: 15px; white-space: nowrap; }
+.deal { white-space: nowrap; }
+/* a buy row's price and button, which move under its name together, the button under the price where both do not fit */
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.price { font-weight: 700; font-variant-numeric: tabular-nums; }
+.chats { display: inline-flex; gap: 2px; }
+/* a row's pictures open their chats in the room they take as pictures, so they darken on hover rather than grow a circle */
+.list-row .chat { width: 32px; height: 32px; }
+.list-row .chat:hover { background: none; filter: brightness(.9); }
+.list-row .name.opens { cursor: pointer; }
+.chat { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+.chat:hover { background: var(--chip); }
+.chat-pic { display: grid; place-items: center; width: 32px; height: 32px; flex: none; color: var(--avatar); }
+.chat-pic svg { width: 100%; height: 100%; fill: currentColor; }
+/* a profile's own picture is drawn round inside the box, as the app pads it by a twelfth */
+.chat-pic img { width: 84%; height: 84%; border-radius: 50%; object-fit: cover; }
+.line { display: flex; gap: 8px; padding-inline: 20px; font-size: var(--fs-small); color: var(--ink-soft); }
+.line svg.i { margin-top: 2px; width: 16px; height: 16px; }
+.line.bad { color: var(--danger-fg); }
+.hint { text-align: center; font-size: var(--fs-small); color: var(--warn-fg); }
+.hint.soft { color: var(--ink-soft); }
+.line.warn { color: var(--warn-fg); }
+
+/* A chat's popup, after the app's connection alert: a dialog over the whole window. The page keeps its scrollbar under it,
+   so nothing moves as it opens; Chromium and WebKit keep a wheel over the popup from scrolling the page. */
+.modal { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 20px; border: 0;
+  background: none; color: inherit; display: flex; align-items: center; justify-content: center; overscroll-behavior: contain; }
+.modal:not([open]) { display: none; }
+.modal::backdrop { background: none; }
+.modal-backdrop { position: absolute; inset: 0; background: var(--backdrop); }
+.pop { position: relative; z-index: 1; width: min(100%, 360px); max-height: calc(100dvh - 40px); overflow: auto; display: grid; justify-items: center; gap: 6px;
+  padding: 26px 24px 18px; border: 1px solid var(--surface-line); border-radius: 22px; background: var(--surface); color: var(--ink); font-size: var(--fs-small);
+  text-align: center; overflow-wrap: anywhere; }
+.pop > .chat-pic { width: 76px; height: 76px; margin-bottom: 6px; }
+.pop h2 { font: 700 21px/1.25 var(--body); }
+.pop > .soft { font-weight: 600; }
+.pop-qr { margin: 10px 0 4px; padding: 10px; background: #fff; border: 1px solid var(--surface-line); border-radius: 14px; line-height: 0; }
+.pop-qr svg.qr { width: 148px; }
+.pop-acts { width: 100%; display: grid; gap: 8px; margin-top: 10px; }
+.pop .text-link { padding: 8px 12px; color: var(--ink-soft); }
+.pop > p { margin-top: 4px; }
+.pop > .code-display { justify-self: stretch; margin-top: 10px; padding-left: 14px; font-size: 14px; }
+@media (max-width: 520px) { .pop-qr { display: none; } }
+
+/* Check your order: the search's row for the name over a table of what it costs, as the badges checkout's
+   (badges screens.ts:466-505); a value never wraps */
+.card.order { padding: 0; }
+.order > .row { gap: 12px; min-height: 64px; padding-block: 10px; border-bottom: 1px solid var(--surface-line); }
+.table { display: grid; padding: 4px 22px 6px; }
+.trow { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 0; font-size: 15px; }
+.trow > span:first-child { color: var(--ink-soft); }
+.trow > span:last-child { font-weight: 600; text-align: right; white-space: nowrap; }
+.trow.total { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--surface-line); font-size: 17px; }
+.trow.total span { color: var(--ink); font-weight: 700; }
+/* the term's free days, whose hint shows over the rows under it, so nothing moves */
+.bonus { position: relative; }
+.bonus > .days { all: unset; border-radius: 4px; color: var(--ok-fg); cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+.bonus > .days:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bonus > .tip { position: absolute; top: calc(100% + 6px); right: 0; z-index: 1; width: max-content; max-width: min(300px, calc(100vw - 48px)); padding: 8px 12px;
+  border-radius: 10px; background: var(--ink); color: var(--surface); font-size: var(--fs-small); font-weight: 500; line-height: 1.4; text-align: left;
+  white-space: normal; visibility: hidden; opacity: 0; transition: opacity var(--fast), visibility var(--fast); }
+.bonus:is(:hover, :focus-within):not(.hushed) > .tip { visibility: visible; opacity: 1; }
+.pay-with, .code-entry, .link-fields, .forget { --block-gap: 12px; display: grid; gap: var(--block-gap); }
+/* an empty verdict or note stays in the accessibility tree, so its next words are announced; in a column, unlike a grid,
+   its negative margin takes back the gap */
+.code-entry { display: flex; flex-direction: column; }
+.code-entry > [role="status"]:empty { margin-top: calc(-1 * var(--block-gap)); }
+/* an empty live region keeps its place in the column without adding a gap */
+.screen-body > [role="status"]:empty { margin-top: -14px; align-self: start; }
+.link-fields, .link-field { grid-template-columns: minmax(0, 1fr); }
+.link-field { display: grid; gap: 8px; }
+.link-fields > a { justify-self: start; font-size: 15px; }
+.link-fields > a::before { content: "+ "; }
+.link-field .field { height: 52px; padding-inline: 18px 8px; }
+.link-field .field:has(.entity):not(:focus-within) > svg.i { display: none; }
+.unlink { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--ink-soft); cursor: pointer; }
+.unlink svg.i { width: 12px; height: 12px; }
+.unlink:hover { background: var(--chip); }
+.field:has(input:placeholder-shown) .unlink, .field:has(input:not(:placeholder-shown)) :is(.paste, .scan) { display: none; }
+/* the scan button, a phone's: a laptop's camera faces its reader, not a QR code */
+.scan { display: none; place-items: center; flex: none; width: 36px; height: 36px; margin-left: -4px; border: 0; border-radius: 50%; background: none; color: var(--primary); cursor: pointer; }
+.scan svg.i { width: 22px; height: 22px; }
+.scan:hover { background: var(--chip); }
+.scan-pop video { width: 100%; aspect-ratio: 1; object-fit: cover; margin-top: 8px; border-radius: 14px; background: #000; }
+/* a link's profile on one line: its picture, its name, and what kind of chat it is */
+.entity { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.entity .chat-pic { width: 28px; height: 28px; }
+.entity small { margin-left: auto; padding-left: 8px; font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+.entity b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entity.skeleton { width: 120px; height: 24px; border-radius: 12px; background: var(--chip); }
+.link-field > :empty { display: none; }
+/* The profile a link opens sits at its field's end, no taller than the text, so the field keeps its height as it comes.
+   A link whose profile could not be read is already in the field, so its text is not shown again. */
+.link-field .preview { display: flex; flex: 0 1 auto; max-width: 50%; min-width: 0; }
+.link-field .preview > .raw { display: none; }
+/* a link whose profile shows is drawn as that profile, its text coming back in its place while the field is focused */
+.link-field .field:has(.entity):not(:focus-within) input { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
+.link-field .field:has(.entity):not(:focus-within) .preview { flex: 1; max-width: none; margin-left: -6px; }
+.link-field .entity.skeleton { width: auto; height: 28px; border-radius: 14px; }
+.preview .entity { flex: 1; }
+/* while the field is focused its link shows alone, from its start, at the field's whole width */
+.link-field .field:focus-within .preview { display: none; }
+.review { display: grid; gap: 14px; }
+/* a review holding a refusal's line is drawn tighter, so its fullest state, with a name of 63 wide letters, fits the frame */
+.review:has(.line) { gap: 8px; }
+.review:has(.line) .pay-with { --block-gap: 8px; }
+.review:has(.line) .trow { padding-block: 4px; }
+/* a name that breaks over lines takes room, so the review draws as tight as with a line */
+.review:has(.order .name:not(.whole)) { gap: 8px; }
+.review:has(.order .name:not(.whole)) .trow { padding-block: 4px; }
+.screen-body:has(> .review .line) { --body-gap: 8px; }
+/* the balance's live region keeps its place in the review empty, taking no gap */
+.review > .balance-note:empty { margin-top: -14px; }
+.review:has(.line) > .balance-note:empty { margin-top: -8px; }
+.screen-body:has(> .review .line) > [role="status"]:empty { margin-top: -8px; }
+/* the link to a code just under the payment choices, and the field it opens in their place */
+.have-code { display: grid; justify-items: center; font-size: var(--fs-small); }
+.have-code:has(> a) { margin-block: -8px; line-height: 1.2; }
+.have-code > .code-entry { justify-self: stretch; }
+.have-code > .code-entry > .verdict:not(:empty) { display: block; padding: 10px 14px; font-size: var(--fs-small); }
+.notes { display: grid; gap: 4px; font-size: var(--fs-small); color: var(--ink-soft); text-align: center; text-wrap: balance; }
+/* the payment methods as the badges checkout's cards: the mark over the name, the chosen one ringed */
+/* the methods share the row evenly, three or the two left when the card cannot take a small difference */
+.methods { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 12px; }
+.method { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 66px; padding: 0 8px; font-size: 15px;
+  border: 1px solid var(--surface-line); border-radius: 18px; background: var(--surface); cursor: pointer; }
+.method svg { width: 26px; height: 26px; }
+.method[aria-checked="true"] { border-color: var(--primary); color: var(--primary); box-shadow: inset 0 0 0 1.5px var(--primary); }
+.method[aria-disabled="true"] { color: var(--ink-soft); background: var(--chip); cursor: default; }
+.method:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* a refused link: a line 8 px under its field */
+.verdict, .field-error, .other-order { font-size: 14px; line-height: 1.4; }
+.verdict:not(:empty), .field-error { display: flex; gap: 8px; font-weight: 600; padding-inline: 20px; }
+.field-error { font-weight: 500; padding-inline: 18px 0; text-wrap: balance; }
+.screen-body > [role="status"] > .verdict { margin-top: -6px; }
+.verdict.ok { color: var(--ok-fg); }
+/* Check your code says what a code is in a box under its field */
+.code-entry > .verdict:not(:empty) { margin-top: 0; padding: 12px 16px; font-size: var(--fs-body); border: 1px solid var(--ok-line); border-radius: 14px; background: var(--ok-bg); }
+.code-entry > .verdict.bad { border-color: var(--danger-line); background: var(--danger-bg); }
+.verdict.bad, .field-error { color: var(--danger-fg); }
+.notice svg.i, .field-error svg.i, .verdict svg.i { margin-top: 1px; }
+.notice.info svg.i { color: var(--primary); }
+.notice b { display: block; overflow-wrap: anywhere; }
+
+/* payment: one card, the QR with its wallet link beside the amount and the address, over a line of the payment's state;
+   the name code: its QR beside the words */
+/* qrSvg draws its own white frame */
+svg.qr { display: block; width: 132px; height: auto; }
+.card.pay { display: grid; gap: 10px; padding: 12px 16px; }
+/* a phone puts the address, or the code, under the QR, across the column */
+.qr-grid { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px 18px; align-items: center; }
+.qr-grid > .qr { display: grid; justify-items: center; gap: 8px; font-size: var(--fs-small); }
+.qr-grid > .qr svg.qr { width: 132px; border-radius: 8px; }
+.copy-fields { display: grid; gap: 10px; }
+.card.pay > .wallet { display: none; justify-self: center; font-size: 15px; }
+.pay-status { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding-top: 10px; border-top: 1px solid var(--surface-line);
+  font-size: var(--fs-small); color: var(--ink-soft); }
+.pay-status .waiting { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600; }
+/* a whole reference is longer than the mockup's, so it takes its own line under the state and the time */
+.pay-status .ref { flex-basis: 100%; }
+.pay-status .time { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pay-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+/* A pay page's note on the name: its two sentences share one cell, so it keeps its height as one replaces the other,
+   the shorter one centred in it. It shows once the first check answers, and a name taken meanwhile turns the payment off. */
+/* a notice as the mockup draws its plain one: no icon, its title inline */
+.notice.plain { display: block; padding: 10px 16px; line-height: 1.45; color: var(--ink-soft); background: var(--chip); border-color: var(--chip-line); }
+.notice.plain b { display: inline; font-weight: 600; color: var(--ink); }
+.notice.name-check { display: grid; align-items: center; padding: 10px 16px; line-height: 1.45; }
+.notice.name-check:not(.danger, .warn) { color: var(--ink-soft); background: var(--chip); border-color: var(--chip-line); }
+.notice.name-check > * { grid-area: 1 / 1; }
+.notice.name-check b { display: inline; font-weight: 600; color: var(--ink); }
+.notice.name-check:is(.danger, .warn) b { color: inherit; }
+.notice.name-check.unchecked { visibility: hidden; opacity: 0; }
+html:not(.theming) .notice.name-check { transition: background-color 200ms, border-color 200ms, color 200ms, opacity 200ms, visibility 200ms; }
+.card.pay, .stripe { transition: opacity 200ms; }
+:is(.card.pay, .stripe).off { opacity: .45; }
+.copy-field .label { display: block; margin-bottom: 6px; }
+.copy-field .val { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--surface-line);
+  font: 500 14px var(--mono); overflow-wrap: anywhere; text-wrap: balance; }
+.copy-field .val span { flex: 1; }
+.copy-field .val .word { word-break: break-all; }
+.copy-btn { position: relative; }
+.copied-note { position: absolute; left: 50%; bottom: calc(100% + 8px); translate: -50% 4px; padding: 6px 10px; border-radius: 8px; background: var(--ink); color: var(--surface); font: 700 12px/1 var(--body); white-space: nowrap; opacity: 0; pointer-events: none; }
+.copied-note::after { content: ""; position: absolute; left: 50%; top: 100%; translate: -50% 0; border: 5px solid transparent; border-top-color: var(--ink); }
+.copy-btn.copied .copied-note { opacity: 1; translate: -50% 0; }
+/* a small Copy button, green while the copy is fresh */
+.field-copy { flex: none; height: 34px; padding: 0 14px; border: 1px solid var(--surface-line); border-radius: 999px; background: var(--surface); color: var(--primary);
+  font: 600 14px var(--body); cursor: pointer; }
+.field-copy:hover { background: var(--chip); border-color: var(--chip-line); }
+.field-copy.copied { color: var(--ok-fg); border-color: var(--ok-line); }
+.danger-link { color: var(--danger-fg); }
+.stripe { border-radius: 16px; }
+/* the card page is drawn tighter, so its notice and Stripe's form fit above Pay, and Stripe's note goes under Cancel */
+.screen-body:has(> .stripe) { gap: 10px; }
+/* one line across the column, 355 px wide at 13 px, so it keeps clear of the invest note on the narrowest phone */
+.actions-row:has(.stripe-note) { container-type: inline-size; }
+.actions-row .stripe-note { display: block; margin-top: 4px; font-size: min(13px, 100cqi / 28); line-height: 1.3; white-space: nowrap; }
+/* Edit links' count of edits left: one line under Save, held while empty, its longest "You can edit links again on 29 September 2027." */
+.actions-row:has(.edit-count) { container-type: inline-size; }
+.actions-row .edit-count { min-height: 1lh; font-size: min(var(--fs-small), 100cqi / 26); white-space: nowrap; }
+/* Stripe's card form mounts after its step is drawn, so its box holds the form's least height from the start: card only,
+   with Stripe.js dahlia, 221-230 px tall on the 600 px column and 306-320 px on a phone's, in Chromium and Firefox. A
+   phone's layout holds the phone's height; the column from 489 px is taken to draw as the 600 px one, unmeasured. A
+   taller form, with more fields or error lines, grows the box. */
+.stripe:not(:has(> .label)) { min-height: 320px; }
+@media (min-width: 521px) { .stripe:not(:has(> .label)) { min-height: 230px; } }
+/* the development stand-in, framed as the form it stands in for */
+.stripe:has(> .label) { padding: 18px; border: 1px dashed var(--surface-line); }
+.stripe .label { margin-bottom: 4px; font-size: var(--fs-small); letter-spacing: 0; text-transform: none; color: var(--warn-fg); }
+.stripe .f { display: block; margin-top: 12px; }
+.stripe .f span { display: block; font-size: 13px; font-weight: 700; color: var(--ink-soft); margin-bottom: 6px; }
+.stripe .box { padding: 13px 14px; border-radius: 12px; border: 1px solid var(--surface-line); background: var(--surface); color: var(--ink-soft); font-weight: 600; }
+.stripe .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
+/* the stages as bars, the active one filling as its wait goes by; --done is the wait's share gone by, which the page sets each second */
+.stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; list-style: none; }
+.stage { display: grid; gap: 8px; }
+.stage::before { content: ""; height: 4px; border-radius: 2px; background: var(--surface-line); }
+.stage.done::before { background: var(--ok-fg); }
+.stage.active::before { background: linear-gradient(90deg, var(--primary) 0%, var(--primary) calc(var(--done, 0) * 100%), var(--surface-line) calc(var(--done, 0) * 100%)); }
+.stage.failed::before { background: var(--danger-fg); }
+.stage.failed b { color: var(--danger-fg); }
+.stage b { font-size: 15px; }
+.stage:not(.done, .active, .failed) b { color: var(--ink-soft); font-weight: 600; }
+.countdown { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--surface-line); }
+/* the clock and the icon after it take the same room, a clock's "0:00" */
+.countdown b { display: inline-grid; place-items: center; min-height: 1em; min-width: 4ch; font: 700 22px/1 var(--body); color: var(--primary); font-variant-numeric: tabular-nums; }
+.countdown b svg.i { width: .8em; height: .8em; }
+.countdown p { display: grid; align-items: center; color: var(--ink-soft); font-size: var(--fs-small); }
+/* the words in view and the longest ones, hidden, share one cell */
+.countdown p > *, .sized > * { grid-area: 1 / 1; }
+.sized { display: grid; }
+.sizer { visibility: hidden; }
+
+.code-display { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 20px; border-radius: 16px; background: var(--chip); border: 1px solid var(--surface-line);
+  font: 600 16px var(--mono); letter-spacing: .02em; }
+.code-display .code-text { flex: 1; min-width: 0; text-wrap: balance; }
+.code-display .masked { color: var(--ink-soft); }
+.code-buttons { display: flex; gap: 6px; }
+.screen-body > .ref { text-align: center; }
+.card.use { display: grid; gap: 12px; }
+.card.use h2 { font: 700 19px/1.3 var(--body); }
+.card.use p { color: var(--ink-soft); }
+
+/* The longest code, a name code of 38 characters, fits whole beside the Check button in a laptop's field: a monospace
+   character is a little over .6em wide, plus its letter spacing. Below 14px it reads poorly, so a phone's field scrolls it. */
+.code-input { container-type: inline-size; padding-right: 5px; }
+.code-input input { font-family: var(--mono); letter-spacing: .02em; text-transform: uppercase; font-size: clamp(14px, 100cqi / 23.8, 15px); }
+
+.check { display: inline-flex; align-items: center; gap: 10px; justify-self: center; font-weight: 600; position: relative; cursor: pointer; }
+.check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.check input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 3px; }
+.check input:checked + .box { background: var(--primary); border-color: var(--primary); }
+.check .box::after { content: ""; display: block; width: 5px; height: 10px; margin: 1px auto 0; border: solid var(--primary-ink); border-width: 0 2px 2px 0; rotate: 45deg; opacity: 0; }
+.check .box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--line-strong); background: var(--surface); flex: none; }
+.check input:checked + .box::after { opacity: 1; }
+/* Check your order's terms, centred in the room between the order and the main button, which takes in the gaps on each
+   side; a notice of changed terms takes the room above, so the box stays put */
+.screen-body:has(> .mid) { display: flex; flex-direction: column; }
+.mid { flex: 1; display: grid; grid-template-rows: 1fr auto 1fr; place-items: center; margin-block: calc(-1 * var(--body-gap)) calc(-1 * var(--row-gap)); }
+.mid > .check { grid-row: 2; }
+.mid > .line { grid-row: 1; align-self: end; margin-bottom: 6px; }
+/* an empty status keeps the room it had in an order page's grid */
+.screen-body:has(> .mid):not(:has(> .review)) > [role="status"]:empty { margin-top: 0; }
+.check.terms { align-items: flex-start; font-size: var(--fs-small); font-weight: 500; line-height: 1.45; }
+.check.terms .box { margin-top: 1px; }
+.cinfo { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 2px; vertical-align: -3px; border-radius: 50%; color: var(--primary); }
+.cinfo svg.i { width: 17px; height: 17px; }
+.cinfo:focus-visible { outline: 2px solid var(--accent); }
+
+/* Your names: a card of names and one of codes, a row per name or code with its actions as text links */
+.card.list { padding: 0; }
+.list > .note { padding: 14px 22px; }
+.card.none { display: grid; gap: 6px; padding: 22px; text-align: center; }
+.card.none b { font-size: 17px; }
+.list-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 72px; padding: 14px 22px; }
+.list-row + .list-row, .list > .note + .list-row { border-top: 1px solid var(--surface-line); }
+.list-row .main { flex: 1 1 240px; min-width: 0; display: grid; gap: 2px; }
+.list-row .sub { color: var(--ink-soft); font-size: var(--fs-small); }
+.list-row .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: var(--fs-small); white-space: nowrap; }
+/* a flex slot, so Firefox's baseline snapping gives it no line box to vary */
+.list-row .state { display: flex; }
+.list-row .room { display: inline-grid; justify-items: end; }
+.list-row .room > * { grid-area: 1 / 1; }
+/* a balance's words give way to its actions beside them, as the mockup draws Use and Refund, down to their own widest
+   unbroken part, past which the actions go under them */
+.balance-row .main { flex-basis: 0; min-width: auto; }
+.row-code { flex-basis: 100%; display: grid; gap: 12px; }
+.row-code > .qr, .code-qr > .qr { justify-self: center; }
+.code-qr { display: grid; }
+.danger-link { font-size: var(--fs-small); }
+/* Forget's question comes into view with room below it; its answers are an equal pair, side by side when each gets the
+   220 px that holds "Forget everything" */
+.forget { scroll-margin-bottom: 24px; }
+.forget .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.mt-14 { margin-top: 14px; }
+.center { text-align: center; text-wrap: balance; }
+.left { text-align: left; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.actions .btn { min-width: 0; }
+
+/* a name can be 63 letters long */
+h1, .lead { overflow-wrap: anywhere; }
+main h1:focus { outline: none; }
+/* a name in a sentence moves to the next line whole; only a name longer than the line breaks */
+.nt { overflow-wrap: anywhere; }
+.monero-base { fill: #4C4C4C; }
+/* Monero's mark for dark grounds has a white base */
+html.dark .monero-base { fill: #fff; }
+
+@media (hover: hover) {
+  .brand:hover { text-decoration: none; opacity: .8; }
+  .theme-switch:not(.theme-line):hover { opacity: .7; }
+  .theme-line:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .menu-button:hover { background: var(--chip); }
+  .field:not(.bad, .ok):hover { border-color: var(--primary); }
+  .btn:not([disabled], [aria-busy="true"]):hover { filter: brightness(1.08); }
+  .btn.quiet:not([disabled], [aria-busy="true"]):hover { background: var(--chip); filter: none; }
+  .method[aria-checked="false"]:not([aria-disabled]):hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--surface), var(--primary) 4%); }
+  .check:hover .box { border-color: var(--primary); }
+  .cinfo:hover { background: var(--chip); }
+  .bonus > .days:hover { background: var(--ok-bg); }
+}
+/* after the hover rules and as specific as the quiet one, as a button pressed with a mouse still matches them */
+:is(.btn, .btn.quiet):not([disabled], [aria-busy="true"]):active { filter: brightness(.94); }
+/* The offline note takes the invest note's place, whose link needs the connection too, so it covers nothing and moves
+   nothing; on a page longer than the window it stays at the window's foot until the page reaches that place. Clicks beside
+   it pass through to the page. */
+.offline { grid-row: header / invest; grid-column: 1; align-self: end; position: sticky; bottom: 0; z-index: 15; display: flex; padding: 0 16px calc(12px + env(safe-area-inset-bottom));
+  pointer-events: none; }
+body:has(.offline-note > span:not(:empty)) > .invest { visibility: hidden; }
+.offline-note { pointer-events: auto; width: fit-content; max-width: var(--column); margin-inline: auto; display: flex; gap: 10px; align-items: center; padding: 10px 16px;
+  border-radius: 14px; background: var(--surface); border: 1px solid var(--surface-line); color: var(--ink); font-size: 14px; line-height: 1.4; }
+.offline-note svg.i { flex: none; width: 18px; height: 18px; color: var(--warn-fg); }
+/* without words the note keeps its live text in place, drawn as nothing */
+.offline-note:has(> span:empty) { padding: 0; border: 0; }
+.offline-note:has(> span:empty) svg.i { display: none; }
+/* a link at work, or held by a wait, shows it is not to be pressed */
+a[aria-disabled="true"] { opacity: .6; cursor: default; }
+
+/* The tap area reaches past a control's edge to 44 px while the drawn size stays. */
+@media (pointer: coarse) {
+  .field-copy { position: relative; }
+  .field-copy::before { content: ""; position: absolute; inset: -6px; }
+  .row > a, .alt a, .acts a, .end-links a, .have-code > a { padding-block: 12px; margin-block: -12px; }
+}
+
+/* a phone: its heading smaller, Back above it on a line kept on every screen, and the main button across the column with
+   its text link under it, the row the same height whether or not a step has the link */
+@media (max-width: 520px) {
+  :root { --fs-h1: 30px; --fs-lead: 15px; --screen-top: 20px; --step-h: 640px; }
+  .screen { --row-gap: 16px; }
+  .screen-head { grid-template-columns: minmax(0, 1fr); grid-template-rows: 24px auto; row-gap: 8px; }
+  .back { margin-top: -8px; }
+  .screen-head h1 { grid-area: 2 / 1; }
+  .screen-head .lead { grid-row: 3; }
+  .screen-head:has(h1 .nt:not(.whole)) { --fs-h1: 22px; }
+  .invest { padding-bottom: 20px; }
+  .actions-row > .btn { width: 100%; min-width: 0; }
+  .home { --room: 178px; padding-top: 48px; }
+  .home h1 { --fs-h1: 34px; }
+  .home .sub { font-size: 16px; }
+  .search { margin-top: 28px; }
+  /* an available name takes its own line, its price and Register under it */
+  .row.buy { flex-wrap: wrap; row-gap: 10px; padding-block: 14px; }
+  /* a name of six letters, two chats and "Your name" fit one line */
+  .answer .row { padding-inline: 18px 14px; }
+  .answer .row:not(.buy) { column-gap: 10px; }
+  .chats { gap: 0; }
+  .name { font-size: 19px; }
+  /* the marker ends the name's last line on the right: justify spreads that line at the space before it */
+  .name.comm { display: block; text-align-last: justify; }
+  .cmark { font-size: 13px; margin-left: 0; }
+  .row.buy .name { flex-basis: 100%; }
+  .row.buy .offer { flex-basis: 100%; justify-content: space-between; }
+  .list-row { padding: 12px 16px; }
+  .list > .note { padding-inline: 16px; }
+  /* a name's line across the row, its chats and actions under it, the actions at the right */
+  /* a phone's second line holds a chat picture's height, so a chip, links or pictures coming or going never change it */
+  .list-row .acts { flex: 1 1 auto; justify-content: flex-end; min-height: 32px; }
+  .list-row .acts > .chats { margin-right: auto; }
+  .list-row .room { justify-items: start; }
+  .code-row .room { justify-items: end; }
+  /* a code on one line across the row, its state beside its actions under it, at the right */
+  .code-row .main { flex-basis: 100%; }
+  .code-row .state { margin-left: auto; }
+  .code-row .acts { flex: none; }
+  /* a name code on one line over its buttons, its 38 characters 23 em wide at most */
+  .code-display { container-type: inline-size; flex-wrap: wrap; justify-content: center; padding: 12px 6px; letter-spacing: 0; }
+  .code-display .code-text { flex-basis: 100%; text-align: center; white-space: nowrap; font-size: min(14px, 100cqi / 23); }
+  .field-error { padding-inline: 0; font-size: 13px; }
+  .code-input input { font-size: 14px; letter-spacing: 0; }
+  .order > .row { padding-inline: 16px 12px; }
+  .table { padding: 2px 16px 4px; }
+  .method { height: 72px; font-size: 14px; }
+  .review:has(.line) .order .name { font-size: 16px; }
+  /* the card page tighter still, so a lead of four lines, its notice and Stripe's form fit above Pay */
+  .screen:has(> .screen-body > .stripe) .lead { line-height: 1.3; }
+  .screen-body:has(> .stripe) { gap: 6px; }
+  .screen-body:has(> .stripe) > .name-check { padding-block: 5px; line-height: 1.4; }
+  /* the name-is-yours screen tighter, so Edit links fits its frame under a name of 63 m letters, the widest */
+  .screen-body:has(> .yours-edit) { --body-gap: 12px; }
+  /* a QR is for another device; a phone opens its wallet from the link under the address */
+  .qr-grid { grid-template-columns: minmax(0, 1fr); }
+  .qr-grid > .qr { display: none; }
+  .scan { display: grid; }
+  .card.pay > .wallet { display: block; }
+}
+
+/* Motion: a screen swapped in, a purchase step as any other, rises into place; what a step adds comes in. Nothing goes out
+   but at once, so two screens never show together. */
+.enter { animation: rise 220ms var(--ease) backwards; }
+/* controls ease their colours as the pointer, a choice or a state changes them, and follow the theme's tokens as it switches */
+html:not(.theming) :is(.btn, .field, .back, .chat, .unlink, .method, .field-copy, .check, .check .box, .brand, .theme-switch, .menu-button) { transition: background-color var(--fast), border-color var(--fast), box-shadow var(--fast), color var(--fast), filter var(--fast), opacity var(--fast); }
+.copied-note { transition: opacity var(--fast), translate var(--fast) var(--ease); }
+:where(.answer > *, .notice, .entity, .code-qr > *, .other-order, .field-error, .verdict:not(:empty), .offline-note:not(:has(> span:empty))) { animation: arrive 180ms var(--ease) backwards; }
+/* shell.ts marks what a redraw draws again as shown */
+.shown, .shown::before, .shown::after { animation: none !important; }
+/* what went before is gone at once, so what replaces it starts in sight, never leaving a frame empty */
+@keyframes rise { from { opacity: .4; transform: translateY(8px); } }
+@keyframes arrive { from { opacity: .25; transform: translateY(5px); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
