@@ -2,6 +2,7 @@ import { type APIRequestContext, type Browser, expect, type Locator, type Page }
 import { CODE_LIMIT } from "../dev/mock/limits.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import type { Links } from "../src/api.ts"
+import { YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { walletOf } from "../src/flow.ts"
 import { dateOf } from "../src/format.ts"
@@ -9,6 +10,7 @@ import {
   agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, offCentre, onStep,
   payButton, previewsShown, qrText, savedToReview, search, searchName, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
   useCode, waitRegistered,
+  acceptedOnChain, COMMUNITY_TERMS_HASH, contractsOwnerLists, GENERAL_TERMS_HASH,
 } from "./helpers.ts"
 
 // a commit's wait of about three minutes, counted from the service's own clock
@@ -144,16 +146,47 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
 })
 
 // These cases need a prepaid code alone, from /control/code, so they run against the service as well as the mock.
-test("a prepaid code registers a name with its links, which its records on chain then hold", async ({ page, request }) => {
+test("a prepaid code registers a name with its links, which its records on chain then hold, its register recording the owner's acceptance of the general terms", async ({ page, request }) => {
   const links = { contact: contactLink("CL"), channel: channelLink("CL") }
   const { registrationId, label } = await registerWithCode(page, request, "clinks", links)
   await waitRegistered(page, label)
   const answer = await searchName(request, label)
   expect(answer.status).toBe("registered")
   expect(answer.records).toEqual(links)
-  expect(answer.owner, "the name code's wallet owns the name").toBe(checksumAddress(walletOf(await ownerCodeOf(page, registrationId))!.address))
+  const owner = checksumAddress(walletOf(await ownerCodeOf(page, registrationId))!.address)
+  expect(answer.owner, "the name code's wallet owns the name").toBe(owner)
+  const { registerTx } = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { registerTx: string }
+  expect(await acceptedOnChain(registerTx)).toEqual({ kind: "general", name: label, holder: owner, termsHash: GENERAL_TERMS_HASH })
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer .row .chat"), "the name's answer opens both chats").toHaveCount(2)
+})
+
+test("a prepaid code registers a name the contracts' owner listed on chain, its register recording the owner's acceptance of the community terms", async ({ page, request }) => {
+  const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
+  const label = uniqueLabel("cpol")
+  await contractsOwnerLists(label)
+  await payWithCode(page, label, code)
+  await waitRegistered(page, label)
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { owner: string; registerTx: string }
+  expect(await acceptedOnChain(view.registerTx)).toEqual({ kind: "community", name: label, holder: view.owner, termsHash: COMMUNITY_TERMS_HASH })
+})
+
+test("a prepaid code for 5 years registers a community name for its 2 years and the free days, saying the code's other years are not used", async ({ page, request }) => {
+  const { code } = await control(request, "code", { minLength: 6, years: 5 }) as { code: string }
+  const label = uniqueLabel("cfive")
+  await contractsOwnerLists(label)
+  await useCode(page, code)
+  await search(page, label)
+  await expect(page.locator(".answer .row .deal")).toHaveText("Free / 2 years")
+  await toReview(page)
+  await expect(page.locator(".card.order .trow").first()).toHaveText(/^Term2 years and /)
+  await expect(page.locator(".card.order .hint")).toHaveText("A community name is registered for 2 years, not your code's 5.")
+  await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
+  await page.waitForURL(/\?registration=/)
+  await waitRegistered(page, label)
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { duration: number; registerTx: string }
+  expect(Math.floor(view.duration / YEAR_S), "2 years and the free days").toBe(2)
+  expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
 })
 
 test("a code order's name code, entered in another browser before the reveal, lets that browser reveal and register the name", async ({ page, browser, request }) => {
@@ -384,7 +417,6 @@ async function saveRow(page: Page): Promise<unknown[]> {
   const count = (await editCount(page).boundingBox())!
   return [await saveLinks(page).boundingBox(), count.y, count.height]
 }
-const YEAR_S = 365 * 86400
 
 test("Edit links counts the name's edits left this year under Save, one per Save of one link or both, in place and on one line", async ({ page, request }) => {
   const { registrationId, label } = await registerWithCode(page, request, "ccount")
@@ -832,16 +864,20 @@ test("a retry refused for a code used elsewhere says the code is gone and offers
   await reopenRefused(page)
 })
 
-test("a failed code order opened again after its code was used elsewhere offers no Try again, and from the first frame the time after", async ({ page, request }) => {
-  const { code, registrationId } = await registerWithCode(page, request, "cgone")
+test("a failed code order opened again after its code was used elsewhere offers no Try again nor another name, and from the first frame the time after", async ({ page, request }) => {
+  const { code, registrationId, label } = await registerWithCode(page, request, "cgone")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   await releasedAndUsed(request, code)
   await page.addInitScript(watchKept)
+  await answersReserved(page, label)
+  const searched = page.waitForResponse("**/api/name/**")
   await page.reload()
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
   await expect(page.locator(".screen-head .lead")).toHaveText("Your code can no longer be used for it, so trying again cannot register it.")
   await offersSearchInstead(page)
+  await searched
+  await expect(page.getByRole("button", { name: "Choose another name" }), "a refused code moves to no other name").toHaveCount(0)
   expect(await saidKept(page), "the page opened first after the code went said it is kept").toBe(false)
   await reopenRefused(page)
 })

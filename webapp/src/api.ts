@@ -1,4 +1,7 @@
 // The names service's HTTP API, on the page's own origin.
+import { sha256 } from "@noble/hashes/sha2"
+import { keccak_256 } from "@noble/hashes/sha3"
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
 import { MAX_LABEL_LENGTH } from "./names.ts"
 
 export class ApiError extends Error {
@@ -69,19 +72,45 @@ export interface Links {
 }
 
 export interface Terms {
-  version: string
-  url: string
+  hash: string
+  link: string
 }
 
+// A community name: what it is for, null when the service has no words for it, and the years it is registered for. In a
+// search answer, a name on the chain's list; in an order's view, an order that signed the community terms.
 export interface Community {
-  for: string
+  for: string | null
+  years: number
 }
 
-const COMMUNITY_TERMS = "/community"
+const COMMUNITY_TERMS = "community/"
+const COMMUNITY_AGREED = /^(?:[A-Za-z0-9._-]+\/)?community\//
 
-export const termsFor = (terms: Terms, community: Community | null) => community ? `${terms.version}${COMMUNITY_TERMS}` : terms.version
+export const termsFor = (terms: Terms, community: Community | null) => `${community ? COMMUNITY_TERMS : ""}${terms.hash.slice(2)}`
 export const currentTerms = (a: { terms: Terms; community: Community | null }) => termsFor(a.terms, a.community)
-export const communityAgreed = (terms: string | null | undefined) => terms?.endsWith(COMMUNITY_TERMS) === true
+// a community name is registered for its own years, whatever years its code or order pays for
+export const termYears = (community: Community | null, years: number) => community?.years ?? years
+export const communityAgreed = (terms: string | null | undefined) => COMMUNITY_AGREED.test(terms ?? "")
+
+export function signedHash(terms: string | null | undefined): string | null {
+  const hash = terms?.startsWith(COMMUNITY_TERMS) ? terms.slice(COMMUNITY_TERMS.length) : terms
+  return hash && /^[0-9a-f]{64}$/.test(hash) ? `0x${hash}` : null
+}
+
+const LOCAL_CHAIN_ID = 31337
+const MAX_PORT = 65535
+const TERMS_LINK = /^(?:https:\/\/git\.simplex\.chat\/simplex-chat\/simplex-chat\/raw\/commit\/([0-9a-f]{40})|http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4}))\/([A-Za-z0-9_./-]+)#sha256=([0-9a-f]{64})$/
+
+export function termsLink(link: string, chainId: number): { commit: string | null; digest: string } | null {
+  const [, commit, port, path, digest] = TERMS_LINK.exec(link) ?? []
+  if (path === undefined || !path.endsWith(".md") || path === ".md" || path.split("/").some((s) => s === "" || s === "." || s === "..")) return null
+  if (commit === undefined && (chainId !== LOCAL_CHAIN_ID || Number(port) > MAX_PORT)) return null
+  return { commit: commit ?? null, digest }
+}
+
+export const readerUrl = (link: string) => link.slice(0, link.indexOf("#")).replace("/raw/commit/", "/src/commit/")
+
+const keccakOf = (text: string) => `0x${bytesToHex(keccak_256(utf8ToBytes(text)))}`
 
 // the link edits a name has left in any 365 days, and when the next one returns: null while none is counted
 export interface RecordEdits {
@@ -90,7 +119,7 @@ export interface RecordEdits {
 }
 
 export type SearchAnswer =
-  | ({ status: "available"; price: number; currency: string; years: number; termStart: number; community: Community | null; terms: Terms } & ChainInfo)
+  | ({ status: "available"; price: number; currency: string; years: number; termStart: number; community: Community | null; terms: Terms | null } & ChainInfo)
   | { status: "registered"; entities: Entity[]; records?: Links | null; owner?: string; resolver?: string; recordsNonce?: number | null; recordEdits?: RecordEdits | null; expiresAt?: number; gracePeriod?: number; chainId?: number; tld: string; community: Community | null }
   | { status: "reserved"; community: Community | null }
 
@@ -149,6 +178,9 @@ export interface RegistrationView extends ChainInfo {
   revealAfter: number | null
   revealBefore: number | null
   intentNonce: number | null
+  // what the owner signs with the reveal to accept the terms of the name's kind on chain, while a committed order waits for
+  // its reveal, the policy being the signature's verifying contract; null otherwise
+  acceptance: { kind: "general" | "community"; policy: string; termsHash: string; nonce: number } | null
   // the fields left null because the service's chain read failed; reading the view again may fill them
   unread: string[]
   expiresAt: number | null
@@ -309,16 +341,16 @@ const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unk
 const isChain = (a: Record<string, unknown>) => isText(a.resolver) && isText(a.sponsor) && typeof a.chainId === "number" && isText(a.tld)
 const PHASES: Phase[] = ["unpaid", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
 const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded)
-const isVersion = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(v)
-const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,48}$/.test(v)
-// the checkbox links the terms page, which is only ever an https page
-const isTerms = (v: unknown) => isObject(v) && isVersion(v.version) && typeof v.url === "string" && v.url.startsWith("https://")
-const isCommunity = (v: unknown) => v === null || (isObject(v) && typeof v.for === "string" && v.for !== "")
+const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,112}$/.test(v)
+const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
+const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
+const isCommunity = (v: unknown) => v === null || (isObject(v) && nullable(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
+const isAcceptance = (v: unknown) => isObject(v) && (v.kind === "general" || v.kind === "community") && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const isRegistration = (v: unknown) => isObject(v) && isChain(v) && isText(v.id) && Number.isInteger(v.version) && PHASES.includes(v.phase as Phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isAmount(v.fromBalance) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => isObject(l) && LATE_WAITS.includes(l.waiting as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.revealAfter, isAmount) && nullable(v.revealBefore, isAmount)
-  && nullable(v.intentNonce, isAmount) && Array.isArray(v.unread) && v.unread.every(isText) && nullable(v.expiresAt, isAmount) && nullable(v.error, isText)
+  && nullable(v.intentNonce, isAmount) && nullable(v.acceptance, isAcceptance) && Array.isArray(v.unread) && v.unread.every(isText) && nullable(v.expiresAt, isAmount) && nullable(v.error, isText)
   && typeof v.linksRefused === "boolean" && isCommunity(v.community) && nullable(v.terms, isSignedTerms)
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
@@ -333,11 +365,20 @@ const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) &&
 
 export const searchName = (labelHash: string, length: number) => checked<SearchAnswer>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
   a.status === "reserved"
-  || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isAmount(a.termStart) && isText(a.currency) && isChain(a) && isTerms(a.terms))
+  || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isAmount(a.termStart) && isText(a.currency) && isChain(a) && nullable(a.terms, (t) => isTerms(t, a.chainId as number)))
   || (a.status === "registered" && isText(a.tld) && Array.isArray(a.entities) && a.entities.every(isEntity) && optional(a.owner, isText)
     && optional(a.resolver, isText) && optional(a.records, (r) => nullable(r, isRecords)) && optional(a.recordsNonce, (n) => nullable(n, isAmount)) && optional(a.recordEdits, (r) => nullable(r, isRecordEdits))
     && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount) && optional(a.chainId, isAmount))))
 export const previewLink = (link: string) => checked<Profile>(call("POST", "/api/link/preview", { link }), isPreview)
+
+// The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very
+// text whose acceptance the owner signs.
+export async function termsText(terms: Terms, chainId: number, signal?: AbortSignal): Promise<string> {
+  const read = await call<Record<string, unknown>>("GET", `/api/terms/${terms.hash}`, undefined, signal)
+  const digest = termsLink(terms.link, chainId)?.digest
+  if (read.link !== terms.link || keccakOf(terms.link) !== terms.hash || typeof read.text !== "string" || bytesToHex(sha256(utf8ToBytes(read.text))) !== digest) throw noAnswer()
+  return read.text
+}
 const CODE_STATES = ["unused", "used", "reserved", "expired", "unpaid", "revoked"] as const
 export type CodeState = typeof CODE_STATES[number]
 interface CodeAnswer { minLength: number; years: number; state: CodeState }
@@ -349,16 +390,16 @@ export async function checkCode(code: string, signal?: AbortSignal): Promise<Cod
   return answer as unknown as CodeAnswer
 }
 
-const signingTerms = (sent: Promise<unknown>) => sent.catch((e: unknown) => {
+const signingTerms = (sent: Promise<unknown>, chainId: number) => sent.catch((e: unknown) => {
   if (!(e instanceof ApiError && e.code === "terms_changed")) throw e
-  if (!isTerms(e.body.terms) || !isCommunity(e.body.community)) throw noAnswer()
+  if (!isTerms(e.body.terms, chainId) || !isCommunity(e.body.community)) throw noAnswer()
   throw new TermsChanged(e, e.body.terms as Terms, e.body.community as Community | null)
 })
 
-export const createOrder = (order: SignedOrder, method: Method, price: number) =>
-  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", ...order, method, price })))
-export const registerWithCode = (order: SignedOrder, code: string) =>
-  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { ...order, code })), (a) => isText(a.registrationId))
+export const createOrder = (order: SignedOrder, method: Method, price: number, chainId: number) =>
+  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", ...order, method, price }), chainId))
+export const registerWithCode = (order: SignedOrder, code: string, chainId: number) =>
+  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { ...order, code }), chainId), (a) => isText(a.registrationId))
 export const cancelInvoice = (invoiceId: string) => checkedInvoice(call("POST", `/api/invoice/${encodeURIComponent(invoiceId)}/cancel`))
 
 // what a long poll on an invoice has seen: its status, its registration's version, and the payment marks, the paid amount
@@ -378,16 +419,17 @@ export function readRegistration(registrationId: string, seenVersion?: number, s
 
 export const changedView = (e: ApiError): RegistrationView | null => isRegistration(e.body.registration) ? e.body.registration as RegistrationView : null
 
-export const reveal = (registrationId: string, body: { label: string; secret: string; records: { contact: string[]; channel: string[] }; nonce: number; deadline: number; signature: string }) =>
+export const reveal = (registrationId: string, body: { label: string; secret: string; records: { contact: string[]; channel: string[] }; nonce: number; deadline: number; signature: string;
+  acceptance?: { termsHash: string; nonce: number; signature: string } }) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
-export const retarget = (registrationId: string, body: Omit<SignedOrder, "owner">) =>
-  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, body)), isRegistration)
+export const retarget = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>
+  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, body), chainId), isRegistration)
 // another name paid from an order's balance: the balance the page read, and a method for the difference when it does not cover the price
 export type SpendRequest = Omit<SignedOrder, "owner"> & { price: number; balance: number; method?: Method }
 
 // The new order, without an invoice when the balance covered it, or with the invoice for the difference.
-export async function spend(registrationId: string, body: SpendRequest): Promise<{ registrationId: string } | InvoiceView> {
-  const sent = signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/spend`, body)).catch((e: unknown) => {
+export async function spend(registrationId: string, body: SpendRequest, chainId: number): Promise<{ registrationId: string } | InvoiceView> {
+  const sent = signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/spend`, body), chainId).catch((e: unknown) => {
     if (!(e instanceof ApiError && e.code === "balance_changed")) throw e
     if (!nullable(e.body.balance, isBalance)) throw noAnswer()
     throw new BalanceChanged(e, e.body.balance as Balance | null)

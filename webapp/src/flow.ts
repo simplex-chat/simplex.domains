@@ -2,7 +2,7 @@
 import * as api from "./api.ts"
 import { formatOwnerCode, parseNameCode } from "./crypto/code.ts"
 import {
-  CHANNEL_KEY, CONTACT_KEY, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, registerIntentDigest, setTextDigest,
+  acceptTermsDigest, CHANNEL_KEY, CONTACT_KEY, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, registerIntentDigest, setTextDigest,
   type Registration,
 } from "./crypto/registration.ts"
 import { seal, unseal } from "./crypto/seal.ts"
@@ -38,18 +38,22 @@ export interface Draft {
   terms: string
 }
 
-export type Quote = Extract<api.SearchAnswer, { status: "available" }>
+type Available = Extract<api.SearchAnswer, { status: "available" }>
+export type Quote = Available & { terms: api.Terms }
+export const orderable = (a: Available): a is Quote => a.terms !== null
 export const chainOf = (q: api.ChainInfo): api.ChainInfo => ({ resolver: q.resolver, sponsor: q.sponsor, chainId: q.chainId, tld: q.tld })
 
 // The name's search answer as an order needs it, or null when it can no longer be ordered.
 export async function quoteOf(label: string): Promise<Quote | null> {
   const answer = await api.searchName(hex(labelHash(label)), label.length)
-  return answer.status === "available" ? answer : null
+  if (answer.status !== "available") return null
+  if (!orderable(answer)) throw new api.ApiError("terms_unavailable", 503, null, {})
+  return answer
 }
 
 // An order of a record's name and links again, as a new order of its code: a new commitment for the term from now.
 export const draftAgain = (record: store.OrderRecord, quote: Quote, terms: string): Draft =>
-  ({ label: record.label, links: { contact: record.contact, channel: record.channel }, chain: chainOf(quote), years: record.years, termStart: quote.termStart, ownerCode: record.ownerCode, terms })
+  ({ label: record.label, links: { contact: record.contact, channel: record.channel }, chain: chainOf(quote), years: api.termYears(quote.community, quote.years), termStart: quote.termStart, ownerCode: record.ownerCode, terms })
 
 export type BuiltOrder = { request: api.SignedOrder; owner: string }
 
@@ -81,10 +85,15 @@ export async function revealOrder(view: api.RegistrationView, record: store.Orde
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, view, BigInt(view.duration))
   const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.intentNonce!), BigInt(view.revealBefore!))
+  const a = view.acceptance
+  const acceptance = a ? {
+    termsHash: a.termsHash, nonce: a.nonce,
+    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.kind === "community", BigInt(view.chainId), fromHex(a.policy), fromHex(view.commitment), fromHex(a.termsHash), BigInt(a.nonce), BigInt(view.revealBefore!)))),
+  } : undefined
   await api.reveal(view.id, {
     label: record.label, secret: hex(r.secret),
     records: { contact: r.contactLinks, channel: r.channelLinks },
-    nonce: view.intentNonce!, deadline: view.revealBefore!, signature: hex(signDigest(wallet.privateKey, digest)),
+    nonce: view.intentNonce!, deadline: view.revealBefore!, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   })
 }
 
@@ -96,19 +105,19 @@ async function sha256Hex(text: string): Promise<string> {
 // Another name, or other links, for a failed order or one whose links were refused, on the same wallet so the same code
 // owns it, at the new name's price, which caps any later move.
 export async function retargetOrder(record: store.OrderRecord, label: string, links: api.Links, quote: Quote, terms: string): Promise<api.RegistrationView> {
-  const draft: Draft = { label, links, chain: chainOf(quote), years: record.years, termStart: quote.termStart, ownerCode: record.ownerCode, terms }
+  const draft: Draft = { label, links, chain: chainOf(quote), years: api.termYears(quote.community, record.years), termStart: quote.termStart, ownerCode: record.ownerCode, terms }
   const built = await orderRequest(draft)
   const wallet = walletOf(record.ownerCode)!
   const timestamp = now()
   const { labelHash: lh, length, duration, commitment, sealed } = built.request
   const message = `simplex.domains name ${record.registrationId} ${lh} ${length} ${duration} ${commitment} ${await sha256Hex(sealed)} ${terms} ${timestamp}`
-  const view = await api.retarget(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))) })
+  const view = await api.retarget(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))) }, quote.chainId)
   store.saveOrder({ ...record, label, ...links, paid: view.price, request: built.request, terms, linksRefused: undefined })
   return view
 }
 
 // what an order from a balance needs of the name's search answer: its price and term, and the chain
-export type Priced = Pick<Quote, "price" | "years" | "termStart"> & api.ChainInfo
+export type Priced = Pick<Quote, "price" | "years" | "termStart" | "community"> & api.ChainInfo
 
 export type BuiltSpend = BuiltOrder & { spend: api.SpendRequest }
 // the order whose balance pays, and its name code, which signs the spend
@@ -116,7 +125,7 @@ export type BalanceSource = Pick<store.OrderRecord, "registrationId" | "ownerCod
 
 // the order of another name under the record's code, as the service makes the paying order's owner the new order's
 export const spendDraft = (record: BalanceSource, label: string, links: api.Links, quote: Priced, terms: string): Draft =>
-  ({ label, links, chain: chainOf(quote), years: quote.years, termStart: quote.termStart, ownerCode: record.ownerCode, terms })
+  ({ label, links, chain: chainOf(quote), years: api.termYears(quote.community, quote.years), termStart: quote.termStart, ownerCode: record.ownerCode, terms })
 
 // Another name paid from the record's balance as the page read it, `draft` being spendDraft's: the order and the spend,
 // signed by the record's code. When the balance does not cover the price, all of it pays and an invoice in `method` is
@@ -136,19 +145,19 @@ export async function spendRequest(record: BalanceSource, draft: Draft, price: n
 
 // The spend sent as it was built, so a resend after a lost answer is the same order; the new order is kept with the
 // record's code. A balance changed since it was read throws BalanceChanged.
-export async function sendSpend(record: BalanceSource, draft: Draft, built: BuiltSpend): Promise<store.OrderRecord> {
-  const res = await api.spend(record.registrationId, built.spend)
+export async function sendSpend(record: BalanceSource, draft: Draft, built: BuiltSpend, years: number): Promise<store.OrderRecord> {
+  const res = await api.spend(record.registrationId, built.spend, draft.chain.chainId)
   const paidBy = "invoiceId" in res
     ? { ...paidWith(res), ids: { registrationId: res.registration.id, invoiceId: res.invoiceId } }
     : { method: "balance" as const, paid: built.spend.price, ids: { registrationId: res.registrationId, invoiceId: null } }
-  const next = { ...recordFor(draft, built, paidBy.method, paidBy.paid, paidBy.ids), balanceSource: record.registrationId }
+  const next = { ...recordFor(draft, built, paidBy.method, paidBy.paid, paidBy.ids), years, balanceSource: record.registrationId }
   store.saveOrder(next)
   return next
 }
 
 export async function spendBalance(record: BalanceSource, label: string, links: api.Links, quote: Priced, balance: number, method: api.Method, terms: string): Promise<store.OrderRecord> {
   const draft = spendDraft(record, label, links, quote, terms)
-  return sendSpend(record, draft, await spendRequest(record, draft, quote.price, balance, method))
+  return sendSpend(record, draft, await spendRequest(record, draft, quote.price, balance, method), quote.years)
 }
 
 // The order whose invoice holds a balance now, as the code's find names it, kept in this browser's records; null when

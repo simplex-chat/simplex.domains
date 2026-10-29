@@ -1,15 +1,16 @@
-// Deploys the .simplex contracts (ens-contracts PR #36) to a running local node for the names webapp,
+// Deploys the .simplex contracts (ens-contracts PR #47) to a running local node for the names webapp,
 // wired as the PR's test fixture wires them, and seeds names in every state search can answer.
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
-  createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, labelhash, namehash, zeroAddress, zeroHash,
+  createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, keccak256, labelhash, namehash, zeroAddress, zeroHash,
   type Abi, type Address, type Hex,
 } from "viem"
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
 import { durationFor } from "../src/crypto/registration.ts"
 import { BLOCK_POLL_MS, TERM_START_S, untilChainTime } from "./chain-time.ts"
+import { savedTerms } from "./serve-terms.ts"
 
 const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8545"
 const ENS_CONTRACTS_DIR = process.env.ENS_CONTRACTS_DIR
@@ -31,12 +32,21 @@ const PRICE_EXCEPTIONS = [{ labelLength: 7n, priceCentsPerYear: 10000n }, { labe
 const SEED_YEARS = 2
 // the registrar's credit in USD with 18 decimals, more than any number of test runs spends
 const ALLOWANCE = 1_000_000n * 10n ** 18n
-// SimplexController.Reason.Internal
+// SimplexNamePolicy.Reason.Internal
 const RESERVED_INTERNAL = 1
+// the e2e community names: one free, one registered under the terms
+const COMMUNITY_NAMES = ["bakers", "bakehouse"]
 // anvil's well-known development mnemonic
 const MNEMONIC = "test test test test test test test test test test test junk"
 
-if (!ENS_CONTRACTS_DIR) throw new Error("set ENS_CONTRACTS_DIR to a compiled checkout of ens-contracts PR #36")
+if (!ENS_CONTRACTS_DIR) throw new Error("set ENS_CONTRACTS_DIR to the compiled ens-contracts submodule of a simplex-namespace-contract checkout")
+// the terms the name policy links, the namespace repository's fixtures beside its ens-contracts as files this machine
+// serves, and their hashes, which orders sign
+const TERMS_FIXTURES = join(ENS_CONTRACTS_DIR, "..", "test", "fixtures", "terms")
+const GENERAL_TERMS_LINK = savedTerms(readFileSync(join(TERMS_FIXTURES, "general-terms.md")))
+const COMMUNITY_TERMS_LINK = savedTerms(readFileSync(join(TERMS_FIXTURES, "community-terms.md")))
+const GENERAL_TERMS_HASH = keccak256(Buffer.from(GENERAL_TERMS_LINK))
+const COMMUNITY_TERMS_HASH = keccak256(Buffer.from(COMMUNITY_TERMS_LINK))
 
 const [owner, guardian, registrar, holder] = [0, 1, 2, 3].map((i) => mnemonicToAccount(MNEMONIC, { addressIndex: i }))
 const registrarKey = toHex(registrar.getHdKey().privateKey!)
@@ -94,7 +104,16 @@ await write(owner, controller, "setBeneficiary", [guardian.address])
 const sponsor = await deploy("simplex/SimplexSponsor.sol/SimplexSponsor.json", [controller.address])
 await write(owner, controller, "setSponsor", [sponsor.address])
 await write(guardian, sponsor, "setRegistrarAllowance", [registrar.address, ALLOWANCE])
-await write(owner, controller, "addReservedNames", [["support", "simplex", "official"], RESERVED_INTERNAL])
+const policyImplementation = await deploy("simplex/SimplexNamePolicy.sol/SimplexNamePolicy.json", [controller.address, baseRegistrar.address])
+const policyProxy = await deploy("simplex/SimplexNamePolicyProxy.sol/SimplexNamePolicyProxy.json", [policyImplementation.address, "0x"])
+const namePolicy = { address: policyProxy.address, abi: policyImplementation.abi }
+await write(owner, baseRegistrar, "addController", [namePolicy.address])
+await write(owner, controller, "setNamePolicy", [namePolicy.address])
+await write(owner, baseRegistrar, "setNamePolicy", [namePolicy.address])
+await write(owner, namePolicy, "addReservedNames", [["support", "simplex", "official"], RESERVED_INTERNAL])
+await write(owner, namePolicy, "setGeneralTerms", [GENERAL_TERMS_LINK])
+await write(owner, namePolicy, "setCommunityTerms", [COMMUNITY_TERMS_LINK])
+await write(owner, namePolicy, "addCommunityNames", [COMMUNITY_NAMES])
 
 const chainId = await publicClient.getChainId()
 const holderAccount = privateKeyToAccount(holderKey)
@@ -125,12 +144,18 @@ const seeds = [
     "simplex.channel": "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm",
   }, seededAt),
   seedRegistration("harbour", {}, seededAt),
+  seedRegistration("bakehouse", {
+    "simplex.contact": "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS",
+    "simplex.channel": "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm",
+  }, seededAt),
 ]
 // the controller makes every registration wait after its commit, by block time; the last commit is the latest
 let revealAfter = 0
 for (const registration of seeds) {
   const commitment = await publicClient.readContract({ ...controller, functionName: "makeCommitment", args: [registration] }) as Hex
-  await write(registrar, controller, "commit", [commitment])
+  // committed under the terms of the name's kind, as the policy needs
+  const community = COMMUNITY_NAMES.includes(registration.label)
+  await write(holder, namePolicy, community ? "commitUnderCommunityTerms" : "commitUnderGeneralTerms", [commitment, community ? COMMUNITY_TERMS_HASH : GENERAL_TERMS_HASH])
   const committedAt = await publicClient.readContract({ ...controller, functionName: "commitments", args: [commitment] }) as bigint
   revealAfter = Number(committedAt + MIN_COMMITMENT_AGE)
 }
@@ -156,7 +181,13 @@ const deployment = {
   controller: controller.address,
   sponsor: sponsor.address,
   resolver: resolver.address,
+  namePolicy: namePolicy.address,
+  generalTermsLink: GENERAL_TERMS_LINK,
+  generalTermsHash: GENERAL_TERMS_HASH,
+  communityTermsLink: COMMUNITY_TERMS_LINK,
+  communityTermsHash: COMMUNITY_TERMS_HASH,
   owner: owner.address,
+  ownerKey: toHex(owner.getHdKey().privateKey!),
   guardian: guardian.address,
   registrar: registrar.address,
   registrarKey,
@@ -166,5 +197,5 @@ const deployment = {
   maxCommitmentAge: Number(MAX_COMMITMENT_AGE),
 }
 writeFileSync(OUT, JSON.stringify(deployment, null, 2) + "\n")
-console.log(`deployed .${TLD} on chain ${chainId}: controller ${controller.address}, sponsor ${sponsor.address}, resolver ${resolver.address}`)
+console.log(`deployed .${TLD} on chain ${chainId}: controller ${controller.address}, sponsor ${sponsor.address}, resolver ${resolver.address}, name policy ${namePolicy.address}`)
 console.log(`wrote ${OUT}`)

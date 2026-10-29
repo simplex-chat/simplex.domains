@@ -3,5 +3,6 @@ dist/
 test-results/
 playwright-report/
 dev/local-chain*.json
+dev/terms/
 dev/*.log
 screenshots/

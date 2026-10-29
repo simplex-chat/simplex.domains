@@ -26,7 +26,7 @@ export type BalanceChange = "changed" | "gone"
 
 export interface Checkout {
   label: string
-  // the search answer's price, for its years, and when the paid years start
+  // the search answer's price, for its years or a community name's own, and when the paid years start
   price: number
   years: number
   termStart: number
@@ -45,8 +45,10 @@ export interface Checkout {
   ownerCode: string | null
   // the buyer ticked that they keep a copy of the name code, which the review waits for
   saved: boolean
-  // the buyer ticked that they agree to the name terms, which the order waits for
+  // the buyer ticked that they agree to the general terms, which the order waits for
   agreed: boolean
+  // the buyer ticked, on its own step, that they accept a community name's community terms, which the review waits for
+  accepted?: boolean
   termsChanged?: boolean
   // the history entry of the search the checkout started from
   searchAt: number
@@ -97,10 +99,11 @@ function write(key: string, value: unknown): void {
 export const scrolled = (): Record<number, number> => read<Record<number, number>>(SCROLLED) ?? {}
 export const setScrolled = (at: number, y: number) => write(SCROLLED, { ...scrolled(), [at]: y })
 
-// a checkout without its name, chain, term or terms is a leftover, not one to continue; one kept without its step opens the review, which sends it on
+// a checkout without its name, chain, term or terms, or with the terms version an older page kept, is a leftover, not one to
+// continue; one kept without its step opens the review, which sends it on
 export function checkout(): Checkout | null {
   const c = read<Checkout>(CHECKOUT)
-  return c?.label && c.chain && c.terms && typeof c.termStart === "number" ? { ...c, step: c.step ?? "review", balance: c.balance ?? null } : null
+  return c?.label && c.chain && typeof c.terms?.hash === "string" && typeof c.termStart === "number" ? { ...c, step: c.step ?? "review", balance: c.balance ?? null } : null
 }
 export const setCheckout = (c: Checkout | null) => write(CHECKOUT, c)
 

@@ -86,6 +86,12 @@ export function clearRecordsDigest(chainId: bigint, resolver: Uint8Array, node: 
   return typedDigest(domainSeparator("SimplexResolver", chainId, resolver), intent)
 }
 
+export function acceptTermsDigest(community: boolean, chainId: bigint, policy: Uint8Array, commitment: Uint8Array, termsHash: Uint8Array, nonce: bigint, deadline: bigint): Uint8Array {
+  const type = community ? "AcceptCommunityTerms" : "AcceptGeneralTerms"
+  const intent = hashStruct(`${type}(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)`, [commitment, termsHash, uint256(nonce), uint256(deadline)])
+  return typedDigest(domainSeparator("SimplexNamePolicy", chainId, policy), intent)
+}
+
 function domainSeparator(name: string, chainId: bigint, verifyingContract: Uint8Array): Uint8Array {
   return hashStruct("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)", [
     keccak_256(utf8ToBytes(name)),

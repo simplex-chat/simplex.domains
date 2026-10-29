@@ -1,8 +1,10 @@
 #!/bin/bash
-# Starts the local backend for the names webapp: a chain with the PR #36 contracts and the mock names service.
-# Then run `npm run dev` for the page. Ctrl-C stops everything.
+# Starts the local backend for the names webapp: a chain with the PR #47 contracts, the server of their terms' texts on
+# 127.0.0.1:8098 and the mock names service. Then run `npm run dev` for the page. Ctrl-C stops everything.
 #
-#   ENS_CONTRACTS_DIR  a compiled ens-contracts checkout at PR #36 (simplex-namespace-contract's submodule)
+#   ENS_CONTRACTS_DIR  the compiled ens-contracts submodule (PR #47) of a simplex-namespace-contract checkout, whose
+#                      test/fixtures/terms/ the chain links as its terms
+#   TERMS_HOST         the address the terms' texts are served on (default: 127.0.0.1)
 #   ANVIL              Foundry's anvil (default: anvil)
 #   MIN_COMMITMENT_AGE seconds every registration waits after its commit (default: 60, as the PR's deploy scripts)
 #   ANVIL_HOST         the address anvil listens on (default: 127.0.0.1)
@@ -45,6 +47,8 @@ for ((i = 0; i < count; i++)); do
     exit 1
   fi
 done
+
+node dev/serve-terms.ts &
 
 deploys=()
 for ((i = 0; i < count; i++)); do
