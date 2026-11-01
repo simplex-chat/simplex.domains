@@ -576,6 +576,21 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .cinfo { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 2px; vertical-align: -3px; border-radius: 50%; color: var(--primary); }
 .cinfo svg.i { width: 17px; height: 17px; }
 .cinfo:focus-visible { outline: 2px solid var(--accent); }
+/* a community name's own tick, its words' link a button */
+.check.terms .text-link { padding: 0; font: inherit; font-weight: 600; }
+/* the community terms' text: on their step it fills the frame over its tick and scrolls; in a popup, most of the window */
+.screen-body:has(> .terms-text) { display: flex; flex-direction: column; }
+.screen-body:has(> .terms-text) > .check { align-self: center; }
+.terms-text { flex: 1 1 0; min-height: 0; overflow: auto; padding: 14px 16px; border: 1px solid var(--surface-line); border-radius: 14px;
+  background: var(--surface); font: 400 var(--fs-small)/1.5 var(--body); overflow-wrap: anywhere; text-align: left; }
+.terms-text > * + * { margin-top: 10px; }
+.terms-text > :is(h3, h4, h5, h6) { font: 700 15px/1.3 var(--body); }
+.terms-text > h3 { font-size: 17px; }
+.terms-text > * + :is(h4, h5, h6) { margin-top: 16px; }
+.terms-text > :is(ul, ol) { padding-left: 20px; }
+.terms-text li + li { margin-top: 4px; }
+.terms-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pop > .terms-text { justify-self: stretch; flex: none; max-height: 60dvh; }
 
 /* Your names: a card of names and one of codes, a row per name or code with its actions as text links */
 .card.list { padding: 0; }

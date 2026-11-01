@@ -4,7 +4,9 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
+  askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
+import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
 
 const NOW = Date.parse("2026-10-17T12:00:00Z")
@@ -17,7 +19,7 @@ const WARN: Note = { tone: "warn", icon: "alert", title: null, text: "The invoic
 function registration(change: Partial<RegistrationView> = {}): RegistrationView {
   return {
     ...CHAIN, id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
-    price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
+    price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
     community: null, terms: "2026-10-23", ...change,
   }
 }
@@ -46,10 +48,18 @@ function read(invoice: InvoiceView | null, view: RegistrationView = invoice!.reg
 }
 
 const answered = (s: OrderState, next: OrderState): Extract<OrderEvent, { type: "answered" }> =>
-  ({ type: "answered", seq: s.seq + 1, now: next.now, invoice: next.invoice, view: next.view!, record: next.record, cardSubmittedAt: next.cardSubmittedAt, reserved: next.reserved })
+  ({ type: "answered", seq: s.seq + 1, now: next.now, invoice: next.invoice, view: next.view!, record: next.record, cardSubmittedAt: next.cardSubmittedAt, nameStatus: next.nameStatus })
 
 const submittedAgo = (ms: number) => new Date(NOW - ms).toISOString()
 const committed = { phase: "committed", commitTx: "0xc0", revealAfter: NOW / 1000 - 1, revealBefore: NOW / 1000 + 3600, intentNonce: 4 } as const
+// the community terms an order signed, others on chain, a community entry, the view's acceptance of some terms, and the
+// buyer's ask of them
+const SIGNED = `0x${"c7".repeat(32)}`
+const CHANGED = `0x${"d8".repeat(32)}`
+const communityEntry = (text: string | null = null) => ({ for: text, years: 2 })
+const termsOf = (hash: string) => ({ hash, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
+const acceptanceFor = (termsHash: string, kind: "general" | "community" = "community") => ({ kind, policy: "0x3", termsHash, nonce: 0 })
+const reask = (hash = CHANGED) => askFor(record().label, termsOf(hash), communityEntry(), true)
 
 const SLOW = read(card(), undefined, { record: record({ method: "card" }), cardSubmittedAt: submittedAgo(CARD_SLOW_MS + 1000) })
 
@@ -200,6 +210,12 @@ describe("reduce", () => {
     it("reveal-sent marks the commit's reveal on its way, keeping its refusals", () => {
       const refused = { ...waiting, reveal: { key, sending: false, refusals: 2 } }
       expect(reduce(refused, { type: "reveal-sent", key }).reveal).toEqual({ key, sending: true, refusals: 2 })
+    })
+    it("reveal-sent keeps an ask of the changed community terms it signs, and drops another", () => {
+      const asking = read(null, registration({ ...committed, acceptance: acceptanceFor(CHANGED) }))
+      const ask = reask()
+      expect(reduce({ ...asking, ask }, { type: "reveal-sent", key: "k" }).ask).toEqual(ask)
+      expect(reduce({ ...read(null, registration(committed)), ask }, { type: "reveal-sent", key: "k" }).ask).toBeNull()
     })
     it("reveal-sent for another commit starts its count anew", () => {
       const old = { ...waiting, reveal: { key: "reg-1 0xold 3 1", sending: false, refusals: 2 } }
@@ -490,8 +506,8 @@ describe("a taken order's name", () => {
   const taken = read(null, registration({ phase: "taken", label: "alice" }))
   it("is taken as the search after it answered: reserved meanwhile, or not", () => {
     const start = initialState("reg-1", null)
-    expect(reduce(start, answered(start, { ...taken, reserved: true })).reserved).toBe(true)
-    expect(reduce(start, answered(start, taken)).reserved).toBe(false)
+    expect(reduce(start, answered(start, { ...taken, nameStatus: "reserved" })).nameStatus).toBe("reserved")
+    expect(reduce(start, answered(start, taken)).nameStatus).toBeNull()
   })
 })
 
@@ -528,6 +544,20 @@ describe("a stalled stage", () => {
     const view = registration(committed)
     expect(stalledAt({ ...seen(view), reveal: { key: revealKey(view), sending: false, refusals: REVEAL_ATTEMPTS } })).toBeNull()
   })
+  it("waits while changed community terms are asked for, and is timed from the last tick", () => {
+    const asking = registration({ ...committed, acceptance: acceptanceFor(CHANGED) })
+    const ask = reask()
+    expect(stalledAt({ ...seen(asking), ask }), "the changed community terms asked for").toBeNull()
+    const agreed = reduce({ ...seen(asking), ask }, { type: "terms-agreed", agreed: true, now: NOW + 30_000 })
+    expect(stalledAt(agreed), "the community terms not accepted yet").toBeNull()
+    const ticked = reduce(agreed, { type: "terms-accepted", accepted: true, now: NOW + 60_000 })
+    expect(stalledAt(ticked), "timed from the last tick").toBe(NOW + 60_000 + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS)
+    expect(stalledAt(seen(asking)), "changed terms that could not be asked for").not.toBeNull()
+  })
+  it("is not said once the search for changed terms answered the name as registered or reserved, as the order then fails once its hours to sign are over", () => {
+    const asking = seen(registration({ ...committed, acceptance: acceptanceFor(CHANGED) }))
+    expect(stalledAt(reduce(asking, { type: "name-unavailable", key: commitKey(asking.view!), status: "registered" }))).toBeNull()
+  })
 })
 
 describe("reveal helpers", () => {
@@ -535,6 +565,13 @@ describe("reveal helpers", () => {
   const waiting = read(null, view)
   it("revealKey names the commit a reveal is signed for", () => {
     expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600}`)
+    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 0x3 ${CHANGED} 0`)
+  })
+  it("a stored reveal ends its sending, so one the service clears is signed again under the same key", () => {
+    const sent = reduce(waiting, { type: "reveal-sent", key: revealKey(view) })
+    const stored = reduce(sent, answered(sent, read(null, registration({ ...committed, label: "alice" }))))
+    expect(stored.reveal).toEqual({ key: revealKey(view), sending: false, refusals: 0 })
+    expect(revealDue(reduce(stored, answered(stored, read(null, view))))).toBe(true)
   })
   it("refusalsOf counts the refusals of the commit shown, and none outside the wait", () => {
     const refused = { ...waiting, reveal: { key: revealKey(view), sending: false, refusals: 2 } }
@@ -553,6 +590,39 @@ describe("reveal helpers", () => {
     expect(revealDue(read(null, registration({ ...committed, phase: "registering" })))).toBe(false)
     // the sponsor's nonce the service could not read leaves nothing to sign with
     expect(revealDue(read(null, registration({ ...committed, intentNonce: null, unread: ["intentNonce"] })))).toBe(false)
+  })
+  it("revealDue and askAgainDue for a community name: the reveal waits for changed terms, or terms an older page signed as a version, to be ticked, which are asked for once, only with the name code and links not refused", () => {
+    const listed = (termsHash: string, change: Partial<OrderState> = {}) =>
+      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash), community: communityEntry(), terms: `community/${SIGNED.slice(2)}` }), change)
+    expect([revealDue(listed(SIGNED)), askAgainDue(listed(SIGNED))]).toEqual([true, false])
+    expect([revealDue(listed(CHANGED)), askAgainDue(listed(CHANGED))], "terms changed on chain since the order").toEqual([false, true])
+    const older = read(null, registration({ ...committed, acceptance: acceptanceFor(SIGNED), community: communityEntry(), terms: `2026-10-23/community/${SIGNED.slice(2)}` }))
+    expect([revealDue(older), askAgainDue(older)], "a version an older page signed").toEqual([false, true])
+    const ask = reask()
+    expect([revealDue(listed(CHANGED, { ask })), askAgainDue(listed(CHANGED, { ask }))], "asked, not ticked").toEqual([false, false])
+    expect(askAgainDue(listed(CHANGED, { record: null })), "no name code in this browser").toBe(false)
+    expect(askAgainDue(listed(CHANGED, { record: record({ linksRefused: true }) })), "links refused").toBe(false)
+    const unavailable = reduce(listed(CHANGED), { type: "name-unavailable", key: commitKey(listed(CHANGED).view!), status: "reserved" })
+    expect([nameUnavailable(unavailable), askAgainDue(unavailable)], "the name registered or reserved meanwhile")
+      .toEqual([{ key: commitKey(listed(CHANGED).view!), status: "reserved" }, false])
+    const unread = { ...unavailable, view: { ...unavailable.view!, acceptance: null, unread: ["acceptance"] } }
+    expect(nameUnavailable(unread), "a view whose acceptance was not read now").toEqual(unavailable.unavailable)
+    const recommitted = { ...unavailable, view: { ...unavailable.view!, commitment: `0x${"ef".repeat(32)}` } }
+    expect([nameUnavailable(recommitted), askAgainDue(recommitted)], "a new commitment asks again").toEqual([null, true])
+    expect(revealDue(listed(CHANGED, { ask: { ...ask, agreed: true } })), "the general terms' box alone").toBe(false)
+    expect(revealDue(listed(CHANGED, { ask: { ...ask, accepted: true } })), "ticked").toBe(true)
+    expect(revealDue(listed(CHANGED, { ask: { ...reask(SIGNED), accepted: true } })), "ticked other terms").toBe(false)
+    expect(revealDue(read(null, registration({ ...committed, unread: ["acceptance"] }))), "an acceptance the service could not read").toBe(false)
+  })
+  it("revealDue and askAgainDue for a plain name: the reveal waits for changed general terms to be ticked, and for terms an older page signed as a version", () => {
+    const PLAIN = `0x${"21".repeat(32)}`
+    const plain = (termsHash: string, terms: string, change: Partial<OrderState> = {}) =>
+      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash, "general"), terms }), change)
+    expect([revealDue(plain(PLAIN, PLAIN.slice(2))), askAgainDue(plain(PLAIN, PLAIN.slice(2)))]).toEqual([true, false])
+    expect([revealDue(plain(CHANGED, PLAIN.slice(2))), askAgainDue(plain(CHANGED, PLAIN.slice(2)))], "terms changed on chain since the order").toEqual([false, true])
+    expect([revealDue(plain(PLAIN, "2026-10-23")), askAgainDue(plain(PLAIN, "2026-10-23"))], "a version an older page signed").toEqual([false, true])
+    const ask = { ...askFor(record().label, termsOf(CHANGED), null, true), agreed: true }
+    expect(revealDue(plain(CHANGED, PLAIN.slice(2), { ask })), "ticked").toBe(true)
   })
   it("unreadDelay reads a view with unread fields again after 5 s, 15 s, then every 30 s", () => {
     expect([0, 1, 2, 3, 10].map(unreadDelay)).toEqual([5000, 15000, 30000, 30000, 30000])
@@ -605,8 +675,8 @@ describe("wakeAt", () => {
 })
 
 describe("the terms of the same name again", () => {
-  const TERMS = { version: "2026-11-01", url: "https://simplex.chat/" }
-  const BAKERS = { for: "bakers and pastry chefs" }
+  const TERMS = termsOf(`0x${"f6".repeat(32)}`)
+  const BAKERS = communityEntry("bakers and pastry chefs")
 
   it("terms-asked ends a new invoice's or a move's work and asks for the name's terms, unticked", () => {
     for (const started of ["reorder-started", "move-started"] as const) {
@@ -616,12 +686,19 @@ describe("the terms of the same name again", () => {
   })
   it("terms-agreed ticks the box and ends the notice that the terms changed", () => {
     const s = reduce(STATES["status:closed"], { type: "terms-asked", label: "alice", terms: TERMS, community: null, changed: true })
-    const ticked = reduce(s, { type: "terms-agreed", agreed: true })
-    expect(ticked.ask).toEqual({ label: "alice", terms: TERMS, community: null, agreed: true, changed: false })
-    expect(reduce(ticked, { type: "terms-agreed", agreed: false }).ask).toEqual({ label: "alice", terms: TERMS, community: null, agreed: false, changed: false })
+    const ticked = reduce(s, { type: "terms-agreed", agreed: true, now: NOW })
+    expect(ticked.ask).toEqual({ label: "alice", terms: TERMS, community: null, agreed: true, accepted: false, changed: false })
+    expect(reduce(ticked, { type: "terms-agreed", agreed: false, now: NOW }).ask).toEqual({ label: "alice", terms: TERMS, community: null, agreed: false, accepted: false, changed: false })
+  })
+  it("terms-accepted ticks a community name's own box and ends the notice that the terms changed", () => {
+    const s = reduce(STATES["status:closed"], { type: "terms-asked", label: "alice", terms: TERMS, community: BAKERS, changed: true })
+    const ticked = reduce(s, { type: "terms-accepted", accepted: true, now: NOW })
+    expect(ticked.ask).toEqual({ label: "alice", terms: TERMS, community: BAKERS, agreed: false, accepted: true, changed: false })
+    expect(reduce(ticked, { type: "terms-accepted", accepted: false, now: NOW }).ask).toMatchObject({ accepted: false })
+    expect(reduce(STATES["status:closed"], { type: "terms-accepted", accepted: true, now: NOW }), "nothing asked").toBe(STATES["status:closed"])
   })
   it("terms-agreed with nothing asked changes nothing", () => {
-    expect(reduce(STATES["status:closed"], { type: "terms-agreed", agreed: true })).toBe(STATES["status:closed"])
+    expect(reduce(STATES["status:closed"], { type: "terms-agreed", agreed: true, now: NOW })).toBe(STATES["status:closed"])
   })
   it("the ask stays while the order is read again", () => {
     const s = reduce(STATES["status:closed"], { type: "terms-asked", label: "alice", terms: TERMS, community: null, changed: false })
@@ -629,7 +706,7 @@ describe("the terms of the same name again", () => {
   })
   it("an order moved to another name meanwhile drops the ask, ticked or not, so the next press asks for that name's terms", () => {
     const asked = reduce(STATES["status:closed"], { type: "terms-asked", label: "alice", terms: TERMS, community: null, changed: false })
-    const ticked = reduce(asked, { type: "terms-agreed", agreed: true })
+    const ticked = reduce(asked, { type: "terms-agreed", agreed: true, now: NOW })
     const moved = { ...STATES["status:closed"], record: record({ label: "bob123" }) }
     expect(reduce(ticked, answered(ticked, moved)).ask).toBeNull()
     expect(reduce(ticked, { type: "record-changed", record: record({ label: "bob123" }), cardSubmittedAt: null }).ask).toBeNull()
@@ -643,7 +720,7 @@ describe("initialState", () => {
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
       reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null,
-      reserved: false, since: null,
+      nameStatus: null, unavailable: null, since: null,
     })
   })
 })

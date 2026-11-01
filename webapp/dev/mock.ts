@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
-  cancelInvoice, checkCode, controlCommunity, controlCredit, controlEdits, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlTake, controlTerms, createInvoice, dump, editRecords, find,
+  cancelInvoice, checkCode, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlTake, createInvoice, currentTerms, dump, editRecords, find,
   HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retry, reveal, search, spend,
 } from "./mock/service.ts"
 
@@ -34,6 +34,7 @@ type Limit = (client: string) => void
 const routes: [string, RegExp, Handler, Limit?][] = [
   ["GET", /^\/api\/name\/([^/]+)$/, (m, _, q) => search(m[1], q.get("length"))],
   ["POST", /^\/api\/link\/preview$/, (_, b) => previewLink(b)],
+  ["GET", /^\/api\/terms\/([^/]+)$/, (m) => currentTerms(m[1])],
   ["POST", /^\/api\/code\/check$/, (_, b) => checkCode(b), codeLimited],
   ["POST", /^\/api\/invoice$/, (_, b) => oneOrderAtATime(() => createInvoice(b))],
   ["GET", /^\/api\/invoice\/([^/]+)$/, (m, _, q) => readInvoice(m[1], q.get("wait"), versionOf(q), q.get("seenPaid"), q.get("seenFull") === "1")],
@@ -54,10 +55,11 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/control\/refund\/([^/]+)$/, (m, b) => controlRefund(m[1], b.cents)],
   ["POST", /^\/control\/rate$/, (_, b) => controlRate(b)],
   ["POST", /^\/control\/search$/, (_, b) => controlSearch(b)],
-  ["POST", /^\/control\/terms$/, (_, b) => controlTerms(b)],
+  ["POST", /^\/control\/general-terms$/, (_, b) => controlGeneralTerms(b)],
   ["POST", /^\/control\/mode$/, (_, b) => controlMode(b)],
   ["GET", /^\/control\/mode$/, () => modeNow()],
   ["POST", /^\/control\/community$/, (_, b) => controlCommunity(b)],
+  ["POST", /^\/control\/community-terms$/, (_, b) => controlCommunityTerms(b)],
   ["POST", /^\/control\/edits$/, (_, b) => controlEdits(b)],
   ["POST", /^\/control\/code\/state$/, (_, b) => setCodeState(b.code, b.state)],
   ["POST", /^\/control\/code$/, (_, b) => ({ code: issueCode(Number(b.minLength), Number(b.years ?? 2), (b.state ?? "unused") as never) })],
@@ -82,9 +84,8 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function reply(res: ServerResponse, status: number, body: unknown, retryAfter: number | null = null): void {
-  const text = JSON.stringify(body, (_, v) => (typeof v === "bigint" ? v.toString() : v))
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
-  res.end(text)
+  res.end(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? v.toString() : v)))
 }
 
 const server = createServer(async (req, res) => {

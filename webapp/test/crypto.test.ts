@@ -7,7 +7,7 @@ import { mnemonicToAccount } from "viem/accounts"
 import { describe, expect, it } from "vitest"
 import { codeHash, codeProgress, formatOwnerCode, mayBeOwnerCode, parseNameCode } from "../src/crypto/code.ts"
 import {
-  clearRecordsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
+  acceptTermsDigest, clearRecordsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
   registerIntentDigest, setTextDigest, type Registration,
 } from "../src/crypto/registration.ts"
 import { seal, unseal } from "../src/crypto/seal.ts"
@@ -180,6 +180,16 @@ describe("registration", () => {
       domain, primaryType: "ClearRecords",
       types: { ClearRecords: [{ name: "node", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
       message: { node, nonce: 4n, deadline: 99n },
+    }))
+  })
+
+  it.each([["AcceptGeneralTerms", false], ["AcceptCommunityTerms", true]] as const)("hashes the acceptance of the terms of a name's kind, %s, as the name policy's EIP-712 digest", (primaryType, community) => {
+    const policy = "0x9A676e781A523b5d0C0e43731313A708CB607508"
+    const [commitment, termsHash] = [`0x${"cd".repeat(32)}`, `0x${"c7".repeat(32)}`] as const
+    expect(hex(acceptTermsDigest(community, CHAIN_ID, fromHex(policy), fromHex(commitment), fromHex(termsHash), 2n, 99n))).toBe(hashTypedData({
+      domain: { name: "SimplexNamePolicy", version: "1", chainId: Number(CHAIN_ID), verifyingContract: policy }, primaryType,
+      types: { [primaryType]: [{ name: "commitment", type: "bytes32" }, { name: "termsHash", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
+      message: { commitment, termsHash, nonce: 2n, deadline: 99n },
     }))
   })
 

@@ -1,8 +1,8 @@
-import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type Terms } from "../api.ts"
+import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
-import { askFor, type TermsAsk } from "./terms.ts"
+import { askFor, type TermsAsk, ticked } from "./terms.ts"
 
 // a card payment Stripe has not confirmed after this long gets the "not confirmed" page
 export const CARD_SLOW_MS = 10 * 60 * 1000
@@ -53,13 +53,16 @@ export interface OrderState {
   // the balance that paid part of the order, as its own order reads now, which a new invoice spends again
   sourceBalance: Balance | null
   ask: TermsAsk | null
-  reserved: boolean
-  // when this page first saw the stage, on the service's clock
+  // a taken or failed order's name, as one search answered it
+  nameStatus: SearchAnswer["status"] | null
+  // the search of the changed terms' ask answered the name as registered or reserved, for the commit of this key
+  unavailable: { key: string; status: SearchAnswer["status"] } | null
+  // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
 }
 
 export type OrderEvent =
-  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; reserved: boolean }
+  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: SearchAnswer["status"] | null }
   | { type: "record-changed"; record: OrderRecord | null; cardSubmittedAt: string | null }
   | { type: "read-failed" }
   | { type: "not-found" }
@@ -86,12 +89,14 @@ export type OrderEvent =
   | { type: "code-check-due"; at: number | null }
   | { type: "source-read"; balance: Balance | null }
   | { type: "terms-asked"; label: string; terms: Terms; community: Community | null; changed: boolean }
-  | { type: "terms-agreed"; agreed: boolean }
+  | { type: "terms-agreed"; agreed: boolean; now: number }
+  | { type: "terms-accepted"; accepted: boolean; now: number }
+  | { type: "name-unavailable"; key: string; status: SearchAnswer["status"] }
   | { type: "hold-started"; until: number; lead: string }
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, reserved: false, since: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, unavailable: null, since: null }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase}${view.phase === "committed" && view.label !== null ? " signed" : ""}`
@@ -105,8 +110,9 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
   switch (e.type) {
     case "answered":
       if (e.seq <= s.seq) return s
+      // a reveal the view shows as stored is no longer sending, so one the service clears is signed again under the same key
       return { ...s, seq: e.seq, now: e.now, invoice: e.invoice, view: e.view, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? e.view.label),
-        reserved: e.reserved, since: sinceOf(s.since, e.view, e.now) }
+        nameStatus: e.nameStatus, since: sinceOf(s.since, e.view, e.now), reveal: e.view.label !== null && s.reveal ? { ...s.reveal, sending: false } : s.reveal }
     case "record-changed": return { ...s, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? null) }
     case "read-failed": return s
     case "not-found": return { ...s, gone: true }
@@ -115,7 +121,8 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "card-failed": return { ...s, cardFailed: true }
     case "card-started": return start(s, "card")
     case "card-refused": return end(s, "card", { note: e.note })
-    case "reveal-sent": return { ...s, reveal: { key: e.key, sending: true, refusals: s.reveal?.key === e.key ? s.reveal.refusals : 0 } }
+    // at a reveal, the ask is kept only for the changed terms whose acceptance the reveal includes
+    case "reveal-sent": return { ...s, ask: termsAskedAgain(s) ? s.ask : null, reveal: { key: e.key, sending: true, refusals: s.reveal?.key === e.key ? s.reveal.refusals : 0 } }
     case "reveal-refused": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false, refusals: s.reveal.refusals + 1 } } : s
     case "reveal-failed": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false } } : s
     case "reveal-retried": return s.reveal ? { ...s, reveal: { ...s.reveal, refusals: 0 } } : s
@@ -133,7 +140,10 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "code-check-due": return { ...s, codeCheckAt: e.at }
     case "source-read": return s.busy === "reorder" ? end(s, "reorder", { sourceBalance: e.balance }) : { ...s, sourceBalance: e.balance }
     case "terms-asked": return { ...s, busy: null, ask: askFor(e.label, e.terms, e.community, e.changed) }
-    case "terms-agreed": return s.ask ? { ...s, ask: { ...s.ask, agreed: e.agreed, changed: false } } : s
+    // agreeing to changed terms times the stall from then
+    case "terms-agreed": return s.ask ? { ...s, ask: { ...s.ask, agreed: e.agreed, changed: false }, since: termsAskedAgain(s) && s.since ? { ...s.since, at: e.now } : s.since } : s
+    case "terms-accepted": return s.ask ? { ...s, ask: { ...s.ask, accepted: e.accepted, changed: false }, since: termsAskedAgain(s) && s.since ? { ...s.since, at: e.now } : s.since } : s
+    case "name-unavailable": return { ...s, unavailable: { key: e.key, status: e.status } }
     case "hold-started": return { ...s, busy: null, note: null, hold: { until: Math.max(e.until, s.hold?.until ?? 0), lead: e.lead } }
     case "hold-ended": return { ...s, hold: null }
   }
@@ -259,7 +269,25 @@ function paymentKind(s: OrderState, invoice: InvoiceView): OrderKind {
   return slow ? "status:card-unconfirmed" : "confirming"
 }
 
-export const revealKey = (view: RegistrationView) => `${view.id} ${view.commitment} ${view.intentNonce} ${view.revealBefore}`
+export const revealKey = (view: RegistrationView) => `${view.id} ${view.commitment} ${view.intentNonce} ${view.revealBefore}${view.acceptance ? ` ${view.acceptance.policy} ${view.acceptance.termsHash} ${view.acceptance.nonce}` : ""}`
+
+// The terms of the name's kind on chain are not the ones the order signed, so the buyer agrees to them again before the reveal.
+const termsChanged = ({ view }: OrderState) => !!view?.acceptance && view.acceptance.termsHash !== signedHash(view.terms)
+
+// The buyer is asked for the changed terms, ticked or not.
+export const termsAskedAgain = (s: OrderState) => termsChanged(s) && s.ask?.terms.hash === s.view!.acceptance!.termsHash
+
+// The reveal waits until the buyer ticks the changed terms.
+export const termsToAgree = (s: OrderState) => termsChanged(s) && !(termsAskedAgain(s) && ticked(s.ask!))
+
+// The changed terms are asked for once the order is committed and they are not asked for yet.
+export const askAgainDue = (s: OrderState) => !!s.record && !linksRefused(s) && termsChanged(s) && !termsAskedAgain(s) && !nameUnavailable(s)
+
+// The commit an answer about its name belongs to, whatever nonces and terms its reveal signs.
+export const commitKey = (view: RegistrationView) => `${view.id} ${view.commitment} ${view.revealBefore}`
+
+// The changed terms cannot be asked for a name the search answered as registered or reserved while this commitment waits.
+export const nameUnavailable = (s: OrderState) => s.view && s.unavailable?.key === commitKey(s.view) ? s.unavailable : null
 
 export function refusalsOf({ view, reveal }: OrderState): number {
   return view?.phase === "committed" && reveal?.key === revealKey(view) ? reveal.refusals : 0
@@ -268,13 +296,14 @@ export function refusalsOf({ view, reveal }: OrderState): number {
 export function revealDue(s: OrderState): boolean {
   const { view, record, reveal } = s
   if (view?.phase !== "committed" || view.label !== null || view.intentNonce === null || !record || linksRefused(s)) return false
+  if (view.unread.includes("acceptance") || termsToAgree(s)) return false
   if ((view.revealAfter ?? 0) * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
 }
 
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
-  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS) return null
+  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s)) return null
   if (view.phase !== "committed" || view.label !== null) return since.at + TX_STALL_MS
   return Math.max(since.at, (view.revealAfter ?? 0) * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }

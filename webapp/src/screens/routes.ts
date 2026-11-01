@@ -1,8 +1,8 @@
 export type View = "search" | "checkout" | "order" | "names" | "edit" | "trademarks" | "code"
-export type CheckoutStep = "links" | "code" | "review"
+export type CheckoutStep = "links" | "code" | "community" | "review"
 
 export const EDIT_PATH = /^\/edit\/([\w-]+)$/
-const CHECKOUT_PATH = /^\/checkout(?:\/(links|code))?$/
+const CHECKOUT_PATH = /^\/checkout(?:\/(links|code|community))?$/
 
 export function viewOf(query: URLSearchParams, path: string): View {
   if (query.get("order") || query.get("registration")) return "order"

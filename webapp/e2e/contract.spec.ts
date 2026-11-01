@@ -8,7 +8,10 @@ import { CHANNEL_KEY, CONTACT_KEY, labelHash, namehash, setTextDigest, YEAR_S } 
 import { checksumAddress, fromHex, hex, personalDigest, signDigest } from "../src/crypto/wallet.ts"
 import * as flow from "../src/flow.ts"
 import * as store from "../src/store.ts"
-import { channelLink, contactLink, control, MOCK, newClient, oracleQuote, ownerSetsResolver, ownerSetsText, test, textChangesOf, uniqueLabel } from "./helpers.ts"
+import {
+  acceptedOnChain, channelLink, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, contactLink, control, GENERAL_TERMS_HASH, LISTED_TERMS, MOCK, NAME_POLICY, newClient, oracleQuote, ownerSetsResolver, ownerSetsText,
+  PLAIN_TERMS, TERMS, test, textChangesOf, uniqueLabel,
+} from "./helpers.ts"
 
 type Json = Record<string, unknown>
 
@@ -44,7 +47,7 @@ const PHASE_MS = 120_000
 const ELSEWHERE: Hex = "0x000000000000000000000000000000000000dEaD"
 const NO_LINKS = { contact: "", channel: "" }
 
-type Quote = Extract<api.SearchAnswer, { status: "available" }>
+type Quote = flow.Quote
 
 async function quote(label: string): Promise<Quote> {
   const q = await flow.quoteOf(label)
@@ -929,18 +932,17 @@ test("a spend whose difference is below the card's least charge refuses the card
 
 // --- terms and community names
 
-// the e2e spec's community name, which the service's contract run lists too
+// the e2e spec's community name, which dev/deploy.ts lists
 const COMMUNITY_LABEL = "bakers"
-const TERMS_VERSION = "2026-10-23"
-const COMMUNITY_TERMS = `${TERMS_VERSION}/community`
+const communityEntry = (text: unknown) => ({ for: text, years: 2 })
 
-// The service's terms at another version while `f` runs, as after a restart with a new terms_version.
-async function atVersion<T>(request: APIRequestContext, version: string, f: () => Promise<T>): Promise<T> {
-  await control(request, "terms", { version })
+// The name policy's terms of a kind changed to the link of this text while `f` runs, then back to the deployed ones.
+async function withTerms<T>(request: APIRequestContext, kind: "general-terms" | "community-terms", text: string, f: (terms: api.Terms) => Promise<T>): Promise<T> {
+  const { link, hash } = await control(request, kind, { text }) as unknown as api.Terms
   try {
-    return await f()
+    return await f({ hash, link })
   } finally {
-    await control(request, "terms", { version: TERMS_VERSION })
+    await control(request, kind, { text: null })
   }
 }
 
@@ -954,44 +956,44 @@ async function listed<T>(request: APIRequestContext, label: string, f: () => Pro
   }
 }
 
-const termsChanged = (version: string, community: Json | null) => ({ error: "terms_changed", terms: { version, url: expect.stringMatching(/^https:\/\//) }, community })
+const termsChanged = (terms: api.Terms, community: Json | null) => ({ error: "terms_changed", terms, community })
 
-test("every search answer carries the name's community entry, and the available one the terms to agree to", async () => {
+test("every search answer carries the name's community entry, and the available one the terms of its kind to agree to", async () => {
   const listed = (await call("GET", `/api/name/${hex(labelHash(COMMUNITY_LABEL))}?length=${COMMUNITY_LABEL.length}`)).json
-  expect(listed).toMatchObject({ status: "available", community: { for: expect.any(String) }, terms: { version: TERMS_VERSION, url: expect.stringMatching(/^https:\/\//) } })
+  expect(listed).toMatchObject({ status: "available", community: communityEntry(expect.any(String)), terms: LISTED_TERMS })
   const other = uniqueLabel("ta")
-  expect((await call("GET", `/api/name/${hex(labelHash(other))}?length=${other.length}`)).json).toMatchObject({ status: "available", community: null, terms: { version: TERMS_VERSION } })
+  expect((await call("GET", `/api/name/${hex(labelHash(other))}?length=${other.length}`)).json).toMatchObject({ status: "available", community: null, terms: TERMS })
   for (const [name, status] of [["bakery", "registered"], ["support", "reserved"]]) {
     const answer = (await call("GET", `/api/name/${hex(labelHash(name))}?length=${name.length}`)).json
     expect([answer.status, answer.community], name).toEqual([status, null])
   }
 })
 
-test("an order signs the terms for its name: another variant or an old version is terms_changed with the terms and community now, a malformed one bad_request", async ({ request }) => {
+test("an order signs the terms of its name's kind: the other kind or other terms is terms_changed with the terms and community now, a malformed one bad_request", async ({ request }) => {
   const community = await quote(COMMUNITY_LABEL)
-  const plain = { ...await draftOf(COMMUNITY_LABEL), terms: TERMS_VERSION }
+  const plain = { ...await draftOf(COMMUNITY_LABEL), terms: PLAIN_TERMS }
   const refused = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(plain)).request, "btc", community.price))
-  expect([refused.status, refused.json]).toEqual([409, termsChanged(TERMS_VERSION, community.community as Json | null)])
+  expect([refused.status, refused.json]).toEqual([409, termsChanged(LISTED_TERMS, community.community as Json | null)])
   const label = uniqueLabel("tb")
   const q = await quote(label)
   const claimed = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, "btc", q.price))
-  expect([claimed.status, claimed.json]).toEqual([409, termsChanged(TERMS_VERSION, null)])
+  expect([claimed.status, claimed.json]).toEqual([409, termsChanged(TERMS, null)])
   const draft = await draftOf(label)
   const { request: signed } = await flow.orderRequest(draft)
-  for (const terms of [undefined, "", "2026 10 23", "t".repeat(49), 5]) {
+  for (const terms of [undefined, "", "2026 10 23", "t".repeat(75), 5]) {
     const res = await call("POST", "/api/invoice", invoiceBody({ ...signed, terms } as never, "btc", q.price))
     expect([res.status, res.json], String(terms)).toEqual([400, { error: "bad_request" }])
   }
-  await atVersion(request, "2026-11-01", async () => {
+  await withTerms(request, "general-terms", `the general terms, changed for ${label}`, async (terms) => {
     // a stale timestamp is checked before the terms
     const stale = await signedAt(draft.ownerCode, signed, signed.timestamp - SIGNED_WINDOW_S - 100)
     expect((await call("POST", "/api/invoice", invoiceBody(stale, "btc", q.price))).json, "a stale timestamp").toEqual({ error: "bad_request" })
     const res = await call("POST", "/api/invoice", invoiceBody(signed, "btc", q.price))
-    expect([res.status, res.json]).toEqual([409, termsChanged("2026-11-01", null)])
+    expect([res.status, res.json]).toEqual([409, termsChanged(terms, null)])
   })
   const ok = await call("POST", "/api/invoice", invoiceBody(signed, "btc", q.price))
   expect(ok.status, JSON.stringify(ok.json)).toBe(200)
-  expect((ok.json.registration as Json).terms).toBe(TERMS_VERSION)
+  expect((ok.json.registration as Json).terms).toBe(PLAIN_TERMS)
 })
 
 test("an exact resend is answered after the terms changed, and two orders differing only in terms are different orders", async ({ request }) => {
@@ -1001,10 +1003,10 @@ test("an exact resend is answered after the terms changed, and two orders differ
   const built = await flow.orderRequest(draft)
   const first = await call("POST", "/api/invoice", invoiceBody(built.request, "btc", q.price))
   expect(first.status).toBe(200)
-  await atVersion(request, "2026-11-01", async () => {
+  await withTerms(request, "general-terms", `the general terms, changed for ${label}`, async (terms) => {
     const again = await call("POST", "/api/invoice", invoiceBody(built.request, "btc", q.price))
     expect([again.status, again.json.invoiceId]).toEqual([200, first.json.invoiceId])
-    const other = await signedAt(draft.ownerCode, { ...built.request, terms: "2026-11-01" }, built.request.timestamp)
+    const other = await signedAt(draft.ownerCode, { ...built.request, terms: terms.hash.slice(2) }, built.request.timestamp)
     expect((await call("POST", "/api/invoice", invoiceBody(other, "btc", q.price))).json).toEqual({ error: "order_exists" })
   })
 })
@@ -1013,38 +1015,72 @@ test("a code order meets changed terms before the code's state, and a spend befo
   const label = uniqueLabel("td")
   const { code } = await control(request, "code", { minLength: 6, state: "used" }) as { code: string }
   const coded = await call("POST", "/api/name/register", { ...(await flow.orderRequest({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, code })
-  expect([coded.status, coded.json]).toEqual([409, termsChanged(TERMS_VERSION, null)])
+  expect([coded.status, coded.json]).toEqual([409, termsChanged(TERMS, null)])
   const src = await lateBalance(request)
   const spent = await spendCall(src.id, await spendBody(src, await orderOf(src, shortLabel(7), { terms: COMMUNITY_TERMS }), { price: PRICE.seven, balance: PRICE.long - 1, method: "btc" }))
-  expect([spent.status, spent.json]).toEqual([409, termsChanged(TERMS_VERSION, null)])
+  expect([spent.status, spent.json]).toEqual([409, termsChanged(TERMS, null)])
   const covered = await spendCall(src.id, await spendBody(src, await orderOf(src, uniqueLabel("te")), { price: PRICE.long, balance: PRICE.long }))
   expect(covered.status, JSON.stringify(covered.json)).toBe(200)
-  expect((await viewOf(covered.json.registrationId as string)).terms).toBe(TERMS_VERSION)
+  expect((await viewOf(covered.json.registrationId as string)).terms).toBe(PLAIN_TERMS)
 })
 
-test("a move signs the new name's terms: a community name needs the community wording, which is stored; the same body again is a repeat, also after the terms changed, and one differing only in terms a move", async ({ request }) => {
+test("a move signs the new name's terms: a community name needs the community terms, which are stored; the same body again is a repeat, also after the terms changed, and one differing only in terms a move", async ({ request }) => {
   const label = uniqueLabel("tf")
   await listed(request, label, async () => {
     const { id, view } = await failedOrder(request, uniqueLabel("tg"))
-    expect([view.terms, view.community]).toEqual([TERMS_VERSION, null])
+    expect([view.terms, view.community]).toEqual([PLAIN_TERMS, null])
     const q = await quote(label)
-    expect(q.community).toEqual({ for: "test bakers" })
-    await expect(flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, TERMS_VERSION)).rejects.toMatchObject({ code: "terms_changed", terms: { version: TERMS_VERSION }, community: { for: "test bakers" } })
+    expect(q.community).toEqual(communityEntry("test bakers"))
+    await expect(flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, PLAIN_TERMS)).rejects.toMatchObject({ code: "terms_changed", terms: LISTED_TERMS, community: { for: "test bakers" } })
     const moved = await flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, COMMUNITY_TERMS)
-    expect([moved.moves, moved.terms, moved.community]).toEqual([1, COMMUNITY_TERMS, { for: "test bakers" }])
+    expect([moved.moves, moved.terms, moved.community]).toEqual([1, COMMUNITY_TERMS, communityEntry("test bakers")])
     const record = store.orderByRegistration(id)!
     expect(record.terms).toBe(COMMUNITY_TERMS)
     const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, moved))
     expect([repeat.status, repeat.json.moves, repeat.json.version], "a repeat answers the view unchanged").toEqual([200, 1, (await viewOf(id)).version])
     const failed = await failAtRegister(request, id)
-    await atVersion(request, "2026-11-01", async () => {
+    await withTerms(request, "community-terms", `the community terms, changed for ${label}`, async (terms) => {
       // the current fields under the terms they were signed with are still a repeat, answered before the terms
       const again = await call("POST", `/api/registration/${id}/name`, await nameBody(record, failed))
       expect([again.status, again.json.moves, again.json.phase]).toEqual([200, 1, "failed"])
-      const bumped = await call("POST", `/api/registration/${id}/name`, await nameBody(record, failed, "2026-11-01/community"))
-      expect([bumped.status, bumped.json.moves, bumped.json.terms, bumped.json.commitment]).toEqual([200, 2, "2026-11-01/community", failed.commitment])
+      const bumped = await call("POST", `/api/registration/${id}/name`, await nameBody(record, failed, `community/${terms.hash.slice(2)}`))
+      expect([bumped.status, bumped.json.moves, bumped.json.terms, bumped.json.commitment]).toEqual([200, 2, `community/${terms.hash.slice(2)}`, failed.commitment])
     })
   })
+})
+
+test("a committed community name's view asks for the owner's acceptance of the community terms on chain; its reveal without one, or with one for another nonce, terms, kind or policy, is bad_request, and with it the register records it", async ({ request }) => {
+  const label = uniqueLabel("tk")
+  await listed(request, label, async () => {
+    const { draft, built, id } = await codeOrder(request, label)
+    expect(draft.terms).toBe(COMMUNITY_TERMS)
+    const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+    const view = await untilRevealable(id)
+    expect(view.acceptance).toEqual({ kind: "community", policy: NAME_POLICY, termsHash: COMMUNITY_TERMS_HASH, nonce: 0 })
+    const accept = view.acceptance!
+    for (const [what, acceptance] of [["none", null], ["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: `0x${"d8".repeat(32)}` }],
+      ["the other kind", { ...accept, kind: "general" }], ["another policy", { ...accept, policy: view.sponsor }]] as const) {
+      await expect(flow.revealOrder({ ...view, acceptance }, record), what).rejects.toMatchObject({ code: "bad_request" })
+    }
+    await flow.revealOrder(view, record)
+    const done = await untilPhase(id, ["registered"])
+    expect(done.acceptance, "no acceptance asked once registered").toBeNull()
+    expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "community", name: label, holder: record.owner, termsHash: COMMUNITY_TERMS_HASH })
+  })
+})
+
+test("a plain name's committed view asks for the owner's acceptance of the general terms; its reveal without one or with the other kind is bad_request, and with it the register records it", async ({ request }) => {
+  const label = uniqueLabel("tl")
+  const { draft, built, id } = await codeOrder(request, label)
+  const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+  const view = await untilRevealable(id)
+  expect(view.acceptance).toEqual({ kind: "general", policy: NAME_POLICY, termsHash: GENERAL_TERMS_HASH, nonce: 0 })
+  for (const [what, acceptance] of [["none", null], ["the other kind", { ...view.acceptance!, kind: "community" }]] as const) {
+    await expect(flow.revealOrder({ ...view, acceptance }, record), what).rejects.toMatchObject({ code: "bad_request" })
+  }
+  await flow.revealOrder(view, record)
+  const done = await untilPhase(id, ["registered"])
+  expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
 })
 
 test("a move repeat is answered however old its signature, while a move signed too long ago is bad_request", async ({ request }) => {
