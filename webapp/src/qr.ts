@@ -1,6 +1,13 @@
 // The QR encoder and drawing, as the badges webapp has them (simplex-chat apps/simplex-badge-service/web/src/qr.ts);
 // the encoder moves to @simplex-chat/store with the shared library.
 const MODE_BYTE = 0b0100;
+const MODE_ALPHANUMERIC = 0b0010;
+const MODE_BITS = 4;
+// the alphanumeric mode's 45 characters, each its index; two take 11 bits, a last odd one 6
+const ALPHANUMERIC = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+const ALPHANUMERIC_BASE = 45;
+const ALPHANUMERIC_PAIR_BITS = 11;
+const ALPHANUMERIC_SINGLE_BITS = 6;
 const ECC_LEVEL_M_BITS = 0b00;
 const MIN_VERSION = 1;
 const MAX_VERSION = 40;
@@ -14,6 +21,12 @@ const NUM_BLOCKS_M: readonly number[] = [
   -1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16,
   17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49,
 ];
+
+interface Segment {
+  mode: number;
+  count: number;
+  data: number[];
+}
 
 interface QrSymbol {
   version: number;
@@ -85,17 +98,35 @@ function numDataCodewords(version: number): number {
   return totalCodewords(version) - ECC_PER_BLOCK_M[version]! * NUM_BLOCKS_M[version]!;
 }
 
-function charCountBits(version: number): number {
-  return version < 10 ? 8 : 16;
+// ISO/IEC 18004 table 3: the character count's width for versions 1-9, 10-26 and 27-40
+function charCountBits(mode: number, version: number): number {
+  if (mode === MODE_BYTE) return version < 10 ? 8 : 16;
+  return version < 10 ? 9 : version < 27 ? 11 : 13;
 }
 
-function byteCapacity(version: number): number {
-  return Math.floor((numDataCodewords(version) * 8 - 4 - charCountBits(version)) / 8);
+function pushBits(bits: number[], value: number, width: number): void {
+  for (let i = width - 1; i >= 0; i--) bits.push((value >>> i) & 1);
 }
 
-function versionFor(byteLength: number): number | null {
+// Alphanumeric mode when every character is in its set, as an uppercase BOLT11 URI is; UTF-8 bytes otherwise.
+function segmentOf(payload: string): Segment {
+  const data: number[] = [];
+  if ([...payload].every((ch) => ALPHANUMERIC.includes(ch))) {
+    for (let i = 0; i < payload.length; i += 2) {
+      const first = ALPHANUMERIC.indexOf(payload[i]!);
+      if (i + 1 < payload.length) pushBits(data, first * ALPHANUMERIC_BASE + ALPHANUMERIC.indexOf(payload[i + 1]!), ALPHANUMERIC_PAIR_BITS);
+      else pushBits(data, first, ALPHANUMERIC_SINGLE_BITS);
+    }
+    return { mode: MODE_ALPHANUMERIC, count: payload.length, data };
+  }
+  const bytes = new TextEncoder().encode(payload);
+  for (const byte of bytes) pushBits(data, byte, 8);
+  return { mode: MODE_BYTE, count: bytes.length, data };
+}
+
+function versionFor(segment: Segment): number | null {
   for (let version = MIN_VERSION; version <= MAX_VERSION; version++) {
-    if (byteLength <= byteCapacity(version)) return version;
+    if (MODE_BITS + charCountBits(segment.mode, version) + segment.data.length <= numDataCodewords(version) * 8) return version;
   }
   return null;
 }
@@ -110,15 +141,12 @@ function alignmentPositions(version: number): number[] {
   return positions;
 }
 
-function dataCodewords(bytes: Uint8Array, version: number): number[] {
+function dataCodewords(segment: Segment, version: number): number[] {
   const capacity = numDataCodewords(version);
   const bits: number[] = [];
-  const push = (value: number, width: number): void => {
-    for (let i = width - 1; i >= 0; i--) bits.push((value >>> i) & 1);
-  };
-  push(MODE_BYTE, 4);
-  push(bytes.length, charCountBits(version));
-  for (const byte of bytes) push(byte, 8);
+  pushBits(bits, segment.mode, MODE_BITS);
+  pushBits(bits, segment.count, charCountBits(segment.mode, version));
+  bits.push(...segment.data);
   for (let i = 0; i < 4 && bits.length < capacity * 8; i++) bits.push(0);
   while (bits.length % 8 !== 0) bits.push(0);
   const codewords: number[] = [];
@@ -352,12 +380,12 @@ class Matrix {
 }
 
 export function encodeQr(payload: string): QrSymbol | null {
-  const bytes = new TextEncoder().encode(payload);
-  const version = versionFor(bytes.length);
+  const segment = segmentOf(payload);
+  const version = versionFor(segment);
   if (version === null) return null;
   const matrix = new Matrix(version);
   matrix.drawFunctionPatterns();
-  matrix.drawCodewords(interleave(dataCodewords(bytes, version), version));
+  matrix.drawCodewords(interleave(dataCodewords(segment, version), version));
 
   let best = -1;
   let bestPenalty = Infinity;
@@ -385,6 +413,13 @@ export function paymentUri(method: "btc" | "ln" | "xmr", address: string, amount
   const parameter = method === "btc" ? "amount" : "tx_amount";
   // The address is percent-encoded so that a `?`, `&`, or `#` in it cannot add its own parameters to the URI.
   return `${scheme}${encodeURIComponent(address)}?${parameter}=${encodeURIComponent(amount)}`;
+}
+
+// BOLT11 asks for an invoice's QR in uppercase, which alphanumeric mode packs in a smaller symbol than lowercase bytes;
+// wallets read the scheme and the invoice in either case.
+export function paymentQr(method: "btc" | "ln" | "xmr", address: string, amount: string): string | null {
+  const uri = paymentUri(method, address, amount);
+  return method === "ln" ? uri?.toUpperCase() ?? null : uri;
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";

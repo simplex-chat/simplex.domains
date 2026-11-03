@@ -4,7 +4,7 @@ import { parseNameCode } from "../crypto/code.ts"
 import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
-import { paymentUri, qrSvg } from "../qr.ts"
+import { paymentQr, paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, partlyPaid, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, seenWords, stalledAt, TICKER, unreadDelay, wakeAt,
@@ -575,7 +575,7 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const uri = paymentUri(coin, inv.address!, due)
   holdEnds(signal)(s.hold !== null)
   // the QR's link shows on a laptop only, as styles.css draws the phone's layout without the QR
-  const qr = uri ? el("div", { class: "qr" }, qrSvg(uri, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
+  const qr = uri ? el("div", { class: "qr" }, qrSvg(paymentQr(coin, inv.address!, due)!, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
   // labels in sentence case, as their copy buttons say them; the label style draws them in capitals
   const amount = copyField(`${partial ? "rest to send" : "amount"} in ${TICKER[coin]}`, due)
   const address = copyField(destinationName(coin), inv.address!, shownDestination(coin, inv.address!))
