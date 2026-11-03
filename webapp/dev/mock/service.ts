@@ -13,7 +13,7 @@ import {
   baseRegistrar, chainNow, controller, deployment, holder, mined, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
 } from "./chain.ts"
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
-import { addressFor } from "./addresses.ts"
+import { addressFor, lightningInvoice } from "./addresses.ts"
 import { deepLinkOf } from "./links.ts"
 
 const YEARS = 2
@@ -22,10 +22,12 @@ const ATTO_PER_CENT = 10n ** 16n
 // how far an order's free days may be from the service's own count: the page's clock is set from the service's Date header
 const TERM_SLACK_S = 3600
 // rates for the crypto amounts, in dollars
-const RATES = { btc: 64000, xmr: 160 }
+const RATES = { btc: 64000, ln: 64000, xmr: 160 }
 const CENTS_PER_DOLLAR = 100n
-// a coin's atomic units: satoshi and piconero
-const UNIT_DECIMALS = { btc: 8, xmr: 12 }
+// a coin's atomic units: satoshi, millisatoshi and piconero
+const UNIT_DECIMALS = { btc: 8, ln: 11, xmr: 12 }
+// the decimals an invoice's crypto amount is given to; BTCPay gives a Lightning amount to the millisatoshi
+const AMOUNT_DECIMALS = { btc: 5, ln: 11, xmr: 3 }
 const INVOICE_MINUTES = 60
 
 function wholeEnv(name: string, fallback: number): number {
@@ -63,9 +65,9 @@ const COMMUNITY_TEXT_MAX = 200
 const SECP256K1_HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n
 
 export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
-type Method = "card" | "btc" | "xmr"
+type Method = "card" | "btc" | "ln" | "xmr"
 type Coin = Exclude<Method, "card">
-const isMethod = (v: unknown): v is Method => v === "card" || v === "btc" || v === "xmr"
+const isMethod = (v: unknown): v is Method => v === "card" || v === "btc" || v === "ln" || v === "xmr"
 
 interface Registration {
   id: string
@@ -119,6 +121,8 @@ interface Invoice {
   amount: number
   expiresAt: string
   cryptoAmount: string | null
+  // a coin's address, or a Lightning invoice's BOLT11 request
+  address: string | null
   amountPaid: number | null
   cryptoAmountPaid: string | null
   cryptoAmountDue: string | null
@@ -166,7 +170,7 @@ const taking = new Map<string, Promise<void>>()
 // a fetch of a link in fetchDelays takes that many milliseconds;
 // a late payment is credited at the lower of its invoice's rate and the coin's current rate in cents, when one is set
 const control: { chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; refuseLinks: boolean; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
-  { chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, refuseLinks: false, fetchDelays: {}, rates: { btc: null, xmr: null } }
+  { chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, refuseLinks: false, fetchDelays: {}, rates: { btc: null, ln: null, xmr: null } }
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 // Stripe's least charge in US dollars
@@ -519,7 +523,8 @@ async function invoiceView(inv: Invoice): Promise<Record<string, unknown>> {
   }
   for (const k of ["amountPaid", "cryptoAmountPaid", "cryptoAmountDue", "paidInFull", "settledAt"] as const) if (inv[k] !== null) view[k] = inv[k]
   if (inv.method === "card") view.clientSecret = inv.clientSecret
-  else Object.assign(view, { address: addressFor(inv.method, inv.id), cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, requiredConfirmations: 1 })
+  // a Lightning payment is final once paid, so the service names no confirmations for it
+  else Object.assign(view, { address: inv.address, cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, ...inv.method === "ln" ? {} : { requiredConfirmations: 1 } })
   return view
 }
 
@@ -641,11 +646,17 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   return invoiceView(openInvoice(reg, method, price))
 }
 
+function addressOf(method: Coin, invoiceId: string, cryptoAmount: string): string {
+  return method === "ln" ? lightningInvoice(invoiceId, cryptoAmount, nowSeconds(), INVOICE_MINUTES * 60) : addressFor(method, invoiceId)
+}
+
 function openInvoice(reg: Registration, method: Method, amount: number): Invoice {
+  const invoiceId = id()
+  const cryptoAmount = method === "card" ? null : (amount / 100 / RATES[method]).toFixed(AMOUNT_DECIMALS[method])
   const inv: Invoice = {
-    id: id(), registrationId: reg.id, method, status: "open", amount,
+    id: invoiceId, registrationId: reg.id, method, status: "open", amount,
     expiresAt: iso(nowSeconds() + INVOICE_MINUTES * 60),
-    cryptoAmount: method === "card" ? null : (amount / 100 / RATES[method]).toFixed(method === "btc" ? 5 : 3),
+    cryptoAmount, address: method === "card" ? null : addressOf(method, invoiceId, cryptoAmount!),
     amountPaid: null, cryptoAmountPaid: null, cryptoAmountDue: null, paidInFull: null, confirmed: false, settledAt: null,
     clientSecret: method === "card" ? `pi_mock_secret_${randomBytes(12).toString("hex")}` : null, lateUnits: 0n, lateCents: 0, lateWait: null,
   }
@@ -1293,6 +1304,8 @@ export function controlInvoice(action: string, invoiceId: string, body: Record<s
   if (!inv) throw new HttpError(404, "not_found")
   expireIfDue(inv)
   const reg = registrations.get(inv.registrationId)!
+  // a BOLT11 invoice is paid in full or not at all, and a Lightning payment is final once paid
+  if (inv.method === "ln" && (action === "partial" || action === "confirming")) throw badRequest()
   if (action === "settle") {
     settle(inv, reg, settledUnits(inv, body.paid))
   } else if (action === "partial") {
@@ -1374,7 +1387,7 @@ export function controlRefund(reference: string, cents: unknown): Record<string,
 
 // The coins' current rates in whole dollars, for late payments; null goes back to the invoice's own rate.
 export function controlRate(body: Record<string, unknown>): Record<string, unknown> {
-  for (const coin of ["btc", "xmr"] as const) {
+  for (const coin of ["btc", "ln", "xmr"] as const) {
     const rate = body[coin]
     if (rate === undefined) continue
     if (rate !== null && !(Number.isInteger(rate) && (rate as number) > 0)) throw badRequest()

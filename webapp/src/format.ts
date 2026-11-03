@@ -51,5 +51,5 @@ export function clock(seconds: number): string {
 export const timeOf = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
 
 export function methodName(method: string): string {
-  return ({ card: "Card", btc: "Bitcoin", xmr: "Monero", code: "Code" } as Record<string, string>)[method] ?? method
+  return ({ card: "Card", btc: "Bitcoin", ln: "Lightning", xmr: "Monero", code: "Code" } as Record<string, string>)[method] ?? method
 }

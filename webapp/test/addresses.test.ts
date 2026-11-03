@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto"
 import { ed25519 } from "@noble/curves/ed25519"
+import { secp256k1 } from "@noble/curves/secp256k1"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { describe, expect, it } from "vitest"
-import { addressFor } from "../dev/mock/addresses.ts"
+import { addressFor, lightningInvoice } from "../dev/mock/addresses.ts"
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -22,7 +24,7 @@ function bech32Decode(address: string): { hrp: string; data: number[] } {
   return { hrp, data: data.slice(0, -6) }
 }
 
-function fromFiveBits(values: number[]): number[] {
+function fromFiveBits(values: number[], pad = false): number[] {
   const out: number[] = []
   let acc = 0
   let bits = 0
@@ -34,7 +36,25 @@ function fromFiveBits(values: number[]): number[] {
       out.push((acc >>> bits) & 255)
     }
   }
+  if (pad && bits > 0) out.push((acc << (8 - bits)) & 255)
   return out
+}
+
+const numberOf = (groups: number[]) => groups.reduce((n, g) => n * 32 + g, 0)
+
+// BOLT11's reader: the timestamp, each tagged field by its letter, and the signature's 104 groups before the checksum
+function bolt11Decode(invoice: string) {
+  const { hrp, data } = bech32Decode(invoice)
+  const body = data.slice(0, -104)
+  const fields = new Map<string, number[]>()
+  for (let at = 7; at < body.length;) {
+    const length = numberOf(body.slice(at + 1, at + 3))
+    fields.set(BECH32[body[at]], body.slice(at + 3, at + 3 + length))
+    at += 3 + length
+  }
+  const signature = fromFiveBits(data.slice(-104))
+  const signed = createHash("sha256").update(Buffer.concat([Buffer.from(hrp), Buffer.from(fromFiveBits(body, true))])).digest()
+  return { hrp, timestamp: numberOf(body.slice(0, 7)), fields, signature: new Uint8Array(signature.slice(0, 64)), recovery: signature[64], signed: new Uint8Array(signed) }
 }
 
 // Monero's base58: 11 characters a full block of 8 bytes, fewer for the last
@@ -83,5 +103,29 @@ describe("the mock's invoice addresses", () => {
     expect(addressFor("btc", ids[0])).toBe(addressFor("btc", ids[0]))
     expect(addressFor("btc", ids[0])).not.toBe(addressFor("btc", ids[1]))
     expect(addressFor("xmr", ids[0])).not.toBe(addressFor("xmr", ids[1]))
+  })
+
+  const CREATED = 1793000000
+  const nodeKey = (invoice: string) => {
+    const { signature, recovery, signed } = bolt11Decode(invoice)
+    return secp256k1.Signature.fromBytes(signature, "compact").addRecoveryBit(recovery).recoverPublicKey(signed).toHex()
+  }
+  const EXPIRY_S = 3600
+  it.each([["0.00049999944", "499999440p"], ["0.0015625", "1562500n"], ["0.001", "1m"], ["0.000002", "2u"], ["0.00000002", "20n"]])("gives a regtest BOLT11 invoice of %s BTC whose prefix holds it as %s, signed over its fields", (btc, amount) => {
+    const invoice = lightningInvoice(ids[0], btc, CREATED, EXPIRY_S)
+    const { hrp, timestamp, fields } = bolt11Decode(invoice)
+    expect(hrp).toBe(`lnbcrt${amount}`)
+    expect(timestamp).toBe(CREATED)
+    expect([...fields.keys()].sort(), "payment hash, secret, description, expiry and features").toEqual(["9", "d", "p", "s", "x"])
+    expect(fromFiveBits(fields.get("p")!), "a 32-byte payment hash").toHaveLength(32)
+    expect(fromFiveBits(fields.get("s")!), "a 32-byte payment secret").toHaveLength(32)
+    expect(numberOf(fields.get("x")!)).toBe(EXPIRY_S)
+    // a key recovered from a hash the mock did not sign would differ from one invoice to the next
+    expect(nodeKey(invoice), "the node key that signed the prefix and fields").toBe(nodeKey(lightningInvoice(ids[0], "0.5", CREATED + 1, EXPIRY_S)))
+  })
+
+  it("gives each Lightning invoice its own request, the same each time it is asked", () => {
+    expect(lightningInvoice(ids[0], "0.001", CREATED, EXPIRY_S)).toBe(lightningInvoice(ids[0], "0.001", CREATED, EXPIRY_S))
+    expect(lightningInvoice(ids[0], "0.001", CREATED, EXPIRY_S)).not.toBe(lightningInvoice(ids[1], "0.001", CREATED, EXPIRY_S))
   })
 })

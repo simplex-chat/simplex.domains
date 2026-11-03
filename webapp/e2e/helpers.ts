@@ -199,11 +199,11 @@ export async function search(page: Page, label: string): Promise<void> {
 }
 
 interface OrderOptions {
-  method?: "card" | "btc" | "xmr"
+  method?: "card" | "btc" | "ln" | "xmr"
   shots?: string
 }
 
-const METHOD_NAMES = { card: "Card", btc: "Bitcoin", xmr: "Monero" }
+const METHOD_NAMES = { card: "Card", btc: "Bitcoin", ln: "Lightning", xmr: "Monero" }
 
 // the screen in view, a purchase step or any other: main holds one at a time
 export const onStep = (page: Page) => page.locator("body > main > section")

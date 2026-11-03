@@ -502,7 +502,7 @@ test("a covered spend whose answer was lost, its review opened again, says its o
   await waitRegistered(page, name)
 })
 
-test("a difference below the card's least charge is offered in Bitcoin and Monero only, its button where every step's is", async ({ page, request }) => {
+test("a difference below the card's least charge is offered in Bitcoin, Lightning and Monero only, its button where every step's is", async ({ page, request }) => {
   const label = uniqueLabel("bsmall")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
@@ -520,6 +520,7 @@ test("a difference below the card's least charge is offered in Bitcoin and Moner
   await toReview(page)
   await expect(page.getByRole("radio", { name: "Card" })).toHaveCount(0)
   await expect(page.getByRole("radio", { name: "Bitcoin" })).toHaveAttribute("aria-checked", "true")
+  await expect(page.getByRole("radio", { name: "Lightning" })).toBeVisible()
   await expect(page.getByRole("radio", { name: "Monero" })).toBeVisible()
   await expect(payButton(page)).toHaveText(/^Pay \$0\.\d\d with Bitcoin$/)
   for (const [size, top] of [[{ width: 1280, height: 800 }, 587], [{ width: 390, height: 844 }, 636]] as const) {

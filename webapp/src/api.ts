@@ -44,7 +44,8 @@ export function retryDelay(e: unknown, usual: number): number | null {
 }
 
 export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
-export type Method = "card" | "btc" | "xmr"
+export type Method = "card" | "btc" | "ln" | "xmr"
+export type Coin = Exclude<Method, "card">
 
 export interface ChainInfo {
   resolver: string
@@ -278,6 +279,9 @@ const isCount = (v: unknown) => Number.isInteger(v) && (v as number) >= 1
 const isDecimal = (v: unknown) => typeof v === "string" && /^\d+(\.\d+)?$/.test(v)
 // BTCPay reports an overpaid invoice's due below zero, which the page reads as nothing left to pay
 const isDue = (v: unknown) => typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)
+// A BOLT11 payment request as BTCPay gives it: lowercase `ln`, a network's prefix and maybe an amount, `1`, then bech32's
+// alphabet. Only a Lightning invoice's address is one, so a wallet is never handed an address of the wrong kind.
+const BOLT11 = /^ln(bc|bcrt|tb|tbs|sb)(\d+[munp]?)?1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+$/
 const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined || test(v)
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)
 // an image the page holds itself, as the service sends it: the page's CSP loads images from nowhere else
@@ -305,8 +309,8 @@ const isRegistration = (v: unknown) => isObject(v) && isChain(v) && isText(v.id)
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)
-  && optional(v.paidInFull, (x) => typeof x === "boolean") && optional(v.address, isText)
-  && optional(v.cryptoCurrency, (x) => ["card", "btc", "xmr"].includes(x as string)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
+  && optional(v.paidInFull, (x) => typeof x === "boolean") && optional(v.address, (a) => isText(a) && BOLT11.test(a as string) === (v.cryptoCurrency === "ln"))
+  && optional(v.cryptoCurrency, (x) => ["card", "btc", "ln", "xmr"].includes(x as string)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
 const clampDue = (inv: InvoiceView): InvoiceView => inv.cryptoAmountDue?.startsWith("-") ? { ...inv, cryptoAmountDue: "0" } : inv
 const checkedInvoice = (answer: Promise<unknown>) => checked<InvoiceView>(answer, isInvoice).then(clampDue)
 const isRecords = (v: unknown) => isObject(v) && isText(v.contact) && isText(v.channel)

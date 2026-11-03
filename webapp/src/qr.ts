@@ -377,7 +377,9 @@ export function encodeQr(payload: string): QrSymbol | null {
 }
 
 // Monero GUI, a laptop's wallet, opens only `monero://`; a phone's wallets and QR readers take `monero:`.
-export function paymentUri(method: "btc" | "xmr", address: string, amount: string, desktop = false): string | null {
+// Lightning wallets on both register `lightning:`, and a BOLT11 invoice carries its own amount.
+export function paymentUri(method: "btc" | "ln" | "xmr", address: string, amount: string, desktop = false): string | null {
+  if (method === "ln") return address === "" ? null : `lightning:${encodeURIComponent(address)}`;
   if (address === "" || amount === "") return null;
   const scheme = method === "btc" ? "bitcoin:" : desktop ? "monero://" : "monero:";
   const parameter = method === "btc" ? "amount" : "tx_amount";
