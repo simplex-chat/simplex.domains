@@ -288,6 +288,11 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .search-field { padding: 0 5px 0 20px; }
 .search-field .tld { color: var(--faint); font-weight: 600; }
 .answer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; min-height: var(--room); }
+/* codes-only mode's search without a code: greyed, nothing in it takes the pointer, and the code's button leads on */
+.search-field.off { background: var(--disabled); border-color: transparent; }
+.search-field.off, .search-field.off :is(input, .btn) { cursor: not-allowed; }
+.search-field.off :is(input, .tld), .search-field.off input::placeholder { color: var(--on-disabled); }
+.answer > .btn { justify-self: center; }
 /* one row as the app lists a chat: the name, the chats it opens, and whose it is or its price; the same room above and
    under them whether the name takes one line or four */
 .row { display: flex; align-items: center; gap: 16px; min-height: 72px; padding: 16px 18px 16px 22px; }
@@ -307,6 +312,10 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .price { font-weight: 700; font-variant-numeric: tabular-nums; }
 .chats { display: inline-flex; gap: 2px; }
+/* a row's pictures open their chats in the room they take as pictures, so they darken on hover rather than grow a circle */
+.list-row .chat { width: 32px; height: 32px; }
+.list-row .chat:hover { background: none; filter: brightness(.9); }
+.list-row .name.opens { cursor: pointer; }
 .chat { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: none; cursor: pointer; }
 .chat:hover { background: var(--chip); }
 .chat-pic { display: grid; place-items: center; width: 32px; height: 32px; flex: none; color: var(--avatar); }
@@ -495,6 +504,9 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 /* one line across the column, 355 px wide at 13 px, so it keeps clear of the invest note on the narrowest phone */
 .actions-row:has(.stripe-note) { container-type: inline-size; }
 .actions-row .stripe-note { display: block; margin-top: 4px; font-size: min(13px, 100cqi / 28); line-height: 1.3; white-space: nowrap; }
+/* Edit links' count of edits left: one line under Save, held while empty, its longest "You can edit links again on 29 September 2027." */
+.actions-row:has(.edit-count) { container-type: inline-size; }
+.actions-row .edit-count { min-height: 1lh; font-size: min(var(--fs-small), 100cqi / 26); white-space: nowrap; }
 /* Stripe's card form mounts after its step is drawn, so its box holds the form's least height from the start: card only,
    with Stripe.js dahlia, 221-230 px tall on the 600 px column and 306-320 px on a phone's, in Chromium and Firefox. A
    phone's layout holds the phone's height; the column from 489 px is taken to draw as the 600 px one, unmeasured. A
@@ -564,6 +576,21 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .cinfo { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 2px; vertical-align: -3px; border-radius: 50%; color: var(--primary); }
 .cinfo svg.i { width: 17px; height: 17px; }
 .cinfo:focus-visible { outline: 2px solid var(--accent); }
+/* a community name's own tick, its words' link a button */
+.check.terms .text-link { padding: 0; font: inherit; font-weight: 600; }
+/* the community terms' text: on their step it fills the frame over its tick and scrolls; in a popup, most of the window */
+.screen-body:has(> .terms-text) { display: flex; flex-direction: column; }
+.screen-body:has(> .terms-text) > .check { align-self: center; }
+.terms-text { flex: 1 1 0; min-height: 0; overflow: auto; padding: 14px 16px; border: 1px solid var(--surface-line); border-radius: 14px;
+  background: var(--surface); font: 400 var(--fs-small)/1.5 var(--body); overflow-wrap: anywhere; text-align: left; }
+.terms-text > * + * { margin-top: 10px; }
+.terms-text > :is(h3, h4, h5, h6) { font: 700 15px/1.3 var(--body); }
+.terms-text > h3 { font-size: 17px; }
+.terms-text > * + :is(h4, h5, h6) { margin-top: 16px; }
+.terms-text > :is(ul, ol) { padding-left: 20px; }
+.terms-text li + li { margin-top: 4px; }
+.terms-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pop > .terms-text { justify-self: stretch; flex: none; max-height: 60dvh; }
 
 /* Your names: a card of names and one of codes, a row per name or code with its actions as text links */
 .card.list { padding: 0; }
@@ -697,6 +724,8 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .screen:has(> .screen-body > .stripe) .lead { line-height: 1.3; }
   .screen-body:has(> .stripe) { gap: 6px; }
   .screen-body:has(> .stripe) > .name-check { padding-block: 5px; line-height: 1.4; }
+  /* the name-is-yours screen tighter, so Edit links fits its frame under a name of 63 m letters, the widest */
+  .screen-body:has(> .yours-edit) { --body-gap: 12px; }
   /* a QR is for another device; a phone opens its wallet from the link under the address */
   .qr-grid { grid-template-columns: minmax(0, 1fr); }
   .qr-grid > .qr { display: none; }

@@ -1,9 +1,9 @@
-import { type Community, currentTerms, type InvoiceView, type Phase, type SearchAnswer, type Terms } from "../api.ts"
+import { type Community, type InvoiceView, type Phase, type SearchAnswer, type Terms, termsFor } from "../api.ts"
 import { parseNameCode } from "../crypto/code.ts"
 import { dollars } from "../format.ts"
 import { heldWords } from "./balance.ts"
 import { foldLabel, type LabelProblem, labelProblem } from "../names.ts"
-import type { AppliedBalance } from "../session.ts"
+import type { AppliedBalance, AppliedCode } from "../session.ts"
 import type { OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
 
@@ -12,13 +12,14 @@ export type SearchKind = `search:${Opening}`
 
 export type Answer =
   | { kind: "rule"; label: string; problem: LabelProblem }
+  | { kind: "uncovered"; label: string; minLength: number }
   | { kind: "found"; label: string; answer: SearchAnswer; mine: boolean; now: number }
   | { kind: "unchecked" }
   | { kind: "checking" }
 
 export type Moved = { url: string; label: string; tld: string }
 export type CodeLoss = "used" | "reserved" | "expired" | "revoked"
-type RegisterRefusal = { why: "taken" | "failed" | "dearer" | "uncovered" } | { why: "other"; url: string } | { why: "limit"; reference: string }
+type RegisterRefusal = { why: "taken" | "failed" | "dearer" | "uncovered" | "unavailable" } | { why: "other"; url: string } | { why: "limit"; reference: string }
   | { why: "code"; state: CodeLoss; reference: string }
 
 export interface SearchState {
@@ -39,6 +40,7 @@ export interface SearchState {
   ownOrder: string | null
   register: { busy: boolean; refusal: RegisterRefusal | null }
   agreed: boolean
+  accepted: boolean
   termsChanged: boolean
 }
 
@@ -46,7 +48,8 @@ export type SearchEvent =
   | { type: "opened"; opening: Opening; name: string; retarget: OrderRecord | null; balance: AppliedBalance | null; hold: Hold | null }
   | { type: "balance-read"; balance: AppliedBalance | null }
   | { type: "typed"; text: string }
-  | { type: "searched"; label: string; hold: Hold | null }
+  // minLength: the least letters the tab's code covers, where only a code registers names
+  | { type: "searched"; label: string; hold: Hold | null; minLength: number | null }
   | { type: "answered"; seq: number; label: string; answer: SearchAnswer; mine: boolean; now: number }
   | { type: "unanswered"; seq: number }
   | { type: "search-held"; seq: number; until: number }
@@ -57,6 +60,7 @@ export type SearchEvent =
   | { type: "register-refused"; refusal: RegisterRefusal }
   | { type: "register-held"; until: number }
   | { type: "agreed"; agreed: boolean }
+  | { type: "accepted"; accepted: boolean }
   | { type: "terms-changed"; label: string; terms: Terms; community: Community | null }
 
 const IDLE = { busy: false, refusal: null }
@@ -64,7 +68,7 @@ export const REGISTER_LEAD = "Nothing changed. "
 
 export const initialSearch = (): SearchState => ({
   opening: "plain", name: "", typed: "", searched: null, seq: 0, searching: null, answer: null, bad: false,
-  retarget: null, balance: null, moved: null, hold: null, paused: false, ownOrder: null, register: IDLE, agreed: false, termsChanged: false,
+  retarget: null, balance: null, moved: null, hold: null, paused: false, ownOrder: null, register: IDLE, agreed: false, accepted: false, termsChanged: false,
 })
 
 // An available name this browser has an order for, under its TLD, is checked again rather than offered while the order is read.
@@ -96,23 +100,25 @@ function searched(s: SearchState, e: Extract<SearchEvent, { type: "searched" }>)
   const started = { ...s, seq, name: e.label, searched: e.label, typed: e.label, register: IDLE }
   const problem = labelProblem(e.label)
   if (problem) return { ...started, searching: null, answer: { kind: "rule", label: e.label, problem }, bad: true }
+  if (e.minLength !== null && e.label.length < e.minLength) return { ...started, searching: null, answer: { kind: "uncovered", label: e.label, minLength: e.minLength }, bad: true }
   return { ...started, searching: { label: e.label } }
 }
 
-const termsOf = (a: SearchAnswer) => a.status === "available" ? currentTerms(a) : null
+const termsOf = (a: SearchAnswer) => a.status === "available" && a.terms ? termsFor(a.terms, a.community) : null
 
 function answered(s: SearchState, e: Extract<SearchEvent, { type: "answered" }>): SearchState {
   if (e.seq !== s.seq) return s
   const before = s.answer?.kind === "found" && s.answer.label === e.label ? s.answer : null
   const same = before !== null
   const agreed = same && s.agreed && termsOf(before.answer) === termsOf(e.answer)
-  return { ...s, searching: null, answer: { kind: "found", label: e.label, answer: e.answer, mine: e.mine, now: e.now }, ownOrder: same ? s.ownOrder : null, agreed, termsChanged: same && s.termsChanged }
+  const accepted = same && s.accepted && termsOf(before.answer) === termsOf(e.answer)
+  return { ...s, searching: null, answer: { kind: "found", label: e.label, answer: e.answer, mine: e.mine, now: e.now }, ownOrder: same ? s.ownOrder : null, agreed, accepted, termsChanged: same && s.termsChanged }
 }
 
 function termsChanged(s: SearchState, e: Extract<SearchEvent, { type: "terms-changed" }>): SearchState {
   if (s.answer?.kind !== "found" || s.answer.label !== e.label || s.answer.answer.status !== "available") return s
   const answer = { ...s.answer, answer: { ...s.answer.answer, terms: e.terms, community: e.community } }
-  return { ...s, answer, agreed: false, termsChanged: true, register: IDLE }
+  return { ...s, answer, agreed: false, accepted: false, termsChanged: true, register: IDLE }
 }
 
 export function reduce(s: SearchState, e: SearchEvent): SearchState {
@@ -133,6 +139,7 @@ export function reduce(s: SearchState, e: SearchEvent): SearchState {
     case "register-refused": return { ...s, register: { busy: false, refusal: e.refusal } }
     case "register-held": return { ...s, register: IDLE, hold: { until: Math.max(e.until, s.hold?.until ?? 0), lead: REGISTER_LEAD } }
     case "agreed": return { ...s, agreed: e.agreed, termsChanged: e.agreed ? false : s.termsChanged }
+    case "accepted": return { ...s, accepted: e.accepted }
     case "terms-changed": return termsChanged(s, e)
   }
 }
@@ -166,6 +173,11 @@ export function orderCode(paying: string | null, closed: string | null): { owner
   const ownerCode = paying ?? closed
   return { ownerCode, saved: ownerCode !== null && ownerCode === closed }
 }
+
+// In codes-only mode a plain search opens only with the tab's prepaid code, and only for the names that code covers; a
+// code order's move to another name is bounded by its own code.
+export const searchLocked = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" && code === null
+export const coverOf = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" ? code?.minLength ?? null : null
 
 export function screenOf(s: SearchState): SearchKind {
   return `search:${s.opening}`

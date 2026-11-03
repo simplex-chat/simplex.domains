@@ -1,13 +1,16 @@
-import { type APIRequestContext, type Browser, expect, type Page } from "@playwright/test"
+import { type APIRequestContext, type Browser, expect, type Locator, type Page } from "@playwright/test"
 import { CODE_LIMIT } from "../dev/mock/limits.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import type { Links } from "../src/api.ts"
+import { YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { walletOf } from "../src/flow.ts"
 import { dateOf } from "../src/format.ts"
 import {
   agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, offCentre, onStep,
-  payButton, previewsShown, qrText, savedToReview, search, searchName, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, test, toCodeStep, restoreOrder, toReview, uniqueLabel, useCode, waitRegistered,
+  payButton, previewsShown, qrText, savedToReview, search, searchName, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
+  useCode, waitRegistered,
+  acceptedOnChain, COMMUNITY_TERMS_HASH, contractsOwnerLists, GENERAL_TERMS_HASH,
 } from "./helpers.ts"
 
 // a commit's wait of about three minutes, counted from the service's own clock
@@ -143,16 +146,47 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
 })
 
 // These cases need a prepaid code alone, from /control/code, so they run against the service as well as the mock.
-test("a prepaid code registers a name with its links, which its records on chain then hold", async ({ page, request }) => {
+test("a prepaid code registers a name with its links, which its records on chain then hold, its register recording the owner's acceptance of the general terms", async ({ page, request }) => {
   const links = { contact: contactLink("CL"), channel: channelLink("CL") }
   const { registrationId, label } = await registerWithCode(page, request, "clinks", links)
   await waitRegistered(page, label)
   const answer = await searchName(request, label)
   expect(answer.status).toBe("registered")
   expect(answer.records).toEqual(links)
-  expect(answer.owner, "the name code's wallet owns the name").toBe(checksumAddress(walletOf(await ownerCodeOf(page, registrationId))!.address))
+  const owner = checksumAddress(walletOf(await ownerCodeOf(page, registrationId))!.address)
+  expect(answer.owner, "the name code's wallet owns the name").toBe(owner)
+  const { registerTx } = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { registerTx: string }
+  expect(await acceptedOnChain(registerTx)).toEqual({ kind: "general", name: label, holder: owner, termsHash: GENERAL_TERMS_HASH })
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer .row .chat"), "the name's answer opens both chats").toHaveCount(2)
+})
+
+test("a prepaid code registers a name the contracts' owner listed on chain, its register recording the owner's acceptance of the community terms", async ({ page, request }) => {
+  const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
+  const label = uniqueLabel("cpol")
+  await contractsOwnerLists(label)
+  await payWithCode(page, label, code)
+  await waitRegistered(page, label)
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { owner: string; registerTx: string }
+  expect(await acceptedOnChain(view.registerTx)).toEqual({ kind: "community", name: label, holder: view.owner, termsHash: COMMUNITY_TERMS_HASH })
+})
+
+test("a prepaid code for 5 years registers a community name for its 2 years and the free days, saying the code's other years are not used", async ({ page, request }) => {
+  const { code } = await control(request, "code", { minLength: 6, years: 5 }) as { code: string }
+  const label = uniqueLabel("cfive")
+  await contractsOwnerLists(label)
+  await useCode(page, code)
+  await search(page, label)
+  await expect(page.locator(".answer .row .deal")).toHaveText("Free / 2 years")
+  await toReview(page)
+  await expect(page.locator(".card.order .trow").first()).toHaveText(/^Term2 years and /)
+  await expect(page.locator(".card.order .hint")).toHaveText("A community name is registered for 2 years, not your code's 5.")
+  await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
+  await page.waitForURL(/\?registration=/)
+  await waitRegistered(page, label)
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { duration: number; registerTx: string }
+  expect(Math.floor(view.duration / YEAR_S), "2 years and the free days").toBe(2)
+  expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
 })
 
 test("a code order's name code, entered in another browser before the reveal, lets that browser reveal and register the name", async ({ page, browser, request }) => {
@@ -186,7 +220,7 @@ test("a name's link whose data cannot be read now shows as its kind's default pi
   await expect(open).toHaveAttribute("href", `simplex:/a#${contact.split("#")[1]}?h=smp8.simplex.im`)
 })
 
-test("Edit links on a name registered with a code adds its links on chain, then changes one", async ({ page, request }) => {
+test("Edit links on a name registered with a code adds both its links on chain in one transaction, then changes one", async ({ page, request }) => {
   const { registrationId, label } = await registerWithCode(page, request, "cedit")
   await waitRegistered(page, label)
   await page.goto("/#/names")
@@ -200,8 +234,13 @@ test("Edit links on a name registered with a code adds its links on chain, then 
   await onStep(page).getByRole("textbox", { name: "Channel", exact: true }).fill(channel)
   await previewsShown(page)
   const save = onStep(page).getByRole("button", { name: "Save links" })
+  const sends = recordsSent(page)
+  const answered = page.waitForResponse((res) => res.request().method() === "POST" && new URL(res.url()).pathname === "/api/name/records")
   await save.click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
+  expect(sends.map((body) => body.edits.map((e) => [e.key, e.value])), "one request with both links").toEqual([[["simplex.contact", contact], ["simplex.channel", channel]]])
+  const { tx } = await (await answered).json() as { tx: string }
+  expect(await textChangesOf(tx), "one multicall that set both records").toEqual({ multicall: true, changes: [["simplex.contact", contact], ["simplex.channel", channel]] })
   expect((await searchName(request, label)).records).toEqual({ contact, channel })
 
   // read again from the chain, the page shows the saved links, and a second edit spends the next nonce
@@ -214,6 +253,265 @@ test("Edit links on a name registered with a code adds its links on chain, then 
   await save.click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
   expect((await searchName(request, label)).records).toEqual({ contact: nextContact, channel })
+})
+
+test("Check your code checks a code with the key icon, and Search keeps the magnifying glass", async ({ page }) => {
+  const pathOf = (scope: Locator) => scope.locator("svg path").getAttribute("d")
+  // a page that shows the key icon by itself: Edit links of an order this browser has no code for
+  await page.goto("/#/edit/nosuchname")
+  const key = await pathOf(onStep(page).locator(".notice"))
+  await page.goto("/#/code")
+  const check = onStep(page).getByRole("button", { name: "Check", exact: true })
+  expect(await pathOf(check)).toBe(key)
+  await page.goto("/")
+  const lens = await pathOf(page.getByRole("button", { name: "Search", exact: true }))
+  expect(lens, "the magnifying glass").toMatch(/^M10\.5 17a6\.5 6\.5/)
+  expect(lens).not.toBe(key)
+})
+
+// The boxes of the name-is-yours screen's heading and of its body's parts above Edit links, and Edit links' own.
+const yoursLayout = (page: Page) => onStep(page).evaluate((step) => {
+  const edit = step.querySelector(".yours-edit")!
+  const above = [step.querySelector(".screen-head")!, ...[...step.querySelector(".screen-body")!.children].filter((n) => n.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING)]
+  const box = (n: Element) => { const r = n.getBoundingClientRect(); return [r.top, r.left, r.width, r.height] }
+  return { above: above.map(box), edit: box(edit), clear: above.every((n) => n.getBoundingClientRect().bottom <= edit.getBoundingClientRect().top) }
+})
+
+test("the name-is-yours screen offers Edit links, a small secondary button under the name code that moves nothing above it", async ({ page, request }) => {
+  const { registrationId, label } = await registerWithCode(page, request, "cyours", { contact: contactLink("CY"), channel: channelLink("CY") })
+  await waitRegistered(page, label)
+  const edit = onStep(page).getByRole("button", { name: "Edit links" })
+  await expect(edit).toBeVisible()
+  await expect(edit, "small and quiet, not the main action").toHaveClass("btn quiet small")
+  await expect(onStep(page).locator(".actions-row .btn")).toHaveCount(0)
+  for (const size of FIT_SIZES) {
+    await page.setViewportSize(size)
+    const shut = await yoursLayout(page)
+    expect(shut.clear, `everything above it ends before it at ${size.width} px`).toBe(true)
+    // the name code's QR goes under it, so showing the code moves nothing above it, nor it
+    await onStep(page).getByRole("button", { name: "Show" }).click()
+    await expect(onStep(page).locator(".code-qr svg")).toBeVisible()
+    expect(await yoursLayout(page), `${size.width} px`).toEqual(shut)
+    await onStep(page).getByRole("button", { name: "Hide" }).click()
+    await expect(onStep(page).locator(".code-qr svg")).toHaveCount(0)
+  }
+  await shot(page, "K8b-registered-edit-links")
+  await edit.click()
+  await page.waitForURL((url) => url.hash === `#/edit/${registrationId}`)
+  await expect(onStep(page).getByRole("heading", { name: "Edit links" })).toBeVisible()
+  await expect(onStep(page).getByRole("textbox", { name: "Link", exact: true })).toHaveValue(contactLink("CY"))
+})
+
+// The boxes of a Your names row's parts, and whether its chat pictures take the room they did as plain pictures: the
+// picture's 32 px each and the gap between them, whatever room their buttons give the pointer.
+const rowLayout = (row: Locator) => row.evaluate((r) => {
+  const box = (n: Element) => { const b = n.getBoundingClientRect(); return [b.top, b.left, b.width, b.height] }
+  const chats = r.querySelector(".chats")
+  const pics = [...r.querySelectorAll(".chats .chat-pic")]
+  const gap = chats ? parseFloat(getComputedStyle(chats).columnGap) : 0
+  const room = pics.reduce((w, p) => w + p.getBoundingClientRect().width, 0) + gap * Math.max(0, pics.length - 1)
+  return { parts: [...r.querySelectorAll(".name, .sub, .chats, .chat-pic, .acts > *")].map(box), asPictures: chats ? chats.getBoundingClientRect().width === room && chats.getBoundingClientRect().height === 32 : true }
+})
+// what a chat's popup says and offers, from its heading to its actions
+const popupContent = (page: Page) => page.locator(".modal[open] .pop").evaluate((pop) => ({
+  text: pop.textContent, qr: pop.querySelector(".pop-qr svg")?.getAttribute("aria-label") ?? null,
+  acts: [...pop.querySelectorAll(".pop-acts > *")].map((a) => [a.textContent, a.getAttribute("href")]),
+}))
+
+test("Your names opens a registered name's chat popup from its name or its picture, as the search answer does, and nothing in its row moves", async ({ page, request }) => {
+  const links = { contact: contactLink("CP"), channel: channelLink("CP") }
+  const { label } = await registerWithCode(page, request, "cpop", links)
+  await waitRegistered(page, label)
+  // the search answer's own popup of the name's first chat
+  await page.goto(`/#/?name=${label}`)
+  const answerChats = page.locator(".answer .row .chat")
+  await expect(answerChats).toHaveCount(2)
+  await answerChats.first().click()
+  await expect(page.locator(".modal[open]")).toBeVisible()
+  const contactPopup = await popupContent(page)
+  expect(contactPopup.qr, "the link's QR code").not.toBeNull()
+  await page.keyboard.press("Escape")
+  await answerChats.nth(1).click()
+  const channelPopup = await popupContent(page)
+  await page.keyboard.press("Escape")
+
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: `${label}.simplex` })
+  const chats = row.locator(".chats .chat")
+  await expect(chats).toHaveCount(2)
+  for (const size of FIT_SIZES) {
+    await page.setViewportSize(size)
+    const before = await rowLayout(row)
+    expect(before.asPictures, `the pictures take their own room at ${size.width} px`).toBe(true)
+    await row.locator(".name .tld").click()
+    await expect(page.locator(".modal[open]")).toBeVisible()
+    expect(await popupContent(page), "the name opens its first chat's popup").toEqual(contactPopup)
+    await page.keyboard.press("Escape")
+    await expect(page.locator(".modal[open]")).toHaveCount(0)
+    await expect(chats.first(), "focus goes back to the picture whose popup it is").toBeFocused()
+    await chats.nth(1).hover()
+    await chats.nth(1).click()
+    expect(await popupContent(page)).toEqual(channelPopup)
+    await page.keyboard.press("Escape")
+    expect(await rowLayout(row), `nothing in the row moved at ${size.width} px`).toEqual(before)
+  }
+  await shot(page, "N13-names-chat-pictures")
+
+  // a name without links has nothing to open
+  const bare = uniqueLabel("cbare")
+  await fakeRegisteredName(page, bare, { contact: "", channel: "" })
+  await page.goto("/#/names")
+  const bareRow = page.locator(".list-row", { hasText: `${bare}.simplex` })
+  await expect(bareRow.getByRole("button", { name: "Add links" })).toBeVisible()
+  await expect(bareRow.locator(".chats")).toHaveCount(0)
+  expect(await bareRow.locator(".name").evaluate((n) => getComputedStyle(n).cursor)).toBe("auto")
+  await bareRow.locator(".name .tld").click()
+  await expect(page.locator(".modal[open]")).toHaveCount(0)
+})
+
+// what keeps browsers and password managers from filling, correcting or capitalizing a field
+const NO_AUTOFILL = { autocomplete: "off", autocorrect: "off", autocapitalize: "none", spellcheck: "false", "data-1p-ignore": "", "data-lpignore": "true", "data-bwignore": "", "data-form-type": "other" }
+async function noAutofill(page: Page, where: string, fields: number): Promise<void> {
+  const inputs = page.locator("body > main input[type=text]")
+  await expect(inputs, where).toHaveCount(fields)
+  for (const input of await inputs.all()) {
+    const attrs = await input.evaluate((n, names) => Object.fromEntries(names.map((a) => [a, n.getAttribute(a)])), Object.keys(NO_AUTOFILL))
+    expect(attrs, `${where}: ${await input.getAttribute("aria-label")}`).toEqual(NO_AUTOFILL)
+  }
+}
+
+test("no field offers autofill, autocorrect or a password manager: the name search, both code fields and every link field", async ({ page }) => {
+  await page.goto("/")
+  await noAutofill(page, "the name search", 1)
+  await page.goto("/#/code")
+  await noAutofill(page, "Check your code", 1)
+  const label = uniqueLabel("nofill")
+  await search(page, label)
+  await onStep(page).getByRole("button", { name: "Register" }).click()
+  await expect(onStep(page).getByRole("heading", { name: LINKS_HEADING })).toBeVisible()
+  await fillLinks(page, contactLink("NF"), channelLink("NF"))
+  await noAutofill(page, "the links step", 2)
+  await search(page, uniqueLabel("nofillr"))
+  await toReview(page)
+  await onStep(page).getByRole("button", { name: "I have a code" }).click()
+  await noAutofill(page, "the checkout's code field", 1)
+  const { registrationId } = await fakeRegisteredName(page, uniqueLabel("nofille"), { contact: contactLink("NF"), channel: channelLink("NF") })
+  await page.goto(`/#/edit/${registrationId}`)
+  await expect(onStep(page).getByRole("heading", { name: "Edit links" })).toBeVisible()
+  await noAutofill(page, "Edit links", 2)
+})
+
+const editCount = (page: Page) => onStep(page).locator(".edit-count")
+const saveLinks = (page: Page) => onStep(page).getByRole("button", { name: "Save links" })
+// The bodies of the record edits the page sends from now on.
+function recordsSent(page: Page): { edits: { key: string; value: string; nonce: number }[] }[] {
+  const bodies: { edits: { key: string; value: string; nonce: number }[] }[] = []
+  page.on("request", (req) => {
+    if (req.method() === "POST" && new URL(req.url()).pathname === "/api/name/records") bodies.push(req.postDataJSON())
+  })
+  return bodies
+}
+// Save's box and the top and height of the line under it, whose width follows its words: a change of either moves what is around them
+async function saveRow(page: Page): Promise<unknown[]> {
+  await expect(saveLinks(page)).toBeVisible()
+  const count = (await editCount(page).boundingBox())!
+  return [await saveLinks(page).boundingBox(), count.y, count.height]
+}
+
+test("Edit links counts the name's edits left this year under Save, one per Save of one link or both, in place and on one line", async ({ page, request }) => {
+  const { registrationId, label } = await registerWithCode(page, request, "ccount")
+  await waitRegistered(page, label)
+  await expect(onStep(page).getByRole("button", { name: "Add links" }), "a name without links adds them").toHaveClass("btn quiet small")
+  expect((await searchName(request, label)).recordEdits, "links set at registration count no edit").toEqual({ left: 3, nextAt: null })
+  await page.goto(`/#/edit/${registrationId}`)
+  for (const size of FIT_SIZES) {
+    await page.setViewportSize(size)
+    await expect(editCount(page)).toHaveText("3 edits left this year.")
+    await expect(editCount(page)).toBeVisible()
+    const lineHeight = await editCount(page).evaluate((n) => parseFloat(getComputedStyle(n).lineHeight))
+    expect((await editCount(page).boundingBox())!.height, `one line at ${size.width} px`).toBeLessThanOrEqual(lineHeight + 1)
+  }
+  const before = await saveRow(page)
+  const link = onStep(page).getByRole("textbox", { name: "Link", exact: true })
+  const contact = contactLink("CC")
+  await link.fill(contact)
+  await onStep(page).getByRole("button", { name: "Add a channel link" }).click()
+  await onStep(page).getByRole("textbox", { name: "Channel", exact: true }).fill(channelLink("CC"))
+  await previewsShown(page)
+  await expect(editCount(page), "both links take one edit").toHaveText("3 edits left this year.")
+  const sends = recordsSent(page)
+  await saveLinks(page).click()
+  await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
+  await expect(editCount(page)).toHaveText("2 edits left this year.")
+  expect(sends.map((body) => body.edits.map((e) => e.key)), "one request").toEqual([["simplex.contact", "simplex.channel"]])
+  const { nonce } = sends[0].edits[0]
+  expect(sends[0].edits.map((e) => e.nonce), "consecutive nonces").toEqual([nonce, nonce + 1])
+  expect(await saveRow(page), "Save and the count keep their place").toEqual(before)
+  await link.fill(contactLink("CD"))
+  await previewsShown(page)
+  await saveLinks(page).click()
+  await expect(editCount(page)).toHaveText("1 edit left this year.")
+  expect(sends.map((body) => body.edits.map((e) => e.nonce)), "the next Save from the nonce both spent").toEqual([[nonce, nonce + 1], [nonce + 2]])
+  await page.reload()
+  await expect(editCount(page)).toHaveText("1 edit left this year.")
+  expect((await searchName(request, label)).recordEdits).toMatchObject({ left: 1 })
+})
+
+test("Edit links saves both links with the last edit left, then keeps Save off until the edits return", async ({ page, request }) => {
+  const { registrationId, label } = await registerWithCode(page, request, "cnone")
+  await waitRegistered(page, label)
+  const made = Math.floor(Date.now() / 1000) - 86400
+  await control(request, "edits", { label, count: 2, at: made })
+  await page.goto(`/#/edit/${registrationId}`)
+  await expect(editCount(page)).toHaveText("1 edit left this year.")
+  const before = await saveRow(page)
+  const link = onStep(page).getByRole("textbox", { name: "Link", exact: true })
+  const contact = contactLink("CN")
+  const channel = channelLink("CN")
+  await link.fill(contact)
+  await onStep(page).getByRole("button", { name: "Add a channel link" }).click()
+  await onStep(page).getByRole("textbox", { name: "Channel", exact: true }).fill(channel)
+  await previewsShown(page)
+  await expect(editCount(page)).toHaveText("1 edit left this year.")
+  await expect(saveLinks(page)).toBeEnabled()
+  await saveLinks(page).click()
+  await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
+  expect((await searchName(request, label)).records).toEqual({ contact, channel })
+  const again = `You can edit links again on ${dateOf(made + YEAR_S)}.`
+  await expect(editCount(page)).toHaveText(again)
+  await link.fill("")
+  await expect(saveLinks(page), "none left, whatever is typed").toBeDisabled()
+  expect(await saveRow(page), "Save and the count keep their place").toEqual(before)
+  await page.reload()
+  await expect(editCount(page)).toHaveText(again)
+  await expect(saveLinks(page)).toBeDisabled()
+  for (const size of FIT_SIZES) {
+    await page.setViewportSize(size)
+    await expect(editCount(page)).toBeVisible()
+    const lineHeight = await editCount(page).evaluate((n) => parseFloat(getComputedStyle(n).lineHeight))
+    expect((await editCount(page).boundingBox())!.height, `one line at ${size.width} px`).toBeLessThanOrEqual(lineHeight + 1)
+  }
+  await shot(page, "N12c-edit-links-used-up")
+})
+
+test("a Save of both links from a tab opened before the name's edits ran out says when they return, and changes neither link", async ({ page, request }) => {
+  const { registrationId, label } = await registerWithCode(page, request, "cstale")
+  await waitRegistered(page, label)
+  await page.goto(`/#/edit/${registrationId}`)
+  await expect(editCount(page)).toHaveText("3 edits left this year.")
+  const made = Math.floor(Date.now() / 1000) - 3600
+  const again = `You can edit links again on ${dateOf(made + YEAR_S)}.`
+  // used up elsewhere: nothing is sent, and nothing else is said
+  await control(request, "edits", { label, count: 3, at: made })
+  await onStep(page).getByRole("textbox", { name: "Link", exact: true }).fill(contactLink("CS"))
+  await onStep(page).getByRole("button", { name: "Add a channel link" }).click()
+  await onStep(page).getByRole("textbox", { name: "Channel", exact: true }).fill(channelLink("CS"))
+  await previewsShown(page)
+  await saveLinks(page).click()
+  await expect(editCount(page)).toHaveText(again)
+  await expect(saveLinks(page)).toBeDisabled()
+  await expect(onStep(page).locator(".notice")).toHaveCount(0)
+  expect((await searchName(request, label)).records).toEqual({ contact: "", channel: "" })
 })
 
 test("the tab's code pays for each name it covers until it is taken off, which takes it off the checkout too", async ({ page, request }) => {
@@ -566,16 +864,20 @@ test("a retry refused for a code used elsewhere says the code is gone and offers
   await reopenRefused(page)
 })
 
-test("a failed code order opened again after its code was used elsewhere offers no Try again, and from the first frame the time after", async ({ page, request }) => {
-  const { code, registrationId } = await registerWithCode(page, request, "cgone")
+test("a failed code order opened again after its code was used elsewhere offers no Try again nor another name, and from the first frame the time after", async ({ page, request }) => {
+  const { code, registrationId, label } = await registerWithCode(page, request, "cgone")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   await releasedAndUsed(request, code)
   await page.addInitScript(watchKept)
+  await answersReserved(page, label)
+  const searched = page.waitForResponse("**/api/name/**")
   await page.reload()
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
   await expect(page.locator(".screen-head .lead")).toHaveText("Your code can no longer be used for it, so trying again cannot register it.")
   await offersSearchInstead(page)
+  await searched
+  await expect(page.getByRole("button", { name: "Choose another name" }), "a refused code moves to no other name").toHaveCount(0)
   expect(await saidKept(page), "the page opened first after the code went said it is kept").toBe(false)
   await reopenRefused(page)
 })

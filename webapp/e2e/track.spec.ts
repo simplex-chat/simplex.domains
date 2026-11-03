@@ -827,6 +827,16 @@ for (const length of [15, 25, MAX_LABEL_LENGTH]) {
   })
 }
 
+// A random mix of m and w misses this widest name in most runs, whose lines on the name-is-yours screen are the most.
+test(`the name-is-yours screen fits both windows for a name of ${MAX_LABEL_LENGTH} m letters`, async ({ page }) => {
+  const label = "m".repeat(MAX_LABEL_LENGTH)
+  const { registrationId } = await fakeRegisteredName(page, label, { contact: contactLink("Y1"), channel: "" })
+  await page.goto(`/?registration=${registrationId}`)
+  await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: "Edit links" })).toBeVisible()
+  await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`)
+})
+
 test("a part paid takes the name's note with its notice, the payment keeping its heading still and fitting both windows", async ({ page, request }) => {
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)

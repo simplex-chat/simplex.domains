@@ -1,5 +1,7 @@
 // The router: one page per route, redrawn on navigation.
+import { codesOnly } from "./mode.ts"
 import { checkoutStepOf, EDIT_PATH, fromOrder, viewOf } from "./screens/routes.ts"
+import * as session from "./session.ts"
 import { checkoutPage } from "./views/checkout.ts"
 import { setUpChrome } from "./views/chrome.ts"
 import { checkCodePage, editPage, historyPage, trademarksPage } from "./views/names.ts"
@@ -24,6 +26,8 @@ function render(): void {
 }
 
 setRenderer(render)
+// a balance pays nothing in codes-only mode, so one this tab took before pays no more
+if (codesOnly()) session.setActiveBalance(null)
 setUpChrome()
 window.addEventListener("popstate", (e) => {
   if (historyMoved(e)) render()

@@ -1,7 +1,7 @@
 // The code field of Check your code, judged as it is typed: a prepaid code that registers a free name, or a name code that owns one.
 import * as api from "../api.ts"
 import { codeProgress, mayBeOwnerCode, parseNameCode } from "../crypto/code.ts"
-import { el, icon, liveRegion, refill, waitOut } from "../dom.ts"
+import { el, icon, liveRegion, NO_AUTOFILL, refill, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import type * as session from "../session.ts"
 import * as store from "../store.ts"
@@ -21,6 +21,10 @@ export const STATE_LINES: Record<Exclude<api.CodeState, "unused">, [string, stri
   expired: ["This code has expired", "It can no longer register a name."],
   unpaid: ["This code is not paid for yet", "It works once its payment is confirmed."],
 }
+
+// what codes-only mode says, until the full launch opens payments
+export const CODES_ONLY_TITLE = "Registration is by code only for now"
+export const CODES_ONLY_LINE = "Names can be registered with an investor code for now."
 
 const NOT_COVERING = "This code does not cover this name"
 
@@ -146,9 +150,9 @@ const typed = new Map<string, string>()
 export function codeField(key: string, label: string, heard: (v: CodeVerdict | null) => void, order?: { name: string; code?: string }): HTMLElement {
   return kept(key, () => {
     const verdictId = `${key}-verdict`
-    const input = el("input", { type: "text", "aria-label": label, "aria-describedby": verdictId, spellcheck: "false", placeholder: "SN…", autocomplete: "off",
+    const input = el("input", { type: "text", "aria-label": label, "aria-describedby": verdictId, placeholder: "SN…", ...NO_AUTOFILL,
       value: typed.get(key) ?? order?.code })
-    const check = el("button", { class: "btn lens", type: "button", "aria-label": "Check" }, icon("search"))
+    const check = el("button", { class: "btn lens", type: "button", "aria-label": "Check" }, icon("key"))
     // a phone with a camera reads the code from its QR code, as another device shows it
     const scan = scanButton(() => void scanned())
     const box = el("label", { class: "field code-input" }, input, scan, check)

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import type { SearchAnswer } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
-  balanceHint, codeCover, initialSearch, keptWords, moveBar, moveHint, type Opening, orderCode, type OrderRead, ownOrders, reduce, REGISTER_LEAD, returnedTo, searchDue, type SearchEvent,
-  type SearchKind, type SearchState, screenOf,
+  balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, orderCode, type OrderRead, ownOrders, reduce, REGISTER_LEAD, returnedTo, searchDue, type SearchEvent,
+  searchLocked, type SearchKind, type SearchState, screenOf,
 } from "../src/screens/search.ts"
 import { timeOf } from "../src/format.ts"
 import type { OrderRecord } from "../src/store.ts"
@@ -11,9 +11,10 @@ import type { OrderRecord } from "../src/store.ts"
 const NOW = Date.parse("2026-10-17T12:00:00Z")
 const OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
 const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
-const TERMS = { version: "2026-10-23", url: "https://simplex.chat/" }
-const NEWER = { version: "2026-11-01", url: "https://simplex.chat/terms" }
-const BAKERS = { for: "bakers and pastry chefs" }
+const termsOf = (hash: string) => ({ hash: `0x${hash}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
+const TERMS = termsOf("21".repeat(32))
+const NEWER = termsOf("f6".repeat(32))
+const BAKERS = { for: "bakers and pastry chefs", years: 2 }
 const AVAILABLE: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, community: null, terms: TERMS, ...CHAIN }
 const TAKEN: SearchAnswer = { status: "registered", entities: [], owner: OWNER, tld: "simplex", community: null }
 
@@ -30,7 +31,7 @@ const openedEvent = (change: Partial<Extract<SearchEvent, { type: "opened" }>> =
 const open = (change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}) => reduce(initialSearch(), openedEvent(change))
 const run = (s: SearchState, ...events: SearchEvent[]) => events.reduce(reduce, s)
 const wait = (until: number): Hold => ({ until, lead: NO_LEAD })
-const searchedEvent = (label: string, hold: Hold | null = null): SearchEvent => ({ type: "searched", label, hold })
+const searchedEvent = (label: string, hold: Hold | null = null, minLength: number | null = null): SearchEvent => ({ type: "searched", label, hold, minLength })
 const answered = (s: SearchState, answer: SearchAnswer = AVAILABLE, label = s.searching!.label): SearchEvent => ({ type: "answered", seq: s.seq, label, answer, mine: false, now: NOW })
 function shown(label = "alice1", answer: SearchAnswer = AVAILABLE, change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}): SearchState {
   const s = open({ name: label, ...change })
@@ -159,8 +160,8 @@ describe("reduce: typing and searching", () => {
 
 describe("reduce: searching", () => {
   it("a search under way keeps the last answer on screen until the new one comes", () => {
-    const found = reduce(reduce(initialSearch(), { type: "searched", label: "bakery", hold: null }), { type: "answered", seq: 1, label: "bakery", answer: AVAILABLE, mine: false, now: 0 })
-    const next = reduce({ ...found, typed: "harbour" }, { type: "searched", label: "harbour", hold: null })
+    const found = reduce(reduce(initialSearch(), { type: "searched", label: "bakery", hold: null, minLength: null }), { type: "answered", seq: 1, label: "bakery", answer: AVAILABLE, mine: false, now: 0 })
+    const next = reduce({ ...found, typed: "harbour" }, { type: "searched", label: "harbour", hold: null, minLength: null })
     expect(next.searching).toEqual({ label: "harbour" })
     expect(next.answer).toEqual(found.answer)
   })
@@ -261,23 +262,29 @@ describe("reduce: the terms of a move", () => {
     expect(ticked.agreed).toBe(true)
     expect(reduce(ticked, { type: "agreed", agreed: false }).agreed).toBe(false)
   })
-  it("terms-changed takes the terms and community entry the service gave into the answer, unticks the box and says so, ending the move", () => {
-    const s = run(moving(), { type: "agreed", agreed: true }, { type: "register-started" })
+  it("accepted ticks and unticks a community name's own box beside it", () => {
+    const ticked = reduce(moving(), { type: "accepted", accepted: true })
+    expect(ticked.accepted).toBe(true)
+    expect(reduce(ticked, { type: "accepted", accepted: false }).accepted).toBe(false)
+  })
+  it("terms-changed takes the terms and community entry the service gave into the answer, unticks the boxes and says so, ending the move", () => {
+    const s = run(moving(), { type: "agreed", agreed: true }, { type: "accepted", accepted: true }, { type: "register-started" })
     const changed = reduce(s, { type: "terms-changed", label: "alice1", terms: NEWER, community: BAKERS })
-    expect(changed).toMatchObject({ agreed: false, termsChanged: true, register: { busy: false, refusal: null }, answer: { kind: "found", label: "alice1", answer: { ...AVAILABLE, terms: NEWER, community: BAKERS } } })
+    expect(changed).toMatchObject({ agreed: false, accepted: false, termsChanged: true, register: { busy: false, refusal: null }, answer: { kind: "found", label: "alice1", answer: { ...AVAILABLE, terms: NEWER, community: BAKERS } } })
   })
   it("terms-changed for a name no longer shown changes nothing", () => {
     const s = moving()
     expect(reduce(s, { type: "terms-changed", label: "bob123", terms: NEWER, community: null })).toBe(s)
   })
-  it("an answer for another name, or with other terms, unticks the box and ends the notice; the same answer again keeps them", () => {
-    const ticked = run(moving(), { type: "agreed", agreed: true })
+  it("an answer for another name, or with other terms, unticks the boxes and ends the notice; the same answer again keeps them", () => {
+    const ticked = run(moving(), { type: "agreed", agreed: true }, { type: "accepted", accepted: true })
     const again = run(ticked, searchedEvent("alice1"))
-    expect(reduce(again, answered(again)).agreed).toBe(true)
+    expect(reduce(again, answered(again))).toMatchObject({ agreed: true, accepted: true })
     const other = run(ticked, searchedEvent("carol1"))
-    expect(reduce(other, answered(other))).toMatchObject({ agreed: false, termsChanged: false })
+    expect(reduce(other, answered(other))).toMatchObject({ agreed: false, accepted: false, termsChanged: false })
     const changed = run(moving(), { type: "terms-changed", label: "alice1", terms: NEWER, community: null }, searchedEvent("alice1"))
-    expect(reduce({ ...changed, agreed: true }, answered(changed, { ...AVAILABLE, terms: { ...NEWER, version: "2026-12-01" } }))).toMatchObject({ agreed: false })
+    expect(reduce({ ...changed, agreed: true }, answered(changed, { ...AVAILABLE, terms: termsOf("d8".repeat(32)) }))).toMatchObject({ agreed: false })
+    expect(reduce({ ...changed, agreed: true }, answered(changed, { ...AVAILABLE, terms: null })), "terms that can't be read now").toMatchObject({ agreed: false })
   })
 })
 
@@ -481,5 +488,42 @@ describe("orderCode", () => {
   })
   it("takes the paying code as saved when it is the closed order's own", () => {
     expect(orderCode(CLOSED, CLOSED)).toEqual({ ownerCode: CLOSED, saved: true })
+  })
+})
+
+describe("codes-only mode", () => {
+  const CODE = { display: "SN7-AAAAA-BBBBB-CCCCC", minLength: 7, years: 2 }
+
+  it("locks a plain search until the tab holds a prepaid code", () => {
+    expect(searchLocked(true, open(), null)).toBe(true)
+    expect(searchLocked(true, open(), CODE)).toBe(false)
+    expect(searchLocked(false, open(), null), "open mode searches without a code").toBe(false)
+  })
+  it("leaves a code order's move to another name open, which its own code pays for", () => {
+    const moving = open({ opening: "retarget", retarget: record({ method: "code", prepaidCode: CODE.display, paid: 0 }) })
+    expect(searchLocked(true, moving, null)).toBe(false)
+    expect(coverOf(true, moving, CODE), "the move's own code bounds its names").toBeNull()
+  })
+  it("bounds a plain search by the letters the tab's code covers, in codes-only mode only", () => {
+    expect(coverOf(true, open(), CODE)).toBe(7)
+    expect(coverOf(true, open(), null)).toBeNull()
+    expect(coverOf(false, open(), CODE)).toBeNull()
+  })
+  it("answers a name shorter than the code covers at once, without searching it", () => {
+    const s = reduce(open({ name: "alice1" }), searchedEvent("alice1", null, 7))
+    expect(s).toMatchObject({ searching: null, searched: "alice1", answer: { kind: "uncovered", label: "alice1", minLength: 7 }, bad: true })
+    expect(searchDue(s)).toBe(false)
+  })
+  it("searches a name the code covers", () => {
+    const s = reduce(open({ name: "alice12" }), searchedEvent("alice12", null, 7))
+    expect(s).toMatchObject({ searching: { label: "alice12" }, answer: null, bad: false })
+  })
+  it("says a name's own fault first, as a name of 3 letters breaks the rule before the code", () => {
+    const s = reduce(open({ name: "ali" }), searchedEvent("ali", null, 7))
+    expect(s.answer).toEqual({ kind: "rule", label: "ali", problem: "short" })
+  })
+  it("leaves no uncovered answer to return to, so a name searched again is bounded again", () => {
+    const s = reduce(open({ name: "alice1" }), searchedEvent("alice1", null, 7))
+    expect(returnedTo(s, "plain", "alice1", [])).toEqual(initialSearch())
   })
 })

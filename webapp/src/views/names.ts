@@ -5,16 +5,17 @@ import * as flow from "../flow.ts"
 import { dateOf, dollars, SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import {
-  balanceRows, type BalanceRow, CODE_CHIPS, holderOf, EDIT_RETRY_MS, editable, hasLinks, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
-  againLine, initialRestore, lapsed, lateLine, LINK_NAMES, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, notSaved, phaseChip, reduceEdit,
-  reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, unsent, waitsToSign,
+  balanceRows, type BalanceRow, CODE_CHIPS, holderOf, EDIT_RETRY_MS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
+  againLine, initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
+  reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
 } from "../screens/names.ts"
+import { codesOnly } from "../mode.ts"
 import { heldWords } from "../screens/balance.ts"
-import { checkoutUrl, CODE_URL } from "../screens/routes.ts"
+import { checkoutUrl, CODE_URL, editUrl } from "../screens/routes.ts"
 import * as session from "../session.ts"
 import type { AppliedCode } from "../session.ts"
 import * as store from "../store.ts"
-import { chatPicture } from "./chats.ts"
+import { chatButton } from "./chats.ts"
 import { codeField, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, type LinkFields, linkFieldsFor, linksSettled } from "./links.ts"
 import {
@@ -308,13 +309,24 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const shown = code !== null && s.shownCode === id
   const edits = registered && !lapsed(seen, s.now) && (!seen.answer || editable(seen.answer, o.owner))
   const acts = code === null ? [small("Open", `${id}-open`, () => go(store.orderUrl(o)))]
-    : [codeToggle(id, shown), edits ? small(hasLinks(o, seen.answer) ? "Edit links" : "Add links", `${id}-edit`, () => go(`/#/edit/${id}`)) : null]
-  // a registered name shows the chats it opens, as the home's answer does
-  const chats = registered && seen.answer?.status === "registered" ? seen.answer.entities.map(chatPicture) : []
-  const listed = seen ? seen.view.community !== null : api.communityAgreed(o.terms)
+    : [codeToggle(id, shown), edits ? small(linksAction(hasLinks(o, seen.answer)), `${id}-edit`, () => go(editUrl(id))) : null]
+  const community = seen?.view.community ?? null
+  // a registered name shows the chats it opens, each opening its popup as the home's answer does
+  const chats = registered && seen.answer?.status === "registered"
+    ? seen.answer.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
+  const listed = seen ? community !== null : api.communityAgreed(o.terms)
   const state = rowChip(s, o, seen)
-  return row(id, rowName(label, tld, seen?.view.community ?? null, `${id}-community`, listed), seen ? subLine(o, seen, s.now) : paidLine(o, null, null), state && chipRoom(state),
+  const title = rowName(label, tld, community, `${id}-community`, listed)
+  if (chats.length) opensFirstChat(title, chats[0])
+  return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null, null), state && chipRoom(state),
     [chats.length ? el("span", { class: "chats" }, chats) : null, ...acts], shown ? rowCode(code) : null)
+}
+
+// A pointer on the name opens its first chat as its picture does; the picture is the control a keyboard reaches, as a
+// button in the name could hold no community marker's button.
+function opensFirstChat(title: HTMLElement, first: HTMLButtonElement): void {
+  title.classList.add("opens")
+  title.addEventListener("click", (e) => { if (!(e.target as Element).closest("button")) first.click() })
 }
 
 const sizer = (...kids: Kid[]) => el("span", { class: "sizer", "aria-hidden": "true" }, ...kids)
@@ -359,7 +371,7 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const { view } = s.seen[b.id]
   const holder = b.held ? holderOf(s, b.id) : undefined
   const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
-    : b.amount > 0 ? [small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
+    : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
   const sub = ["From ", nameText(view.label ?? o.label, view.tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
@@ -509,7 +521,7 @@ async function readEdit(route: number): Promise<void> {
     // a forgotten unpaid order may have a newer one, found with the code
     const newer = e instanceof api.ApiError && e.code === "not_found" ? await flow.newerOrder(stored).catch(() => null) : null
     if (!isRoute(route)) return
-    if (newer) return redirect(`/#/edit/${newer.registrationId}`)
+    if (newer) return redirect(editUrl(newer.registrationId))
     return dispatchEdit({ type: "read-failed" })
   }
   if (!isRoute(route)) return
@@ -517,7 +529,7 @@ async function readEdit(route: number): Promise<void> {
     // the name may have been registered through a newer invoice that another browser made, perhaps under another name
     const newer = await flow.newerOrder(record).catch(() => null)
     if (!isRoute(route)) return
-    if (newer) return redirect(`/#/edit/${newer.registrationId}`)
+    if (newer) return redirect(editUrl(newer.registrationId))
   }
   dispatchEdit({ type: "answered", view, answer, record, now: api.serviceNow(), hold: tabHold() })
 }
@@ -556,9 +568,9 @@ function resultNode(f: EditForm, signal: AbortSignal): HTMLElement | null {
     case "nothing": return alertBox("info", "info", null, "Nothing has changed.")
     case "saved": return alertBox("ok", "check", "Links saved", "The change is on chain; the app shows it within a few minutes.")
     case "unanswered": return alertBox("warn", "clock", "No answer yet", "The change may still go through. Reload this page in a few minutes to see whether it did before saving again.")
-    case "moved": return alertBox("warn", "clock", f.sent.length ? notSaved(f) : "An earlier save got there first",
-      f.sent.length ? `Another save reached the chain first. The ${LINK_NAMES[unsent(f.changes, f.sent)!]} is still as you typed it: save again to send it.` : "It was still on its way when this one was signed. The fields now show the links on chain: change them and save again.")
-    case "refused": return alertBox("danger", "alert", notSaved(f), "Try again in a moment.")
+    case "moved": return alertBox("warn", "clock", "An earlier save got there first",
+      "It was still on its way when this one was signed. The fields now show the links on chain: change them and save again.")
+    case "refused": return alertBox("danger", "alert", NOT_SAVED, "Try again in a moment.")
   }
 }
 
@@ -578,11 +590,15 @@ async function saveLinks(links: LinkFields): Promise<void> {
   const { record, read, form } = edit
   if (!form?.saving) return
   try {
-    await flow.saveLinks(record!, read!.view, form.nonce, form.changes, (kind) => answerEdit(route, { type: "link-saved", kind }))
-    answerEdit(route, { type: "save-done" })
+    await flow.saveLinks(record!, read!.view, form.nonce, form.changes)
+    answerEdit(route, { type: "save-done", at: api.serviceSeconds() })
   } catch (e) {
     // no answer is not a refusal: the edit may still be mined, and sending it again would pay for it twice
-    if (e instanceof api.ApiError && (e.code === "network" || e.code === "edit_pending")) return answerEdit(route, { type: "save-unanswered" })
+    if (e instanceof api.ApiError && (e.code === "network" || e.code === "edit_pending")) {
+      return answerEdit(route, { type: "save-unanswered", counted: e.code === "edit_pending", at: api.serviceSeconds() })
+    }
+    // a tab opened before the name's edits ran out
+    if (e instanceof api.EditLimited) return answerEdit(route, { type: "save-limited", nextAt: e.nextAt })
     // Save stays off for the wait the service asked for, whatever the fields do meanwhile
     if (holdFrom(e)) return answerEdit(route, { type: "save-held", until: holdEnd() })
     // A refused edit may mean the nonce moved: an earlier save, from a page reloaded before it was mined, or from
@@ -592,21 +608,17 @@ async function saveLinks(links: LinkFields): Promise<void> {
     const now = edit.form!
     const nonce = fresh?.status === "registered" && fresh.recordsNonce != null && fresh.recordsNonce > now.nonce ? fresh.recordsNonce : null
     const records = nonce !== null && fresh?.status === "registered" && fresh.records ? fresh.records : null
-    if (records) showChain(records, now, links)
-    dispatchEdit({ type: "save-refused", moved: nonce === null ? null : { nonce, records } })
+    if (records) for (const kind of api.LINK_KINDS) links.show(kind, records[kind])
+    dispatchEdit({ type: "save-refused", moved: nonce === null ? null : { nonce, records }, edits: fresh?.status === "registered" ? fresh.recordEdits : null })
   }
-}
-
-// the links on chain take the fields' place, except a link this save sent none of yet, which stays as typed
-function showChain(records: api.Links, f: EditForm, links: LinkFields): void {
-  for (const kind of api.LINK_KINDS) if (!(f.sent.length && kind in f.changes && !f.sent.includes(kind))) links.show(kind, records[kind])
 }
 
 function buildEditForm(s: EditState, signal: AbortSignal): HTMLElement {
   const f = s.form!
   // the fields check the links they open with as they are made, which is no change to send
   const links = kept("edit-links", () => linkFieldsFor(f.current, (kind, value) => dispatchEdit({ type: "field-changed", kind, value })))
-  const save = setAction(btn(awaitingChecks ? CHECKING_LINK : "Save links", "", () => void saveLinks(links)), f.saving || awaitingChecks, f.hold !== null || f.unanswered || f.settled)
+  const save = setAction(btn(awaitingChecks ? CHECKING_LINK : "Save links", "", () => void saveLinks(links)), f.saving || awaitingChecks,
+    f.hold !== null || f.unanswered || f.settled || editsShort(f))
   save.dataset.focus = "save"
   const answer = resultNode(f, signal)
   // Save, turned off by its answer, hands focus to the answer, which shares its key
@@ -615,7 +627,17 @@ function buildEditForm(s: EditState, signal: AbortSignal): HTMLElement {
     answer.dataset.focus = "save"
   }
   holdEnder(signal, () => dispatchEdit({ type: "hold-ended" }))(f.hold !== null)
-  return screen({ title: EDIT_TITLE, back: NAMES, lead: [nameText(s.record!.label, s.record!.tld, "."), " Your name code signs the change; ", el("span", { class: "nowrap" }, "nothing to pay.")], action: save },
+  // one line under Save, kept for the route, which says why Save is off when the edits left do not cover the change
+  const count = keptLive("edit-count", "note edit-count", editsLine(f))
+  // Save, turned off by the edits left, hands focus to this line
+  if (editsShort(f)) {
+    count.tabIndex = -1
+    count.dataset.focus = "save"
+  } else {
+    count.removeAttribute("tabindex")
+    delete count.dataset.focus
+  }
+  return screen({ title: EDIT_TITLE, back: NAMES, lead: [nameText(s.record!.label, s.record!.tld, "."), " Your name code signs the change; ", el("span", { class: "nowrap" }, "nothing to pay.")], action: save, alt: count },
     el("span", { class: "label" }, "Link"), links.node, keptLive("edit-answer", undefined, answer))
 }
 

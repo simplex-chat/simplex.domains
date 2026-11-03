@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest"
 import type { InvoiceView, RegistrationView, SearchAnswer } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
-  balanceRows, changesOf, CODE_CHIPS, holderOf, editable, hasLinks, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
-  initialList, initialRestore, lapsed, lateLine, listedOrders, nameRows, ORDER_CHIP_WORDS, rowShown, rowsDrawn, unanswered, paidLine, type ListEvent, type ListState, notSaved, phaseChip, reduceEdit, reduceList, reduceRestore, REFUSALS,
-  againLine, ranOut, registrableAgain, screenOfEdit, type Stored, unsent, waitsToSign,
+  balanceRows, changesOf, CODE_CHIPS, holderOf, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
+  initialList, initialRestore, lapsed, lateLine, listedOrders, nameRows, ORDER_CHIP_WORDS, rowShown, rowsDrawn, unanswered, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit, reduceList, reduceRestore, REFUSALS,
+  againLine, ranOut, registrableAgain, screenOfEdit, type Stored, waitsToSign,
 } from "../src/screens/names.ts"
 import type { CodeRecord, OrderRecord, PendingCode } from "../src/store.ts"
 
@@ -19,7 +19,7 @@ const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 function registration(change: Partial<RegistrationView> = {}): RegistrationView {
   return {
     ...CHAIN, id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
-    duration: 2 * YEAR_S, price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
+    duration: 2 * YEAR_S, price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
     community: null, terms: "2026-10-23", ...change,
   }
 }
@@ -44,8 +44,8 @@ const pending = (ownerCode: string): PendingCode => ({ ownerCode, label: "bob", 
 // the registrar's GRACE_PERIOD, as the search answer gives it
 const GRACE_S = 90 * 86_400
 const registered = (records: { contact: string; channel: string } | null = { contact: CONTACT, channel: "" }, change: Partial<Extract<SearchAnswer, { status: "registered" }>> = {}): SearchAnswer =>
-  ({ status: "registered", entities: [], records, owner: OWNER, recordsNonce: 3, expiresAt: NOW / 1000 + 2 * YEAR_S, gracePeriod: GRACE_S, tld: "simplex", community: null, ...change })
-const available: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, community: null, terms: { version: "2026-10-23", url: "https://simplex.chat/" }, ...CHAIN }
+  ({ status: "registered", entities: [], records, owner: OWNER, recordsNonce: 3, recordEdits: { left: 3, nextAt: null }, expiresAt: NOW / 1000 + 2 * YEAR_S, gracePeriod: GRACE_S, tld: "simplex", community: null, ...change })
+const available: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, community: null, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` }, ...CHAIN }
 const registeredView = (change: Partial<RegistrationView> = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
 
 const stored = (change: Partial<Stored> = {}): Stored => ({ orders: [], pending: [], codes: [], canPersist: true, ...change })
@@ -121,6 +121,11 @@ describe("list helpers", () => {
   })
   it("CODE_CHIPS words every state a code can be in", () => {
     expect(Object.keys(CODE_CHIPS).sort()).toEqual(["expired", "reserved", "revoked", "unpaid", "unused", "used"])
+  })
+  it("linksAction adds a name's first links, and edits links it has", () => {
+    expect(linksAction(hasLinks(record(), null))).toBe("Add links")
+    expect(linksAction(hasLinks(record({ contact: CONTACT }), null))).toBe("Edit links")
+    expect(linksAction(hasLinks(record(), registered({ contact: "", channel: CHANNEL })))).toBe("Edit links")
   })
   it("editable: a name in the app's wallet, or pointed at another resolver, is not edited here", () => {
     expect(editable(registered(), OWNER)).toBe(true)
@@ -471,9 +476,10 @@ describe("edit", () => {
   describe("reduceEdit", () => {
     it("answered opens the form with the chain's links and nonce, held when the tab is waiting", () => {
       expect(form(editing)).toEqual({
-        current: { contact: CONTACT, channel: "" }, values: { contact: CONTACT, channel: "" }, nonce: 3, changes: {}, sent: [],
-        saving: false, unanswered: false, settled: false, result: null, hold: null,
+        current: { contact: CONTACT, channel: "" }, values: { contact: CONTACT, channel: "" }, nonce: 3, changes: {},
+        saving: false, unanswered: false, settled: false, result: null, hold: null, edits: { left: 3, nextAt: null },
       })
+      expect(form(answered(opened, registered(undefined, { recordEdits: undefined }))).edits, "a service that counts no edits").toBeNull()
       expect(form(answered(opened, registered(), undefined, { hold: { until: NOW + 5000, lead: NO_LEAD } })).hold).toEqual({ until: NOW + 5000, lead: NO_LEAD })
       expect(STATES["edit-in-app"].form).toBeNull()
     })
@@ -509,27 +515,43 @@ describe("edit", () => {
     it("save-started with nothing changed says so; with changes it sends them", () => {
       expect(form(reduceEdit(editing, { type: "save-started" }))).toMatchObject({ saving: false, result: "nothing" })
       const typed = reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL })
-      expect(form(reduceEdit(typed, { type: "save-started" }))).toMatchObject({ saving: true, result: "sending", changes: { channel: CHANNEL }, sent: [] })
+      expect(form(reduceEdit(typed, { type: "save-started" }))).toMatchObject({ saving: true, result: "sending", changes: { channel: CHANNEL } })
     })
-    it("link-saved spends a nonce and takes the link as on chain", () => {
-      const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
-      expect(form(reduceEdit(sending, { type: "link-saved", kind: "channel" }))).toMatchObject({ nonce: 4, sent: ["channel"], current: { contact: CONTACT, channel: CHANNEL } })
-    })
-    it("save-done says the links are saved, and Save stays off with nothing left to save", () => {
-      const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
-      const done = reduceEdit(reduceEdit(sending, { type: "link-saved", kind: "channel" }), { type: "save-done" })
-      expect(form(done)).toMatchObject({ saving: false, result: "saved", settled: true })
-      const typedMeanwhile = reduceEdit(reduceEdit(sending, { type: "link-saved", kind: "channel" }), { type: "field-changed", kind: "contact", value: "" })
-      expect(form(reduceEdit(typedMeanwhile, { type: "save-done" }))).toMatchObject({ result: "saved", settled: false })
-    })
-    it("save-unanswered keeps Save off until the page is reloaded", () => {
-      const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
-      expect(form(reduceEdit(sending, { type: "save-unanswered" }))).toMatchObject({ saving: false, unanswered: true, result: "unanswered" })
-    })
-    it("save-held holds Save with what was and was not saved; hold-ended lets it go", () => {
+    it("save-done takes every changed link as on chain, spending a nonce per link and one edit for the Save", () => {
       const both = reduceEdit(reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "contact", value: "" }), { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
-      const held = reduceEdit(reduceEdit(both, { type: "link-saved", kind: "contact" }), { type: "save-held", until: NOW + 5000 })
-      expect(form(held)).toMatchObject({ saving: false, result: null, hold: { until: NOW + 5000, lead: "The address was saved; the channel was not. " } })
+      expect(form(reduceEdit(both, { type: "save-done", at: NOW / 1000 }))).toMatchObject({
+        saving: false, result: "saved", settled: true, nonce: 5, current: { contact: "", channel: CHANNEL }, edits: { left: 2, nextAt: NOW / 1000 + YEAR_S },
+      })
+      const one = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      expect(form(reduceEdit(one, { type: "save-done", at: NOW / 1000 }))).toMatchObject({ nonce: 4, current: { contact: CONTACT, channel: CHANNEL }, edits: { left: 2, nextAt: NOW / 1000 + YEAR_S } })
+    })
+    it("save-done keeps when the oldest counted edit returns, and counts nothing for a service that counts none", () => {
+      const counted = answered(opened, registered(undefined, { recordEdits: { left: 2, nextAt: NOW / 1000 + 100 } }))
+      const sending = reduceEdit(reduceEdit(counted, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      expect(form(reduceEdit(sending, { type: "save-done", at: NOW / 1000 })).edits).toEqual({ left: 1, nextAt: NOW / 1000 + 100 })
+      const uncounted = answered(opened, registered(undefined, { recordEdits: null }))
+      const sent = reduceEdit(reduceEdit(reduceEdit(uncounted, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" }), { type: "save-done", at: NOW / 1000 })
+      expect(form(sent).edits).toBeNull()
+    })
+    it("save-done leaves Save on for a field typed while the Save was on its way", () => {
+      const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      const typedMeanwhile = reduceEdit(sending, { type: "field-changed", kind: "contact", value: "" })
+      expect(form(reduceEdit(typedMeanwhile, { type: "save-done", at: NOW / 1000 }))).toMatchObject({ result: "saved", settled: false, current: { contact: CONTACT, channel: CHANNEL } })
+    })
+    it("save-limited takes the edits as used up until the service's time, with no notice, as no link reached the chain", () => {
+      const both = reduceEdit(reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "contact", value: "" }), { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      const nextAt = NOW / 1000 + 1000
+      expect(form(reduceEdit(both, { type: "save-limited", nextAt }))).toMatchObject({ saving: false, result: null, nonce: 3, current: { contact: CONTACT, channel: "" }, edits: { left: 0, nextAt } })
+    })
+    it("save-unanswered keeps Save off until the page is reloaded, spending an edit only when the service took it", () => {
+      const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      expect(form(reduceEdit(sending, { type: "save-unanswered", counted: false, at: NOW / 1000 }))).toMatchObject({ saving: false, unanswered: true, result: "unanswered", edits: { left: 3, nextAt: null } })
+      expect(form(reduceEdit(sending, { type: "save-unanswered", counted: true, at: NOW / 1000 })).edits).toEqual({ left: 2, nextAt: NOW / 1000 + YEAR_S })
+    })
+    it("save-held holds Save, saying the links were not saved; hold-ended lets it go", () => {
+      const both = reduceEdit(reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "contact", value: "" }), { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      const held = reduceEdit(both, { type: "save-held", until: NOW + 5000 })
+      expect(form(held)).toMatchObject({ saving: false, result: null, nonce: 3, hold: { until: NOW + 5000, lead: `${NOT_SAVED} ` } })
       expect(form(reduceEdit(held, { type: "hold-ended" })).hold).toBeNull()
     })
     it("save-refused after the nonce moved takes the chain's nonce and links", () => {
@@ -538,6 +560,13 @@ describe("edit", () => {
       expect(form(moved)).toMatchObject({ saving: false, result: "moved", nonce: 7, current: { contact: "", channel: CHANNEL } })
       expect(form(reduceEdit(sending, { type: "save-refused", moved: { nonce: 7, records: null } }))).toMatchObject({ nonce: 7, current: { contact: CONTACT, channel: "" } })
       expect(form(reduceEdit(sending, { type: "save-refused", moved: null }))).toMatchObject({ saving: false, result: "refused", nonce: 3 })
+    })
+    it("save-refused takes the edits left as the service read them again, else keeps its own", () => {
+      const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
+      const edits = { left: 1, nextAt: NOW / 1000 + 50 }
+      expect(form(reduceEdit(sending, { type: "save-refused", moved: null, edits })).edits).toEqual(edits)
+      expect(form(reduceEdit(sending, { type: "save-refused", moved: { nonce: 7, records: null }, edits })).edits).toEqual(edits)
+      expect(form(reduceEdit(sending, { type: "save-refused", moved: null })).edits).toEqual({ left: 3, nextAt: null })
     })
     it("form events reach no form on a page that has none", () => {
       const s = STATES["edit-in-app"]
@@ -551,14 +580,21 @@ describe("edit", () => {
       expect(changesOf(f({}))).toEqual({})
       expect(changesOf(f({ values: { contact: "", channel: CHANNEL } }))).toEqual({ contact: "", channel: CHANNEL })
     })
-    it("unsent names the first link still to send", () => {
-      expect(unsent({ contact: "", channel: CHANNEL }, ["contact"])).toBe("channel")
-      expect(unsent({ contact: "" }, ["contact"])).toBeUndefined()
+    it("editsLine says the Saves left this year, whatever the Save changes, and when they return", () => {
+      expect(editsLine(f({}))).toBe("3 edits left this year.")
+      expect(editsLine(f({ edits: { left: 1, nextAt: NOW / 1000 } }))).toBe("1 edit left this year.")
+      expect(editsLine(f({ edits: { left: 1, nextAt: NOW / 1000 }, values: { contact: "", channel: CHANNEL } }))).toBe("1 edit left this year.")
+      expect(editsLine(f({ edits: { left: 1, nextAt: NOW / 1000 }, values: { contact: CONTACT, channel: CHANNEL } }))).toBe("1 edit left this year.")
+      expect(editsLine(f({ edits: { left: 0, nextAt: Date.UTC(2027, 9, 29, 23, 59) / 1000 }, values: { contact: "", channel: "" } }))).toBe("You can edit links again on 29\u00a0October 2027.")
+      expect(editsLine(f({ edits: null }))).toBe("")
     })
-    it("notSaved says which link reached the chain", () => {
-      expect(notSaved(f({ changes: { contact: "", channel: CHANNEL }, sent: ["contact"] }))).toBe("The address was saved; the channel was not.")
-      expect(notSaved(f({ changes: { channel: CHANNEL }, sent: [] }))).toBe("The links were not saved.")
-      expect(notSaved(f({ changes: { channel: CHANNEL }, sent: ["channel"] }))).toBe("The links were not saved.")
+    it("editsShort turns Save off only when no edit is left, as one covers both links", () => {
+      expect(editsShort(f({}))).toBe(false)
+      expect(editsShort(f({ values: { contact: "", channel: CHANNEL } }))).toBe(false)
+      expect(editsShort(f({ edits: { left: 1, nextAt: 1 }, values: { contact: "", channel: CHANNEL } }))).toBe(false)
+      expect(editsShort(f({ edits: { left: 1, nextAt: 1 }, values: { contact: CONTACT, channel: CHANNEL } }))).toBe(false)
+      expect(editsShort(f({ edits: { left: 0, nextAt: 1 } })), "none left, even with nothing changed").toBe(true)
+      expect(editsShort(f({ edits: null, values: { contact: "", channel: CHANNEL } }))).toBe(false)
     })
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { type CheckoutStep, checkoutStepOf, checkoutUrl, CODE_FROM_ORDER_URL, CODE_URL, fromOrder, type View, viewOf } from "../src/screens/routes.ts"
+import { type CheckoutStep, checkoutStepOf, checkoutUrl, CODE_FROM_ORDER_URL, CODE_URL, EDIT_PATH, editUrl, fromOrder, type View, viewOf } from "../src/screens/routes.ts"
 
 describe("viewOf", () => {
   const cases: [string, string, View][] = [
@@ -47,5 +47,15 @@ describe("Check your code's links", () => {
   it("opens Check your code from the header's link, and from an order's page saying so", () => {
     expect(read(CODE_URL)).toEqual({ view: "code", fromOrder: false })
     expect(read(CODE_FROM_ORDER_URL)).toEqual({ view: "code", fromOrder: true })
+  })
+})
+
+describe("editUrl", () => {
+  it("opens Edit links of the order, which the edit route reads back", () => {
+    const url = editUrl("reg-1_A")
+    expect(url).toBe("/#/edit/reg-1_A")
+    const path = url.slice("/#".length)
+    expect(viewOf(new URLSearchParams(), path)).toBe("edit")
+    expect(EDIT_PATH.exec(path)?.[1]).toBe("reg-1_A")
   })
 })

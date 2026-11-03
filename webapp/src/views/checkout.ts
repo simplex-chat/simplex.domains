@@ -1,4 +1,5 @@
-// The checkout's steps: the links the name opens, its name code, and Check your order with how it pays, and Pay.
+// The checkout's steps: the links the name opens, its name code, a community name's community terms, and Check your order
+// with how it pays, and Pay.
 import * as api from "../api.ts"
 import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction } from "../dom.ts"
 import * as flow from "../flow.ts"
@@ -10,10 +11,12 @@ import { RETRY_MS, REVEAL_HOURS } from "../screens/order.ts"
 import {
   awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
-import { type CheckoutStep, checkoutUrl } from "../screens/routes.ts"
+import { CODES_ONLY, codesOnly } from "../mode.ts"
+import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
+import { ticked } from "../screens/terms.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
-import { CODE_ERRORS, codeField, type CodeVerdict } from "./codes.ts"
+import { CODE_ERRORS, codeField, CODES_ONLY_TITLE, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, linkChat, linkFieldsFor, linksSettled } from "./links.ts"
 import {
   asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, whenLeaving,
@@ -21,7 +24,7 @@ import {
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
 import { openedInstead } from "./order.ts"
-import { rowName, termsBox } from "./terms.ts"
+import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
 const CHECKOUT_NOTE = "checkout-note"
 const SAVED_LABEL = "I have saved my name code"
@@ -30,10 +33,11 @@ const DAPP_URL = "https://app.simplex.domains"
 // the service takes a signed order's timestamp within this many seconds; an older one is signed anew
 const SIGNED_WINDOW_S = 600
 
-const years = (c: session.Checkout) => c.code?.years ?? c.years
+const years = (c: session.Checkout) => api.termYears(c.community, c.code?.years ?? c.years)
 // a card order waiting for Stripe holds a second paid order; a code or a balance that covers the price pays nothing, so it holds none
-const blockedBy = ({ checkout, waiting }: CheckoutState) => checkout.code || covered(checkout) ? null : waiting
-const payLabel = (c: session.Checkout) => c.code || c.codeHere ? "Register with your code" : covered(c) ? "Register with your balance" : `Pay ${dollars(split(c).rest)} with ${methodName(methodOf(c))}`
+const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || covered(checkout) || codesOnly ? null : waiting
+const payLabel = (c: session.Checkout, codesOnly: boolean) => c.code || codeEntry(c, codesOnly) === "field" ? "Register with your code"
+  : covered(c) ? "Register with your balance" : `Pay ${dollars(split(c).rest)} with ${methodName(methodOf(c))}`
 
 function waitingCardOrder(): WaitingOrder | null {
   const order = store.orders().find((o) => o.method === "card" && o.cardSubmittedAt && o.invoiceId)
@@ -50,20 +54,23 @@ export function checkoutPage(asked: CheckoutStep): void {
   if (!stored) return redirect("/#/")
   const step = stepFor(stored, asked)
   if (step !== asked) return redirect(checkoutUrl(step))
-  session.setCheckout({ ...stored, step, ownerCode: stored.ownerCode ?? (step === "code" ? flow.newOwnerCode() : null) })
+  // a balance pays nothing in codes-only mode, so a checkout started before it pays with a code
+  const unpaid = codesOnly() ? { balance: null, balanceChange: undefined } : {}
+  session.setCheckout({ ...stored, step, ownerCode: stored.ownerCode ?? (step === "code" ? flow.newOwnerCode() : null), ...unpaid })
   const c = session.checkout()!
   // a name code that already has an order, as one ordered again, is no pending code
   if (c.ownerCode && !store.orders().some((o) => o.ownerCode === c.ownerCode)) store.addPending({ ownerCode: c.ownerCode, label: c.label, tld: c.chain.tld, createdAt: new Date().toISOString() })
   if (!isRedraw() || shown === null || state.checkout.label !== c.label) {
-    state = initialState(c, step)
+    state = initialState(c, step, codesOnly())
     shown = null
   }
   pageRoute = currentRoute()
   // a wait met elsewhere in the tab holds this page's actions too
   dispatch({ type: "opened", step, checkout: c, sending: session.isSending(c), waiting: waitingCardOrder(), hold: tabHold() })
-  if (step !== "review") return
+  if (step !== "review" && step !== "community") return
   const reads = new AbortController()
   whenLeaving(() => reads.abort())
+  if (step === "community") return void readTerms(c, reads.signal)
   if (state.waiting) void settleWaiting(state.waiting, reads.signal)
   else void showOpenOrder(reads.signal)
   if (c.balance) void watchBalance(c.balance.source, reads.signal)
@@ -118,6 +125,12 @@ async function watchBalance(source: string, signal: AbortSignal): Promise<void> 
     if (followed) holder = null
     await pause(holdWait(state.checkout.balance?.heldUntil ?? null, followed || unnamed, readAt, api.serviceNow()), signal)
   }
+}
+
+// the community terms' text for their step
+async function readTerms(c: session.Checkout, signal: AbortSignal): Promise<void> {
+  const text = await api.termsText(c.terms, c.chain.chainId, signal).catch(() => null)
+  if (!signal.aborted) dispatch({ type: "community-read", hash: c.terms.hash, text })
 }
 
 function dispatch(event: CheckoutEvent): void {
@@ -216,8 +229,8 @@ function term(years: number, termStart: number, now: number): Kid {
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
 // starts, its end, and what it costs; a name registered with a code costs nothing. Paid from a balance, its price takes
-// the chats' place and the table ends with what the balance pays and the rest.
-function orderCard(c: session.Checkout): HTMLElement {
+// the chats' place and the table ends with what the balance pays and the rest. In codes-only mode a code pays for every order.
+function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
@@ -229,9 +242,10 @@ function orderCard(c: session.Checkout): HTMLElement {
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
-      c.code ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
+      c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
         : c.balance ? [row("From your balance", `\u2212${dollars(fromBalance)}`), row("To pay", dollars(rest), "total")]
-        : row("Total", dollars(c.price), "total")))
+        : row("Total", dollars(c.price), "total"),
+      c.code && y < c.code.years ? el("p", { class: "hint" }, `A community name is registered for ${y} years, not your code's ${c.code.years}.`) : null))
 }
 
 const BALANCE_NOTE = "balance-note"
@@ -256,7 +270,7 @@ function balanceChangeLine(s: CheckoutState): HTMLElement | null {
   const { checkout: c, holder } = s
   if (holder && heldForThisName(s)) {
     return line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), ` holds your balance ${heldWords(c.balance!.heldUntil)}.`,
-      ` Press ${payLabel(c)} to open it.`)
+      ` Press ${payLabel(c, s.codesOnly)} to open it.`)
   }
   if (c.balance?.held) {
     return line("warn", "wallet", "Your balance is in use by ", holder ? el("a", { href: holder.url }, nameText(holder.label, holder.tld)) : "another order",
@@ -332,7 +346,7 @@ function removeCode(): void {
 
 function codeBlock(s: CheckoutState): HTMLElement | null {
   const c = s.checkout
-  const entry = codeEntry(c)
+  const entry = codeEntry(c, s.codesOnly)
   if (entry === null) return null
   if (entry === "field") return el("div", { class: HAVE_CODE }, locked(codeField(`checkout-code-${c.label}`, "Code", heardCode, { name: c.label, code: c.code?.display }), s.sending))
   // the line saying why the service refused a code offers another in its own words
@@ -345,9 +359,9 @@ function codeLink(text: string): HTMLAnchorElement {
   return open
 }
 
-// the step's other action while the code field is open, under the main button
+// the step's other action while the code field is open, under the main button; in codes-only mode nothing else pays
 function removeLink(s: CheckoutState): HTMLAnchorElement | null {
-  if (codeEntry(s.checkout) !== "field") return null
+  if (s.codesOnly || codeEntry(s.checkout, s.codesOnly) !== "field") return null
   const remove = link("Remove code", removeCode)
   if (s.sending) remove.setAttribute("aria-disabled", "true")
   return remove
@@ -361,15 +375,16 @@ const actionLabel = (text: string, s: CheckoutState) => s.sending && !s.busy ? "
 
 function payButton(s: CheckoutState, blocked: boolean): HTMLButtonElement {
   const own = tookOwnOrder(s) ? s.holder!.url : null
-  const pay = own ? btn("Open your order", "", () => go(own)) : btn(actionLabel(payLabel(s.checkout), s), "", () => void submitOrder())
+  const pay = own ? btn("Open your order", "", () => go(own)) : btn(actionLabel(payLabel(s.checkout, s.codesOnly), s), "", () => void submitOrder())
   pay.dataset.focus = "pay"
   if (s.checkout.balance?.held || s.checkout.balanceChange) pay.setAttribute("aria-describedby", BALANCE_LINE)
-  return setAction(pay, s.busy, blocked || s.sending || s.hold !== null || !s.checkout.agreed || payWaits(s) || awaitsCode(s.checkout))
+  return setAction(pay, s.busy, blocked || s.sending || s.hold !== null || !ticked(s.checkout) || payWaits(s) || awaitsCode(s.checkout, s.codesOnly))
 }
 
-function agreement({ checkout: c, sending }: CheckoutState): HTMLElement {
+function agreement({ checkout: c, sending }: CheckoutState): HTMLElement | null {
+  if (c.community) return null
   const agree = (agreed: boolean) => { if (!state.sending && !act({ type: "agreed", agreed })) refresh() }
-  return termsBox({ terms: c.terms, community: c.community, agreed: c.agreed, changed: c.termsChanged === true, label: c.label, tld: c.chain.tld, disabled: sending }, agree, "pay")
+  return termsBox({ terms: c.terms, community: c.community, agreed: c.agreed, changed: c.termsChanged === true, label: c.label, tld: c.chain.tld, chainId: c.chain.chainId, disabled: sending }, agree, "pay")
 }
 
 function payNote(s: CheckoutState, blocked: boolean, signal: AbortSignal): HTMLElement {
@@ -426,15 +441,32 @@ function buildCode(s: CheckoutState): HTMLElement {
     el("label", { class: "check" }, box, el("span", { class: "box" }), SAVED_LABEL))
 }
 
+// A community name's terms, read from the chain, and its own tick, which Continue waits for.
+function buildCommunity(s: CheckoutState): HTMLElement {
+  const c = s.checkout
+  const community = c.community!
+  const read = s.communityText?.hash === c.terms.hash ? s.communityText : null
+  const accept = (accepted: boolean) => { if (!state.sending && !act({ type: "accepted", accepted })) refresh() }
+  const text = !read ? el("p", { class: "note center" }, "Loading the terms…")
+    : read.text === null ? line("bad", "alert", CANT_SHOW)
+    : [termsText(read.text), commitLink(c.terms, c.chain.chainId)]
+  return screen({ title: "Community terms", lead: [nameText(c.label, c.chain.tld), " is a community name. Its owner accepts these terms."], back: checkoutUrl("code"),
+    action: continueButton(() => go(checkoutUrl("review")), !c.accepted) },
+    c.termsChanged ? termsChangedLine("continue") : null,
+    text,
+    communityCheck({ ...c, community, changed: false, tld: c.chain.tld, chainId: c.chain.chainId, disabled: s.sending || !read?.text }, accept, true))
+}
+
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
-  const paid = !(c.code || c.codeHere || covered(c))
+  const paid = !(c.code || codeEntry(c, s.codesOnly) === "field" || covered(c))
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
-  return screen({ title: "Check your order", back: checkoutUrl("code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
-    el("div", { class: "review" }, orderCard(c),
-      c.codeError ? line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), ".") : null,
+  return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
+    el("div", { class: "review" }, orderCard(c, s.codesOnly),
+      !c.codeError ? null : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)
+        : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
@@ -467,20 +499,36 @@ function buildFailed(s: CheckoutState): HTMLElement {
     action: retry, alt: link("Back", () => go(searchLink(c.label))) })
 }
 
+function buildUnavailable(s: CheckoutState): HTMLElement {
+  const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
+  return outcome({ tone: "warn", icon: "alert", title: NO_ORDERS, text: "Its terms can't be read now. Nothing was charged. Try again later.",
+    action: retry, alt: link("Back", () => go(searchLink(s.checkout.label))) })
+}
+
+// a page opened before the service took codes only; the code entered there registers the name searched again for free
+function buildCodesOnly({ checkout: c }: CheckoutState): HTMLElement {
+  return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE,
+    text: [nameText(c.label, c.chain.tld), " can be registered with an investor code for now. Nothing was charged."],
+    action: btn("Enter a code", "", () => go(CODE_URL)) })
+}
+
 const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
   links: buildLinks,
   code: buildCode,
+  community: buildCommunity,
   review: buildReview,
   "status:price-changed": buildPriceChanged,
   "status:too-many": buildTooMany,
   "status:failed": buildFailed,
   "status:taken": buildTaken,
+  "status:unavailable": buildUnavailable,
+  "status:codes-only": buildCodesOnly,
 }
 
 async function submitOrder(): Promise<void> {
   const c = session.checkout()
   if (!c) return go("/#/names")
-  if (session.isSending(c) || holding() || awaitsCode(c)) return
+  if (session.isSending(c) || holding() || awaitsCode(c, state.codesOnly)) return
   // a card payment awaiting confirmation, met since the page was drawn, blocks a second paid order; the page shows it
   if (!c.code && !covered(c) && waitingCardOrder()) return refresh()
   session.startSending(c)
@@ -501,7 +549,7 @@ async function sendOrder(): Promise<void> {
   dispatch({ type: "send-started" })
   const links = { contact: c.contact, channel: c.channel }
   const terms = api.termsFor(c.terms, c.community)
-  const draft: flow.Draft = source ? flow.spendDraft(source, c.label, links, { ...c.chain, price: c.price, years: years(c), termStart: c.termStart }, terms)
+  const draft: flow.Draft = source ? flow.spendDraft(source, c.label, links, { ...c.chain, price: c.price, years: c.years, termStart: c.termStart, community: c.community }, terms)
     : { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms }
   // The order is kept whatever the buyer did meanwhile. Its checkout ends, and the order opens, only while this checkout
   // is still the tab's: the buyer may have started another name, by Back and Forward too.
@@ -527,21 +575,21 @@ async function sendOrder(): Promise<void> {
     try {
       if (source) {
         // a spend's `of` names its balance, so the order kept for it holds the spend
-        const next = await flow.sendSpend(source, draft, { request: built.request, owner: built.owner, spend: built.spend! })
+        const next = await flow.sendSpend(source, draft, { request: built.request, owner: built.owner, spend: built.spend! }, c.years)
         // the balance is spent, or held by the new order's invoice, so it pays for nothing more in this tab
         session.updateActiveBalance(source.registrationId, null)
         return done(store.orderUrl(next))
       }
       if (c.code) {
-        const res = await api.registerWithCode(built.request, c.code.display)
+        const res = await api.registerWithCode(built.request, c.code.display, c.chain.chainId)
         // the code is the order's now, so it pays for nothing more in this tab
         session.dropActiveCode(c.code.display)
-        store.saveOrder({ ...flow.recordFor(draft, built, "code", 0, { registrationId: res.registrationId, invoiceId: null }), prepaidCode: c.code.display })
+        store.saveOrder({ ...flow.recordFor(draft, built, "code", 0, { registrationId: res.registrationId, invoiceId: null }), years: c.code.years, prepaidCode: c.code.display })
         return done(store.orderUrl({ invoiceId: null, registrationId: res.registrationId }))
       }
-      const res = await api.createOrder(built.request, method, c.price)
+      const res = await api.createOrder(built.request, method, c.price, c.chain.chainId)
       const paidBy = flow.paidWith(res)
-      store.saveOrder(flow.recordFor(draft, built, paidBy.method, paidBy.paid, { registrationId: res.registration.id, invoiceId: res.invoiceId }))
+      store.saveOrder({ ...flow.recordFor(draft, built, paidBy.method, paidBy.paid, { registrationId: res.registration.id, invoiceId: res.invoiceId }), years: c.years })
       done(store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id }))
     } catch (e) {
       if (!(e instanceof api.ApiError && e.code === "order_exists")) throw e
@@ -585,7 +633,12 @@ async function showOwnOrder(): Promise<void> {
 
 function orderError(e: unknown, c: session.Checkout): void {
   if (e instanceof api.BalanceChanged) return balanceChanged(c, e.balance)
-  if (e instanceof api.TermsChanged) return void act({ type: "terms-changed", terms: e.terms, community: e.community })
+  if (e instanceof api.TermsChanged) {
+    act({ type: "terms-changed", terms: e.terms, community: e.community })
+    // community terms that changed are read and accepted again on their own step
+    if (stepFor(state.checkout, "review") === "community") redirect(checkoutUrl("community"))
+    return
+  }
   const code = e instanceof api.ApiError ? e.code : "network"
   if (code === "name_taken") {
     // no order was made, so the name code made for it owns nothing to find later
@@ -598,6 +651,8 @@ function orderError(e: unknown, c: session.Checkout): void {
     return void act({ type: "order-refused", reason: "code", error: CODE_ERRORS[code] })
   }
   if (code === "provider_unavailable") return void act({ type: "order-refused", reason: "method" })
+  if (code === "terms_unavailable") return void act({ type: "order-refused", reason: "unavailable" })
+  if (code === CODES_ONLY) return dispatch({ type: "order-refused", reason: "codes-only" })
   if (code === "catalog_changed" && e instanceof api.ApiError && typeof e.body.price === "number") return void act({ type: "price-changed", price: e.body.price })
   // the tab's wait started as the order was refused; the page holds for what is left of it
   if (code === "rate_limited") return dispatch({ type: "hold-started", until: holdEnd() })

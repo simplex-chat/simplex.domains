@@ -17,6 +17,12 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs =
   return node
 }
 
+// A field for a name, a code or a link: no browser autofill, correction or capitals, and no password manager's offer to fill it
+export const NO_AUTOFILL = {
+  autocomplete: "off", autocorrect: "off", autocapitalize: "none", spellcheck: "false",
+  "data-1p-ignore": true, "data-lpignore": "true", "data-bwignore": true, "data-form-type": "other",
+} as const
+
 export function refill<T extends Element>(node: T, ...kids: Kid[]): T {
   node.replaceChildren()
   append(node, kids)

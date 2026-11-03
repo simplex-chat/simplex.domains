@@ -2,7 +2,8 @@
 #   docker compose up --build        then open http://localhost:5173 (the chain deploys in about 2 minutes)
 # The page's source is mounted, so it follows the host's files; the mock and the production build need --build.
 #   docker compose --profile prod up --build preview   the production build on http://localhost:4173
-# The mock's controls (README) are on http://localhost:8099/control/..., the chain's RPC on http://localhost:8545.
+# The mock's controls (README) are on http://localhost:8099/control/..., the chain's RPC on http://localhost:8545, and the
+# terms' texts, which the page links, on http://localhost:8098.
 # Open the page on localhost: plain http on another address is no secure context, and the page's crypto needs one.
 name: simplex-names
 
@@ -18,7 +19,8 @@ services:
       MIN_COMMITMENT_AGE: "10"
       MOCK_HOST: 0.0.0.0
       ANVIL_HOST: 0.0.0.0
-    ports: ["127.0.0.1:8099:8099", "127.0.0.1:8545:8545"]
+      TERMS_HOST: 0.0.0.0
+    ports: ["127.0.0.1:8099:8099", "127.0.0.1:8545:8545", "127.0.0.1:8098:8098"]
     # healthy once the contracts are deployed and the mock answers
     healthcheck:
       test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://127.0.0.1:8099/control/state"]

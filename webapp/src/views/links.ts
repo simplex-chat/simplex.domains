@@ -1,7 +1,7 @@
 // The link field that the Links step and Edit links share: one field for either kind of link, each checked as it is typed and
 // shown with its profile, and a second field for the other kind once the first holds a link.
 import * as api from "../api.ts"
-import { el, icon, link, refill, waitOut } from "../dom.ts"
+import { el, icon, link, NO_AUTOFILL, refill, waitOut } from "../dom.ts"
 import { type LinkKind, linkKind, linkProblem, linkTooLong } from "../names.ts"
 import { chatButton, profileLine } from "./chats.ts"
 import { scanButton, scanQr } from "./scan.ts"
@@ -78,7 +78,7 @@ interface Takes { kind: LinkKind | null; refused: () => LinkKind | null; fieldOf
 function linkField(takes: Takes, value: string, save: (v: string, kind: LinkKind | null) => void, valueKind = takes.kind): HTMLElement {
   const errorId = `link-error-${++linkFields}`
   const text = takes.kind ? KIND_TEXT[takes.kind] : ANY_LINK
-  const input = el("input", { type: "text", value, "aria-label": text.name, spellcheck: "false", autocomplete: "off", "data-focus": `link-${takes.kind ?? "any"}` })
+  const input = el("input", { type: "text", value, "aria-label": text.name, ...NO_AUTOFILL, "data-focus": `link-${takes.kind ?? "any"}` })
   // a phone's field has room for the short placeholder only, chosen again as the window crosses the phone's width
   const phone = matchMedia(PHONE)
   let camera = false

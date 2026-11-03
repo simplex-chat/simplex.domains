@@ -2,26 +2,28 @@
 import * as api from "../api.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
-import { alertBox, btn, el, icon, type Kid, line, link, nameText, setAction, waitOut } from "../dom.ts"
+import { alertBox, btn, el, icon, type Kid, line, link, nameText, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { dollars, letters } from "../format.ts"
+import { codesOnly } from "../mode.ts"
 import { foldLabel, MAX_LABEL_LENGTH } from "../names.ts"
 import type { Hold } from "../screens/hold.ts"
 import { againLine, ranOut } from "../screens/names.ts"
-import { checkoutUrl } from "../screens/routes.ts"
+import { checkoutUrl, CODE_URL } from "../screens/routes.ts"
 import {
-  type Answer, balanceHint, codeCover, initialSearch, keptWords, moveBar, moveHint, type Moved, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
-  orderCode, type OrderRead, ownOrders, type OwnOrders, type SearchKind, type SearchState, type CodeLoss,
+  type Answer, balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Moved, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
+  orderCode, type OrderRead, ownOrders, type OwnOrders, type SearchKind, searchLocked, type SearchState, type CodeLoss,
 } from "../screens/search.ts"
 import type { Note } from "../screens/order.ts"
+import { ticked } from "../screens/terms.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, throughHistory } from "./shell.ts"
 import { chatButton } from "./chats.ts"
-import { STATE_LINES } from "./codes.ts"
+import { CODES_ONLY_LINE, STATE_LINES } from "./codes.ts"
 import { moveLimitNote, noteBox } from "./order.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
-import { rowName, termsChangedLine, termsCheck } from "./terms.ts"
+import { NO_ORDERS, rowName, termsChangedLine, termsChecks } from "./terms.ts"
 
 // word joiners keep "a–z" and "0–9" whole: a line may otherwise break after their dash
 const RANGES = "a\u2060–\u2060z, 0\u2060–\u20609"
@@ -77,9 +79,11 @@ function typed(input: HTMLInputElement): void {
 }
 
 function submit(): void {
+  const code = session.activeCode()
+  if (searchLocked(codesOnly(), state, code)) return
   const label = foldLabel(state.typed)
   const seq = state.seq
-  dispatch({ type: "searched", label, hold: tabHold() })
+  dispatch({ type: "searched", label, hold: tabHold(), minLength: coverOf(codesOnly(), state, code) })
   if (state.seq === seq || state.paused) return
   const params = new URLSearchParams(location.hash.split("?")[1] ?? "")
   if (params.get("name") !== label) {
@@ -181,17 +185,17 @@ const offered = ({ answer }: SearchState) => answer?.kind === "found" && answer.
 
 async function register(): Promise<void> {
   const shown = offered(state)
-  if (!shown) return
+  if (!shown || !flow.orderable(shown.answer)) return
   if (state.retarget) return void retarget(state.retarget, shown.label, shown.answer)
   const page = opens
   const closed = ownRead?.label === shown.label ? (await ownRead.orders).closed : null
   const still = offered(state)
   // an order of the name that the reads found still open is the buyer's, which the page points at instead
-  if (!onPage(page) || still?.label !== shown.label || ownOrderOf(state) !== null) return
+  if (!onPage(page) || still?.label !== shown.label || ownOrderOf(state) !== null || !flow.orderable(still.answer)) return
   checkOut(state, still.label, still.answer, closed?.ownerCode ?? null)
 }
 
-function checkOut(s: SearchState, label: string, answer: Available, closedCode: string | null): void {
+function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode: string | null): void {
   const chain = flow.chainOf(answer)
   const code = codeFor(s, label)
   // a balance pays under its order's name code, which then owns this name too
@@ -203,8 +207,9 @@ function checkOut(s: SearchState, label: string, answer: Available, closedCode: 
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
   if (started && started.label === label && started.price === answer.price && started.chain.chainId === chain.chainId && !session.isSending(started) && sameCode) {
     const agreed = started.agreed && api.currentTerms(started) === api.currentTerms(answer)
+    const accepted = started.accepted && api.currentTerms(started) === api.currentTerms(answer)
     session.updateCheckout(label, {
-      ...quote, agreed, termsChanged: undefined, searchAt: historyPlace(), code, codeError: undefined, codeHere: undefined, balance, balanceChange: undefined, ownerCode: ownerCode ?? started.ownerCode,
+      ...quote, agreed, accepted, termsChanged: undefined, searchAt: historyPlace(), code, codeError: undefined, codeHere: undefined, balance, balanceChange: undefined, ownerCode: ownerCode ?? started.ownerCode,
       saved: started.saved || saved,
     })
     return go(checkoutUrl("links"))
@@ -216,9 +221,9 @@ function checkOut(s: SearchState, label: string, answer: Available, closedCode: 
   go(checkoutUrl("links"))
 }
 
-async function retarget(record: store.OrderRecord, label: string, quote: Available): Promise<void> {
+async function retarget(record: store.OrderRecord, label: string, quote: flow.Quote): Promise<void> {
   const page = opens
-  if (!state.agreed) return
+  if (!ticked({ ...state, community: quote.community })) return
   dispatch({ type: "register-started" })
   try {
     // links the service refused at the reveal would be refused again
@@ -244,7 +249,7 @@ async function retarget(record: store.OrderRecord, label: string, quote: Availab
   }
 }
 
-const REFUSALS: Record<string, "taken" | "dearer" | "uncovered"> = { name_taken: "taken", price_too_high: "dearer", code_not_covering: "uncovered" }
+const REFUSALS: Record<string, "taken" | "dearer" | "uncovered" | "unavailable"> = { name_taken: "taken", price_too_high: "dearer", code_not_covering: "uncovered", terms_unavailable: "unavailable" }
 const CODE_LOSSES: Record<string, CodeLoss> = { code_used: "used", code_reserved: "reserved", code_expired: "expired", code_invalid: "revoked" }
 
 const BUILDERS: Record<SearchKind, Builder<SearchState>> = {
@@ -253,7 +258,7 @@ const BUILDERS: Record<SearchKind, Builder<SearchState>> = {
 }
 
 function searchBox(): HTMLElement {
-  const input = el("input", { type: "text", placeholder: "yourname", "aria-label": "Name", autocomplete: "off", autocapitalize: "none", spellcheck: "false" })
+  const input = el("input", { type: "text", placeholder: "yourname", "aria-label": "Name", ...NO_AUTOFILL })
   field = input
   const search = el("button", { class: "btn lens", type: "button", "aria-label": "Search", "data-focus": "search", onclick: () => submit() }, icon("search"))
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit() })
@@ -277,13 +282,27 @@ function searchBox(): HTMLElement {
   return el("label", { class: "field search-field" }, input, el("span", { class: "tld" }, ".simplex"), search)
 }
 
+const CODES_ONLY_LINE_ID = "codes-only-note"
+
+// In codes-only mode without a code, the search is off, saying why, and the code is the way in.
+function codesOnlyAnswer(): Kid[] {
+  const register = btn("Register with code", "", () => go(CODE_URL))
+  register.dataset.focus = "register-code"
+  return [el("p", { class: "hint soft", id: CODES_ONLY_LINE_ID }, CODES_ONLY_LINE), register]
+}
+
 function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
   const box = kept("search-field", searchBox)
   const input = box.querySelector("input")!
   const search = box.querySelector("button")!
+  const locked = searchLocked(codesOnly(), s, session.activeCode())
   if (input.value !== s.typed) input.value = s.typed
   box.classList.toggle("bad", s.bad)
-  search.disabled = s.paused
+  box.classList.toggle("off", locked)
+  input.disabled = locked
+  if (locked) input.setAttribute("aria-describedby", CODES_ONLY_LINE_ID)
+  else input.removeAttribute("aria-describedby")
+  search.disabled = locked || s.paused
   if (s.searching) search.setAttribute("aria-busy", "true")
   else search.removeAttribute("aria-busy")
   const retry = () => {
@@ -295,7 +314,7 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
   return el("section", { class: "home" },
     el("h1", {}, HEADLINE), el("p", { class: "sub" }, SUB),
     openingLine(s),
-    el("div", { class: "search" }, box, keptLive("search-answer", "answer", answerOf(s, retry, signal))))
+    el("div", { class: "search" }, box, keptLive("search-answer", "answer", locked ? codesOnlyAnswer() : answerOf(s, retry, signal))))
 }
 
 function openingLine(s: SearchState): HTMLElement | null {
@@ -309,6 +328,7 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (s.paused && s.hold) return pauseLine(s.hold, signal)
   const answer = s.answer
   if (answer?.kind === "rule") return ruleLine(answer)
+  if (answer?.kind === "uncovered") return line("bad", "alert", `${letters(answer.label.length)}. Your code covers names of ${answer.minLength} or more letters.`)
   if (answer?.kind === "unchecked") return line("warn", "alert", "This name could not be checked. ", link("Try again", retry))
   if (answer?.kind !== "found") return answer?.kind === "checking" ? line("", "clock", "Checking the name…") : null
   const found = answer.answer
@@ -347,12 +367,13 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
   const code = codeFor(s, label)
   const free = code ?? (cover && !unpayable ? cover : null)
   const short = usesCode(s) ? session.activeCode() : null
-  const asks = retarget !== null && !unpayable && own === null
+  const orderable = flow.orderable(answer)
+  const asks = retarget !== null && !unpayable && own === null && orderable
   const words = !retarget ? "Register" : cover ? "Register with your code" : "Register with your payment"
-  const button = setAction(btn(words, "small", () => void register()), s.register.busy, unpayable || own !== null || s.hold !== null || (asks && !s.agreed))
+  const button = setAction(btn(words, "small", () => void register()), s.register.busy, unpayable || own !== null || s.hold !== null || !orderable || (asks && !ticked({ ...s, community: answer.community })))
   button.dataset.focus = "register"
-  const deal = free ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${free.years} years`)]
-    : [el("b", { class: "price" }, dollars(answer.price)), el("span", { class: "soft" }, ` / ${answer.years} years`)]
+  const deal = free ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, free.years)} years`)]
+    : [el("b", { class: "price" }, dollars(answer.price)), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, answer.years)} years`)]
   return [
     el("div", { class: "card row buy" }, rowName(label, answer.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !code && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
@@ -360,6 +381,7 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
     s.balance ? balanceLine(s.balance, answer.price) : null,
     hint ? line("", cover ? "key" : "wallet", hint[0], hint[1] ? [" ", el("span", { class: "nowrap" }, hint[1])] : null) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
+    orderable ? null : line("warn", "alert", `${NO_ORDERS}. Try again later.`),
     // under the box, so nothing above it moves
     asks ? moveAgreement(s, label, answer) : null,
     asks && s.termsChanged ? termsChangedLine("register") : null,
@@ -367,9 +389,10 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
   ]
 }
 
-function moveAgreement(s: SearchState, label: string, answer: Available): HTMLLabelElement {
+function moveAgreement(s: SearchState, label: string, answer: flow.Quote): HTMLElement {
   const agree = (agreed: boolean) => dispatch({ type: "agreed", agreed })
-  return termsCheck({ terms: answer.terms, community: answer.community, agreed: s.agreed, changed: s.termsChanged, label, tld: answer.tld, disabled: s.register.busy }, agree)
+  const accept = (accepted: boolean) => dispatch({ type: "accepted", accepted })
+  return termsChecks({ terms: answer.terms, community: answer.community, agreed: s.agreed, accepted: s.accepted, changed: s.termsChanged, label, tld: answer.tld, chainId: answer.chainId, disabled: s.register.busy }, agree, accept)
 }
 
 function balanceLine(balance: session.AppliedBalance, price: number): HTMLElement {
@@ -384,7 +407,8 @@ function registerNote({ hold, register: { refusal } }: SearchState, signal: Abor
   if (refusal.why === "code") return noteBox(codeLossNote(refusal.state, refusal.reference))
   const words = refusal.why === "taken" ? "This name is no longer available. Search another one."
     : refusal.why === "dearer" ? "This name now costs more than your order is worth. Search another one."
-    : refusal.why === "uncovered" ? "Your code does not pay for this name. Search another one." : "Nothing changed. Try again in a moment."
+    : refusal.why === "uncovered" ? "Your code does not pay for this name. Search another one."
+    : refusal.why === "unavailable" ? `${NO_ORDERS}. Nothing changed. Try again later.` : "Nothing changed. Try again in a moment."
   return alertBox("danger", "alert", "That did not go through", words)
 }
 

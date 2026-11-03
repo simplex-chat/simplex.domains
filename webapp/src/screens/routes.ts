@@ -1,8 +1,8 @@
 export type View = "search" | "checkout" | "order" | "names" | "edit" | "trademarks" | "code"
-export type CheckoutStep = "links" | "code" | "review"
+export type CheckoutStep = "links" | "code" | "community" | "review"
 
 export const EDIT_PATH = /^\/edit\/([\w-]+)$/
-const CHECKOUT_PATH = /^\/checkout(?:\/(links|code))?$/
+const CHECKOUT_PATH = /^\/checkout(?:\/(links|code|community))?$/
 
 export function viewOf(query: URLSearchParams, path: string): View {
   if (query.get("order") || query.get("registration")) return "order"
@@ -17,6 +17,7 @@ export function viewOf(query: URLSearchParams, path: string): View {
 export const checkoutStepOf = (path: string): CheckoutStep => (CHECKOUT_PATH.exec(path)?.[1] as CheckoutStep | undefined) ?? "review"
 export const checkoutUrl = (step: CheckoutStep) => step === "review" ? "/#/checkout" : `/#/checkout/${step}`
 export const CODE_URL = "/#/code"
+export const editUrl = (registrationId: string) => `/#/edit/${registrationId}`
 // Check your code opened from an order's page, which goes on to the order a name code finds rather than to Your names
 export const CODE_FROM_ORDER_URL = `${CODE_URL}?from=order`
 export const fromOrder = (hashQuery: URLSearchParams) => hashQuery.get("from") === "order"

@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite"
+import { modeFromMock } from "./dev/mode.ts"
 import { serviceWorker } from "./sw/plugin.ts"
 
 const MOCK = process.env.MOCK_URL ?? "http://127.0.0.1:8099"
@@ -10,7 +11,7 @@ export default defineConfig({
   server: { port: 5173, strictPort: true, proxy: { "/api": MOCK, "/control": MOCK } },
   preview: { port: 4173, strictPort: true, proxy: { "/api": MOCK, "/control": MOCK }, headers: { "Content-Security-Policy": CSP } },
   build: { target: "es2022" },
-  plugins: [serviceWorker()],
+  plugins: [serviceWorker(), modeFromMock(MOCK)],
   // e2e/ holds Playwright's tests, which need the browser and the dev backend
   test: { include: ["test/**/*.test.ts"] },
 })

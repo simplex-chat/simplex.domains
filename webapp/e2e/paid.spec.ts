@@ -7,13 +7,23 @@ import { LINK_MAX_BYTES } from "../src/names.ts"
 import { CARD_FORM_TIMEOUT_MS } from "../src/stripe.ts"
 import {
   blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, mockRegistration, onStep, oracleQuote, payButton, previewsShown, REGISTRATION_MS,
-  offCentre, orderOwnerCode, qrText, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
+  offCentre, orderOwnerCode, qrText, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
 } from "./helpers.ts"
 
 // the card form these tests pay with is the dev server's stand-in; a production build loads Stripe's own
 const STAND_IN_ONLY = "needs the dev server's card stand-in"
 // a production build's service worker answers the page's requests past Playwright's routes, in WebKit
 test.use({ serviceWorkers: "block" })
+
+// A test that raised the mock's yearly limit of link edits puts back the service's default. Only the mock has the
+// control, so the cases the service's contract run takes from here never reach it.
+const EDITS_PER_YEAR = 3
+let editsRaised = false
+test.afterEach(async ({ request }) => {
+  if (!editsRaised) return
+  editsRaised = false
+  await control(request, "edits", { limit: EDITS_PER_YEAR })
+})
 
 // a field's focus ring reaches 4 px past it, and keeps clear of the label over it
 const RING_ROOM_PX = 6
@@ -151,6 +161,9 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(page.locator(".answer").getByRole("button", { name: "Contact A1Y8m3, contact address" })).toBeVisible()
   await expect(page.locator(".answer .row").getByRole("link", { name: "Your name" })).toHaveAttribute("href", "/#/names")
   await shot(page, "N2a-taken-own")
+  // the saves below are more than a name's yearly limit of edits
+  editsRaised = true
+  await control(request, "edits", { limit: 100 })
   await page.goto(`/#/edit/${registrationId}`)
   await expect(link).toHaveValue(contact)
   await expect(channelField).toHaveValue(channel)
@@ -171,41 +184,37 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
   expect((await searchName(request, label)).records).toEqual({ contact: "", channel })
 
-  // links are sent one at a time, so a refusal after the first says which one is on chain
+  // a Save of both links is one request, so a refusal leaves both as the chain has them
   const nextChannel = channelLink("C3")
-  let sent = 0
-  await page.route("**/api/name/records", (route) => ++sent === 1 ? route.continue() : route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  const refused: { edits: { key: string }[] }[] = []
+  await page.route("**/api/name/records", (route) => {
+    refused.push(route.request().postDataJSON())
+    return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } })
+  })
   await link.fill(contact)
   await channelField.fill(nextChannel)
   await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
   await page.getByRole("button", { name: "Save links" }).click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^The address was saved; the channel was not\. Try again in/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^The links were not saved\. Try again in/ })).toBeVisible({ timeout: 30_000 })
+  expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["simplex.contact", "simplex.channel"]])
+  expect((await searchName(request, label)).records).toEqual({ contact: "", channel })
   await page.unroute("**/api/name/records")
   await expect(page.getByRole("button", { name: "Save links" })).toBeEnabled({ timeout: 10_000 })
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
   expect((await searchName(request, label)).records).toEqual({ contact, channel: nextChannel })
 
-  const nonceMoved = (ahead: number, records?: { contact: string; channel: string }) => page.route(/\/api\/name\/(0x)?[0-9a-f]{64}/, async (route) => {
+  // a Save refused because an earlier one moved the nonce shows the links on chain in both fields
+  const nonceMoved = (ahead: number, records: { contact: string; channel: string }) => page.route(/\/api\/name\/(0x)?[0-9a-f]{64}/, async (route) => {
     const res = await route.fetch()
     const json = await res.json() as { recordsNonce: number }
-    await route.fulfill({ response: res, json: { ...json, recordsNonce: json.recordsNonce + ahead, ...(records ? { records } : {}) } })
+    await route.fulfill({ response: res, json: { ...json, recordsNonce: json.recordsNonce + ahead, records } })
   })
-  const refusedChannel = channelLink("D4")
-  sent = 0
-  await page.route("**/api/name/records", (route) => ++sent === 1 ? route.continue() : route.fulfill({ status: 400, json: { error: "bad_request" } }))
-  await nonceMoved(1)
-  await link.fill("")
-  await channelField.fill(refusedChannel)
-  await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
-  await page.getByRole("button", { name: "Save links" }).click()
-  const partly = page.getByText("Another save reached the chain first. The channel is still as you typed it: save again to send it.")
-  await expect(partly).toBeVisible({ timeout: 30_000 })
-  await expect(link).toHaveValue("")
-  await expect(channelField).toHaveValue(refusedChannel)
-  await page.unroute(/\/api\/name\/(0x)?[0-9a-f]{64}/)
-
+  await page.route("**/api/name/records", (route) => route.fulfill({ status: 400, json: { error: "bad_request" } }))
   await nonceMoved(2, { contact, channel: nextChannel })
+  await link.fill("")
+  await channelField.fill(channelLink("D4"))
+  await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("An earlier save got there first")).toBeVisible({ timeout: 30_000 })
   await expect(link).toHaveValue(contact)
@@ -215,6 +224,13 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(page.getByText("An earlier save got there first")).toBeVisible()
   await page.unroute(/\/api\/name\/(0x)?[0-9a-f]{64}/)
   await page.unroute("**/api/name/records")
+  // read again, the page signs with the chain's own nonce
+  await page.reload()
+  await expect(link).toHaveValue(contact)
+  await link.fill("")
+  await page.getByRole("button", { name: "Save links" }).click()
+  await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
+  expect((await searchName(request, label)).records).toEqual({ contact: "", channel: nextChannel })
 
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -307,8 +323,8 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   const terms = step.getByRole("checkbox", { name: AGREE })
   await expect(terms).not.toBeChecked()
   await expect(payButton(page), "Pay waits for the terms").toBeDisabled()
-  await expect(step.getByRole("link", { name: "SimpleX name terms" })).toHaveAttribute("href", "https://simplex.chat/")
-  await expect(step.getByRole("link", { name: "SimpleX name terms" })).toHaveAttribute("target", "_blank")
+  await expect(step.getByRole("link", { name: "SimpleX general terms" })).toHaveAttribute("href", TERMS.link.slice(0, TERMS.link.indexOf("#")))
+  await expect(step.getByRole("link", { name: "SimpleX general terms" })).toHaveAttribute("target", "_blank")
   await agreeToTerms(page)
   await expect(payButton(page)).toBeEnabled()
 
@@ -616,7 +632,7 @@ test("Skip for now shows only while no link is given, and a link edited keeps it
 
 test("Edit links keeps several links on chain as the contact address they hold, and emptying the field removes them", async ({ page }) => {
   const { registrationId } = await fakeRegisteredName(page, uniqueLabel("several"), { contact: `${contactLink("M1")};${contactLink("M2")}`, channel: "" })
-  const sent: Record<string, unknown>[] = []
+  const sent: { edits: { key: string; value: string }[] }[] = []
   await page.route("**/api/name/records", (route) => {
     sent.push(route.request().postDataJSON())
     return route.fulfill({ json: { tx: "0x04" } })
@@ -628,7 +644,7 @@ test("Edit links keeps several links on chain as the contact address they hold, 
   await step.locator(".link-field").first().getByRole("button", { name: "Remove link" }).click()
   await step.getByRole("button", { name: "Save links" }).click()
   await expect(step.getByText("Links saved")).toBeVisible()
-  expect(sent.map(({ key, value }) => ({ key, value })), "the edits sent").toEqual([{ key: CONTACT_KEY, value: "" }])
+  expect(sent.map(({ edits }) => edits.map(({ key, value }) => ({ key, value }))), "the edits sent").toEqual([[{ key: CONTACT_KEY, value: "" }]])
 })
 
 test("Check your order draws a link whose profile cannot be read as its kind's default picture, named by the link", async ({ page }) => {

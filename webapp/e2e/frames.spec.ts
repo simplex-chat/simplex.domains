@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test"
 import {
   agreeToTerms, CODE_HEADING, contactLink, control, LINKS_HEADING, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
-  takenHeading, TERMS, test, toFullReview, toReview, uniqueLabel,
+  takenHeading, test, toFullReview, toReview, uniqueLabel,
 } from "./helpers.ts"
 
 // the swaps run at full length, as for a reader who has not asked for less movement
@@ -143,14 +143,14 @@ test("a name taken first, its balance's search and Your names swap without a nea
 test("terms changed while ordering show their notice without a near-empty frame", async ({ page, request }) => {
   await search(page, uniqueLabel("frterms"))
   await toReview(page)
-  await control(request, "terms", { version: "2026-11-01" })
+  await control(request, "general-terms", { text: "# SimpleX general terms\n\nChanged while ordering.\n" })
   try {
     await expectNoEmptyFrame(page, "review to its terms notice", async () => {
       await payButton(page).click()
       await expect(onStep(page).getByText("The terms changed. Agree to them again.")).toBeVisible()
     })
   } finally {
-    await control(request, "terms", { version: TERMS.version })
+    await control(request, "general-terms", { text: null })
   }
 })
 
