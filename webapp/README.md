@@ -126,8 +126,10 @@ The service worker is in the production build only, so `e2e/offline.spec.ts` run
 
 ```
 npm run build && npx vite preview --host 127.0.0.1
-BASE_URL=http://127.0.0.1:4173 npx playwright test e2e/offline.spec.ts e2e/track.spec.ts
+BASE_URL=http://127.0.0.1:4173 npx playwright test e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts
 ```
+
+`e2e/mode-cache.spec.ts` serves `dist/` itself, as the store service does, and switches its mode, slows it and stops it between loads: a reload shows the mode the service gives, however slowly it answers, and the page opens offline in the last mode it gave.
 
 ## Codes only
 
