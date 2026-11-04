@@ -1277,23 +1277,22 @@ const RECORD_EDITS_MIN = 1
 const RECORD_EDITS_MAX = 100
 let editsPerYear = RECORD_EDITS_PER_YEAR
 
-// Each name's edits that went out, by label hash. One reverted on chain gives its edit back, as one refused or never sent
-// does, which is never counted.
-interface CountedEdit { at: number; reverted: boolean }
-const nameEdits = new Map<Hex, CountedEdit[]>()
+// When each of a name's edits went out, by label hash. Each counts however it ends on chain, mined, reverted or expired,
+// as the service counts every relayed edit; one refused or never sent is never counted.
+const nameEdits = new Map<Hex, number[]>()
 
 // the edits a name has left in any 365 days, and when the next returns: when the oldest counted one, or a later one
 // while a lowered limit is overrun, is 365 days old
 function editsLeft(labelHash: Hex): { left: number; nextAt: number | null } {
   const since = nowSeconds() - YEAR_S
-  const times = (nameEdits.get(labelHash) ?? []).filter((e) => !e.reverted && e.at > since).map((e) => e.at).sort((a, b) => a - b)
+  const times = (nameEdits.get(labelHash) ?? []).filter((at) => at > since).sort((a, b) => a - b)
   const returning = times[Math.max(0, times.length - editsPerYear)]
   return { left: Math.max(0, editsPerYear - times.length), nextAt: returning === undefined ? null : returning + YEAR_S }
 }
 
 // Each sent request, by its signed edits: a repeat is answered from it rather than checked anew. A refused request is
 // never sent, so it is not kept, and its repeat is checked again.
-interface SentEdit { hash: Hex; outcome: Record<string, unknown> | HttpError | null; counted: CountedEdit }
+interface SentEdit { hash: Hex; outcome: Record<string, unknown> | HttpError | null }
 const sentEdits = new Map<string, SentEdit>()
 
 async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
@@ -1307,7 +1306,6 @@ async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
     throw new HttpError(504, "edit_pending")
   }
   sent.outcome = ok ? { tx: sent.hash } : new HttpError(409, "record_reverted", { revert: null })
-  sent.counted.reverted = !ok
   return repeatedEdit(sent)
 }
 
@@ -1391,9 +1389,8 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   // kept from the moment it goes out, and counted once whatever it changes
   const edit: { sent: SentEdit | null } = { sent: null }
   const goingOut = (hash: Hex) => {
-    const counted = { at: nowSeconds(), reverted: false }
-    nameEdits.set(labelHash, [...nameEdits.get(labelHash) ?? [], counted])
-    edit.sent = { hash, outcome: null, counted }
+    nameEdits.set(labelHash, [...nameEdits.get(labelHash) ?? [], nowSeconds()])
+    edit.sent = { hash, outcome: null }
     sentEdits.set(editKey, edit.sent)
   }
   try {
@@ -1405,10 +1402,7 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
     // a dry run that reverts sends nothing; a transaction that reverts is the edit's answer
     if (e instanceof Reverted) {
       const reverted = new HttpError(409, "record_reverted", { revert: e.revert })
-      if (edit.sent) {
-        edit.sent.outcome = reverted
-        edit.sent.counted.reverted = true
-      }
+      if (edit.sent) edit.sent.outcome = reverted
       throw reverted
     }
     // no answer from the chain is not a refusal: the edit may still be mined, which the page says
@@ -1614,7 +1608,7 @@ export function controlEdits(body: Record<string, unknown>): Record<string, unkn
   if (!Number.isInteger(count) || (count as number) < 0 || (at !== undefined && !Number.isInteger(at))) throw badRequest()
   const hash = keccak256(toHex(label))
   const made = (at as number | undefined) ?? nowSeconds()
-  nameEdits.set(hash, Array.from({ length: count as number }, () => ({ at: made, reverted: false })))
+  nameEdits.set(hash, Array.from({ length: count as number }, () => made))
   return { limit: editsPerYear, recordEdits: editsLeft(hash) }
 }
 

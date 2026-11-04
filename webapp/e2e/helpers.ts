@@ -2,7 +2,7 @@ import { expect, test as base, type APIRequestContext, type Browser, type Browse
 import { randomInt } from "node:crypto"
 import { mkdirSync, readFileSync } from "node:fs"
 import { createPublicClient, createTestClient, createWalletClient, encodeFunctionData, http, namehash, parseAbi, parseEventLogs, toFunctionSelector, type Hex } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
@@ -67,6 +67,7 @@ const CHAIN_ABI = parseAbi([
   "event GeneralTermsAccepted(string name, address indexed holder, bytes32 termsHash)",
   "event CommunityTermsAccepted(string name, address indexed holder, bytes32 termsHash)",
   "function addCommunityNames(string[] names)",
+  "function setTextWithSig(bytes32 node, string key, string value, uint256 nonce, uint256 deadline, bytes sig)",
 ])
 // the terms dev/deploy.ts linked on chain, by their hashes, and the terms an order of a plain and of a community name signs
 export const GENERAL_TERMS_HASH = deployment.generalTermsHash
@@ -132,6 +133,35 @@ export async function contractsOwnerLists(label: string): Promise<void> {
   const hash = await createWalletClient({ account, chain: { ...foundry, id: deployment.chainId }, transport: http(deployment.rpcUrl) })
     .writeContract({ address: deployment.namePolicy, abi: CHAIN_ABI, functionName: "addCommunityNames", args: [[label]] })
   expect((await chain.waitForTransactionReceipt({ hash })).status, "the owner's listing").toBe("success")
+}
+
+// a tip far above the mock's, so a block holding both transactions mines this one first
+const AHEAD_TIP_WEI = 100n * 10n ** 9n
+// a set gas limit skips the estimate, which anvil runs on the pending block, where the mock's transaction took the nonce
+const AHEAD_GAS = 300_000n
+const CHAIN_BLOCK_S = 1
+
+// Another relayer's copy of a signed link edit, mined in the block before the mock's own transaction for it, which then
+// reverts on chain. Blocks are held from before the request until both transactions wait in the pool.
+export async function relayedAhead<T>(label: string, edit: { key: string; value: string; nonce: number; deadline: number; signature: string }, request: () => Promise<T>): Promise<T> {
+  const transport = http(deployment.rpcUrl)
+  const anvil = createTestClient({ mode: "anvil", transport })
+  await anvil.setIntervalMining({ interval: 0 })
+  try {
+    const answer = request()
+    await expect.poll(async () => (await anvil.getTxpoolStatus()).pending, { message: "the mock's transaction waits in the pool" }).toBe(1)
+    const account = privateKeyToAccount(generatePrivateKey())
+    await anvil.setBalance({ address: account.address, value: OWNER_GAS_WEI })
+    const data = encodeFunctionData({ abi: CHAIN_ABI, functionName: "setTextWithSig",
+      args: [nodeOf(label), edit.key, edit.value, BigInt(edit.nonce), BigInt(edit.deadline), edit.signature as Hex] })
+    const block = await chain.getBlock()
+    await createWalletClient({ account, chain: { ...foundry, id: deployment.chainId }, transport })
+      .sendTransaction({ to: deployment.resolver, data, gas: AHEAD_GAS, maxPriorityFeePerGas: AHEAD_TIP_WEI, maxFeePerGas: (block.baseFeePerGas ?? 0n) * 2n + AHEAD_TIP_WEI })
+    await anvil.mine({ blocks: 1 })
+    return await answer
+  } finally {
+    await anvil.setIntervalMining({ interval: CHAIN_BLOCK_S })
+  }
 }
 
 export async function oracleQuote(label: string, years: number): Promise<number> {
