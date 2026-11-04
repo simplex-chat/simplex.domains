@@ -129,6 +129,15 @@ npm run build && npx vite preview --host 127.0.0.1
 BASE_URL=http://127.0.0.1:4173 npx playwright test e2e/offline.spec.ts e2e/track.spec.ts
 ```
 
+### CI
+
+`.github/workflows/webapp.yml` runs on pull requests and on pushes to master that change the webapp, its fonts or images:
+
+- `unit`: `npm test` and `npm run build`.
+- `e2e`, one job per browser (Chromium, Firefox, WebKit): the dev image of `dev/Dockerfile` runs `dev/start.sh` with 3 slots, 2 for WebKit, and the browser tests run against it; then the production build's tests run against `vite preview`.
+
+The image's layers are cached between runs, so the contracts compile only when the Dockerfile's commits change. A failed `e2e` job prints the backend's log and uploads `test-results/`.
+
 ## Codes only
 
 Until the full launch, names are registered only with prepaid codes. The page is the same build in both modes: `index.html` carries `<meta name="simplex-names-mode" content="open">`, whose content the service rewrites to `codes` while its `[names] codes_only` is on, and leaves `open` otherwise. In `codes` mode:
