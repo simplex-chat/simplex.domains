@@ -6,6 +6,8 @@ import { serviceWorker, WORKER_TEMPLATE, workerSource, type WorkerBuild } from "
 const ORIGIN = "https://simplex.domains"
 const BUILD: WorkerBuild = { build: "0123456789abcdef", entry: "/assets/index-AAAA.js", precache: ["/assets/index-AAAA.js", "/assets/index-BBBB.css", "/fonts/Manrope/Manrope-Medium-latin.woff2"] }
 const SHELL_HTML = `<!doctype html><script type="module" src="${BUILD.entry}"></script>`
+// the same build's shell, as the service serves it with codes_only on
+const CODES_SHELL_HTML = SHELL_HTML.replace("<script", '<meta name="simplex-names-mode" content="codes"><script')
 // a captive portal's or a proxy's page, served at the page's own path
 const PORTAL_HTML = "<!doctype html><title>Sign in to the network</title>"
 
@@ -43,7 +45,7 @@ const keyOf = (key: unknown) => new URL(typeof key === "string" ? key : (key as 
 class FakeNet {
   readonly requests: { path: string; init?: unknown; cache: string }[] = []
   readonly routes = new Map<string, { status: number; body: string; redirected?: boolean }>()
-  readonly stalled = new Set<string>()
+  readonly held = new Map<string, Promise<void>>()
   offline = false
   serve(path: string, status: number, body: string, redirected = false): void { this.routes.set(path, { status, body, redirected }) }
   readonly fetch = async (input: unknown, init?: unknown): Promise<FakeResponse> => {
@@ -52,11 +54,17 @@ class FakeNet {
     const cache = (init as { cache?: string } | undefined)?.cache ?? (input instanceof FakeRequest ? input.cache : "default")
     this.requests.push({ path, init, cache })
     if (this.offline) throw new TypeError("Failed to fetch")
-    if (this.stalled.has(path)) return new Promise(() => undefined)
+    await this.held.get(path)
     const hit = this.routes.get(path)
     return response(url, hit?.status ?? 404, hit?.body ?? "not found", hit?.redirected)
   }
   get paths(): string[] { return this.requests.map((r) => r.path) }
+  // the path's answers wait until the returned function lets them go
+  hold(path: string): () => void {
+    let release!: () => void
+    this.held.set(path, new Promise((resolve) => { release = resolve }))
+    return release
+  }
 }
 
 // whether a request carries an Origin header, as a page's crossorigin module, stylesheet and font requests do
@@ -99,7 +107,7 @@ class FakeCaches {
   async delete(name: string) { return this.stores.delete(name) }
 }
 
-interface Exports { BUILD: string; CACHE: string; ENTRY: string; PRECACHE: string[]; SHELL_TIMEOUT_MS: number; strategyFor(url: URL): string }
+interface Exports { BUILD: string; CACHE: string; ENTRY: string; PRECACHE: string[]; strategyFor(url: URL): string }
 type Listener = (event: unknown) => void
 
 // The built worker, run as the browser runs a classic worker script: its listeners, what it exports, and its world.
@@ -115,13 +123,17 @@ function startWorker(build = BUILD) {
     listeners.get(type)!({ waitUntil: (p: Promise<unknown>) => waits.push(p) })
     await Promise.all(waits)
   }
+  // the work the worker's answers keep it alive for, past the answers themselves
+  const extended: Promise<unknown>[] = []
   // what the worker answers a page's request with, or null when it leaves the request to the browser
   const request = (path: string, method = "GET", mode = "no-cors"): Promise<FakeResponse> | null => {
     let answer: Promise<FakeResponse> | null = null
-    listeners.get("fetch")!({ request: { url: new URL(path, ORIGIN).href, method, mode }, respondWith: (p: Promise<FakeResponse>) => { answer = p } })
+    const event = { request: { url: new URL(path, ORIGIN).href, method, mode }, respondWith: (p: Promise<FakeResponse>) => { answer = p }, waitUntil: (p: Promise<unknown>) => extended.push(p) }
+    listeners.get("fetch")!(event)
     return answer
   }
-  return { net, caches, skipWaiting, sw: self.sw!, lifecycle, request }
+  const settled = () => Promise.all(extended)
+  return { net, caches, skipWaiting, sw: self.sw!, lifecycle, request, settled }
 }
 
 function servedBuild(net: FakeNet, shell = SHELL_HTML): void {
@@ -236,21 +248,47 @@ describe("service worker answers", () => {
     expect(w.net.paths).toEqual(["/", "/?order=abc"])
   })
 
-  it("serves the kept shell offline, when the server fails, and when an answer stalls past its deadline", async () => {
+  it("serves the kept shell offline and when the server fails", async () => {
     const w = await installed()
     w.net.offline = true
     expect(await (await w.request("/"))!.text()).toBe(SHELL_HTML)
     w.net.offline = false
     w.net.serve("/", 502, "bad gateway")
     expect(await (await w.request("/"))!.text()).toBe(SHELL_HTML)
+  })
+
+  it("waits for a slow shell rather than serving the kept one, as the service's mode is in it", async () => {
     vi.useFakeTimers()
-    const stalling = startWorker()
-    servedBuild(stalling.net)
-    await stalling.lifecycle("install")
-    stalling.net.stalled.add("/")
-    const answer = stalling.request("/")!
-    await vi.advanceTimersByTimeAsync(stalling.sw.SHELL_TIMEOUT_MS)
-    expect(await (await answer).text()).toBe(SHELL_HTML)
+    const w = await installed()
+    w.net.serve("/", 200, CODES_SHELL_HTML)
+    const release = w.net.hold("/")
+    let answered = false
+    const answer = w.request("/")!.then((r) => { answered = true; return r })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(answered, "no answer before the server's").toBe(false)
+    release()
+    expect(await (await answer).text()).toBe(CODES_SHELL_HTML)
+  })
+
+  it("keeps each fresh shell of this build for offline, with the mode the service last gave", async () => {
+    const w = await installed()
+    w.net.serve("/", 200, CODES_SHELL_HTML)
+    expect(await (await w.request("/"))!.text()).toBe(CODES_SHELL_HTML)
+    await w.settled()
+    w.net.offline = true
+    expect(await (await w.request("/?order=abc"))!.text()).toBe(CODES_SHELL_HTML)
+  })
+
+  it("keeps no other build's shell and no portal's page, which would leave nothing to open offline", async () => {
+    const w = await installed()
+    const newerBuild = SHELL_HTML.replace(BUILD.entry, "/assets/index-NEWER.js")
+    for (const page of [newerBuild, PORTAL_HTML]) {
+      w.net.serve("/", 200, page)
+      expect(await (await w.request("/"))!.text()).toBe(page)
+    }
+    await w.settled()
+    w.net.offline = true
+    expect(await (await w.request("/"))!.text()).toBe(SHELL_HTML)
   })
 
   it("serves this build's files from its cache without asking the network, and a file not kept from the network", async () => {
