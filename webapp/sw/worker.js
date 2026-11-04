@@ -12,8 +12,6 @@ const PRECACHE = []
 // one cache per build, so clearing out is "everything that is not this one"
 const CACHE = `names-${BUILD}`
 const SHELL = "/"
-// past this the cached shell is served instead; an answer that arrives later is dropped
-const SHELL_TIMEOUT_MS = 3000
 const PRECACHED = new Set(PRECACHE)
 
 // The whole routing decision, from the URL alone.
@@ -25,6 +23,8 @@ function strategyFor(url) {
   if (PRECACHED.has(url.pathname)) return "asset"
   return "bypass"
 }
+
+const isThisBuildsShell = async (response) => (await response.clone().text()).includes(ENTRY)
 
 // The cache is left complete or absent: a half-filled one would serve a shell whose modules are not there.
 async function precache() {
@@ -38,7 +38,7 @@ async function precache() {
     if (!shell.ok) throw new Error(`sw: the shell answered ${shell.status}`)
     // a page reached by a redirect, as a portal's, cannot answer a page load: the browser takes it as a network error
     if (shell.redirected) throw new Error("sw: the shell was redirected")
-    if (!(await shell.clone().text()).includes(ENTRY)) throw new Error("sw: the document at / is not this build's shell")
+    if (!(await isThisBuildsShell(shell))) throw new Error("sw: the document at / is not this build's shell")
     await cache.put(SHELL, shell)
     // past the HTTP cache, which can hold an older copy of a file whose name carries no hash, as a font's
     await cache.addAll(PRECACHE.map((path) => new Request(path, { cache: "reload" })))
@@ -71,26 +71,30 @@ async function fromPrecache(request) {
   return hit ?? fetch(request)
 }
 
-// Network first for the shell, the one file whose URL names no build: it decides which build a page runs, so a cached
-// one first would keep a returning reader on an old build.
-async function shellFirst(request) {
-  let deadline
+// Network first for the shell, the one file whose URL names no build: it decides which build a page runs, and the
+// service writes its mode into it, so a reachable server's answer always wins, however long it takes.
+async function shellFirst(event) {
+  let fresh
   try {
     // every page is the same document, kept under one key; reload, as the HTTP cache can keep an old build too
-    const network = fetch(SHELL, { cache: "reload", credentials: "same-origin" })
-    // a captive portal or a tunnel can take the connection and never answer, which fetch does not reject
-    const stall = new Promise((resolve) => { deadline = setTimeout(() => resolve(undefined), SHELL_TIMEOUT_MS) })
-    const fresh = await Promise.race([network, stall])
-    // the browser follows a redirect of the page itself, as a portal's, which a redirected answer cannot stand for
-    if (fresh?.redirected) return fetch(request)
-    if (fresh?.ok) return fresh
+    fresh = await fetch(SHELL, { cache: "reload", credentials: "same-origin" })
   } catch {
     // offline, or the server is down: the cached shell is what is left
-  } finally {
-    clearTimeout(deadline)
+  }
+  // the browser follows a redirect of the page itself, as a portal's, which a redirected answer cannot stand for
+  if (fresh?.redirected) return fetch(event.request)
+  if (fresh?.ok) {
+    // the shell offline is the server's last answer, with the mode it gave then, rather than the one at install
+    event.waitUntil(keepShell(fresh.clone()))
+    return fresh
   }
   const hit = await (await caches.open(CACHE)).match(SHELL, MATCH)
-  return hit ?? fetch(request)
+  return hit ?? fetch(event.request)
+}
+
+// A newer build's shell names modules this cache does not have, and a portal's page names none.
+async function keepShell(shell) {
+  if (await isThisBuildsShell(shell)) await (await caches.open(CACHE)).put(SHELL, shell)
 }
 
 self.addEventListener("fetch", (event) => {
@@ -99,7 +103,9 @@ self.addEventListener("fetch", (event) => {
   const strategy = strategyFor(new URL(request.url))
   // not answering leaves the request to the browser, so the API never passes through the Cache API
   if (strategy === "network-only" || strategy === "bypass") return
-  event.respondWith(strategy === "shell" ? shellFirst(request) : fromPrecache(request))
+  // the shell a page fetches itself, to read the service's mode, is the network's to answer, never the kept one
+  if (strategy === "shell" && request.mode !== "navigate") return
+  event.respondWith(strategy === "shell" ? shellFirst(event) : fromPrecache(request))
 })
 
-self.sw = { BUILD, CACHE, ENTRY, PRECACHE, SHELL, SHELL_TIMEOUT_MS, strategyFor }
+self.sw = { BUILD, CACHE, ENTRY, PRECACHE, SHELL, strategyFor }

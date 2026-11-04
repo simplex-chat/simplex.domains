@@ -69,6 +69,9 @@ const memory = new Map<string, string>()
 // keys whose last write did not reach sessionStorage, which then holds an older value
 const unsaved = new Set<string>()
 
+// whether everything this tab holds is in sessionStorage, so a reload of the page keeps it
+export const allKept = () => unsaved.size === 0
+
 function read<T>(key: string): T | null {
   let text: string | null
   try {
@@ -143,3 +146,4 @@ const keyOf = (c: Checkout) => `${c.label} ${c.ownerCode}`
 export const isSending = (c: Checkout) => sending.has(keyOf(c))
 export const startSending = (c: Checkout) => sending.add(keyOf(c))
 export const stopSending = (c: Checkout) => sending.delete(keyOf(c))
+export const anySending = () => sending.size > 0

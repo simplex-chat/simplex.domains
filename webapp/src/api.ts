@@ -259,6 +259,9 @@ let clockChanges = 0
 export const serviceNow = () => Date.now() + clockOffsetMs
 export const serviceSeconds = () => Math.floor(serviceNow() / 1000)
 export const clockVersion = () => clockChanges
+// requests that change something, on their way: a page loaded again meanwhile would never hear their answers
+let changing = 0
+export const changeOnItsWay = () => changing > 0
 
 async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, timeoutMs: number | null = REQUEST_TIMEOUT_MS): Promise<T> {
   // one controller for the caller's signal and the time limit, without AbortSignal.any, which older browsers lack
@@ -267,6 +270,8 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
   signal?.addEventListener("abort", onAbort)
   if (signal?.aborted) stop.abort()
   const timer = timeoutMs === null ? undefined : setTimeout(onAbort, timeoutMs)
+  const changes = method !== "GET"
+  if (changes) changing++
   try {
     let res: Response
     try {
@@ -290,6 +295,7 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     if (json === null && res.ok) throw new ApiError("network", 0, null, {})
     return answer<T>(res, json ?? {})
   } finally {
+    if (changes) changing--
     clearTimeout(timer)
     signal?.removeEventListener("abort", onAbort)
   }

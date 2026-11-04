@@ -10,7 +10,7 @@ import * as flow from "../src/flow.ts"
 import * as store from "../src/store.ts"
 import {
   acceptedOnChain, channelLink, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, contactLink, control, GENERAL_TERMS_HASH, LISTED_TERMS, MOCK, NAME_POLICY, newClient, oracleQuote, ownerSetsResolver, ownerSetsText,
-  PLAIN_TERMS, TERMS, test, textChangesOf, uniqueLabel,
+  PLAIN_TERMS, relayedAhead, TERMS, test, textChangesOf, uniqueLabel,
 } from "./helpers.ts"
 
 type Json = Record<string, unknown>
@@ -426,6 +426,18 @@ test("a Save's two link edits are one request and one multicall transaction, cou
   expect(((await answerOf(name)).recordEdits as Json).left, "the resend counts nothing").toBe((after.recordEdits as Json).left)
   // the second edit alone is another request, checked anew against the nonce both spent
   expect(await call("POST", "/api/name/records", { labelHash: name.labelHash, edits: [save.edits[1]] })).toEqual({ status: 400, json: { error: "bad_request" } })
+})
+
+test("a relayed link edit that reverts on chain still counts toward the name's yearly edits, as the service counts every relayed edit", async ({ request }) => {
+  const name = await registeredName(request, "cv")
+  const before = await answerOf(name)
+  const value = contactLink("Cv")
+  const edit = await contactEdit(name, value)
+  const answer = await relayedAhead(name.label, edit.edits[0], () => call("POST", "/api/name/records", edit))
+  expect(answer).toEqual({ status: 409, json: { error: "record_reverted", revert: null } })
+  const after = await answerOf(name)
+  expect((after.records as Json).contact, "the other relayer's copy landed").toBe(value)
+  expect((after.recordEdits as Json).left, "the reverted relay is counted").toBe((before.recordEdits as Json).left as number - 1)
 })
 
 test("a records request of no edit, three, one key twice, a clear beside a set, or nonces not consecutive is bad_request", async () => {

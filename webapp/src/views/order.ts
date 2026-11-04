@@ -20,6 +20,7 @@ import { type MountedCard, mountCard, publishableKey } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
+import { loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
   asStep, type Builder, CONTACT_EMAIL, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
@@ -748,7 +749,9 @@ function agreement({ ask, view, busy, reveal }: OrderState, focus: string): HTML
   const accept = (accepted: boolean) => dispatch({ type: "terms-accepted", accepted, now: api.serviceNow() })
   // a reveal on its way has signed the ticked terms already
   const signing = reveal?.sending === true && reveal.key === revealKey(view!)
-  return termsBox({ ...ask, tld: view!.tld, chainId: view!.chainId, disabled: busy !== null || signing }, agree, focus, accept)
+  const box = termsBox({ ...ask, tld: view!.tld, chainId: view!.chainId, disabled: busy !== null || signing }, agree, focus, accept)
+  box.setAttribute(UNKEPT_TICKS, "")
+  return box
 }
 
 const unagreed = ({ ask }: OrderState) => ask !== null && !ticked(ask)
@@ -1038,7 +1041,10 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     if (e instanceof api.TermsChanged) return askTerms(gen, record.label, e, true)
     if (termsUnavailable(e)) return dispatch({ type: "reorder-failed", note: noOrders("Nothing was charged. ") })
     if (e instanceof api.BalanceChanged) return dispatch({ type: "reorder-failed", note: warning("Your balance changed meanwhile. Nothing was charged. Try again.") })
-    if (e instanceof api.ApiError && e.code === CODES_ONLY) return dispatch({ type: "reorder-failed", note: CODES_ONLY_NOTE })
+    if (e instanceof api.ApiError && e.code === CODES_ONLY) {
+      loadNextRouteAfresh()
+      return dispatch({ type: "reorder-failed", note: CODES_ONLY_NOTE })
+    }
     if (e instanceof api.ApiError && e.code === "provider_unavailable") {
       return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: `${methodName(method)} is unavailable right now`,
         text: "Nothing was charged. Try again later, or ", link: { text: "order the name again", href: searchLink(record.label), after: " to pay another way." } } })

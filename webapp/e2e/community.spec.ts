@@ -175,7 +175,8 @@ test("community terms at a commit of git.simplex.chat link that commit's page un
   await toCodeStep(page)
   await onStep(page).getByText(SAVED).click()
   await onStep(page).getByRole("button", { name: "Continue" }).click()
-  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+  // the terms' own heading has the step's words too
+  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
   await expect(onStep(page).locator(".terms-text h3")).toHaveText("Community terms")
   await expect(onStep(page).getByRole("link", { name: `View at commit ${commit.slice(0, 7)}` }))
     .toHaveAttribute("href", `https://git.simplex.chat/${path.replace("/raw/commit/", "/src/commit/")}`)

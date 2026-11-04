@@ -2,8 +2,8 @@ import { type APIRequestContext, expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  codeField, control, MOCK, onStep, payButton, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, useCode,
-  waitRegistered,
+  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, MOCK, onStep, payButton, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
+  uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
 const CODES_ONLY_LINE = "Names can be registered with an investor code for now."
@@ -15,6 +15,17 @@ const nameField = (page: Page) => page.getByLabel("Name", { exact: true })
 const lens = (page: Page) => page.getByRole("button", { name: "Search", exact: true })
 
 const setMode = (request: APIRequestContext, mode: "open" | "codes") => control(request, "mode", { mode })
+const modeMeta = (page: Page) => page.locator('meta[name="simplex-names-mode"]')
+// the tab coming back into view, as a reader switching back to it; headless browsers keep every tab in view
+const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
+// the page's own check of the service's mode, answered
+const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/" && r.request().resourceType() === "fetch")
+// long enough for a load the check started to have finished
+const RELOAD_MS = 1000
+const checkoutKept = (page: Page) => page.evaluate((key) => {
+  const { label, contact, channel, ownerCode, saved, agreed, step } = JSON.parse(sessionStorage.getItem(key)!)
+  return { label, contact, channel, ownerCode, saved, agreed, step }
+}, CHECKOUT_KEY)
 
 // the mock of this worker's slot goes back to open, whatever a test left, for the specs after it
 test.afterEach(async ({ request }) => {
@@ -232,8 +243,10 @@ test("a page opened before codes only, refused as it pays, says registration is 
   await expect(onStep(page).getByRole("heading", { name: CODES_ONLY_TITLE })).toBeVisible()
   await expect(onStep(page).getByText(/can be registered with an investor code for now\. Nothing was charged\.$/)).toBeVisible()
   await shot(page, "C9-codes-only-refused")
+  await expect(modeMeta(page), "the refusal stays in view, in the page as it was").toHaveAttribute("content", "open")
   await onStep(page).getByRole("button", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
+  await expect(modeMeta(page), "the screen after the refusal is the service's page again").toHaveAttribute("content", "codes")
 })
 
 test("a closed invoice's page opened before codes only, refused a new invoice, says so with a way to a code", async ({ page, request }) => {
@@ -245,6 +258,70 @@ test("a closed invoice's page opened before codes only, refused a new invoice, s
   const note = onStep(page).locator(".notice", { hasText: CODES_ONLY_TITLE })
   await expect(note).toContainText("Nothing was charged. Enter a code.")
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
+  await expect(modeMeta(page)).toHaveAttribute("content", "open")
   await note.getByRole("link", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
+  await expect(modeMeta(page), "the screen after the refusal is the service's page again").toHaveAttribute("content", "codes")
+})
+
+test("a checkout open as the service takes codes only loads again in codes mode with its name, links, name code and terms", async ({ page, request }) => {
+  const label = uniqueLabel("keep")
+  await toFullReview(page, label)
+  await page.getByRole("radio", { name: "Bitcoin" }).click()
+  const before = await checkoutKept(page)
+  expect(before.agreed && before.saved && before.contact && before.channel).toBeTruthy()
+  await setMode(request, "codes")
+  await becomeVisible(page)
+  await expect(modeMeta(page)).toHaveAttribute("content", "codes")
+  await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
+  expect(await checkoutKept(page)).toEqual(before)
+  await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
+  await expect(codeField(page), "a code pays in place of the payment choices").toBeVisible()
+  await noPaymentUi(page)
+})
+
+test("an order paid as the service takes codes only loads again with its invoice, and registers", async ({ page, request }) => {
+  const label = uniqueLabel("paid")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  await setMode(request, "codes")
+  await becomeVisible(page)
+  await expect(modeMeta(page)).toHaveAttribute("content", "codes")
+  await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
+  await control(request, `settle/${invoiceId}`)
+  await waitRegistered(page, label)
+})
+
+test("a codes-only page open as the service opens loads again with the search on", async ({ page, request }) => {
+  await setMode(request, "codes")
+  const checked = modeChecked(page)
+  await page.goto("/")
+  await checked
+  await expect(nameField(page)).toBeDisabled()
+  await setMode(request, "open")
+  await becomeVisible(page)
+  await expect(modeMeta(page)).toHaveAttribute("content", "open")
+  await expect(nameField(page)).toBeEnabled()
+})
+
+test("a closed invoice's page holding changed terms ticked again stays as the service takes codes only, until the reader leaves it", async ({ page, request }) => {
+  const label = uniqueLabel("tick")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  await control(request, `expire/${invoiceId}`)
+  await expect(onStep(page).getByRole("heading", { name: "Invoice closed" })).toBeVisible()
+  await control(request, "general-terms", { text: `the general terms, changed for ${label}` })
+  try {
+    await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
+    await agreeToTerms(page)
+    await setMode(request, "codes")
+    const checked = modeChecked(page)
+    await becomeVisible(page)
+    await checked
+    await page.waitForTimeout(RELOAD_MS)
+    await expect(modeMeta(page), "the tick is in the page only, so the page stays").toHaveAttribute("content", "open")
+    await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
+    await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
+    await expect(modeMeta(page), "the next screen is the service's page again").toHaveAttribute("content", "codes")
+  } finally {
+    await control(request, "general-terms", { text: null })
+  }
 })
