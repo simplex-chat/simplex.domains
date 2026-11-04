@@ -86,7 +86,7 @@ jobs:
           npm run build
           npx vite preview --host 127.0.0.1 &
           curl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4173/
-          BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts
+          BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts
       - name: Backend log
         if: failure()
         run: docker logs backend
