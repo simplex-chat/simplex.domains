@@ -7,6 +7,7 @@ import { setUpChrome } from "./views/chrome.ts"
 import { checkCodePage, editPage, historyPage, trademarksPage } from "./views/names.ts"
 import { orderPage } from "./views/order.ts"
 import { searchPage } from "./views/search.ts"
+import { followServedMode, reloadedForRoute } from "./views/served-mode.ts"
 import { go, historyMoved, nextRoute, setRenderer } from "./views/shell.ts"
 
 function render(): void {
@@ -30,7 +31,7 @@ setRenderer(render)
 if (codesOnly()) session.setActiveBalance(null)
 setUpChrome()
 window.addEventListener("popstate", (e) => {
-  if (historyMoved(e)) render()
+  if (historyMoved(e) && !reloadedForRoute()) render()
 })
 // The second click of a double click is dropped everywhere: an action that redraws the page or opens a popup puts
 // another control under the pointer, where it would land (a checkbox, a payment method, the popup's backdrop).
@@ -54,6 +55,7 @@ document.addEventListener("click", (e) => {
   go(href)
 })
 render()
+followServedMode()
 // The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   addEventListener("load", () => {

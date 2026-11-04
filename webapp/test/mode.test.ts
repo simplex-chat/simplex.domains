@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { withMode } from "../dev/mode.ts"
-import { codesOnly, MODE_META, modeOf, pageMode } from "../src/mode.ts"
+import { codesOnly, MODE_META, modeIn, modeOf, pageMode } from "../src/mode.ts"
 
 const INDEX = readFileSync(new URL("../index.html", import.meta.url), "utf8")
 
@@ -27,6 +27,17 @@ describe("modeOf", () => {
     expect(modeOf(undefined)).toBe("open")
     expect(modeOf("Codes"), "the service writes the word in lower case").toBe("open")
     expect(modeOf("codes_only")).toBe("open")
+  })
+})
+
+describe("modeIn", () => {
+  it("reads the mode from the shell as the service serves it in each mode", () => {
+    expect(modeIn(INDEX)).toBe("open")
+    expect(modeIn(withMode(INDEX, "codes"))).toBe("codes")
+  })
+  it("finds no mode in a page that is not the shell, as a portal's or a proxy's", () => {
+    expect(modeIn("<!doctype html><title>Sign in to the network</title>")).toBeNull()
+    expect(modeIn(`<meta name="${MODE_META}-other" content="codes">`)).toBeNull()
   })
 })
 
