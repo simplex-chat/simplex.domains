@@ -129,7 +129,7 @@ npm run build && npx vite preview --host 127.0.0.1
 BASE_URL=http://127.0.0.1:4173 npx playwright test e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts
 ```
 
-`e2e/mode-cache.spec.ts` serves `dist/` itself, as the store service does, and switches its mode, slows it and stops it between loads: a reload shows the mode the service gives, however slowly it answers, and the page opens offline in the last mode it gave.
+`e2e/mode-cache.spec.ts` serves `dist/` itself, as the store service does, and switches its mode, slows it and stops it between loads: a reload shows the mode the service gives, however slowly it answers, and the page opens offline in the last mode it gave. Its other tests follow a page left open across the switch: back in view, restored by Back, holding a name typed and not searched, and against a service whose mode flips with every answer. In Chromium the Back test launches the full Chromium build (Playwright's `chromium` channel) with its back/forward cache on; Playwright keeps that cache off in Firefox and WebKit, where the test fires the restore's `pageshow` itself. Headless browsers keep every tab in view, so the tests fire `visibilitychange` themselves.
 
 ## Codes only
 
