@@ -15,7 +15,7 @@ The page talks only to the names service under `/api`. In development that servi
 - `src/stripe.ts`: Stripe's Payment Element, mounted when the page carries a publishable key.
 - `src/scan.ts` and `src/views/scan.ts`: a phone's camera reading a link's QR code into the Link field, by the browser's `BarcodeDetector` where it reads QR codes, otherwise by jsQR (Apache-2.0), which is served from the page's own origin and runs only when it first reads a frame; the service worker caches it with the rest of the build, so a page opened before a deploy still reads codes after it. The scan button shows only on a phone with a camera; a camera refused or missing says so, and Paste stays.
 - `dev/`: the local chain deployment, the server of its terms' texts, the mock service and `start.sh`.
-- `test/`: unit tests (vitest). `e2e/`: browser tests (Playwright) against the dev backend.
+- `test/`: unit tests (vitest). `e2e/`: browser tests (Playwright) against the dev backend. `visual/`: screenshot tests (Playwright) of fixed screens, with their references in `visual/screens/`.
 
 The window holds the header, the screen and the invest note; the footer is below the fold, as on the badges store. The purchase steps (search, Links, name code, Community terms for a community name, Check your order, payment) follow one another. Each step, and each screen like one (an order's outcome, Check your code, Edit links), is a frame of one height, 540 px on a laptop and 640 px on a phone, as the mockup draws it, so Back, the heading, the main button and the link under it stand at the same place on every step, for a name of any length; a step without a main button keeps its link at the link's place, and on a laptop a step's last link stays at least 48 px above the invest note. The content runs down from under the heading, so nothing above a change moves. The home keeps its answer's room from the start, so its headline and field never move. A plain name's order waits for its buyer to agree to the general terms on Check your order, whose words link the terms' page at the commit the name policy links; a community name's order waits for its buyer to accept its community terms, which include the general terms, on their own step, which shows their text as the service fetches it by the name policy's link and, for a link to git.simplex.chat, links that commit's page. While the terms of a name's kind cannot be read, its search answer says that names can't be ordered right now. A community name is registered for 2 years, even with a code for more, which Check your order then says. On Check your order, I have a code, under the payment choices, opens a code field in their place: a prepaid code that covers the name makes the order free, as the tab's code does, and Remove code, under the main button, brings the payment choices back. A pay page checks its name as it opens and every 5 minutes; when someone has registered it meanwhile, its note turns red and the payment's details are turned off. A prepaid code entered in Check your code registers the names the tab finds for free until it is taken off in the header; a name code entered there finds its order and adds it to Your names, or, reached from an order's page, opens the order it found. Every screen replaces the whole page between the header and the invest note and rises into place (220 ms); the old screen goes at once, so two never show together. What a step adds, such as a search's answer, a notice or a link's profile, fades in (180 ms); a change of theme eases its colours (200 ms). A reader who asks for reduced motion gets none of it.
 
@@ -130,6 +130,26 @@ BASE_URL=http://127.0.0.1:4173 npx playwright test e2e/offline.spec.ts e2e/track
 ```
 
 `e2e/mode-cache.spec.ts` serves `dist/` itself, as the store service does, and switches its mode, slows it and stops it between loads: a reload shows the mode the service gives, however slowly it answers, and the page opens offline in the last mode it gave. Its other tests follow a page left open across the switch: back in view, restored by Back, holding a name typed and not searched, and against a service whose mode flips with every answer. In Chromium the Back test launches the full Chromium build (Playwright's `chromium` channel) with its back/forward cache on; Playwright keeps that cache off in Firefox and WebKit, where the test fires the restore's `pageshow` itself. Headless browsers keep every tab in view, so the tests fire `visibilitychange` themselves.
+
+### Screenshots
+
+`visual/scenes.spec.ts` draws each screen of the production build from canned service answers, stored orders and a fixed clock, and compares it with its reference in `visual/screens/`, in Chromium, on a desktop and a phone, light and dark. It needs no backend; its config builds the page and serves it with `vite preview`:
+
+```
+npx playwright test -c playwright.visual.config.ts
+```
+
+A screen that differs from its reference fails its test, which writes the reference, the screen and their difference to `test-results/`. A missing reference is written from the screen, and its test fails. The references are rendered in CI, as another system's fonts draw other pixels: a run of the workflow with `record` writes each screen that differs as its reference and uploads `visual/screens/`, whose files are then committed.
+
+### CI
+
+`.github/workflows/webapp.yml` runs on pull requests and on pushes to master that change the webapp, its fonts or images:
+
+- `unit`: `npm test` and `npm run build`.
+- `visual`: the screenshot tests. A failed job uploads `visual/screens/` and `test-results/`, as a run with `record` does.
+- `e2e`, one job per browser (Chromium, Firefox, WebKit): the dev image of `dev/Dockerfile` runs `dev/start.sh` with 3 slots, 2 for WebKit, and the browser tests run against it; then the production build's tests run against `vite preview`.
+
+The image's layers are cached between runs, so the contracts compile only when the Dockerfile's commits change. A failed `e2e` job prints the backend's log and uploads `test-results/`.
 
 ## Codes only
 
