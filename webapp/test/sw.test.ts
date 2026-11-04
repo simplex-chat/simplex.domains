@@ -132,8 +132,10 @@ function startWorker(build = BUILD) {
     listeners.get("fetch")!(event)
     return answer
   }
+  // a page load, the one request for the shell the worker answers
+  const load = (path: string) => request(path, "GET", "navigate")
   const settled = () => Promise.all(extended)
-  return { net, caches, skipWaiting, sw: self.sw!, lifecycle, request, settled }
+  return { net, caches, skipWaiting, sw: self.sw!, lifecycle, request, load, settled }
 }
 
 function servedBuild(net: FakeNet, shell = SHELL_HTML): void {
@@ -235,14 +237,14 @@ describe("service worker answers", () => {
   it("serves the shell fresh from the network while it answers", async () => {
     const w = await installed()
     w.net.serve("/", 200, `${SHELL_HTML}<!-- newer -->`)
-    expect(await (await w.request("/?order=abc"))!.text()).toContain("newer")
+    expect(await (await w.load("/?order=abc"))!.text()).toContain("newer")
   })
 
   it("leaves a redirected page load to the browser, which follows the redirect itself", async () => {
     const w = await installed()
     w.net.serve("/", 200, PORTAL_HTML, true)
     w.net.serve("/?order=abc", 302, "")
-    const answer = await w.request("/?order=abc")!
+    const answer = await w.load("/?order=abc")!
     // the page's own request, asked again as it was, rather than the redirected answer or the kept shell
     expect(answer.status).toBe(302)
     expect(w.net.paths).toEqual(["/", "/?order=abc"])
@@ -251,10 +253,10 @@ describe("service worker answers", () => {
   it("serves the kept shell offline and when the server fails", async () => {
     const w = await installed()
     w.net.offline = true
-    expect(await (await w.request("/"))!.text()).toBe(SHELL_HTML)
+    expect(await (await w.load("/"))!.text()).toBe(SHELL_HTML)
     w.net.offline = false
     w.net.serve("/", 502, "bad gateway")
-    expect(await (await w.request("/"))!.text()).toBe(SHELL_HTML)
+    expect(await (await w.load("/"))!.text()).toBe(SHELL_HTML)
   })
 
   it("waits for a slow shell rather than serving the kept one, as the service's mode is in it", async () => {
@@ -263,7 +265,7 @@ describe("service worker answers", () => {
     w.net.serve("/", 200, CODES_SHELL_HTML)
     const release = w.net.hold("/")
     let answered = false
-    const answer = w.request("/")!.then((r) => { answered = true; return r })
+    const answer = w.load("/")!.then((r) => { answered = true; return r })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(answered, "no answer before the server's").toBe(false)
     release()
@@ -273,10 +275,10 @@ describe("service worker answers", () => {
   it("keeps each fresh shell of this build for offline, with the mode the service last gave", async () => {
     const w = await installed()
     w.net.serve("/", 200, CODES_SHELL_HTML)
-    expect(await (await w.request("/"))!.text()).toBe(CODES_SHELL_HTML)
+    expect(await (await w.load("/"))!.text()).toBe(CODES_SHELL_HTML)
     await w.settled()
     w.net.offline = true
-    expect(await (await w.request("/?order=abc"))!.text()).toBe(CODES_SHELL_HTML)
+    expect(await (await w.load("/?order=abc"))!.text()).toBe(CODES_SHELL_HTML)
   })
 
   it("keeps no other build's shell and no portal's page, which would leave nothing to open offline", async () => {
@@ -284,11 +286,11 @@ describe("service worker answers", () => {
     const newerBuild = SHELL_HTML.replace(BUILD.entry, "/assets/index-NEWER.js")
     for (const page of [newerBuild, PORTAL_HTML]) {
       w.net.serve("/", 200, page)
-      expect(await (await w.request("/"))!.text()).toBe(page)
+      expect(await (await w.load("/"))!.text()).toBe(page)
     }
     await w.settled()
     w.net.offline = true
-    expect(await (await w.request("/"))!.text()).toBe(SHELL_HTML)
+    expect(await (await w.load("/"))!.text()).toBe(SHELL_HTML)
   })
 
   it("serves this build's files from its cache without asking the network, and a file not kept from the network", async () => {
@@ -308,6 +310,13 @@ describe("service worker answers", () => {
     const w = await installed()
     for (const path of ["/api/name/ab", "/control/search", "https://js.stripe.com/v3/", "/assets/index-OLD.js"]) expect(w.request(path), path).toBeNull()
     expect(w.request("/", "POST")).toBeNull()
+  })
+
+  it("leaves a page's own request for the shell, which reads the service's mode, to the network", async () => {
+    const w = await installed()
+    w.net.offline = true
+    for (const mode of ["cors", "same-origin", "no-cors"]) expect(w.request("/", "GET", mode), mode).toBeNull()
+    expect(await (await w.load("/"))!.text(), "a page load offline still opens").toBe(SHELL_HTML)
   })
 })
 

@@ -103,6 +103,8 @@ self.addEventListener("fetch", (event) => {
   const strategy = strategyFor(new URL(request.url))
   // not answering leaves the request to the browser, so the API never passes through the Cache API
   if (strategy === "network-only" || strategy === "bypass") return
+  // the shell a page fetches itself, to read the service's mode, is the network's to answer, never the kept one
+  if (strategy === "shell" && request.mode !== "navigate") return
   event.respondWith(strategy === "shell" ? shellFirst(event) : fromPrecache(request))
 })
 
