@@ -19,6 +19,9 @@ async function servedMode(): Promise<Mode | null> {
 
 // a field typed into since it was drawn holds what the page has not kept
 const typedInto = () => [...document.querySelectorAll("input")].some((i) => i.type === "text" && i.value !== i.defaultValue)
+// a tick that only the page's memory holds, as an order page's terms agreed to again
+export const UNKEPT_TICKS = "data-unkept-ticks"
+const tickedUnkept = () => document.querySelector(`body > main [${UNKEPT_TICKS}] input[type=checkbox]:checked`) !== null
 // Stripe's card form, whose card a reload would drop, maybe mid-confirmation
 const cardForm = () => document.querySelector("body > main iframe") !== null
 // what a reload would lose besides the screen: an order or change on its way, or what storage did not take
@@ -42,7 +45,7 @@ async function compare(): Promise<void> {
   const served = await servedMode()
   if (served === null) return
   afresh = served !== pageMode()
-  if (afresh && reloadKeeps() && !typedInto()) location.reload()
+  if (afresh && reloadKeeps() && !typedInto() && !tickedUnkept()) location.reload()
 }
 
 let comparing: Promise<void> | null = null

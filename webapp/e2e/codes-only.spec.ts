@@ -2,7 +2,7 @@ import { type APIRequestContext, expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  AGREE, CHECKOUT_KEY, codeField, control, MOCK, onStep, payButton, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
+  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, MOCK, onStep, payButton, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
   uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
@@ -20,6 +20,8 @@ const modeMeta = (page: Page) => page.locator('meta[name="simplex-names-mode"]')
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 // the page's own check of the service's mode, answered
 const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/" && r.request().resourceType() === "fetch")
+// long enough for a load the check started to have finished
+const RELOAD_MS = 1000
 const checkoutKept = (page: Page) => page.evaluate((key) => {
   const { label, contact, channel, ownerCode, saved, agreed, step } = JSON.parse(sessionStorage.getItem(key)!)
   return { label, contact, channel, ownerCode, saved, agreed, step }
@@ -299,4 +301,27 @@ test("a codes-only page open as the service opens loads again with the search on
   await becomeVisible(page)
   await expect(modeMeta(page)).toHaveAttribute("content", "open")
   await expect(nameField(page)).toBeEnabled()
+})
+
+test("a closed invoice's page holding changed terms ticked again stays as the service takes codes only, until the reader leaves it", async ({ page, request }) => {
+  const label = uniqueLabel("tick")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  await control(request, `expire/${invoiceId}`)
+  await expect(onStep(page).getByRole("heading", { name: "Invoice closed" })).toBeVisible()
+  await control(request, "general-terms", { text: `the general terms, changed for ${label}` })
+  try {
+    await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
+    await agreeToTerms(page)
+    await setMode(request, "codes")
+    const checked = modeChecked(page)
+    await becomeVisible(page)
+    await checked
+    await page.waitForTimeout(RELOAD_MS)
+    await expect(modeMeta(page), "the tick is in the page only, so the page stays").toHaveAttribute("content", "open")
+    await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
+    await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
+    await expect(modeMeta(page), "the next screen is the service's page again").toHaveAttribute("content", "codes")
+  } finally {
+    await control(request, "general-terms", { text: null })
+  }
 })
