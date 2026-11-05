@@ -131,6 +131,15 @@ BASE_URL=http://127.0.0.1:4173 npx playwright test e2e/offline.spec.ts e2e/track
 
 `e2e/mode-cache.spec.ts` serves `dist/` itself, as the store service does, and switches its mode, slows it and stops it between loads: a reload shows the mode the service gives, however slowly it answers, and the page opens offline in the last mode it gave. Its other tests follow a page left open across the switch: back in view, restored by Back, holding a name typed and not searched, and against a service whose mode flips with every answer. In Chromium the Back test launches the full Chromium build (Playwright's `chromium` channel) with its back/forward cache on; Playwright keeps that cache off in Firefox and WebKit, where the test fires the restore's `pageshow` itself. Headless browsers keep every tab in view, so the tests fire `visibilitychange` themselves.
 
+### CI
+
+`.github/workflows/webapp.yml` runs on pull requests and on pushes to master that change the webapp, its fonts or images:
+
+- `unit`: `npm test` and `npm run build`.
+- `e2e`, one job per browser (Chromium, Firefox, WebKit): the dev image of `dev/Dockerfile` runs `dev/start.sh` with 3 slots, 2 for WebKit, and the browser tests run against it; then the production build's tests run against `vite preview`.
+
+The image's layers are cached between runs, so the contracts compile only when the Dockerfile's commits change. A failed `e2e` job prints the backend's log and uploads `test-results/`.
+
 ## Codes only
 
 Until the full launch, names are registered only with prepaid codes. The page is the same build in both modes: `index.html` carries `<meta name="simplex-names-mode" content="open">`, whose content the service rewrites to `codes` while its `[names] codes_only` is on, and leaves `open` otherwise. In `codes` mode:

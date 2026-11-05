@@ -1,0 +1,97 @@
+name: webapp
+
+on:
+  push:
+    branches: [master]
+    paths: &paths
+      - "webapp/**"
+      - "fonts/**"
+      - "img/**"
+      - "favicon.ico"
+      - ".github/workflows/webapp.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: webapp
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            slots: 3
+          - browser: firefox
+            slots: 3
+          - browser: webkit
+            slots: 2
+    env:
+      SLOTS: ${{ matrix.slots }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - uses: simplex-chat/docker-setup-buildx-action@v3
+      - uses: simplex-chat/docker-build-push-action@v6
+        with:
+          context: .
+          file: webapp/dev/Dockerfile
+          load: true
+          tags: simplex-names-webapp
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start the backend
+        run: >-
+          docker run -d --name backend --network host --ulimit core=0
+          -e SLOTS -e MIN_COMMITMENT_AGE=5 -e MOCK_RESEND_MS=1000 -e MOCK_RETRY_AFTER_SECONDS=2
+          -v "$PWD/dev:/repo/webapp/dev"
+          simplex-names-webapp dev/start.sh
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Wait for the backend
+        run: |
+          for ((i = 0; i < SLOTS; i++)); do
+            curl -fs -o /dev/null --max-time 5 --retry 300 --retry-delay 2 --retry-all-errors "http://127.0.0.1:$((8099 + i))/control/state"
+          done
+      - name: Browser tests
+        run: |
+          ulimit -c 0
+          npx playwright test --project=${{ matrix.browser }}
+      - name: Production build tests
+        run: |
+          ulimit -c 0
+          npm run build
+          npx vite preview --host 127.0.0.1 &
+          curl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4173/
+          BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts
+      - name: Backend log
+        if: failure()
+        run: docker logs backend
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-${{ matrix.browser }}
+          path: webapp/test-results
