@@ -4,7 +4,7 @@ import { type AppliedCode, appliedBalance, type Checkout } from "../session.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
 import type { CheckoutStep } from "./routes.ts"
 
-export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
+export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", ln: "btc", xmr: "btc" }
 
 export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only"
 export type CheckoutKind = CheckoutStep | `status:${Refusal}`
@@ -146,7 +146,7 @@ export const payWaits = (s: CheckoutState) => balanceHeld(s.checkout) && !heldFo
 
 // Stripe's least charge: a difference below it is paid in coin
 export const MIN_CARD_CHARGE_CENTS = 50
-export const METHODS: Method[] = ["card", "btc", "xmr"]
+export const METHODS: Method[] = ["card", "btc", "ln", "xmr"]
 
 // the methods that can pay what is left: every one, but the card for a difference below its least charge
 export function methodsFor(c: Checkout): Method[] {

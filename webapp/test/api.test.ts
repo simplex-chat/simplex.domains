@@ -4,6 +4,7 @@ import {
   ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
   communityAgreed, readerUrl, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
+import { lightningInvoice } from "../dev/mock/addresses.ts"
 
 const HASH = "ab".repeat(32)
 const COMMIT = "4cb24444a1f2e3d4c5b6a7980716253443526170"
@@ -236,6 +237,30 @@ describe("service errors", () => {
       answerWith(200, JSON.stringify(body))
       const e = await readInvoice("inv1").then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(body).slice(0, 120)).toBe("network")
+    }
+  })
+
+  const BOLT11 = lightningInvoice("inv1", "0.00049999944", 1793000000, 3600)
+  const LIGHTNING = { ...INVOICE, cryptoCurrency: "ln", cryptoAmount: "0.00049999944", address: BOLT11, cryptoAmountPaid: "0", cryptoAmountDue: "0.00049999944", paidInFull: false }
+
+  it("passes a Lightning invoice, its BOLT11 request as its address and its amount to the millisatoshi", async () => {
+    answerWith(200, JSON.stringify(LIGHTNING))
+    expect(await readInvoice("inv1")).toMatchObject({ cryptoCurrency: "ln", address: BOLT11, cryptoAmount: "0.00049999944", cryptoAmountDue: "0.00049999944" })
+    expect(BOLT11.startsWith("lnbcrt"), "the mock's regtest request").toBe(true)
+    const mainnet = "lnbc499999440p1p4d7qjqpp5d8nyztumz5dy704dce52gks3yfmgxan4kdaq2msqfrfk4q9zmttssp57g2sz7f8sxpgtr529e24tqwqv86238jtlqh0rxlhumulcjqd93eq"
+    answerWith(200, JSON.stringify({ ...LIGHTNING, address: mainnet }))
+    expect((await readInvoice("inv1")).address).toBe(mainnet)
+  })
+
+  it("takes an invoice whose address is not of its method's kind as no answer, so no wallet is handed it", async () => {
+    for (const body of [
+      { ...LIGHTNING, address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" }, { ...LIGHTNING, address: BOLT11.toUpperCase() }, { ...LIGHTNING, address: `lightning:${BOLT11}` },
+      { ...LIGHTNING, address: `${BOLT11}b` }, { ...LIGHTNING, address: "lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcenxc6r2c35xvukxefcv5mkvv34x5ekzd3ev56nyd3hxqurzepexejxxepnxscrvwfnv9nxzcn9xq6xyefhvgcxxcmyxymnserxfq5fns" },
+      { ...INVOICE, address: BOLT11 }, { ...INVOICE, cryptoCurrency: "xmr", address: BOLT11 },
+    ]) {
+      answerWith(200, JSON.stringify(body))
+      const e = await readInvoice("inv1").then(() => null, (e: unknown) => e)
+      expect((e as ApiError).code, `${body.cryptoCurrency} at ${body.address.slice(0, 24)}`).toBe("network")
     }
   })
 
