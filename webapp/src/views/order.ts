@@ -36,6 +36,7 @@ const ORDER_NOTE = "order-note"
 const warning = (text: string): Note => ({ tone: "warn", icon: "alert", title: null, text })
 const termsUnavailable = (e: unknown) => e instanceof api.ApiError && e.code === "terms_unavailable"
 const noOrders = (lead: string) => warning(`${NO_ORDERS}. ${lead}Try again later.`)
+export const PAUSED_TITLE = "Registration is paused"
 
 let state: OrderState = initialState("", null)
 let opened = 0
@@ -1045,6 +1046,9 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
       loadNextRouteAfresh()
       return dispatch({ type: "reorder-failed", note: CODES_ONLY_NOTE })
     }
+    if (e instanceof api.ApiError && e.code === api.REGISTRATION_PAUSED) {
+      return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: PAUSED_TITLE, text: "Nothing was charged. Try again later." } })
+    }
     if (e instanceof api.ApiError && e.code === "provider_unavailable") {
       return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: `${methodName(method)} is unavailable right now`,
         text: "Nothing was charged. Try again later, or ", link: { text: "order the name again", href: searchLink(record.label), after: " to pay another way." } } })
@@ -1122,6 +1126,7 @@ const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order 
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
 const STALL_NOTE = "This is taking longer than usual. It continues by itself."
+const queueNote = ({ position, of, paused }: api.Queue) => `In queue, ${position} of ${of}.${paused ? " Registration is paused for now and continues by itself." : ""}`
 
 function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const view = s.view!
@@ -1147,6 +1152,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
       return say(note, WAIT_NOTE)
     }
     if (!clockNode.querySelector("svg")) clockNode.replaceChildren(icon("clock"))
+    if (view.queue) return say(note, queueNote(view.queue))
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase !== "committed") return say(note, view.phase === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)

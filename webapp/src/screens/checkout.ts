@@ -6,7 +6,7 @@ import type { CheckoutStep } from "./routes.ts"
 
 export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
 
-export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only"
+export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only" | "paused"
 export type CheckoutKind = CheckoutStep | `status:${Refusal}`
 
 export interface WaitingOrder { registrationId: string; invoiceId: string }
@@ -47,7 +47,7 @@ export type CheckoutEvent =
   | { type: "open-order-seen"; order: OpenOrder | null }
   | { type: "send-started" }
   | { type: "order-refused"; reason: "code"; error: string }
-  | { type: "order-refused"; reason: "method" | "failed" | "taken" | "unavailable" | "codes-only" }
+  | { type: "order-refused"; reason: "method" | "failed" | "taken" | "unavailable" | "codes-only" | "paused" }
   | { type: "price-changed"; price: number }
   | { type: "terms-changed"; terms: Terms; community: Community | null }
   | { type: "balance-changed"; balance: Balance | null }

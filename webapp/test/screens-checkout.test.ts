@@ -41,6 +41,7 @@ const STATES: Record<CheckoutKind, CheckoutState> = {
   "status:taken": open({ refusal: "taken" }),
   "status:unavailable": open({ refusal: "unavailable" }),
   "status:codes-only": open({ refusal: "codes-only" }),
+  "status:paused": open({ refusal: "paused" }),
 }
 
 describe("screenOf", () => {
@@ -58,6 +59,7 @@ describe("screenOf", () => {
     ["an order for a name registered meanwhile", STATES["status:taken"], "status:taken"],
     ["an order refused while its terms can't be read", STATES["status:unavailable"], "status:unavailable"],
     ["an order the service takes only with a code for now", STATES["status:codes-only"], "status:codes-only"],
+    ["an order refused while registration is paused", STATES["status:paused"], "status:paused"],
   ]
   it.each(cases)("%s", (_, state, kind) => {
     expect(screenOf(state)).toBe(kind)
@@ -65,6 +67,7 @@ describe("screenOf", () => {
   it("is the step opened until the service refuses the order", () => {
     expect(screenOf(initialState(checkout(), "review", false))).toBe("review")
     expect(screenOf(reduce(initialState(checkout(), "review", false), { type: "order-refused", reason: "failed" }))).toBe("status:failed")
+    expect(screenOf(reduce(initialState(checkout(), "review", false), { type: "order-refused", reason: "paused" }))).toBe("status:paused")
     expect(screenOf(reduce(initialState(checkout(), "review", false), { type: "hold-started", until: 5 }))).toBe("status:too-many")
   })
   it("a step opened anew ends the refusal the review showed", () => {

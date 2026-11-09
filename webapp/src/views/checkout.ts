@@ -23,7 +23,7 @@ import {
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
-import { openedInstead } from "./order.ts"
+import { openedInstead, PAUSED_TITLE } from "./order.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
@@ -506,6 +506,12 @@ function buildUnavailable(s: CheckoutState): HTMLElement {
     action: retry, alt: link("Back", () => go(searchLink(s.checkout.label))) })
 }
 
+function buildPaused(s: CheckoutState): HTMLElement {
+  const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
+  return outcome({ tone: "warn", icon: "alert", title: PAUSED_TITLE, text: "No payment is taken until it resumes. Nothing was charged. Try again later.",
+    action: retry, alt: link("Back", () => go(searchLink(s.checkout.label))) })
+}
+
 // a page opened before the service took codes only; the code entered there registers the name searched again for free
 function buildCodesOnly({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE,
@@ -524,6 +530,7 @@ const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
   "status:taken": buildTaken,
   "status:unavailable": buildUnavailable,
   "status:codes-only": buildCodesOnly,
+  "status:paused": buildPaused,
 }
 
 async function submitOrder(): Promise<void> {
@@ -653,6 +660,7 @@ function orderError(e: unknown, c: session.Checkout): void {
   }
   if (code === "provider_unavailable") return void act({ type: "order-refused", reason: "method" })
   if (code === "terms_unavailable") return void act({ type: "order-refused", reason: "unavailable" })
+  if (code === api.REGISTRATION_PAUSED) return void act({ type: "order-refused", reason: "paused" })
   if (code === CODES_ONLY) {
     loadNextRouteAfresh()
     return dispatch({ type: "order-refused", reason: "codes-only" })

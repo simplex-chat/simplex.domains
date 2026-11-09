@@ -141,6 +141,10 @@ Until the full launch, names are registered only with prepaid codes. The page is
 - The service answers `403 {"error": "codes_only"}` to `POST /api/invoice` for a name and to `POST /api/registration/:id/spend`. A page opened before the switch meets it: Check your order then says registration is by code only for now, and a closed invoice's page says so under its button, each with a way to enter a code. The screen after it is a fresh load of the page, in codes mode.
 - A page follows the service's mode while it is open (`src/views/served-mode.ts`). It reads the mode from `/`, past the HTTP cache and the worker, once it has loaded (unless the load was itself a reload), each time the tab comes back into view, and when Back or Forward restores it from the browser's cache. When the mode differs, the page loads again at once if that loses nothing: no order or change on its way, no card form, no field typed into and not kept, no terms ticked on an order's page, a tick only the page holds, and storage holding everything the tab keeps. Otherwise it loads again at its next screen. The checkout, the tab's code and balance, and the orders are in storage, so a reload keeps them. A page loaded again for its mode does not check after its load, so a service whose mode flips with every answer reloads it at most once per return to the tab.
 
+## Registration paused
+
+The service pauses registration while its registrar's allowance on the sponsor cannot cover a register. It then answers a name invoice and a balance spend with `503 {"error": "registration_paused"}`: Check your order shows that registration is paused and nothing was charged, with Try again, and a closed invoice's page says so under its button. A paid order waiting to be committed shows its place in the service's queue, as "In queue, 2 of 3.", with "Registration is paused for now and continues by itself." while it is. The mock never pauses and sends no `queue`.
+
 ## Hosting
 
 `npm run build` writes a static site to `dist/`. The host it is served from needs:

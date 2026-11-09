@@ -189,7 +189,16 @@ export interface RegistrationView extends ChainInfo {
   linksRefused: boolean
   community: Community | null
   terms: string | null
+  queue?: Queue | null
 }
+
+export interface Queue {
+  position: number
+  of: number
+  paused: boolean
+}
+
+export const REGISTRATION_PAUSED = "registration_paused"
 
 const LATE_WAITS = ["confirming", "crediting", "support"] as const
 export type LateWait = typeof LATE_WAITS[number]
@@ -351,13 +360,14 @@ const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]
 const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
 const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
 const isCommunity = (v: unknown) => v === null || (isObject(v) && nullable(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
+const isQueue = (v: unknown) => isObject(v) && isCount(v.position) && isCount(v.of) && (v.position as number) <= (v.of as number) && typeof v.paused === "boolean"
 const isAcceptance = (v: unknown) => isObject(v) && (v.kind === "general" || v.kind === "community") && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const isRegistration = (v: unknown) => isObject(v) && isChain(v) && isText(v.id) && Number.isInteger(v.version) && PHASES.includes(v.phase as Phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isAmount(v.fromBalance) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => isObject(l) && LATE_WAITS.includes(l.waiting as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.revealAfter, isAmount) && nullable(v.revealBefore, isAmount)
   && nullable(v.intentNonce, isAmount) && nullable(v.acceptance, isAcceptance) && Array.isArray(v.unread) && v.unread.every(isText) && nullable(v.expiresAt, isAmount) && nullable(v.error, isText)
-  && typeof v.linksRefused === "boolean" && isCommunity(v.community) && nullable(v.terms, isSignedTerms)
+  && typeof v.linksRefused === "boolean" && isCommunity(v.community) && nullable(v.terms, isSignedTerms) && optional(v.queue, (q) => nullable(q, isQueue))
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)
