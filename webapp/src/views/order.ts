@@ -7,7 +7,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -631,6 +631,7 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
     el("div", { class: "pay-status" }, part ? part.rate : waiting, part ? null : validLine(inv, signal), el("span", { class: "ref" }, "Reference ", el("span", { class: "mono" }, inv.invoiceId))))
   return screen({ title: `Pay with ${methodName(coin)}`, lead: orderLine(s), alt: partial ? null : cancelLink(s) },
     note,
+    pausedNote(s),
     insteadLine(inv),
     turnOff(payDetails, nameTaken()),
     // a wait the tab is in shows why the link does nothing until it is over
@@ -710,8 +711,11 @@ function buildPayCard(s: OrderState): HTMLElement {
   payButton.dataset.focus = "pay"
   // Stripe's note is under Pay and Cancel, so the form fits above Pay
   const alt = el("span", {}, cancelLink(s), el("span", { class: "note stripe-note" }, STRIPE_NOTE))
-  return screen({ title: "Pay by card", lead: orderLine(s), action: payButton, alt }, notice, form)
+  return screen({ title: "Pay by card", lead: orderLine(s), action: payButton, alt }, notice, form, pausedNote(s))
 }
+
+const pausedNote = ({ view }: OrderState) =>
+  view?.paused ? alertBox("warn", "clock", PAUSED_TITLE, "A payment made now waits in the queue until registration resumes.") : null
 
 function cardStandIn(form: HTMLElement): void {
   const f = (text: string, value: string) => el("label", { class: "f" }, el("span", {}, text), el("div", { class: "box" }, value))
@@ -1126,7 +1130,6 @@ const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order 
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
 const STALL_NOTE = "This is taking longer than usual. It continues by itself."
-const queueNote = ({ position, of, paused }: api.Queue) => `In queue, ${position} of ${of}.${paused ? " Registration is paused for now and continues by itself." : ""}`
 
 function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const view = s.view!
@@ -1152,7 +1155,8 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
       return say(note, WAIT_NOTE)
     }
     if (!clockNode.querySelector("svg")) clockNode.replaceChildren(icon("clock"))
-    if (view.queue) return say(note, queueNote(view.queue))
+    const queued = queueNote(view)
+    if (queued) return say(note, queued)
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase !== "committed") return say(note, view.phase === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)

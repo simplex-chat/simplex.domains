@@ -290,12 +290,12 @@ describe("service errors", () => {
   })
 
   it("passes a queued order's place and whether registration is paused, absent or null otherwise, and takes a malformed one as no answer", async () => {
-    const queue = { position: 2, of: 3, paused: true }
-    for (const change of [{ phase: "queued", queue }, { phase: "queued", queue: { ...queue, position: 3, paused: false } }, { queue: null }, {}]) {
+    const queue = { position: 2, of: 3 }
+    for (const change of [{ phase: "queued", queue, paused: true }, { phase: "queued", queue: { ...queue, position: 3 }, paused: false }, { queue: null, paused: true }, {}]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
     }
-    for (const change of [{ queue: {} }, { queue: { ...queue, position: 0 } }, { queue: { ...queue, position: 4 } }, { queue: { ...queue, of: 1.5 } }, { queue: { ...queue, paused: "yes" } }]) {
+    for (const change of [{ queue: {} }, { queue: { ...queue, position: 0 } }, { queue: { ...queue, position: 4 } }, { queue: { ...queue, of: 1.5 } }, { paused: "yes" }, { paused: null }]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(change)).toBe("network")

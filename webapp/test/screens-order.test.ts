@@ -3,7 +3,7 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
+  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
@@ -118,6 +118,21 @@ describe("screenOf", () => {
 
 // all of the amount, which reached the invoice after it closed
 const LATE_FULL: Partial<InvoiceView> = { status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true }
+
+describe("queueNote", () => {
+  it("says a queued order's place, and that registration is paused while it is", () => {
+    expect(queueNote(registration({ phase: "queued", queue: { position: 2, of: 3 }, paused: false }))).toBe("In queue, 2 of 3.")
+    expect(queueNote(registration({ phase: "queued", queue: { position: 2, of: 3 }, paused: true }))).toBe("In queue, 2 of 3. Registration is paused for now and continues by itself.")
+  })
+  it("says nothing for an order outside the queue, paused or not, or from a service that sends no queue", () => {
+    expect(queueNote(registration({ phase: "committed", queue: null, paused: true }))).toBeNull()
+    expect(queueNote(registration({ phase: "queued" }))).toBeNull()
+  })
+  it("is the registering screen's note for a queued order", () => {
+    const s: OrderState = { ...initialState("reg-1", null), view: registration({ phase: "queued", queue: { position: 1, of: 1 }, paused: true }), record: record(), now: NOW }
+    expect([screenOf(s), queueNote(s.view!)]).toEqual(["registering", "In queue, 1 of 1. Registration is paused for now and continues by itself."])
+  })
+})
 
 describe("closedCase", () => {
   const cases: [string, ClosedCase, OrderState][] = [

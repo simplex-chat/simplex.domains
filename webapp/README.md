@@ -143,7 +143,7 @@ Until the full launch, names are registered only with prepaid codes. The page is
 
 ## Registration paused
 
-The service pauses registration while its registrar's allowance on the sponsor cannot cover a register. It then answers a name invoice and a balance spend with `503 {"error": "registration_paused"}`: Check your order shows that registration is paused and nothing was charged, with Try again, and a closed invoice's page says so under its button. A paid order waiting to be committed shows its place in the service's queue, as "In queue, 2 of 3.", with "Registration is paused for now and continues by itself." while it is. The mock never pauses and sends no `queue`.
+The service pauses registration while its registrar's allowance on the sponsor cannot cover the orders waiting to register. It then answers a name invoice and a balance spend with `503 {"error": "registration_paused"}`: Check your order shows that registration is paused and nothing was charged, with Try again, and a closed invoice's page says so under its button. An invoice opened before the pause stays payable; while every registration view says `paused`, its pay page says that a payment made now waits in the queue. An order waiting to be committed shows its place in the service's queue, as "In queue, 2 of 3.", with "Registration is paused for now and continues by itself." while it is. The mock never pauses and sends neither `queue` nor `paused`.
 
 ## Hosting
 

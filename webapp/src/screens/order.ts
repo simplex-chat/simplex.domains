@@ -301,6 +301,9 @@ export function revealDue(s: OrderState): boolean {
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
 }
 
+export const queueNote = ({ queue, paused }: RegistrationView): string | null =>
+  queue ? `In queue, ${queue.position} of ${queue.of}.${paused ? " Registration is paused for now and continues by itself." : ""}` : null
+
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
   if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s)) return null
