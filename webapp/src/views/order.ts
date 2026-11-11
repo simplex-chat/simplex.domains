@@ -1136,10 +1136,14 @@ function headingOf({ view, record }: OrderState): Kid {
   return label ? ["Registering ", gradName(label, view!.tld)] : "Registering the name"
 }
 
+const heldLine = (shown: boolean, ...kids: Kid[]) => el("span", shown ? {} : { class: "sizer", "aria-hidden": "true" }, ...kids)
+
 function leadOf({ record, view }: OrderState): Kid {
   if (!record) return "The browser with its name code signed it."
-  if (view!.phase === "queued") return `Your place in the queue is kept. Come back any time: once your order is committed, you have ${REVEAL_HOURS} hours to finish.`
-  return ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)]
+  const queued = view!.phase === "queued"
+  return el("span", { class: "sized" },
+    heldLine(queued, `Your place in the queue is kept. Come back any time: once your order is committed, you have ${REVEAL_HOURS} hours to finish.`),
+    heldLine(!queued, "Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)))
 }
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
