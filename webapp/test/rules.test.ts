@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { bonusDays, bonusHint, clock, dateOf, dollars, freeDays, letters, methodName, seconds, shortAddress, termEnd, timeOf } from "../src/format.ts"
+import { bonusDays, bonusHint, clock, dateOf, dollars, freeDays, letters, methodName, ordinal, seconds, shortAddress, termEnd, timeOf } from "../src/format.ts"
 import { deepLinkOf } from "../dev/mock/links.ts"
 import { foldLabel, labelProblem, linkKind, linkProblem, LINK_MAX_BYTES, linkTooLong } from "../src/names.ts"
 
@@ -98,6 +98,11 @@ describe("formatting", () => {
     expect(shortAddress("0x014f9c09CcEeDEF1B713110d04D3a07d5B5D9b73")).toBe("0x014f\u2060…\u20609b73")
     expect([letters(1), letters(7)]).toEqual(["1 letter", "7 letters"])
     expect(dateOf(Date.UTC(2028, 10, 12) / 1000)).toBe("12\u00a0November 2028")
+  })
+
+  it("writes a place in English ordinals, the teens with th", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111, 112].map(ordinal))
+      .toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "101st", "111th", "112th"])
   })
 
   const TERM_START = Date.UTC(2027, 0, 1) / 1000
