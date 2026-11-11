@@ -7,7 +7,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, type StageState, stagesOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -1095,8 +1095,8 @@ function replacedWith(record: store.OrderRecord, url: string, gen: number): void
   if (isOpen(gen)) go(url)
 }
 
-type StageState = "done" | "active" | "failed" | ""
 const STAGES = [
+  { going: "In queue", done: "Queued" },
   { going: "Committing", done: "Committed" },
   { going: "Waiting", done: "Waiting" },
   { going: "Registering", done: "Registered" },
@@ -1117,8 +1117,6 @@ function sayStage(view: api.RegistrationView, states: StageState[]): void {
   saidStage = stage
   announce(STAGES[at].going)
 }
-
-const stagesOf = (view: api.RegistrationView): StageState[] => view.phase === "registering" ? ["done", "done", "active"] : view.phase === "committed" ? ["done", "active", ""] : ["active", "", ""]
 
 function headingOf({ view, record }: OrderState): Kid {
   const label = labelOf(view!, record)
@@ -1150,7 +1148,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const say = (node: HTMLElement, text: string) => { if (node.textContent !== text) node.textContent = text }
   // the wait's time, its line and the words under it move on each second between the screen's own changes
   const tick = () => {
-    if (view.phase === "committed") fillWait(steps.children[1] as HTMLElement, view)
+    if (view.phase === "committed") fillWait(steps.querySelector<HTMLElement>(".stage.active")!, view)
     const left = waitLeft(view)
     if (view.phase === "committed" && left > 0) {
       say(clockNode, clock(left))
@@ -1313,7 +1311,7 @@ function buildTaken(s: OrderState): HTMLElement {
   const title = label ? [gradName(label, view.tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
   return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : "Someone registered it before your order could.",
     ...balanceActions(s) },
-    stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
+    stages(["done", "done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,
     record ? null : alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to use the balance."),
     referenceLine(invoice?.invoiceId ?? view.id))
@@ -1344,7 +1342,7 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   // links the service refused leave nothing to try again either; the browser with the code moves the order instead
   const action = view.linksRefused ? withoutRecord("") : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : retry
   holdEnds(signal)(s.hold !== null)
-  const failedAt: StageState[] = view.commitTx === null ? ["failed", "", ""] : ["done", "done", "failed"]
+  const failedAt: StageState[] = view.commitTx === null ? ["done", "failed", "", ""] : ["done", "done", "done", "failed"]
   const alert = failedAlert(s)
   const support = [el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with its reference."]
   // a name taken or reserved since cannot be registered by this order, so it can move to another one with its code

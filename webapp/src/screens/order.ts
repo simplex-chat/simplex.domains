@@ -1,4 +1,4 @@
-import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
+import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type Phase, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -299,6 +299,14 @@ export function revealDue(s: OrderState): boolean {
   if (view.unread.includes("acceptance") || termsToAgree(s)) return false
   if ((view.revealAfter ?? 0) * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
+}
+
+export type StageState = "done" | "active" | "failed" | ""
+const STAGE_PHASES: Phase[] = ["queued", "committing", "committed", "registering"]
+
+export function stagesOf({ phase }: RegistrationView): StageState[] {
+  const at = STAGE_PHASES.indexOf(phase)
+  return STAGE_PHASES.map((_, i) => i < at ? "done" : i === at ? "active" : "")
 }
 
 export const queueNote = ({ queue, paused }: RegistrationView): string | null =>

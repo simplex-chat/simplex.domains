@@ -3,7 +3,7 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
+  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stagesOf, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
@@ -118,6 +118,15 @@ describe("screenOf", () => {
 
 // all of the amount, which reached the invoice after it closed
 const LATE_FULL: Partial<InvoiceView> = { status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true }
+
+describe("stagesOf", () => {
+  it("marks the stages an order has passed and the one it is at: In queue, Committing, Waiting, Registering", () => {
+    expect(stagesOf(registration({ phase: "queued" }))).toEqual(["active", "", "", ""])
+    expect(stagesOf(registration({ phase: "committing" }))).toEqual(["done", "active", "", ""])
+    expect(stagesOf(registration({ phase: "committed" }))).toEqual(["done", "done", "active", ""])
+    expect(stagesOf(registration({ phase: "registering" }))).toEqual(["done", "done", "done", "active"])
+  })
+})
 
 describe("queueNote", () => {
   it("says a queued order's place, and that registration is paused while it is", () => {
