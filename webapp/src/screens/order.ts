@@ -310,8 +310,8 @@ export function stagesOf({ phase }: RegistrationView): StageState[] {
   return STAGE_PHASES.map((_, i) => i < at ? "done" : i === at ? "active" : "")
 }
 
-export const queueNote = ({ queue, paused }: RegistrationView): string | null =>
-  queue ? `Your order is ${ordinal(queue.position)} of ${queue.of} in the queue.${paused ? " Registration is paused for now and continues by itself." : ""}` : null
+export const queueNote = ({ queue }: RegistrationView): string | null =>
+  queue ? `Your order is ${ordinal(queue.position)} of ${queue.of} in the queue.` : null
 
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s

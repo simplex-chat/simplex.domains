@@ -1171,6 +1171,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
+    view.phase === "queued" && view.paused ? alertBox("warn", "clock", PAUSED_TITLE, "Your order keeps its place and continues by itself. Nothing more to pay.") : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over

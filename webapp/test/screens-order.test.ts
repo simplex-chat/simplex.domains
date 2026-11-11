@@ -129,10 +129,10 @@ describe("stagesOf", () => {
 })
 
 describe("queueNote", () => {
-  it("says a queued order's place as an ordinal, and that registration is paused while it is", () => {
+  it("says a queued order's place as an ordinal, paused or not", () => {
     expect(queueNote(registration({ phase: "queued", queue: { position: 3, of: 7 }, paused: false }))).toBe("Your order is 3rd of 7 in the queue.")
     expect(queueNote(registration({ phase: "queued", queue: { position: 11, of: 12 }, paused: false }))).toBe("Your order is 11th of 12 in the queue.")
-    expect(queueNote(registration({ phase: "queued", queue: { position: 2, of: 3 }, paused: true }))).toBe("Your order is 2nd of 3 in the queue. Registration is paused for now and continues by itself.")
+    expect(queueNote(registration({ phase: "queued", queue: { position: 2, of: 3 }, paused: true }))).toBe("Your order is 2nd of 3 in the queue.")
   })
   it("says nothing for an order outside the queue, paused or not, or from a service that sends no queue", () => {
     expect(queueNote(registration({ phase: "committed", queue: null, paused: true }))).toBeNull()
@@ -140,7 +140,7 @@ describe("queueNote", () => {
   })
   it("is the registering screen's note for a queued order", () => {
     const s: OrderState = { ...initialState("reg-1", null), view: registration({ phase: "queued", queue: { position: 1, of: 1 }, paused: true }), record: record(), now: NOW }
-    expect([screenOf(s), queueNote(s.view!)]).toEqual(["registering", "Your order is 1st of 1 in the queue. Registration is paused for now and continues by itself."])
+    expect([screenOf(s), queueNote(s.view!)]).toEqual(["registering", "Your order is 1st of 1 in the queue."])
   })
 })
 
