@@ -310,6 +310,8 @@ export function stagesOf({ phase }: RegistrationView): StageState[] {
   return STAGE_PHASES.map((_, i) => i < at ? "done" : i === at ? "active" : "")
 }
 
+export const queuePaused = ({ phase, paused }: RegistrationView) => phase === "queued" && paused === true
+
 export const queueNote = ({ queue }: RegistrationView): string | null =>
   queue ? `Your order is ${ordinal(queue.position)} of ${queue.of} in the queue.` : null
 

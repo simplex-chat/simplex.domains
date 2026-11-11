@@ -7,7 +7,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, type StageState, stagesOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  type OrderState, queueNote, queuePaused, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, type StageState, stagesOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -1156,7 +1156,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const view = s.view!
   const states = stagesOf(view)
   sayStage(view, states)
-  const paused = view.phase === "queued" && view.paused === true
+  const paused = queuePaused(view)
   sayPause(paused ? view.id : null, `${PAUSED_TITLE}. ${QUEUE_PAUSED_TEXT}`)
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
   const steps = stages(states)

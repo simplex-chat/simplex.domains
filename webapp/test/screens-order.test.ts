@@ -3,7 +3,7 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, queueNote, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stagesOf, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
+  type OrderState, queueNote, queuePaused, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stagesOf, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
@@ -125,6 +125,17 @@ describe("stagesOf", () => {
     expect(stagesOf(registration({ phase: "committing" }))).toEqual(["done", "active", "", ""])
     expect(stagesOf(registration({ phase: "committed" }))).toEqual(["done", "done", "active", ""])
     expect(stagesOf(registration({ phase: "registering" }))).toEqual(["done", "done", "done", "active"])
+  })
+})
+
+describe("queuePaused", () => {
+  it("holds a queued order in a pause, which keeps its place", () => {
+    expect(queuePaused(registration({ phase: "queued", queue: { position: 3, of: 7 }, paused: true }))).toBe(true)
+  })
+  it("is false while registration runs, from a service that says nothing of a pause, and for an order past the queue, whose hours to finish run on", () => {
+    expect(queuePaused(registration({ phase: "queued", queue: { position: 3, of: 7 }, paused: false }))).toBe(false)
+    expect(queuePaused(registration({ phase: "queued" }))).toBe(false)
+    for (const phase of ["committing", "committed", "registering"] as const) expect(queuePaused(registration({ phase, paused: true })), phase).toBe(false)
   })
 })
 
