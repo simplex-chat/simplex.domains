@@ -518,26 +518,31 @@ function nameNote(s: OrderState): HTMLElement {
   return note
 }
 
-const pausedWords = ({ view }: OrderState) => view?.paused ? { tone: "warn" as const, words: [el("b", {}, `${PAUSED_TITLE}.`), " ", PAUSED_TEXT] } : null
+type Said = { tone: Note["tone"] | null; words: Kid[] }
+
+const pausedWords = (): Kid[] => [el("b", {}, `${PAUSED_TITLE}.`), " ", PAUSED_TEXT]
 
 // What the card page says above its form, other than its name's check, by priority under a taken name: what an action
 // met, that this browser cannot remember a card payment, that registration is paused, that an earlier try's invoice
 // opened. It says one thing there, in the room held for the name's note, so nothing reaches Pay.
-function cardWords(s: OrderState): { tone: Note["tone"] | null; words: Kid[] }[] {
+function cardWords(s: OrderState, paused: Said | null): Said[] {
   const opened = insteadWords(s.invoice!)
   return [
     s.note && { tone: s.note.tone, words: [s.note.title && [el("b", {}, `${s.note.title}.`), " "], noteText(s.note)] },
     store.canPersist() ? null : { tone: "warn" as const, words: [el("b", {}, "This browser cannot remember a card payment."), " After paying, keep this page open until it moves on. Reloading would show the card form again."] },
-    pausedWords(s),
+    paused,
     opened === null ? null : { tone: null, words: [opened] },
   ].filter((said) => said !== null)
 }
 
 function fillNameNote(note: HTMLElement, s: OrderState): void {
   const card = screenOf(s) === "pay-card"
-  const others = card ? cardWords(s) : [pausedWords(s)].filter((said) => said !== null)
+  const named = card || checksName(s)
+  const paused = pausedWords()
+  const pausedSaid = s.view?.paused ? { tone: "warn" as const, words: paused } : null
+  const others = card ? cardWords(s, pausedSaid) : [pausedSaid].filter((said) => said !== null)
   const other = others[0] ?? null
-  const shown = JSON.stringify([nameCheck, card, others.length, card && s.note, other?.tone ?? null])
+  const shown = JSON.stringify([nameCheck, card, named, others.length, card && s.note, other?.tone ?? null])
   if (note.dataset.shown === shown) return
   note.dataset.shown = shown
   const taken = nameTaken()
@@ -549,7 +554,8 @@ function fillNameNote(note: HTMLElement, s: OrderState): void {
       "If someone registers it before you pay and the registration succeeds, what you paid is kept as your balance for another name, or refunded on request."]
   const gone: Kid[] = card ? [el("b", {}, "Taken"), ` at ${time}. ${dontPay}`] : [el("b", {}, "Someone has registered this name"), ` (checked at ${time}). `, dontPay]
   const said = taken ? gone : other?.words ?? free
-  note.replaceChildren(...[free, gone, ...others.map((o) => o.words)].map((words) => {
+  const sentences = [...named ? [free, gone] : [], paused, ...others.map((o) => o.words).filter((words) => words !== paused)]
+  note.replaceChildren(...sentences.map((words) => {
     const sentence = el("span", {}, ...words)
     sentence.classList.toggle("sizer", words !== said)
     return sentence
@@ -625,9 +631,10 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const amount = copyField(`${partial ? "rest to send" : "amount"} in ${TICKER[coin]}`, due)
   const address = copyField(`${methodName(coin)} address`, inv.address!)
   const wallet = uri ? el("a", { class: "wallet", href: uri }, WALLET) : null
-  const part = partial ? partLines(inv, coin, [qr, amount, wallet], signal) : null
+  const paused = partial ? el("span", { class: s.view!.paused ? "paused" : "paused sizer" }, " ", ...pausedWords()) : null
+  const part = partial ? partLines(inv, coin, [qr, amount, wallet, paused], signal) : null
   const waiting = el("span", { class: "waiting" }, el("i", { class: "dot", "aria-hidden": "true" }), "Waiting for payment")
-  const note = part ? alertBox("warn", "alert", null, [part.notice, s.view!.paused && ` ${PAUSED_TITLE}. ${PAUSED_TEXT}`]) : checksName(s) ? nameNote(s) : pausedNote(s)
+  const note = part ? alertBox("warn", "alert", null, [part.notice, !part.ended && paused]) : nameNote(s)
   // a phone opens its wallet from the link under the address, a laptop from the QR's
   payDetails = el("div", { class: "card pay" },
     part?.ended ? address : el("div", { class: "qr-grid" }, qr, el("div", { class: "copy-fields" }, amount, address)),
@@ -716,8 +723,6 @@ function buildPayCard(s: OrderState): HTMLElement {
   const alt = el("span", {}, cancelLink(s), el("span", { class: "note stripe-note" }, STRIPE_NOTE))
   return screen({ title: "Pay by card", lead: orderLine(s), action: payButton, alt }, notice, form)
 }
-
-const pausedNote = ({ view }: OrderState) => view?.paused ? alertBox("warn", "clock", PAUSED_TITLE, PAUSED_TEXT) : null
 
 function cardStandIn(form: HTMLElement): void {
   const f = (text: string, value: string) => el("label", { class: "f" }, el("span", {}, text), el("div", { class: "box" }, value))

@@ -449,6 +449,7 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .notice svg.i, .field-error svg.i, .verdict svg.i { margin-top: 1px; }
 .notice.info svg.i { color: var(--primary); }
 .notice b { display: block; overflow-wrap: anywhere; }
+.notice .paused b { display: inline; }
 
 /* payment: one card, the QR with its wallet link beside the amount and the address, over a line of the payment's state;
    the name code: its QR beside the words */
