@@ -508,7 +508,7 @@ function buildUnavailable(s: CheckoutState): HTMLElement {
 
 function buildPaused(s: CheckoutState): HTMLElement {
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
-  return outcome({ tone: "warn", icon: "alert", title: PAUSED_TITLE, text: ["Orders for ", nameText(s.checkout.label, s.checkout.chain.tld), " are paused. Nothing was charged. Try again later."],
+  return outcome({ tone: "warn", icon: "alert", title: PAUSED_TITLE, text: ["Orders are paused for now. Nothing was charged for ", nameText(s.checkout.label, s.checkout.chain.tld, "."), " Try again later."],
     action: retry, alt: link("Back", () => go(searchLink(s.checkout.label))) })
 }
 
