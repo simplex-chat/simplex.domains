@@ -521,6 +521,7 @@ function nameNote(s: OrderState): HTMLElement {
 type Said = { tone: Note["tone"] | null; words: Kid[] }
 
 const pausedWords = (): Kid[] => [el("b", {}, `${PAUSED_TITLE}.`), " ", PAUSED_TEXT]
+const PAUSED_SAYING = `${PAUSED_TITLE}. ${PAUSED_TEXT}`
 
 // What the card page says above its form, other than its name's check, by priority under a taken name: what an action
 // met, that this browser cannot remember a card payment, that registration is paused, that an earlier try's invoice
@@ -635,6 +636,7 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const part = partial ? partLines(inv, coin, [qr, amount, wallet, paused], signal) : null
   const waiting = el("span", { class: "waiting" }, el("i", { class: "dot", "aria-hidden": "true" }), "Waiting for payment")
   const note = part ? alertBox("warn", "alert", null, [part.notice, !part.ended && paused]) : nameNote(s)
+  sayPause(part && !part.ended && s.view!.paused ? inv.invoiceId : null, PAUSED_SAYING)
   // a phone opens its wallet from the link under the address, a laptop from the QR's
   payDetails = el("div", { class: "card pay" },
     part?.ended ? address : el("div", { class: "qr-grid" }, qr, el("div", { class: "copy-fields" }, amount, address)),
@@ -1123,6 +1125,12 @@ function sayStage(view: api.RegistrationView, states: StageState[]): void {
   announce(STAGES[at].going)
 }
 
+let saidPause: string | null = null
+function sayPause(shownFor: string | null, words: string): void {
+  if (shownFor !== null && shownFor !== saidPause) announce(words)
+  saidPause = shownFor
+}
+
 function headingOf({ view, record }: OrderState): Kid {
   const label = labelOf(view!, record)
   return label ? ["Registering ", gradName(label, view!.tld)] : "Registering the name"
@@ -1138,11 +1146,14 @@ const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order 
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
 const STALL_NOTE = "This is taking longer than usual. It continues by itself."
+const QUEUE_PAUSED_TEXT = "Your order keeps its place and continues by itself. Nothing more to pay."
 
 function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const view = s.view!
   const states = stagesOf(view)
   sayStage(view, states)
+  const paused = view.phase === "queued" && view.paused === true
+  sayPause(paused ? view.id : null, `${PAUSED_TITLE}. ${QUEUE_PAUSED_TEXT}`)
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
   const steps = stages(states)
   const stalled = stalledAt(s)
@@ -1176,7 +1187,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
-    view.phase === "queued" && view.paused ? alertBox("warn", "clock", PAUSED_TITLE, "Your order keeps its place and continues by itself. Nothing more to pay.") : null,
+    paused ? alertBox("warn", "clock", PAUSED_TITLE, QUEUE_PAUSED_TEXT) : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
