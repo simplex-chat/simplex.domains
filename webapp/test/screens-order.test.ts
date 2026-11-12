@@ -3,7 +3,7 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
+  type OrderState, queueNote, queuePaused, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stagesOf, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
@@ -118,6 +118,42 @@ describe("screenOf", () => {
 
 // all of the amount, which reached the invoice after it closed
 const LATE_FULL: Partial<InvoiceView> = { status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true }
+
+describe("stagesOf", () => {
+  it("marks the stages an order has passed and the one it is at: In queue, Committing, Waiting, Registering", () => {
+    expect(stagesOf(registration({ phase: "queued" }))).toEqual(["active", "", "", ""])
+    expect(stagesOf(registration({ phase: "committing" }))).toEqual(["done", "active", "", ""])
+    expect(stagesOf(registration({ phase: "committed" }))).toEqual(["done", "done", "active", ""])
+    expect(stagesOf(registration({ phase: "registering" }))).toEqual(["done", "done", "done", "active"])
+  })
+})
+
+describe("queuePaused", () => {
+  it("holds a queued order in a pause, which keeps its place", () => {
+    expect(queuePaused(registration({ phase: "queued", queue: { position: 3, of: 7 }, paused: true }))).toBe(true)
+  })
+  it("is false while registration runs, from a service that says nothing of a pause, and for an order past the queue, whose hours to finish run on", () => {
+    expect(queuePaused(registration({ phase: "queued", queue: { position: 3, of: 7 }, paused: false }))).toBe(false)
+    expect(queuePaused(registration({ phase: "queued" }))).toBe(false)
+    for (const phase of ["committing", "committed", "registering"] as const) expect(queuePaused(registration({ phase, paused: true })), phase).toBe(false)
+  })
+})
+
+describe("queueNote", () => {
+  it("says a queued order's place as an ordinal, paused or not", () => {
+    expect(queueNote(registration({ phase: "queued", queue: { position: 3, of: 7 }, paused: false }))).toBe("Your order is 3rd of 7 in the queue.")
+    expect(queueNote(registration({ phase: "queued", queue: { position: 11, of: 12 }, paused: false }))).toBe("Your order is 11th of 12 in the queue.")
+    expect(queueNote(registration({ phase: "queued", queue: { position: 2, of: 3 }, paused: true }))).toBe("Your order is 2nd of 3 in the queue.")
+  })
+  it("says nothing for an order outside the queue, paused or not, or from a service that sends no queue", () => {
+    expect(queueNote(registration({ phase: "committed", queue: null, paused: true }))).toBeNull()
+    expect(queueNote(registration({ phase: "queued" }))).toBeNull()
+  })
+  it("is the registering screen's note for a queued order", () => {
+    const s: OrderState = { ...initialState("reg-1", null), view: registration({ phase: "queued", queue: { position: 1, of: 1 }, paused: true }), record: record(), now: NOW }
+    expect([screenOf(s), queueNote(s.view!)]).toEqual(["registering", "Your order is 1st of 1 in the queue."])
+  })
+})
 
 describe("closedCase", () => {
   const cases: [string, ClosedCase, OrderState][] = [

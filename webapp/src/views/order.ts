@@ -7,7 +7,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  type OrderState, queueNote, queuePaused, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, type StageState, stagesOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -36,6 +36,8 @@ const ORDER_NOTE = "order-note"
 const warning = (text: string): Note => ({ tone: "warn", icon: "alert", title: null, text })
 const termsUnavailable = (e: unknown) => e instanceof api.ApiError && e.code === "terms_unavailable"
 const noOrders = (lead: string) => warning(`${NO_ORDERS}. ${lead}Try again later.`)
+export const PAUSED_TITLE = "Registration is paused"
+const PAUSED_TEXT = "A payment made now waits in the queue until it resumes."
 
 let state: OrderState = initialState("", null)
 let opened = 0
@@ -516,23 +518,32 @@ function nameNote(s: OrderState): HTMLElement {
   return note
 }
 
+type Said = { tone: Note["tone"] | null; words: Kid[] }
+
+const pausedWords = (): Kid[] => [el("b", {}, `${PAUSED_TITLE}.`), " ", PAUSED_TEXT]
+const PAUSED_SAYING = `${PAUSED_TITLE}. ${PAUSED_TEXT}`
+
 // What the card page says above its form, other than its name's check, by priority under a taken name: what an action
-// met, that this browser cannot remember a card payment, that an earlier try's invoice opened. It says one thing there,
-// in the room held for the name's note, so nothing reaches Pay.
-function cardWords(s: OrderState): { tone: Note["tone"] | null; words: Kid[] }[] {
+// met, that this browser cannot remember a card payment, that registration is paused, that an earlier try's invoice
+// opened. It says one thing there, in the room held for the name's note, so nothing reaches Pay.
+function cardWords(s: OrderState, paused: Said | null): Said[] {
   const opened = insteadWords(s.invoice!)
   return [
     s.note && { tone: s.note.tone, words: [s.note.title && [el("b", {}, `${s.note.title}.`), " "], noteText(s.note)] },
     store.canPersist() ? null : { tone: "warn" as const, words: [el("b", {}, "This browser cannot remember a card payment."), " After paying, keep this page open until it moves on. Reloading would show the card form again."] },
+    paused,
     opened === null ? null : { tone: null, words: [opened] },
   ].filter((said) => said !== null)
 }
 
 function fillNameNote(note: HTMLElement, s: OrderState): void {
   const card = screenOf(s) === "pay-card"
-  const others = card ? cardWords(s) : []
+  const named = card || checksName(s)
+  const paused = pausedWords()
+  const pausedSaid = s.view?.paused ? { tone: "warn" as const, words: paused } : null
+  const others = card ? cardWords(s, pausedSaid) : [pausedSaid].filter((said) => said !== null)
   const other = others[0] ?? null
-  const shown = JSON.stringify([nameCheck, card, others.length, card && s.note, other?.tone ?? null])
+  const shown = JSON.stringify([nameCheck, card, named, others.length, card && s.note, other?.tone ?? null])
   if (note.dataset.shown === shown) return
   note.dataset.shown = shown
   const taken = nameTaken()
@@ -544,7 +555,8 @@ function fillNameNote(note: HTMLElement, s: OrderState): void {
       "If someone registers it before you pay and the registration succeeds, what you paid is kept as your balance for another name, or refunded on request."]
   const gone: Kid[] = card ? [el("b", {}, "Taken"), ` at ${time}. ${dontPay}`] : [el("b", {}, "Someone has registered this name"), ` (checked at ${time}). `, dontPay]
   const said = taken ? gone : other?.words ?? free
-  note.replaceChildren(...[free, gone, ...others.map((o) => o.words)].map((words) => {
+  const sentences = [...named ? [free, gone] : [], paused, ...others.map((o) => o.words).filter((words) => words !== paused)]
+  note.replaceChildren(...sentences.map((words) => {
     const sentence = el("span", {}, ...words)
     sentence.classList.toggle("sizer", words !== said)
     return sentence
@@ -620,9 +632,11 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const amount = copyField(`${partial ? "rest to send" : "amount"} in ${TICKER[coin]}`, due)
   const address = copyField(`${methodName(coin)} address`, inv.address!)
   const wallet = uri ? el("a", { class: "wallet", href: uri }, WALLET) : null
-  const part = partial ? partLines(inv, coin, [qr, amount, wallet], signal) : null
+  const paused = partial ? el("span", { class: s.view!.paused ? "paused" : "paused sizer" }, " ", ...pausedWords()) : null
+  const part = partial ? partLines(inv, coin, [qr, amount, wallet, paused], signal) : null
   const waiting = el("span", { class: "waiting" }, el("i", { class: "dot", "aria-hidden": "true" }), "Waiting for payment")
-  const note = part ? alertBox("warn", "alert", null, part.notice) : checksName(s) ? nameNote(s) : null
+  const note = part ? alertBox("warn", "alert", null, [part.notice, !part.ended && paused]) : nameNote(s)
+  sayPause(part && !part.ended && s.view!.paused ? inv.invoiceId : null, PAUSED_SAYING)
   // a phone opens its wallet from the link under the address, a laptop from the QR's
   payDetails = el("div", { class: "card pay" },
     part?.ended ? address : el("div", { class: "qr-grid" }, qr, el("div", { class: "copy-fields" }, amount, address)),
@@ -1045,6 +1059,9 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
       loadNextRouteAfresh()
       return dispatch({ type: "reorder-failed", note: CODES_ONLY_NOTE })
     }
+    if (e instanceof api.ApiError && e.code === api.REGISTRATION_PAUSED) {
+      return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: PAUSED_TITLE, text: "Nothing was charged. Try again later." } })
+    }
     if (e instanceof api.ApiError && e.code === "provider_unavailable") {
       return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: `${methodName(method)} is unavailable right now`,
         text: "Nothing was charged. Try again later, or ", link: { text: "order the name again", href: searchLink(record.label), after: " to pay another way." } } })
@@ -1085,8 +1102,8 @@ function replacedWith(record: store.OrderRecord, url: string, gen: number): void
   if (isOpen(gen)) go(url)
 }
 
-type StageState = "done" | "active" | "failed" | ""
 const STAGES = [
+  { going: "In queue", done: "Queued" },
   { going: "Committing", done: "Committed" },
   { going: "Waiting", done: "Waiting" },
   { going: "Registering", done: "Registered" },
@@ -1108,25 +1125,39 @@ function sayStage(view: api.RegistrationView, states: StageState[]): void {
   announce(STAGES[at].going)
 }
 
-const stagesOf = (view: api.RegistrationView): StageState[] => view.phase === "registering" ? ["done", "done", "active"] : view.phase === "committed" ? ["done", "active", ""] : ["active", "", ""]
+let saidPause: string | null = null
+function sayPause(shownFor: string | null, words: string): void {
+  if (shownFor !== null && shownFor !== saidPause) announce(words)
+  saidPause = shownFor
+}
 
 function headingOf({ view, record }: OrderState): Kid {
   const label = labelOf(view!, record)
   return label ? ["Registering ", gradName(label, view!.tld)] : "Registering the name"
 }
 
-const leadOf = ({ record }: OrderState) => record ? ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)]
-  : "The browser with its name code signed it."
+const heldLine = (shown: boolean, ...kids: Kid[]) => el("span", shown ? {} : { class: "sizer", "aria-hidden": "true" }, ...kids)
+
+function leadOf({ record, view }: OrderState): Kid {
+  if (!record) return "The browser with its name code signed it."
+  const queued = view!.phase === "queued"
+  return el("span", { class: "sized" },
+    heldLine(queued, `Your place in the queue is kept. Come back any time: once your order is committed, you have ${REVEAL_HOURS} hours to finish.`),
+    heldLine(!queued, "Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)))
+}
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
 const STALL_NOTE = "This is taking longer than usual. It continues by itself."
+const QUEUE_PAUSED_TEXT = "Your order keeps its place and continues by itself. Nothing more to pay."
 
 function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const view = s.view!
   const states = stagesOf(view)
   sayStage(view, states)
+  const paused = queuePaused(view)
+  sayPause(paused ? view.id : null, `${PAUSED_TITLE}. ${QUEUE_PAUSED_TEXT}`)
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
   const steps = stages(states)
   const stalled = stalledAt(s)
@@ -1140,13 +1171,15 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const say = (node: HTMLElement, text: string) => { if (node.textContent !== text) node.textContent = text }
   // the wait's time, its line and the words under it move on each second between the screen's own changes
   const tick = () => {
-    if (view.phase === "committed") fillWait(steps.children[1] as HTMLElement, view)
+    if (view.phase === "committed") fillWait(steps.querySelector<HTMLElement>(".stage.active")!, view)
     const left = waitLeft(view)
     if (view.phase === "committed" && left > 0) {
       say(clockNode, clock(left))
       return say(note, WAIT_NOTE)
     }
     if (!clockNode.querySelector("svg")) clockNode.replaceChildren(icon("clock"))
+    const queued = queueNote(view)
+    if (queued) return say(note, queued)
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase !== "committed") return say(note, view.phase === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)
@@ -1158,6 +1191,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
+    paused ? alertBox("warn", "clock", PAUSED_TITLE, QUEUE_PAUSED_TEXT) : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
@@ -1301,7 +1335,7 @@ function buildTaken(s: OrderState): HTMLElement {
   const title = label ? [gradName(label, view.tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
   return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : "Someone registered it before your order could.",
     ...balanceActions(s) },
-    stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
+    stages(["done", "done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,
     record ? null : alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to use the balance."),
     referenceLine(invoice?.invoiceId ?? view.id))
@@ -1332,7 +1366,7 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   // links the service refused leave nothing to try again either; the browser with the code moves the order instead
   const action = view.linksRefused ? withoutRecord("") : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : retry
   holdEnds(signal)(s.hold !== null)
-  const failedAt: StageState[] = view.commitTx === null ? ["failed", "", ""] : ["done", "done", "failed"]
+  const failedAt: StageState[] = view.commitTx === null ? ["done", "failed", "", ""] : ["done", "done", "done", "failed"]
   const alert = failedAlert(s)
   const support = [el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with its reference."]
   // a name taken or reserved since cannot be registered by this order, so it can move to another one with its code

@@ -449,6 +449,7 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .notice svg.i, .field-error svg.i, .verdict svg.i { margin-top: 1px; }
 .notice.info svg.i { color: var(--primary); }
 .notice b { display: block; overflow-wrap: anywhere; }
+.notice .paused b { display: inline; }
 
 /* payment: one card, the QR with its wallet link beside the amount and the address, over a line of the payment's state;
    the name code: its QR beside the words */
@@ -522,7 +523,7 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .stripe .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
 /* the stages as bars, the active one filling as its wait goes by; --done is the wait's share gone by, which the page sets each second */
-.stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; list-style: none; }
+.stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; list-style: none; }
 .stage { display: grid; gap: 8px; }
 .stage::before { content: ""; height: 4px; border-radius: 2px; background: var(--surface-line); }
 .stage.done::before { background: var(--ok-fg); }
@@ -681,6 +682,7 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .screen-head:has(h1 .nt:not(.whole)) { --fs-h1: 22px; }
   .invest { padding-bottom: 20px; }
   .actions-row > .btn { width: 100%; min-width: 0; }
+  .stage b { font-size: 13px; }
   .home { --room: 178px; padding-top: 48px; }
   .home h1 { --fs-h1: 34px; }
   .home .sub { font-size: 16px; }

@@ -16,6 +16,11 @@ export function letters(n: number): string {
   return n === 1 ? "1 letter" : `${n} letters`
 }
 
+const ORDINAL_RULES = new Intl.PluralRules("en-GB", { type: "ordinal" })
+const ORDINAL_ENDINGS: Partial<Record<Intl.LDMLPluralRule, string>> = { one: "st", two: "nd", few: "rd" }
+
+export const ordinal = (n: number) => `${n}${ORDINAL_ENDINGS[ORDINAL_RULES.select(n)] ?? "th"}`
+
 // the day stays with its month on one line
 export function dateOf(seconds: number): string {
   return new Date(seconds * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).replace(" ", "\u00a0")
