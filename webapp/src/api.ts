@@ -99,7 +99,11 @@ export function signedHash(terms: string | null | undefined): string | null {
 
 const LOCAL_CHAIN_ID = 31337
 const MAX_PORT = 65535
-const TERMS_LINK = /^(?:https:\/\/git\.simplex\.chat\/simplex-chat\/simplex-chat\/raw\/commit\/([0-9a-f]{40})|http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4}))\/([A-Za-z0-9_./-]+)#sha256=([0-9a-f]{64})$/
+const TERMS_LINK = /^(?:https:\/\/(?:git\.simplex\.chat\/simplex-chat\/simplex-chat\/raw\/commit|raw\.githubusercontent\.com\/simplex-chat\/simplex-chat)\/([0-9a-f]{40})|http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4}))\/([A-Za-z0-9_./-]+)#sha256=([0-9a-f]{64})$/
+const FORGEJO_RAW = "https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/"
+const FORGEJO_PAGE = "https://git.simplex.chat/simplex-chat/simplex-chat/src/commit/"
+const GITHUB_RAW = "https://raw.githubusercontent.com/simplex-chat/simplex-chat/"
+const GITHUB_PAGE = "https://github.com/simplex-chat/simplex-chat/blob/"
 
 export function termsLink(link: string, chainId: number): { commit: string | null; digest: string } | null {
   const [, commit, port, path, digest] = TERMS_LINK.exec(link) ?? []
@@ -108,7 +112,12 @@ export function termsLink(link: string, chainId: number): { commit: string | nul
   return { commit: commit ?? null, digest }
 }
 
-export const readerUrl = (link: string) => link.slice(0, link.indexOf("#")).replace("/raw/commit/", "/src/commit/")
+export function readerUrl(link: string): string {
+  const file = link.slice(0, link.indexOf("#"))
+  if (file.startsWith(FORGEJO_RAW)) return FORGEJO_PAGE + file.slice(FORGEJO_RAW.length)
+  if (file.startsWith(GITHUB_RAW)) return GITHUB_PAGE + file.slice(GITHUB_RAW.length)
+  return file
+}
 
 const keccakOf = (text: string) => `0x${bytesToHex(keccak_256(utf8ToBytes(text)))}`
 

@@ -8,6 +8,7 @@ import {
 const HASH = "ab".repeat(32)
 const COMMIT = "4cb24444a1f2e3d4c5b6a7980716253443526170"
 const FORGEJO = `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${COMMIT}`
+const GITHUB = `https://raw.githubusercontent.com/simplex-chat/simplex-chat/${COMMIT}`
 const termsOf = (link: string) => ({ hash: keccak256(toHex(link)), link })
 
 function answerWith(status: number, body: string, headers: Record<string, string> = {}): void {
@@ -26,9 +27,11 @@ afterEach(() => {
 
 describe("termsLink", () => {
   const DIGEST = "0b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff001"
-  it("takes a file at a commit of simplex-chat on git.simplex.chat, with the sha256 of its bytes, on any chain", () => {
-    for (const path of ["docs/general-terms.md", "a.md", "x/.md", "docs/v1.2/general_terms-2.md"]) {
-      expect(termsLink(`${FORGEJO}/${path}#sha256=${DIGEST}`, 1), path).toEqual({ commit: COMMIT, digest: DIGEST })
+  it("takes a file at a commit of simplex-chat on git.simplex.chat or GitHub, with the sha256 of its bytes, on any chain", () => {
+    for (const host of [FORGEJO, GITHUB]) {
+      for (const path of ["docs/general-terms.md", "a.md", "x/.md", "docs/v1.2/general_terms-2.md"]) {
+        expect(termsLink(`${host}/${path}#sha256=${DIGEST}`, 1), `${host}/${path}`).toEqual({ commit: COMMIT, digest: DIGEST })
+      }
     }
   })
   it("takes a file on this machine only on the dev scripts' chain", () => {
@@ -46,12 +49,20 @@ describe("termsLink", () => {
       `${FORGEJO}/docs/general-terms.md?raw=1#sha256=${DIGEST}`, `${FORGEJO.replace(COMMIT, COMMIT.toUpperCase())}/a.md#sha256=${DIGEST}`,
       `${FORGEJO.replace(COMMIT, COMMIT.slice(1))}/a.md#sha256=${DIGEST}`, `${FORGEJO.replace("https:", "http:")}/a.md#sha256=${DIGEST}`,
       `https://github.com/simplex-chat/simplex-chat/raw/commit/${COMMIT}/a.md#sha256=${DIGEST}`, `http://localhost:8098/a.md#sha256=${DIGEST}`,
+      `${GITHUB}/docs/general-terms.md`, `${GITHUB.replace("https:", "http:")}/a.md#sha256=${DIGEST}`,
+      `https://raw.githubusercontent.com/simplex-chat/simplex-chat/stable/a.md#sha256=${DIGEST}`,
+      `https://raw.githubusercontent.com/simplex-chat/simplex-chat/refs/heads/stable/a.md#sha256=${DIGEST}`,
+      `https://raw.githubusercontent.com/simplex-chat/simplexmq/${COMMIT}/a.md#sha256=${DIGEST}`,
+      `https://raw.githubusercontent.com/someone/simplex-chat/${COMMIT}/a.md#sha256=${DIGEST}`,
+      `https://github.com/simplex-chat/simplex-chat/blob/${COMMIT}/a.md#sha256=${DIGEST}`,
     ]) {
       expect(termsLink(link, 31337), link).toBeNull()
     }
   })
   it("opens a file at a commit on its page there, and a file on this machine as it is", () => {
     expect(readerUrl(`${FORGEJO}/docs/general-terms.md#sha256=${DIGEST}`)).toBe(`https://git.simplex.chat/simplex-chat/simplex-chat/src/commit/${COMMIT}/docs/general-terms.md`)
+    expect(readerUrl(`${GITHUB}/docs/general-terms.md#sha256=${DIGEST}`)).toBe(`https://github.com/simplex-chat/simplex-chat/blob/${COMMIT}/docs/general-terms.md`)
+    expect(readerUrl(`${GITHUB}/raw/commit/a.md#sha256=${DIGEST}`), "a GitHub path naming a Forgejo segment").toBe(`https://github.com/simplex-chat/simplex-chat/blob/${COMMIT}/raw/commit/a.md`)
     expect(readerUrl(`http://127.0.0.1:8098/terms/a.md#sha256=${DIGEST}`)).toBe("http://127.0.0.1:8098/terms/a.md")
   })
 })
