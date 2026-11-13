@@ -9,7 +9,7 @@ import { type ChatKind, communityAgreed, type Profile, termsLink } from "../../s
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
 import { CODES_ONLY, type Mode } from "../../src/mode.ts"
-import { labelProblem, linkKind, type LinkKind, linkProblem, MAX_LABEL_LENGTH, MIN_LABEL_LENGTH } from "../../src/names.ts"
+import { labelProblem, LINK_MAX_BYTES, linkKind, type LinkKind, linkProblem, MAX_LABEL_LENGTH, MIN_LABEL_LENGTH } from "../../src/names.ts"
 import {
   baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
 } from "./chain.ts"
@@ -1265,7 +1265,7 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
 }
 
 export async function previewLink(body: Record<string, unknown>): Promise<Profile> {
-  if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > 4096) throw new HttpError(400, "invalid_link")
+  if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link")
   return (await fetchedProfile(body.link))!
 }
 
