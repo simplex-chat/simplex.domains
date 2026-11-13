@@ -338,9 +338,9 @@ export const orderOwnerCode = (page: Page, invoiceId: string) => page.evaluate((
 export const LINKS_HEADING = "Your name's links"
 export const CODE_HEADING = "Save your name code"
 export const SAVED = "I have saved my name code"
-export const AGREE = /^I agree to SimpleX general terms/
+export const AGREE = /^I accept the SimpleX Names Conditions of Use/
 export const COMMUNITY_HEADING = "Community terms"
-export const ACCEPT = /^I accept the community terms/
+export const ACCEPT = /^I accept the Names Conditions/
 
 // An available name's Register, then Skip for now, up to the name code step, which makes the code.
 export async function toCodeStep(page: Page): Promise<void> {

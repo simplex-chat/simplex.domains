@@ -15,11 +15,11 @@ import { RETRY_MS } from "../src/screens/order.ts"
 const COMMUNITY_LABEL = "bakers"
 // the community name dev/deploy.ts registered under the terms, with links
 const TAKEN_COMMUNITY = "bakehouse"
-const ACCEPT_WORDS = "I accept the community terms and will use this name for its community."
-const PLAIN_WORDS = "I agree to SimpleX general terms and do not knowingly violate any trademarks."
-const TERMS_CHANGED = "The terms changed. Agree to them again."
+const ACCEPT_WORDS = "I accept the Names Conditions and will use this name to benefit its community."
+const PLAIN_WORDS = "I accept the SimpleX Names Conditions of Use."
+const TERMS_CHANGED = "The Names Conditions changed. Accept them again."
 // what the popup says of every community name after what the name is for
-const POPUP_END = "Its owner agrees to use it for this community, not as the name of one person or business."
+const POPUP_END = "Its owner agrees to use it to benefit this community, not as the brand of one person or business."
 // what the tests put a name on the list for
 const LISTED_FOR = "test bakers"
 const MARKER = "Community name: about it"
@@ -209,7 +209,7 @@ test("an order refused for terms changed meanwhile unticks the box and says so i
     await expect(onStep(page).getByRole("checkbox", { name: AGREE })).not.toBeChecked()
     await expect(payButton(page)).toBeDisabled()
     expect(await places(page, parts), "with the notice").toEqual(before)
-    await expect(onStep(page).getByRole("link", { name: "SimpleX general terms" }), "the box links the changed terms")
+    await expect(onStep(page).getByRole("link", { name: "SimpleX Names Conditions of Use" }), "the box links the changed terms")
       .toHaveAttribute("href", ((await (await page.request.get(`/api/terms/${hash}`)).json()) as { link: string }).link.split("#")[0])
     await agreeToTerms(page)
     await expect(notice).toHaveCount(0)
@@ -272,7 +272,7 @@ test("a failed order moved through the search to another name asks for that name
     await page.getByLabel("Name", { exact: true }).press("Enter")
     const move = page.getByRole("button", { name: "Register with your payment" })
     await expect(page.locator(".answer .check.terms")).toHaveText([ACCEPT_WORDS])
-    await page.locator(".answer .check.terms").getByRole("button", { name: "community terms" }).click()
+    await page.locator(".answer .check.terms").getByRole("button", { name: "Names Conditions" }).click()
     const popup = page.getByRole("dialog", { name: "Community terms" })
     await expect(popup.locator(".terms-text h3"), "the terms of the hash the move signs").toHaveText(headingOf((await termsOnChain(page)).text))
     await popup.getByRole("button", { name: "Close" }).click()
