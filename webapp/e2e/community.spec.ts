@@ -158,29 +158,41 @@ test("a community name's order shows its community terms on their own step befor
   await expect(onStep(page).getByRole("checkbox", { name: ACCEPT }), "the step gone back to keeps its tick").toBeChecked()
 })
 
-test("community terms at a commit of git.simplex.chat link that commit's page under their text", async ({ page }) => {
-  const text = "# Community terms\n\n- Use the name for its community.\n"
-  const digest = createHash("sha256").update(text).digest("hex")
-  const commit = "4cb24444a1f2e3d4c5b6a7980716253443526170"
-  const path = `simplex-chat/simplex-chat/raw/commit/${commit}/docs/community-terms.md`
-  const link = `https://git.simplex.chat/${path}#sha256=${digest}`
-  const hash = keccak256(toHex(link))
-  await page.route("**/api/name/*", async (route) => {
-    const response = await route.fetch()
-    const json = await response.json()
-    await route.fulfill({ response, json: json.status === "available" ? { ...json, terms: { hash, link } } : json })
+const TERMS_COMMIT = "4cb24444a1f2e3d4c5b6a7980716253443526170"
+
+for (const [host, file, commitPage] of [
+  [
+    "git.simplex.chat",
+    `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${TERMS_COMMIT}/docs/community-terms.md`,
+    `https://git.simplex.chat/simplex-chat/simplex-chat/src/commit/${TERMS_COMMIT}/docs/community-terms.md`,
+  ],
+  [
+    "GitHub",
+    `https://raw.githubusercontent.com/simplex-chat/simplex-chat/${TERMS_COMMIT}/docs/community-terms.md`,
+    `https://github.com/simplex-chat/simplex-chat/blob/${TERMS_COMMIT}/docs/community-terms.md`,
+  ],
+] as const) {
+  test(`community terms at a commit of ${host} link that commit's page under their text`, async ({ page }) => {
+    const text = "# Community terms\n\n- Use the name for its community.\n"
+    const digest = createHash("sha256").update(text).digest("hex")
+    const link = `${file}#sha256=${digest}`
+    const hash = keccak256(toHex(link))
+    await page.route("**/api/name/*", async (route) => {
+      const response = await route.fetch()
+      const json = await response.json()
+      await route.fulfill({ response, json: json.status === "available" ? { ...json, terms: { hash, link } } : json })
+    })
+    await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ json: { link, text } }))
+    await search(page, COMMUNITY_LABEL)
+    await toCodeStep(page)
+    await onStep(page).getByText(SAVED).click()
+    await onStep(page).getByRole("button", { name: "Continue" }).click()
+    // the terms' own heading has the step's words too
+    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
+    await expect(onStep(page).locator(".terms-text h3")).toHaveText("Community terms")
+    await expect(onStep(page).getByRole("link", { name: `View at commit ${TERMS_COMMIT.slice(0, 7)}` })).toHaveAttribute("href", commitPage)
   })
-  await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ json: { link, text } }))
-  await search(page, COMMUNITY_LABEL)
-  await toCodeStep(page)
-  await onStep(page).getByText(SAVED).click()
-  await onStep(page).getByRole("button", { name: "Continue" }).click()
-  // the terms' own heading has the step's words too
-  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
-  await expect(onStep(page).locator(".terms-text h3")).toHaveText("Community terms")
-  await expect(onStep(page).getByRole("link", { name: `View at commit ${commit.slice(0, 7)}` }))
-    .toHaveAttribute("href", `https://git.simplex.chat/${path.replace("/raw/commit/", "/src/commit/")}`)
-})
+}
 
 test("an order refused for terms changed meanwhile unticks the box and says so in place, the box and Pay staying put, and signs the new terms once ticked", async ({ page, request }) => {
   const label = uniqueLabel("ct")
