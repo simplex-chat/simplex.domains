@@ -889,7 +889,7 @@ async function commit(reg: Registration): Promise<void> {
   const committedAt = Number(await read<bigint>(controller, "commitments", [reg.commitment]))
   reg.revealAfter = committedAt + deployment.minCommitmentAge
   reg.revealBefore = committedAt + deployment.maxCommitmentAge
-  if (reg.intent && reg.intent.deadline !== BigInt(reg.revealBefore)) clearReveal(reg)
+  if (reg.intent && reg.intent.deadline < BigInt(reg.revealAfter)) clearReveal(reg)
   reg.phase = "committed"
   changed(reg)
 }
