@@ -323,8 +323,8 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   const terms = step.getByRole("checkbox", { name: AGREE })
   await expect(terms).not.toBeChecked()
   await expect(payButton(page), "Pay waits for the terms").toBeDisabled()
-  await expect(step.getByRole("link", { name: "SimpleX general terms" })).toHaveAttribute("href", TERMS.link.slice(0, TERMS.link.indexOf("#")))
-  await expect(step.getByRole("link", { name: "SimpleX general terms" })).toHaveAttribute("target", "_blank")
+  await expect(step.getByRole("link", { name: "SimpleX Names Conditions of Use" })).toHaveAttribute("href", TERMS.link.slice(0, TERMS.link.indexOf("#")))
+  await expect(step.getByRole("link", { name: "SimpleX Names Conditions of Use" })).toHaveAttribute("target", "_blank")
   await agreeToTerms(page)
   await expect(payButton(page)).toBeEnabled()
 
