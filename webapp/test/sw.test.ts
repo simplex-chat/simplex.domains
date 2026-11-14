@@ -6,8 +6,10 @@ import { serviceWorker, WORKER_TEMPLATE, workerSource, type WorkerBuild } from "
 const ORIGIN = "https://simplex.domains"
 const BUILD: WorkerBuild = { build: "0123456789abcdef", entry: "/assets/index-AAAA.js", precache: ["/assets/index-AAAA.js", "/assets/index-BBBB.css", "/fonts/Manrope/Manrope-Medium-latin.woff2"] }
 const SHELL_HTML = `<!doctype html><script type="module" src="${BUILD.entry}"></script>`
-// the same build's shell, as the service serves it with codes_only on
-const CODES_SHELL_HTML = SHELL_HTML.replace("<script", '<meta name="simplex-names-mode" content="codes"><script')
+// the same build's shell, served again after the worker kept it
+const NEWER_SHELL_HTML = `${SHELL_HTML}<!-- served again -->`
+const OPEN_CONFIG = JSON.stringify({ mode: "open", stripePublishableKey: null })
+const CODES_CONFIG = JSON.stringify({ mode: "codes", stripePublishableKey: "pk_test_sw" })
 // a captive portal's or a proxy's page, served at the page's own path
 const PORTAL_HTML = "<!doctype html><title>Sign in to the network</title>"
 
@@ -162,9 +164,10 @@ describe("service worker routing", () => {
     expect(strategy("https://js.stripe.com/v3/")).toBe("bypass")
   })
 
-  it("never answers the service's API or the test controls from a cache", () => {
+  it("never answers the service's API or the test controls from a cache, but for the config", () => {
     const { sw } = startWorker()
-    for (const path of ["/api", "/api/name/ab", "/api/invoice/x?wait=1", "/control/search"]) expect(sw.strategyFor(new URL(path, ORIGIN)), path).toBe("network-only")
+    for (const path of ["/api", "/api/name/ab", "/api/invoice/x?wait=1", "/api/configs", "/control/search"]) expect(sw.strategyFor(new URL(path, ORIGIN)), path).toBe("network-only")
+    expect(sw.strategyFor(new URL("/api/config", ORIGIN))).toBe("config")
     expect(sw.strategyFor(new URL("/apiary", ORIGIN))).toBe("bypass")
   })
 })
@@ -259,26 +262,50 @@ describe("service worker answers", () => {
     expect(await (await w.load("/"))!.text()).toBe(SHELL_HTML)
   })
 
-  it("waits for a slow shell rather than serving the kept one, as the service's mode is in it", async () => {
+  it("waits for a slow shell rather than serving the kept one, as it decides the build", async () => {
     vi.useFakeTimers()
     const w = await installed()
-    w.net.serve("/", 200, CODES_SHELL_HTML)
+    w.net.serve("/", 200, NEWER_SHELL_HTML)
     const release = w.net.hold("/")
     let answered = false
     const answer = w.load("/")!.then((r) => { answered = true; return r })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(answered, "no answer before the server's").toBe(false)
     release()
-    expect(await (await answer).text()).toBe(CODES_SHELL_HTML)
+    expect(await (await answer).text()).toBe(NEWER_SHELL_HTML)
   })
 
-  it("keeps each fresh shell of this build for offline, with the mode the service last gave", async () => {
+  it("keeps each fresh shell of this build for offline", async () => {
     const w = await installed()
-    w.net.serve("/", 200, CODES_SHELL_HTML)
-    expect(await (await w.load("/"))!.text()).toBe(CODES_SHELL_HTML)
+    w.net.serve("/", 200, NEWER_SHELL_HTML)
+    expect(await (await w.load("/"))!.text()).toBe(NEWER_SHELL_HTML)
     await w.settled()
     w.net.offline = true
-    expect(await (await w.load("/?order=abc"))!.text()).toBe(CODES_SHELL_HTML)
+    expect(await (await w.load("/?order=abc"))!.text()).toBe(NEWER_SHELL_HTML)
+  })
+
+  it("answers the config from the network while it answers, and offline with the service's last answer", async () => {
+    const w = await installed()
+    w.net.serve("/api/config", 200, OPEN_CONFIG)
+    expect(await (await w.request("/api/config", "GET", "cors"))!.text()).toBe(OPEN_CONFIG)
+    w.net.serve("/api/config", 200, CODES_CONFIG)
+    expect(await (await w.request("/api/config", "GET", "cors"))!.text(), "a reachable service's answer wins").toBe(CODES_CONFIG)
+    await w.settled()
+    w.net.offline = true
+    expect(await (await w.request("/api/config", "GET", "cors"))!.text(), "offline, the last answer").toBe(CODES_CONFIG)
+    w.net.offline = false
+    w.net.serve("/api/config", 502, "bad gateway")
+    expect(await (await w.request("/api/config", "GET", "cors"))!.text(), "a failing service, the last answer").toBe(CODES_CONFIG)
+  })
+
+  it("answers the config with the service's error, or fails as the network, when it holds no earlier answer", async () => {
+    const w = await installed()
+    w.net.serve("/api/config", 503, "unavailable")
+    expect(await w.request("/api/config", "GET", "cors")).toMatchObject({ status: 503 })
+    w.net.offline = true
+    await expect(w.request("/api/config", "GET", "cors")).rejects.toThrow("Failed to fetch")
+    await w.settled()
+    expect(w.caches.stores.get(w.sw.CACHE)!.entries.has(keyOf("/api/config")), "an error is never kept").toBe(false)
   })
 
   it("keeps no other build's shell and no portal's page, which would leave nothing to open offline", async () => {
@@ -312,7 +339,7 @@ describe("service worker answers", () => {
     expect(w.request("/", "POST")).toBeNull()
   })
 
-  it("leaves a page's own request for the shell, which reads the service's mode, to the network", async () => {
+  it("leaves a request for the shell that is not a page load to the network", async () => {
     const w = await installed()
     w.net.offline = true
     for (const mode of ["cors", "same-origin", "no-cors"]) expect(w.request("/", "GET", mode), mode).toBeNull()

@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
   agreeToTerms, brokenNames, CHAIN, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, onStep, payButton, REGISTRATION_MS, registrationOf, rowFit, savedToReview, search, shot,
-  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView,
+  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 
@@ -125,10 +125,7 @@ test("the line on another order follows it, saying when it is confirming and goi
 
 test("Get a new invoice keeps an invoice the service would not cancel", async ({ page }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("keep"), { method: "card" })
-  await page.route(/\/\?order=/, async (route) => {
-    const res = await route.fetch()
-    await route.fulfill({ response: res, body: (await res.text()).replace('name="stripe-publishable-key" content=""', 'name="stripe-publishable-key" content="pk_test_e2e"') })
-  })
+  await withStripeKey(page)
   await page.route("https://js.stripe.com/**", (route) => route.abort())
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()

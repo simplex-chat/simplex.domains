@@ -2,7 +2,6 @@
 
 // Stripe.js must load from js.stripe.com and may not be bundled or self-hosted, so this is a script tag.
 const STRIPE_JS_URL = "https://js.stripe.com/dahlia/stripe.js"
-const KEY_META = "stripe-publishable-key"
 const CONFIRM_FAILED = "The card was not accepted. Check the details and try again."
 // a form that neither loads nor fails, as on a stalled network, has failed once this long has gone by
 export const CARD_FORM_TIMEOUT_MS = 20_000
@@ -33,9 +32,9 @@ declare global {
   }
 }
 
-export function publishableKey(): string {
-  return document.querySelector(`meta[name="${KEY_META}"]`)?.getAttribute("content")?.trim() ?? ""
-}
+let key = ""
+export const setPublishableKey = (served: string) => { key = served }
+export const publishableKey = (): string => key
 
 let loading: Promise<StripeGlobal> | null = null
 

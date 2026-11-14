@@ -283,9 +283,9 @@ export const AVAILABLE_BRIEF = /^Available at \d\d:\d\d\. If someone registers i
 export const TAKEN_BRIEF = /^Taken at \d\d:\d\d\. Don't pay this invoice: cancel it and choose another name\.$/
 
 // a configured key makes the order's page load Stripe.js, wherever the page is first opened
-export const withStripeKey = (page: Page) => page.route((url) => url.pathname === "/", async (route) => {
+export const withStripeKey = (page: Page) => page.route((url) => url.pathname === "/api/config", async (route) => {
   const res = await route.fetch()
-  await route.fulfill({ response: res, body: (await res.text()).replace('name="stripe-publishable-key" content=""', 'name="stripe-publishable-key" content="pk_test_e2e"') })
+  await route.fulfill({ response: res, json: { ...(await res.json()), stripePublishableKey: "pk_test_e2e" } })
 })
 
 // Check your code's field, which takes a prepaid code or a name code

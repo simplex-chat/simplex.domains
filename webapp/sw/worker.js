@@ -12,11 +12,13 @@ const PRECACHE = []
 // one cache per build, so clearing out is "everything that is not this one"
 const CACHE = `names-${BUILD}`
 const SHELL = "/"
+const CONFIG = "/api/config"
 const PRECACHED = new Set(PRECACHE)
 
 // The whole routing decision, from the URL alone.
 function strategyFor(url) {
   if (url.origin !== self.location.origin) return "bypass"
+  if (url.pathname === CONFIG) return "config"
   // before anything that could reach a cache: an order, a name or a code read from a cache would show a past state
   if (/^\/(api|control)(\/|$)/.test(url.pathname)) return "network-only"
   if (url.pathname === SHELL || url.pathname === "/index.html") return "shell"
@@ -71,8 +73,8 @@ async function fromPrecache(request) {
   return hit ?? fetch(request)
 }
 
-// Network first for the shell, the one file whose URL names no build: it decides which build a page runs, and the
-// service writes its mode into it, so a reachable server's answer always wins, however long it takes.
+// Network first for the shell, the one file whose URL names no build: it decides which build a page runs, so a
+// reachable server's answer always wins, however long it takes.
 async function shellFirst(event) {
   let fresh
   try {
@@ -84,7 +86,6 @@ async function shellFirst(event) {
   // the browser follows a redirect of the page itself, as a portal's, which a redirected answer cannot stand for
   if (fresh?.redirected) return fetch(event.request)
   if (fresh?.ok) {
-    // the shell offline is the server's last answer, with the mode it gave then, rather than the one at install
     event.waitUntil(keepShell(fresh.clone()))
     return fresh
   }
@@ -97,15 +98,29 @@ async function keepShell(shell) {
   if (await isThisBuildsShell(shell)) await (await caches.open(CACHE)).put(SHELL, shell)
 }
 
+// Network first, as the mode decides what a page offers; offline, the service's last answer, so the page opens in
+// the mode it gave then.
+async function configFirst(event) {
+  let fresh
+  try {
+    fresh = await fetch(event.request)
+  } catch {}
+  if (fresh?.ok) {
+    event.waitUntil(caches.open(CACHE).then((cache) => cache.put(CONFIG, fresh.clone())))
+    return fresh
+  }
+  const hit = await (await caches.open(CACHE)).match(CONFIG, MATCH)
+  return hit ?? fresh ?? fetch(event.request)
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request
   if (request.method !== "GET") return
   const strategy = strategyFor(new URL(request.url))
   // not answering leaves the request to the browser, so the API never passes through the Cache API
   if (strategy === "network-only" || strategy === "bypass") return
-  // the shell a page fetches itself, to read the service's mode, is the network's to answer, never the kept one
   if (strategy === "shell" && request.mode !== "navigate") return
-  event.respondWith(strategy === "shell" ? shellFirst(event) : fromPrecache(request))
+  event.respondWith(strategy === "config" ? configFirst(event) : strategy === "shell" ? shellFirst(event) : fromPrecache(request))
 })
 
-self.sw = { BUILD, CACHE, ENTRY, PRECACHE, SHELL, strategyFor }
+self.sw = { BUILD, CACHE, CONFIG, ENTRY, PRECACHE, SHELL, strategyFor }
