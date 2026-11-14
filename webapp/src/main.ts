@@ -1,4 +1,5 @@
 // The router: one page per route, redrawn on navigation.
+import { loadConfig } from "./config.ts"
 import { codesOnly } from "./mode.ts"
 import { checkoutStepOf, EDIT_PATH, fromOrder, viewOf } from "./screens/routes.ts"
 import * as session from "./session.ts"
@@ -27,6 +28,16 @@ function render(): void {
 }
 
 setRenderer(render)
+// The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
+// Its listener is added before the await below, as Chromium fires load without waiting for a module's top-level await.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  addEventListener("load", () => {
+    // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
+  })
+}
+// The mode decides the first screen, so nothing between the header and the footer is drawn before it is known.
+await loadConfig()
 // a balance pays nothing in codes-only mode, so one this tab took before pays no more
 if (codesOnly()) session.setActiveBalance(null)
 setUpChrome()
@@ -56,10 +67,3 @@ document.addEventListener("click", (e) => {
 })
 render()
 followServedMode()
-// The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  addEventListener("load", () => {
-    // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
-    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
-  })
-}

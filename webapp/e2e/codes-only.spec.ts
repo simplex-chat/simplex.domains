@@ -2,7 +2,7 @@ import { type APIRequestContext, expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, MOCK, onStep, payButton, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
+  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, MOCK, onStep, payButton, recordedFrames, recordFrames, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
   uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
@@ -15,13 +15,22 @@ const nameField = (page: Page) => page.getByLabel("Name", { exact: true })
 const lens = (page: Page) => page.getByRole("button", { name: "Search", exact: true })
 
 const setMode = (request: APIRequestContext, mode: "open" | "codes") => control(request, "mode", { mode })
-const modeMeta = (page: Page) => page.locator('meta[name="simplex-names-mode"]')
 // the tab coming back into view, as a reader switching back to it; headless browsers keep every tab in view
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
+// the page loaded again, in the mode the service gives, as the tab comes back into view
+const reloadedOnView = (page: Page) => Promise.all([page.waitForEvent("load"), becomeVisible(page)])
 // the page's own check of the service's mode, answered
-const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/" && r.request().resourceType() === "fetch")
+const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config")
+// Every document the page loads from now on, counted as it fires load: a page loaded again runs the service's mode.
+function loads(page: Page): { count: number } {
+  const seen = { count: 0 }
+  page.on("load", () => { seen.count += 1 })
+  return seen
+}
 // long enough for a load the check started to have finished
 const RELOAD_MS = 1000
+// long enough for several frames to paint before the page knows its mode
+const SLOW_CONFIG_MS = 400
 const checkoutKept = (page: Page) => page.evaluate((key) => {
   const { label, contact, channel, ownerCode, saved, agreed, step } = JSON.parse(sessionStorage.getItem(key)!)
   return { label, contact, channel, ownerCode, saved, agreed, step }
@@ -55,14 +64,13 @@ async function noPaymentUi(page: Page): Promise<void> {
   await expect(chip(page).filter({ hasText: "Balance" })).toHaveCount(0)
 }
 
-test("the service's mode is in the page it serves: open by default, codes once the mock takes codes only", async ({ page, request }) => {
+test("the service's mode is at /api/config: open by default, codes once the mock takes codes only, the page the same in both", async ({ page, request }) => {
   expect(await (await request.get(`${MOCK}/control/mode`)).json()).toEqual({ mode: "open" })
+  expect(await (await page.request.get("/api/config")).json()).toEqual({ mode: "open", stripePublishableKey: null })
   const open = await (await page.request.get("/")).text()
-  expect(open).toContain('<meta name="simplex-names-mode" content="open">')
   await setMode(request, "codes")
-  const codes = await (await page.request.get("/")).text()
-  expect(codes).toContain('<meta name="simplex-names-mode" content="codes">')
-  expect(codes).not.toContain('content="open"')
+  expect(await (await page.request.get("/api/config")).json()).toEqual({ mode: "codes", stripePublishableKey: null })
+  expect(await (await page.request.get("/")).text()).toBe(open)
 })
 
 test("the mock refuses every payment in codes-only mode, as the service does", async ({ request }) => {
@@ -75,6 +83,42 @@ test("the mock refuses every payment in codes-only mode, as the service does", a
   expect(await spend.json()).toEqual({ error: "codes_only" })
   await setMode(request, "open")
   expect((await request.post(`${MOCK}/api/invoice`, { data: { kind: "name" } })).status(), "open mode takes the order to its checks").not.toBe(FORBIDDEN)
+})
+
+test("each mode's home is drawn from its first frame, never the other mode's first, however slowly the config answers", async ({ page, request }) => {
+  await page.route("**/api/config", async (route) => {
+    await new Promise((answered) => setTimeout(answered, SLOW_CONFIG_MS))
+    await route.continue()
+  })
+  await recordFrames(page, () => {
+    const field = document.querySelector<HTMLInputElement>("body > main input")
+    return { header: document.querySelector("body > header .brand") !== null, field: field === null ? "none" : field.disabled ? "codes" : "open" }
+  }, true)
+  for (const mode of ["codes", "open"] as const) {
+    await setMode(request, mode)
+    for (const route of ["/", "/#/?name=bakery"]) {
+      await page.goto("about:blank")
+      await page.goto(route)
+      await expect(nameField(page)).toBeVisible()
+      await page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
+      const frames = await recordedFrames<{ header: boolean; field: string }>(page)
+      const what = `${mode}, ${route}: ${frames.map((f) => f.field).join(" ")}`
+      expect(frames.every((f) => f.header), `the header in every frame; ${what}`).toBe(true)
+      expect(frames.some((f) => f.field === "none"), `frames before the slow answer show no search; ${what}`).toBe(true)
+      expect(new Set(frames.map((f) => f.field)), `only this mode's search, once drawn; ${what}`).toEqual(new Set(["none", mode]))
+      expect(frames.at(-1)!.field, what).toBe(mode)
+    }
+  }
+})
+
+test("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request }) => {
+  await setMode(request, "codes")
+  const asked: string[] = []
+  page.on("request", (r) => { if (new URL(r.url()).pathname === "/api/config") asked.push(r.resourceType()) })
+  await page.goto("/")
+  await expect(nameField(page)).toBeDisabled()
+  await page.waitForTimeout(RELOAD_MS)
+  expect(asked, "one request, the preload's").toHaveLength(1)
 })
 
 test("without a code, the home's search is greyed, takes no pointer, focus or Enter, and Register with code leads on", async ({ page, request }) => {
@@ -239,14 +283,15 @@ test("a page opened before codes only, refused as it pays, says registration is 
   await savedToReview(page)
   await page.getByRole("radio", { name: "Bitcoin" }).click()
   await setMode(request, "codes")
+  const seen = loads(page)
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: CODES_ONLY_TITLE })).toBeVisible()
   await expect(onStep(page).getByText(/can be registered with an investor code for now\. Nothing was charged\.$/)).toBeVisible()
   await shot(page, "C9-codes-only-refused")
-  await expect(modeMeta(page), "the refusal stays in view, in the page as it was").toHaveAttribute("content", "open")
+  expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
   await onStep(page).getByRole("button", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-  await expect(modeMeta(page), "the screen after the refusal is the service's page again").toHaveAttribute("content", "codes")
+  expect(seen.count, "the screen after the refusal is the service's page again").toBe(1)
 })
 
 test("a closed invoice's page opened before codes only, refused a new invoice, says so with a way to a code", async ({ page, request }) => {
@@ -254,14 +299,15 @@ test("a closed invoice's page opened before codes only, refused a new invoice, s
   await control(request, `expire/${invoiceId}`)
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
   await setMode(request, "codes")
+  const seen = loads(page)
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   const note = onStep(page).locator(".notice", { hasText: CODES_ONLY_TITLE })
   await expect(note).toContainText("Nothing was charged. Enter a code.")
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
-  await expect(modeMeta(page)).toHaveAttribute("content", "open")
+  expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
   await note.getByRole("link", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-  await expect(modeMeta(page), "the screen after the refusal is the service's page again").toHaveAttribute("content", "codes")
+  expect(seen.count, "the screen after the refusal is the service's page again").toBe(1)
 })
 
 test("a checkout open as the service takes codes only loads again in codes mode with its name, links, name code and terms", async ({ page, request }) => {
@@ -271,8 +317,7 @@ test("a checkout open as the service takes codes only loads again in codes mode 
   const before = await checkoutKept(page)
   expect(before.agreed && before.saved && before.contact && before.channel).toBeTruthy()
   await setMode(request, "codes")
-  await becomeVisible(page)
-  await expect(modeMeta(page)).toHaveAttribute("content", "codes")
+  await reloadedOnView(page)
   await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
   expect(await checkoutKept(page)).toEqual(before)
   await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
@@ -284,8 +329,7 @@ test("an order paid as the service takes codes only loads again with its invoice
   const label = uniqueLabel("paid")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await setMode(request, "codes")
-  await becomeVisible(page)
-  await expect(modeMeta(page)).toHaveAttribute("content", "codes")
+  await reloadedOnView(page)
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
   await control(request, `settle/${invoiceId}`)
   await waitRegistered(page, label)
@@ -298,8 +342,7 @@ test("a codes-only page open as the service opens loads again with the search on
   await checked
   await expect(nameField(page)).toBeDisabled()
   await setMode(request, "open")
-  await becomeVisible(page)
-  await expect(modeMeta(page)).toHaveAttribute("content", "open")
+  await reloadedOnView(page)
   await expect(nameField(page)).toBeEnabled()
 })
 
@@ -313,14 +356,16 @@ test("a closed invoice's page holding changed terms ticked again stays as the se
     await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
     await agreeToTerms(page)
     await setMode(request, "codes")
+    const seen = loads(page)
     const checked = modeChecked(page)
     await becomeVisible(page)
     await checked
     await page.waitForTimeout(RELOAD_MS)
-    await expect(modeMeta(page), "the tick is in the page only, so the page stays").toHaveAttribute("content", "open")
+    expect(seen.count, "the tick is in the page only, so the page stays").toBe(0)
     await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
     await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
-    await expect(modeMeta(page), "the next screen is the service's page again").toHaveAttribute("content", "codes")
+    await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
+    expect(seen.count, "the next screen is the service's page again").toBe(1)
   } finally {
     await control(request, "general-terms", { text: null })
   }

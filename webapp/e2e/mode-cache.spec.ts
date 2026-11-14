@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { extname, join, normalize } from "node:path"
-import { MODE_META, type Mode } from "../src/mode.ts"
+import type { Mode } from "../src/mode.ts"
 
 // The production build, which has the worker, served by this spec as the store service serves it.
 test.skip(!process.env.BASE_URL, "needs the production build in dist/, which runs with BASE_URL")
@@ -20,12 +20,12 @@ const OTHER: Record<Mode, Mode> = { open: "codes", codes: "open" }
 // Playwright turns Chromium's back/forward cache off by its flag, and its headless shell has none; Firefox's and WebKit's stay off
 const CHROMIUM_WITH_BFCACHE = { channel: "chromium", ignoreDefaultArgs: ["--disable-back-forward-cache"] }
 
-// The service's names site: the shell from memory with its mode meta rewritten in codes mode, and otherwise the
-// pristine file with Last-Modified, which Warp's responseFile answers If-Modified-Since against with a 304.
+// The service's names site: its mode at /api/config, and each file as built with Last-Modified, which Warp's
+// responseFile answers If-Modified-Since against with a 304.
 class Service {
   mode: Mode = "open"
   delayMs = 0
-  // the mode turns over with each shell it serves, as a service restarted again and again
+  // the mode turns over with each config it answers, as a service restarted again and again
   flips = false
   private server: Server | null = null
   private port = 0
@@ -37,17 +37,15 @@ class Service {
       const path = normalize(new URL(req.url ?? "/", "http://x").pathname)
       const file = join(DIST, path === "/" ? "index.html" : path)
       const answer = () => {
+        if (path === "/api/config") {
+          const mode = this.mode
+          if (this.flips) this.mode = OTHER[mode]
+          return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ mode, stripePublishableKey: null }))
+        }
         if (path.startsWith("/api/")) return void res.writeHead(404, { "Cache-Control": "no-store" }).end()
         let stat
         try { stat = statSync(file) } catch { return void res.writeHead(404).end() }
         const headers = { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache" }
-        const shell = file.endsWith("/index.html")
-        const mode = this.mode
-        if (shell && this.flips) this.mode = OTHER[mode]
-        if (shell && mode === "codes") {
-          const shell = readFileSync(file, "utf8").replace(`name="${MODE_META}" content="open"`, `name="${MODE_META}" content="codes"`)
-          return void res.writeHead(200, headers).end(shell)
-        }
         const modified = new Date(Math.floor(stat.mtimeMs / 1000) * 1000)
         const since = req.headers["if-modified-since"]
         if (since && new Date(since) >= modified) return void res.writeHead(304, headers).end()
@@ -71,14 +69,18 @@ class Service {
   }
 }
 
-const pageMode = (page: Page) => page.locator(`meta[name="${MODE_META}"]`).getAttribute("content")
-const modeMeta = (page: Page) => page.locator(`meta[name="${MODE_META}"]`)
 const nameField = (page: Page) => page.getByLabel("Name", { exact: true })
+// the mode the home was drawn in: in codes mode its search waits for a code
+async function pageMode(page: Page): Promise<Mode> {
+  await expect(nameField(page)).toBeVisible()
+  return (await nameField(page).isDisabled()) ? "codes" : "open"
+}
+const expectMode = (page: Page, mode: Mode) => mode === "codes" ? expect(nameField(page)).toBeDisabled() : expect(nameField(page)).toBeEnabled()
 
 // the tab coming back into view, as a reader switching back to it; headless browsers keep every tab in view
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 // the page's own check of the service's mode, answered
-const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/" && r.request().resourceType() === "fetch")
+const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config")
 
 // Every document the page loads from now on, counted as it fires load.
 function loads(page: Page): { count: number } {
@@ -114,7 +116,7 @@ test("a reload shows the mode the service switched to, while the service answers
   service.delayMs = SLOW_ANSWER_MS
   await service.start()
   await page.reload()
-  expect(await pageMode(page), "the service's answer, not the shell the worker kept").toBe("open")
+  expect(await pageMode(page), "the service's answer, not the one the worker kept").toBe("open")
   service.mode = "codes"
   await page.reload()
   expect(await pageMode(page)).toBe("codes")
@@ -130,7 +132,7 @@ test("while the service is down, the page opens in the last mode the service gav
   await service.stop()
   const offline = await page.reload()
   expect(offline?.fromServiceWorker(), "the kept shell").toBe(true)
-  expect(await pageMode(page), "the shell the worker kept from the service's last answer").toBe("open")
+  expect(await pageMode(page), "the worker's copy of the service's last answer").toBe("open")
   await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
   // the page's check finds no service, so the page offline stays as it opened
   const seen = loads(page)
@@ -144,11 +146,9 @@ test("a tab open across the switch loads again in the service's mode as it comes
   await installedIn(page, service, "open")
   service.mode = "codes"
   await becomeVisible(page)
-  await expect(modeMeta(page)).toHaveAttribute("content", "codes")
   await expect(nameField(page), "the search waits for a code").toBeDisabled()
   service.mode = "open"
   await becomeVisible(page)
-  await expect(modeMeta(page)).toHaveAttribute("content", "open")
   await expect(nameField(page)).toBeEnabled()
 })
 
@@ -158,7 +158,7 @@ test("a page restored by Back loads again in the service's mode", async ({ page,
     service.mode = "open"
     // the restore's own event stands for the cache Playwright keeps off in Firefox and WebKit
     await page.evaluate(() => dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))
-    await expect(modeMeta(page)).toHaveAttribute("content", "open")
+    await expectMode(page, "open")
     return
   }
   const browser = await chromium.launch(CHROMIUM_WITH_BFCACHE)
@@ -172,7 +172,7 @@ test("a page restored by Back loads again in the service's mode", async ({ page,
     await restoring.goto(`${service.url}/robots.txt`)
     // a restored page fires no load
     await restoring.goBack({ waitUntil: "commit" })
-    await expect(modeMeta(restoring)).toHaveAttribute("content", "open")
+    await expectMode(restoring, "open")
     expect(restored, "Chromium restored the page from its back/forward cache").toEqual([true])
   } finally {
     await browser.close()
@@ -189,9 +189,12 @@ test("a name typed and not searched is kept: the page loads again only as the re
   await page.waitForTimeout(SETTLE_MS)
   await expect(nameField(page)).toHaveValue("halftyped")
   expect(await pageMode(page)).toBe("open")
+  const seen = loads(page)
   await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
-  await expect(modeMeta(page)).toHaveAttribute("content", "codes")
   await expect(page.getByRole("heading", { name: "Check your code" })).toBeVisible()
+  expect(seen.count, "leaving the screen loads the page again, in the service's mode").toBe(1)
+  await page.goBack()
+  await expectMode(page, "codes")
 })
 
 test("no reload loop: a service whose mode flips with every answer loads the page again at most once", async ({ page }) => {

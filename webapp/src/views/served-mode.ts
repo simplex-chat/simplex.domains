@@ -1,20 +1,14 @@
 // A page drawn in a mode the service no longer serves loads again from the service: at once when that loses nothing,
 // otherwise at its next route, which leaves the screen on show anyway.
 import { changeOnItsWay } from "../api.ts"
-import { type Mode, modeIn, pageMode } from "../mode.ts"
+import { readConfig } from "../config.ts"
+import { type Mode, pageMode } from "../mode.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 
-const SHELL = "/"
-
-// Past the HTTP cache, and past the worker, which leaves a page's own request for the shell to the network.
+// Past the HTTP cache; the worker answers from the network while it is there.
 async function servedMode(): Promise<Mode | null> {
-  try {
-    const res = await fetch(SHELL, { cache: "no-store", credentials: "same-origin" })
-    return res.ok && !res.redirected ? modeIn(await res.text()) : null
-  } catch {
-    return null
-  }
+  return (await readConfig({ cache: "no-store" }))?.mode ?? null
 }
 
 // a field typed into since it was drawn holds what the page has not kept
@@ -53,10 +47,8 @@ function check(): void {
   comparing ??= compare().finally(() => { comparing = null })
 }
 
+// A load reads the mode before the page draws (src/config.ts), so only a return to a page drawn earlier checks it.
 export function followServedMode(): void {
-  // a page loaded again for its mode compares no more, so a service whose mode flips with each answer cannot loop it
-  const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined
-  if (navigation?.type !== "reload") addEventListener("load", check)
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check() })
   addEventListener("pageshow", (e) => { if (e.persisted) check() })
 }
