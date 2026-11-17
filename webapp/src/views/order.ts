@@ -4,7 +4,7 @@ import { parseNameCode } from "../crypto/code.ts"
 import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
-import { paymentCode, qrSvg } from "../qr.ts"
+import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, seenWords, stalledAt, TICKER, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
@@ -612,14 +612,14 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const coin = coinOf(inv)!
   const partial = partlyPaid(inv)
   const due = partial ? inv.cryptoAmountDue! : inv.cryptoAmount!
-  const code = paymentCode(coin, inv.address!, due)
+  const uri = paymentUri(coin, inv.address!, due)
   holdEnds(signal)(s.hold !== null)
   // the QR's link shows on a laptop only, as styles.css draws the phone's layout without the QR
-  const qr = code ? el("div", { class: "qr" }, qrSvg(code.qr, `${methodName(coin)} payment`), el("a", { href: code.desktopLink }, WALLET)) : null
+  const qr = uri ? el("div", { class: "qr" }, qrSvg(uri, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
   // labels in sentence case, as their copy buttons say them; the label style draws them in capitals
   const amount = copyField(`${partial ? "rest to send" : "amount"} in ${TICKER[coin]}`, due)
   const address = copyField(destinationName(coin), inv.address!, shownDestination(coin, inv.address!))
-  const wallet = code ? el("a", { class: "wallet", href: code.link }, WALLET) : null
+  const wallet = uri ? el("a", { class: "wallet", href: uri }, WALLET) : null
   const part = partial ? partLines(inv, coin, [qr, amount, wallet], signal) : null
   const waiting = el("span", { class: "waiting" }, el("i", { class: "dot", "aria-hidden": "true" }), "Waiting for payment")
   const note = part ? alertBox("warn", "alert", null, part.notice) : checksName(s) ? nameNote(s) : null

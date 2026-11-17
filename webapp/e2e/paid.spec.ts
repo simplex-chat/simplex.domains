@@ -709,14 +709,14 @@ test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and
   await expect(wallet).toHaveAttribute("href", `monero:${address}?tx_amount=${cryptoAmount}`)
 })
 
-test("a Lightning invoice shows its BOLT11 as an invoice, scans it bare in upper case, links lightning:, and settles to a registration", async ({ page, request }) => {
+test("a Lightning invoice shows its BOLT11 as an invoice, scans and links it as lightning:, and settles to a registration", async ({ page, request }) => {
   const label = uniqueLabel("lnpay")
   const { invoiceId } = await startOrder(page, label, { method: "ln" })
   await expect(page.getByRole("heading", { name: "Pay with Lightning" })).toBeVisible()
   const view = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; requiredConfirmations?: number }
   expect(view.requiredConfirmations, "a Lightning payment waits for no confirmation").toBeUndefined()
   await expect(onStep(page).getByRole("link", { name: "Open in wallet" })).toHaveAttribute("href", `lightning:${view.address}`)
-  expect(await qrText(onStep(page).locator(".card.pay .qr svg")), "the QR").toBe(view.address.toUpperCase())
+  expect(await qrText(onStep(page).locator(".card.pay .qr svg")), "the QR").toBe(`lightning:${view.address}`)
   await expect(onStep(page).locator(".copy-field .label", { hasText: "Lightning invoice" })).toBeVisible()
   expect((await request.post(`${MOCK}/control/partial/${invoiceId}`, { data: {} })).status(), "a BOLT11 is paid in full or not at all").toBe(400)
   await control(request, `settle/${invoiceId}`)
