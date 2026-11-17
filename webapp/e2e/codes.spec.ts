@@ -6,6 +6,7 @@ import { YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { walletOf } from "../src/flow.ts"
 import { dateOf } from "../src/format.ts"
+import { METHODS } from "../src/screens/checkout.ts"
 import {
   agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, offCentre, onStep,
   payButton, previewsShown, qrText, savedToReview, search, searchName, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
@@ -536,7 +537,7 @@ test("the tab's code pays for each name it covers until it is taken off, which t
   await expect(chip(page)).toBeHidden()
   await expect(total(page)).not.toHaveText(FREE_TOTAL)
   await expect(payButton(page)).toBeEnabled()
-  await expect(page.getByRole("radio")).toHaveCount(3)
+  await expect(page.getByRole("radio")).toHaveCount(METHODS.length)
   await search(page, uniqueLabel("other"))
   await expect(page.locator(".answer .row .deal s")).toHaveCount(0)
 })
@@ -551,7 +552,7 @@ test("a code the service refuses as the order is sent says why on the review, wh
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
   await expect(page.getByText("This code was already used. Pay for the name here, or check another code.")).toBeVisible()
   await expect(total(page)).not.toHaveText(FREE_TOTAL)
-  await expect(page.getByRole("radio")).toHaveCount(3)
+  await expect(page.getByRole("radio")).toHaveCount(METHODS.length)
   await expect(payButton(page)).toHaveText(/^Pay \$[\d.,]+ with Bitcoin/)
   await expect(payButton(page)).toBeEnabled()
   await expect(chip(page), "the refused code pays for nothing more").toBeHidden()
@@ -631,7 +632,7 @@ test("a prepaid code entered on Check your order makes the order free in place, 
 
   await removeCode(page).click()
   await expect(total(page)).not.toHaveText(FREE_TOTAL)
-  await expect(page.getByRole("radio")).toHaveCount(3)
+  await expect(page.getByRole("radio")).toHaveCount(METHODS.length)
   await expect(payButton(page)).toHaveText(/^Pay \$[\d.,]+ with Bitcoin/)
   await expect(codeField(page)).toHaveCount(0)
   await expect(haveCode(page)).toBeFocused()
@@ -670,7 +671,7 @@ test("a code on Check your order that is not valid, used, too short for the name
   }
   await shot(page, "K3c-checkout-code-refused")
   await removeCode(page).click()
-  await expect(page.getByRole("radio")).toHaveCount(3)
+  await expect(page.getByRole("radio")).toHaveCount(METHODS.length)
   await expect(payButton(page)).toBeEnabled()
   expect(await mainAt(page)).toEqual(at)
 })
@@ -700,7 +701,7 @@ test("Check your code tells a prepaid code, a name code and anything else apart,
   await expect(page.locator(".answer .hint")).toHaveText("Your code allows you to register a free name of 8 or more letters. This name has 7.")
   await shot(page, "K7-code-too-short")
   await toReview(page)
-  await expect(page.getByRole("radio")).toHaveCount(3)
+  await expect(page.getByRole("radio")).toHaveCount(METHODS.length)
 })
 
 test("a code checked is listed in Your names, used again from there, and forgotten", async ({ page, request }) => {
