@@ -303,7 +303,6 @@ const UNREAD_TAG = "Unr"
 // a profile picture as the app sends one, a small image in a data URI
 const PICTURE = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#C76A3B"/><circle cx="32" cy="26" r="12" fill="#F6E3C8"/><path d="M12 60c2-14 10-20 20-20s18 6 20 20z" fill="#F6E3C8"/></svg>').toString("base64")}`
 
-// null for a link the chat core cannot parse, which the service refuses
 function linkProfile(link: string): LinkData | null {
   const kind = linkKind(link)
   if (kind === null || deepLinkOf(link) === null) return null
@@ -1381,7 +1380,6 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   if (signers[0] !== owner) throw badRequest()
   // the relay writes only the store's resolver, which a name pointed elsewhere no longer reads
   if (nameResolver !== getAddress(deployment.resolver)) throw badRequest()
-  // a nonce the owner has moved past, or not reached, is the page's to read again
   if (BigInt(edits[0].nonce) !== current) throw new HttpError(409, "stale_nonce")
   // kept from the moment it goes out, and counted once whatever it changes
   const edit: { sent: SentEdit | null } = { sent: null }

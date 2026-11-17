@@ -5,7 +5,6 @@ const SHORT_LINK = /^(?:https:\/\/([^/?#]+)|simplex:)\/([aAcC])\/?#([^?]+)(?:\?(
 const HOST_SEPARATOR = "%2C"
 // the core decodes the key as base64url and refuses a text that does not encode back to itself, as one with a stray last character
 const coreReadsKey = (key: string) => Buffer.from(key, "base64url").toString("base64url") === key
-// `deep`: the simplex:/ form, whatever the link's own
 function coreLinkOf(link: string, deep: boolean): string | null {
   const parts = SHORT_LINK.exec(link)
   if (!parts || !coreReadsKey(parts[3])) return null

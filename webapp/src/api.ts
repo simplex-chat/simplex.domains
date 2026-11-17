@@ -152,15 +152,11 @@ export interface Entity extends Profile {
 }
 
 interface ProfileNames { displayName: string; fullName: string; image: string | null }
-// A link's data as the service answers it: the names and picture of a profile read, with an address's peer type and
-// business flag, or a channel's group type and member count.
 export type LinkData = { type: "address" | "channel"; profile: "unread" | "unavailable" }
   | (ProfileNames & { type: "address"; profile: "ok"; peerType: string | null; business: boolean })
   | (ProfileNames & { type: "channel"; profile: "ok"; groupType: string | null; publicMemberCount: number | null })
 type LinkEntity = LinkData & { link: string; deepLink: string }
 
-// The chat's kind: an address of a business, by its flag or its peer type, is a business; one whose peer type is bot is a
-// bot; a channel's members are its subscribers.
 function profileOf(d: LinkData): Profile {
   if (d.profile !== "ok") return { type: d.type, kind: d.type === "channel" ? "channel" : "contact", displayName: "", fullName: "", image: null, subscribers: null, profile: d.profile }
   const { displayName, fullName, image } = d
@@ -397,7 +393,6 @@ const isRecords = (v: unknown) => isObject(v) && isText(v.contact) && isText(v.c
 // none left only while an edit is counted, which returns at nextAt
 const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && nullable(v.nextAt, isAmount) && (v.left !== 0 || v.nextAt !== null)
 
-// a search answer as the service sends it, each entity as its link data
 type SearchReply = Exclude<SearchAnswer, { status: "registered" }> | (Omit<Extract<SearchAnswer, { status: "registered" }>, "entities"> & { entities: LinkEntity[] })
 
 export const searchName = (labelHash: string, length: number) => checked<SearchReply>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
