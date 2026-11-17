@@ -474,6 +474,14 @@ export const newClient = () => ({ "x-forwarded-for": `10.${randomInt(OCTET)}.${r
 export const test = base.extend<{ cspViolations: void }>({
   baseURL: async ({ baseURL }, use) => use(baseURL ?? pageUrl(SLOT)),
   extraHTTPHeaders: async ({ extraHTTPHeaders }, use) => use({ ...extraHTTPHeaders, ...newClient() }),
+  page: async ({ page }, use) => {
+    const resize = page.setViewportSize.bind(page)
+    page.setViewportSize = async (size) => {
+      await resize(size)
+      await page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
+    }
+    await use(page)
+  },
   cspViolations: [async ({ context, browser }, use) => {
     const refused: string[] = []
     const watch = async (watched: BrowserContext) => {
