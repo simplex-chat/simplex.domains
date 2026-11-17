@@ -4,7 +4,7 @@ import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
 import {
-  agreeToTerms, checkoutOwnerCode, codeField, control, LINKS_HEADING, onStep, orderOwnerCode, payButton, recordedFrames, recordFrames, REGISTRATION_MS, search, searchName, shot, startOrder, test, toCodeStep, toReview, uniqueLabel,
+  agreeToTerms, checkoutOwnerCode, codeField, control, LINKS_HEADING, onStep, orderOwnerCode, payButton, recordedFrames, recordFrames, REGISTRATION_MS, registeredAnswer, search, searchName, shot, startOrder, test, toCodeStep, toReview, uniqueLabel,
   waitRegistered,
 } from "./helpers.ts"
 
@@ -137,7 +137,7 @@ test("a name registered by someone else while its order is checked says so at Pa
   await search(page, label)
   await toReview(page)
   await control(request, "take", { label })
-  await expect.poll(async () => (await searchName(request, label)).status, { timeout: REGISTRATION_MS }).toBe("registered")
+  await expect.poll(async () => (await searchName(request, label)).type, { timeout: REGISTRATION_MS }).toBe("registered")
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "This name is no longer available" })).toBeVisible()
   await expect(onStep(page).getByText(`${label}.simplex became unavailable after you searched for it. Nothing was charged.`)).toBeVisible()
@@ -320,9 +320,7 @@ test("search shows an expired name of yours with when it ran out and when it can
     years: 2, tld: "simplex", createdAt: new Date().toISOString(),
     request: { labelHash: hash, length: label.length, owner, commitment: "0x01", sealed: "sealed" },
   })), { label, hash, owner: OWNER })
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: {
-    status: "registered", entities: [], owner: OWNER, records: { contact: "", channel: "" }, recordsNonce: 0, expiresAt, gracePeriod: GRACE_S, tld: "simplex", community: null,
-  } }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(OWNER, expiresAt, { contact: "", channel: "" }, [], 0, GRACE_S) }))
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer .row")).toContainText("Expired")
   await expect(page.locator(".answer .line")).toHaveText(`Its registration ran out on ${dateOf(expiresAt)}. It can be registered again from ${dateOf(expiresAt + GRACE_S)}.`)

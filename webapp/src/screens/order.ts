@@ -1,4 +1,4 @@
-import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
+import { type Balance, type Community, type Found, holdsPayment, type InvoiceView, paidLate, type RegistrationView, signedHash, type Terms } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -54,15 +54,15 @@ export interface OrderState {
   sourceBalance: Balance | null
   ask: TermsAsk | null
   // a taken or failed order's name, as one search answered it
-  nameStatus: SearchAnswer["status"] | null
+  nameStatus: Found["type"] | null
   // the search of the changed terms' ask answered the name as registered or reserved, for the commit of this key
-  unavailable: { key: string; status: SearchAnswer["status"] } | null
+  unavailable: { key: string; status: Found["type"] } | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
 }
 
 export type OrderEvent =
-  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: SearchAnswer["status"] | null }
+  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: Found["type"] | null }
   | { type: "record-changed"; record: OrderRecord | null; cardSubmittedAt: string | null }
   | { type: "read-failed" }
   | { type: "not-found" }
@@ -91,7 +91,7 @@ export type OrderEvent =
   | { type: "terms-asked"; label: string; terms: Terms; community: Community | null; changed: boolean }
   | { type: "terms-agreed"; agreed: boolean; now: number }
   | { type: "terms-accepted"; accepted: boolean; now: number }
-  | { type: "name-unavailable"; key: string; status: SearchAnswer["status"] }
+  | { type: "name-unavailable"; key: string; status: Found["type"] }
   | { type: "hold-started"; until: number; lead: string }
   | { type: "hold-ended" }
 

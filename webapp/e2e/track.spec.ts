@@ -1,9 +1,10 @@
 import { type APIRequestContext, expect, type Locator, type Page } from "@playwright/test"
+import { YEAR_S } from "../src/crypto/registration.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
 import {
   agreeToTerms, AVAILABLE_BRIEF, brokenNames, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, okPreview, onStep, payButton, previewsShown, SAVED,
-  lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registrationOf, registrationView, rowFit, savedToReview, search, sevenLetters, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
+  lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registeredAnswer, registrationOf, registrationView, rowFit, savedToReview, search, sevenLetters, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
   TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey,
 } from "./helpers.ts"
 
@@ -374,7 +375,7 @@ async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
   await page.route(`**/api/registration/${CARD_REGISTRATION}*`, (route) => route.fulfill({ json: registration }))
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? { status: "registered", entities: [], tld: "simplex", community: null } : homeAnswers(order.owner).available }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? { found: { type: "registering" } } : homeAnswers(order.owner).available }))
   if (o.forgetful) await page.addInitScript(() => {
     const keep = Storage.prototype.setItem
     Storage.prototype.setItem = function (key: string, value: string) {
@@ -629,9 +630,9 @@ test("the home keeps its headline and search still as each kind of answer comes,
 const linked = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x" })
 // the search's answers for a name: available, taken with two chats, and this browser's, of `owner`, with two chats
 const homeAnswers = (owner: string) => ({
-  available: { status: "available", price: 10000, currency: "usd", years: 2, community: null, terms: TERMS },
-  taken: { status: "registered", entities: [linked("contact"), linked("channel")], owner: `0x${"00".repeat(19)}01`, tld: "simplex", community: null },
-  yours: { status: "registered", entities: [linked("contact"), linked("channel")], owner, tld: "simplex", community: null },
+  available: { found: { type: "available", price: 10000, years: 2, terms: TERMS } },
+  taken: registeredAnswer(`0x${"00".repeat(19)}01`, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
+  yours: registeredAnswer(owner, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
 })
 
 // a name of six letters that fits one row beside two chats on a phone, as most do

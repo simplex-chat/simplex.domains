@@ -314,8 +314,8 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
     : [codeToggle(id, shown), edits ? small(linksAction(hasLinks(o, seen.answer)), `${id}-edit`, () => go(editUrl(id))) : null]
   const community = seen?.view.community ?? null
   // a registered name shows the chats it opens, each opening its popup as the home's answer does
-  const chats = registered && seen.answer?.status === "registered"
-    ? seen.answer.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
+  const chats = registered && seen.answer?.found.type === "registered"
+    ? seen.answer.found.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
   const listed = seen ? community !== null : api.communityAgreed(o.terms)
   const state = rowChip(s, o, seen)
   const title = rowName(label, tld, community, `${id}-community`, listed)
@@ -608,10 +608,11 @@ async function saveLinks(links: LinkFields): Promise<void> {
     const fresh = await api.searchName(record!.request.labelHash, record!.label.length, readSite().chainId).catch(() => null)
     if (!isRoute(route)) return
     const now = edit.form!
-    const nonce = fresh?.status === "registered" && fresh.recordsNonce != null && fresh.recordsNonce > now.nonce ? fresh.recordsNonce : null
-    const records = nonce !== null && fresh?.status === "registered" && fresh.records ? fresh.records : null
+    const own = fresh?.found.type === "registered" && fresh.found.records.type === "own" ? fresh.found.records : null
+    const nonce = own !== null && own.nonce > now.nonce ? own.nonce : null
+    const records = nonce !== null && own !== null ? { contact: own.contact, channel: own.channel } : null
     if (records) for (const kind of api.LINK_KINDS) links.show(kind, records[kind])
-    dispatchEdit({ type: "save-refused", moved: nonce === null ? null : { nonce, records }, edits: fresh?.status === "registered" ? fresh.recordEdits : null })
+    dispatchEdit({ type: "save-refused", moved: nonce === null ? null : { nonce, records }, edits: own?.edits ?? null })
   }
 }
 

@@ -110,12 +110,12 @@ async function runSearch(label: string, seq: number): Promise<void> {
   }
   if (!awaited()) return
   dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow() })
-  if (answer.status === "available") void pointAtOwnOrder(label, hash, page)
+  if (answer.found.type === "available") void pointAtOwnOrder(label, hash, page)
 }
 
-function mineFor(hash: string, answer: api.SearchAnswer): boolean {
-  if (answer.status !== "registered" || answer.owner === undefined) return false
-  const owner = answer.owner.toLowerCase()
+function mineFor(hash: string, { found }: api.SearchAnswer): boolean {
+  if (found.type !== "registered") return false
+  const owner = found.owner.toLowerCase()
   return store.orders().some((o) => o.request.labelHash === hash && o.owner.toLowerCase() === owner)
 }
 
@@ -179,12 +179,14 @@ function holdEnded(): void {
 }
 
 type Found = Extract<Answer, { kind: "found" }>
-type Available = Extract<api.SearchAnswer, { status: "available" }>
 
 // an order this browser has for the name, which the search found or the service named in refusing a second one
 const ownOrderOf = ({ ownOrder, register: { refusal } }: SearchState) => ownOrder ?? (refusal?.why === "other" ? refusal.url : null)
 
-const offered = ({ answer }: SearchState) => answer?.kind === "found" && answer.answer.status === "available" ? { label: answer.label, answer: answer.answer } : null
+function offered({ answer }: SearchState): { label: string; answer: flow.Available } | null {
+  const available = answer?.kind === "found" ? flow.availableOf(answer.answer) : null
+  return answer?.kind === "found" && available ? { label: answer.label, answer: available } : null
+}
 
 async function register(): Promise<void> {
   const shown = offered(state)
@@ -335,12 +337,12 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (answer?.kind === "uncovered") return line("bad", "alert", `${letters(answer.label.length)}. Your code covers names of ${answer.minLength} or more letters.`)
   if (answer?.kind === "unchecked") return line("warn", "alert", "This name could not be checked. ", link("Try again", retry))
   if (answer?.kind !== "found") return answer?.kind === "checking" ? line("", "clock", "Checking the name…") : null
-  const found = answer.answer
-  if (found.status === "available") return availableAnswer(s, answer.label, found, signal)
-  if (found.status === "reserved") {
+  const available = flow.availableOf(answer.answer)
+  if (available) return availableAnswer(s, answer.label, available, signal)
+  if (answer.answer.found.type === "reserved") {
     return line("info", "info", "Reserved names are not sold here. If it is yours to use, write to ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), ".")
   }
-  return takenAnswer(answer, found)
+  return takenAnswer(answer, answer.answer)
 }
 
 function ruleLine({ label, problem }: Extract<Answer, { kind: "rule" }>): HTMLElement {
@@ -362,7 +364,7 @@ const codeFor = (s: SearchState, label: string) => {
   return code && usesCode(s) && label.length >= code.minLength ? code : null
 }
 
-function availableAnswer(s: SearchState, label: string, answer: Available, signal: AbortSignal): Kid[] {
+function availableAnswer(s: SearchState, label: string, answer: flow.Available, signal: AbortSignal): Kid[] {
   const retarget = s.retarget
   const cover = retarget && codeCover(retarget)
   const unpayable = retarget !== null && moveBar(retarget, label, answer.price) !== null
@@ -423,20 +425,22 @@ function codeLossNote(state: CodeLoss, reference: string): Note {
 }
 
 // One row as the app lists a chat: the name, the chats it opens as the app's own pictures, and whose it is.
-function takenAnswer(found: Found, answer: Extract<api.SearchAnswer, { status: "registered" }>): Kid[] {
+function takenAnswer(found: Found, answer: api.SearchAnswer): Kid[] {
   const { label, mine } = found
+  const registered = answer.found.type === "registered" ? answer.found : null
   // there are no renewals, so a name of ours past its expiry is over here, though the chain keeps it ours in its grace period
-  const expiresAt = answer.expiresAt ?? null
+  const expiresAt = registered?.expiresAt ?? null
   const lapsed = mine && expiresAt !== null && expiresAt < found.now / 1000 ? `${ranOut(expiresAt)} ${againLine(expiresAt, answer, found.now)}` : null
   // a name whose registration is being mined has no owner on chain yet
-  const registering = answer.owner === undefined
+  const registering = answer.found.type === "registering"
   const whose = mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
     : el("span", { class: "soft" }, registering ? "Being registered" : "Taken")
   const { tld } = readSite()
   const name = `${label}.${tld}`
+  const entities = registered?.entities ?? []
   return [
     el("div", { class: "card row" }, rowName(label, tld, answer.community, "community"),
-      answer.entities.length ? el("span", { class: "chats" }, answer.entities.map((e, i) => chatButton(e, name, `chat-${i}`, answer.community !== null))) : null, whose),
+      entities.length ? el("span", { class: "chats" }, entities.map((e, i) => chatButton(e, name, `chat-${i}`, answer.community !== null))) : null, whose),
     lapsed ? line("", "clock", lapsed) : registering ? line("", "clock", "Someone is registering it right now. Its owner and links show once it is on chain.") : null,
   ]
 }

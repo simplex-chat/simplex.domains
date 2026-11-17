@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { SearchAnswer } from "../src/api.ts"
+import type { SearchAnswer, Terms } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
   balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, orderCode, type OrderRead, ownOrders, reduce, REGISTER_LEAD, returnedTo, searchDue, type SearchEvent,
@@ -14,8 +14,9 @@ const termsOf = (hash: string) => ({ hash: `0x${hash}`, link: `https://git.simpl
 const TERMS = termsOf("21".repeat(32))
 const NEWER = termsOf("f6".repeat(32))
 const BAKERS = { for: "bakers and pastry chefs", years: 2 }
-const AVAILABLE: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, community: null, terms: TERMS }
-const TAKEN: SearchAnswer = { status: "registered", entities: [], owner: OWNER, community: null }
+const available = (terms: Terms | null = TERMS): SearchAnswer => ({ found: { type: "available", price: 1500, years: 2, terms }, community: null })
+const AVAILABLE = available()
+const TAKEN: SearchAnswer = { found: { type: "registered", entities: [], owner: OWNER, resolver: OWNER, expiresAt: 1830297600, gracePeriod: 7776000, records: { type: "other" } }, community: null }
 
 function record(change: Partial<OrderRecord> = {}): OrderRecord {
   return {
@@ -269,7 +270,7 @@ describe("reduce: the terms of a move", () => {
   it("terms-changed takes the terms and community entry the service gave into the answer, unticks the boxes and says so, ending the move", () => {
     const s = run(moving(), { type: "agreed", agreed: true }, { type: "accepted", accepted: true }, { type: "register-started" })
     const changed = reduce(s, { type: "terms-changed", label: "alice1", terms: NEWER, community: BAKERS })
-    expect(changed).toMatchObject({ agreed: false, accepted: false, termsChanged: true, register: { busy: false, refusal: null }, answer: { kind: "found", label: "alice1", answer: { ...AVAILABLE, terms: NEWER, community: BAKERS } } })
+    expect(changed).toMatchObject({ agreed: false, accepted: false, termsChanged: true, register: { busy: false, refusal: null }, answer: { kind: "found", label: "alice1", answer: { ...available(NEWER), community: BAKERS } } })
   })
   it("terms-changed for a name no longer shown changes nothing", () => {
     const s = moving()
@@ -282,8 +283,8 @@ describe("reduce: the terms of a move", () => {
     const other = run(ticked, searchedEvent("carol1"))
     expect(reduce(other, answered(other))).toMatchObject({ agreed: false, accepted: false, termsChanged: false })
     const changed = run(moving(), { type: "terms-changed", label: "alice1", terms: NEWER, community: null }, searchedEvent("alice1"))
-    expect(reduce({ ...changed, agreed: true }, answered(changed, { ...AVAILABLE, terms: termsOf("d8".repeat(32)) }))).toMatchObject({ agreed: false })
-    expect(reduce({ ...changed, agreed: true }, answered(changed, { ...AVAILABLE, terms: null })), "terms that can't be read now").toMatchObject({ agreed: false })
+    expect(reduce({ ...changed, agreed: true }, answered(changed, available(termsOf("d8".repeat(32)))))).toMatchObject({ agreed: false })
+    expect(reduce({ ...changed, agreed: true }, answered(changed, available(null))), "terms that can't be read now").toMatchObject({ agreed: false })
   })
 })
 

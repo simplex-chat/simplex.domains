@@ -245,10 +245,10 @@ test("search quotes the oracle with the term's start, and a registered name carr
   expect([answer.price, answer.years, (await namesSite()).termStart]).toEqual([await oracleQuote(label, 2), 2, TERM_START])
   for (const [length, cents] of [[6, 40000], [7, 20000], [12, 10000]]) {
     const res = await call("GET", `/api/name/${hex(labelHash("x".repeat(length)))}?length=${length}`)
-    expect(res.json.price, `${length} letters`).toBe(cents)
+    expect((res.json.found as Json).price, `${length} letters`).toBe(cents)
   }
   const bakery = await call("GET", `/api/name/${hex(labelHash("bakery"))}?length=6`)
-  expect([bakery.json.status, bakery.json.gracePeriod]).toEqual(["registered", 90 * 86400])
+  expect(bakery.json.found).toMatchObject({ type: "registered", gracePeriod: 90 * 86400 })
 })
 
 test("a code check answers every state, revoked included, and an unknown code is code_invalid", async ({ request }) => {
@@ -394,11 +394,12 @@ function linkEdit(name: RegisteredName, key: string, value: string, nonce: numbe
   return { key, value, nonce, deadline, signature: hex(signDigest(flow.walletOf(name.draft.ownerCode)!.privateKey, digest)) }
 }
 
-const answerOf = async (name: RegisteredName) => (await call("GET", `/api/name/${name.labelHash}?length=${name.label.length}`)).json
+const answerOf = async (name: RegisteredName) => (await call("GET", `/api/name/${name.labelHash}?length=${name.label.length}`)).json.found as Json
+const recordsOf = async (name: RegisteredName) => (await answerOf(name)).records as { contact: string; channel: string; nonce: number; edits: { left: number } }
 
 // a request of one contact link edit of the name, at the name's records nonce unless one is given
 async function contactEdit(name: RegisteredName, value: string, nonce?: number): Promise<{ labelHash: string; edits: LinkEdit[] }> {
-  return { labelHash: name.labelHash, edits: [linkEdit(name, CONTACT_KEY, value, nonce ?? (await answerOf(name)).recordsNonce as number)] }
+  return { labelHash: name.labelHash, edits: [linkEdit(name, CONTACT_KEY, value, nonce ?? (await recordsOf(name)).nonce)] }
 }
 
 test("a link edit repeated after it was mined is answered from the edit, not checked anew", async ({ request }) => {
@@ -414,31 +415,31 @@ test("a link edit repeated after it was mined is answered from the edit, not che
 
 test("a Save's two link edits are one request and one multicall transaction, counted as one edit, and its exact resend answers it again", async ({ request }) => {
   const name = await registeredName(request, "ct")
-  const before = await answerOf(name)
-  const nonce = before.recordsNonce as number
+  const before = await recordsOf(name)
+  const nonce = before.nonce
   const [contact, channel] = [contactLink("Ct"), channelLink("Ct")]
   const save = { labelHash: name.labelHash, edits: [linkEdit(name, CONTACT_KEY, contact, nonce), linkEdit(name, CHANNEL_KEY, channel, nonce + 1)] }
   const sent = await call("POST", "/api/name/records", save)
   expect(sent.status, JSON.stringify(sent.json)).toBe(200)
   expect(await textChangesOf(sent.json.tx as string)).toEqual({ multicall: true, changes: [[CONTACT_KEY, contact], [CHANNEL_KEY, channel]] })
-  const after = await answerOf(name)
-  expect([after.records, after.recordsNonce, (after.recordEdits as Json).left]).toEqual([{ contact, channel }, nonce + 2, (before.recordEdits as Json).left as number - 1])
+  const after = await recordsOf(name)
+  expect([after.contact, after.channel, after.nonce, after.edits.left]).toEqual([contact, channel, nonce + 2, before.edits.left - 1])
   expect(await call("POST", "/api/name/records", save)).toEqual(sent)
-  expect(((await answerOf(name)).recordEdits as Json).left, "the resend counts nothing").toBe((after.recordEdits as Json).left)
+  expect((await recordsOf(name)).edits.left, "the resend counts nothing").toBe(after.edits.left)
   // the second edit alone is another request, checked anew against the nonce both spent
   expect(await call("POST", "/api/name/records", { labelHash: name.labelHash, edits: [save.edits[1]] })).toEqual({ status: 409, json: { error: "stale_nonce" } })
 })
 
 test("a relayed link edit that reverts on chain still counts toward the name's yearly edits, as the service counts every relayed edit", async ({ request }) => {
   const name = await registeredName(request, "cv")
-  const before = await answerOf(name)
+  const before = await recordsOf(name)
   const value = contactLink("Cv")
   const edit = await contactEdit(name, value)
   const answer = await relayedAhead(name.label, edit.edits[0], () => call("POST", "/api/name/records", edit))
   expect(answer).toEqual({ status: 409, json: { error: "record_reverted", revert: null } })
-  const after = await answerOf(name)
-  expect((after.records as Json).contact, "the other relayer's copy landed").toBe(value)
-  expect((after.recordEdits as Json).left, "the reverted relay is counted").toBe((before.recordEdits as Json).left as number - 1)
+  const after = await recordsOf(name)
+  expect(after.contact, "the other relayer's copy landed").toBe(value)
+  expect(after.edits.left, "the reverted relay is counted").toBe(before.edits.left - 1)
 })
 
 test("a records request of no edit, three, one key twice, a clear beside a set, or nonces not consecutive is bad_request", async () => {
@@ -470,8 +471,8 @@ test("search splits a record set elsewhere on semicolons, trims each link, and a
   const channel = `${channelLink("K1")} ;${contactLink("K2")}; `
   await ownerSetsText(name.draft.ownerCode, name.label, CONTACT_KEY, contact)
   await ownerSetsText(name.draft.ownerCode, name.label, CHANNEL_KEY, channel)
-  const answer = (await call("GET", `/api/name/${name.labelHash}?length=${name.label.length}`)).json
-  expect(answer.records).toEqual({ contact, channel })
+  const answer = await answerOf(name)
+  expect(answer.records).toMatchObject({ contact, channel })
   expect((answer.entities as Json[]).map((e) => [(e.preview as Json).kind, e.link])).toEqual([...contacts.slice(0, 5).map((link) => ["contact", link]), ["channel", channelLink("K1")]])
 })
 
@@ -481,7 +482,7 @@ test("search answers a link whose data was not read now as unread with its deep 
   const unparsed = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm"
   await ownerSetsText(name.draft.ownerCode, name.label, CONTACT_KEY, unread)
   await ownerSetsText(name.draft.ownerCode, name.label, CHANNEL_KEY, unparsed)
-  const answer = (await call("GET", `/api/name/${name.labelHash}?length=${name.label.length}`)).json
+  const answer = await answerOf(name)
   expect(answer.entities).toEqual([
     { preview: { kind: "contact", profile: { type: "unread" } }, link: unread, deepLink: `simplex:/a#${unread.split("#")[1]}?h=smp8.simplex.im` },
   ])
@@ -970,14 +971,15 @@ async function listed<T>(request: APIRequestContext, label: string, f: () => Pro
 
 const termsChanged = (terms: api.Terms, community: Json | null) => ({ error: "terms_changed", terms, community })
 
-test("every search answer carries the name's community entry, and the available one the terms of its kind to agree to", async () => {
+test("a community name's search answer has its community entry, and the available one the terms of its kind to agree to", async () => {
   const listed = (await call("GET", `/api/name/${hex(labelHash(COMMUNITY_LABEL))}?length=${COMMUNITY_LABEL.length}`)).json
-  expect(listed).toMatchObject({ status: "available", community: communityEntry(expect.any(String)), terms: LISTED_TERMS })
+  expect(listed).toMatchObject({ found: { type: "available", terms: LISTED_TERMS }, community: communityEntry(expect.any(String)) })
   const other = uniqueLabel("ta")
-  expect((await call("GET", `/api/name/${hex(labelHash(other))}?length=${other.length}`)).json).toMatchObject({ status: "available", community: null, terms: TERMS })
-  for (const [name, status] of [["bakery", "registered"], ["support", "reserved"]]) {
+  const plain = (await call("GET", `/api/name/${hex(labelHash(other))}?length=${other.length}`)).json
+  expect([plain.found, plain.community]).toEqual([expect.objectContaining({ type: "available", terms: TERMS }), undefined])
+  for (const [name, type] of [["bakery", "registered"], ["support", "reserved"]]) {
     const answer = (await call("GET", `/api/name/${hex(labelHash(name))}?length=${name.length}`)).json
-    expect([answer.status, answer.community], name).toEqual([status, null])
+    expect([(answer.found as Json).type, answer.community], name).toEqual([type, undefined])
   }
 })
 

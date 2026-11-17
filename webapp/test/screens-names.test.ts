@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { InvoiceView, RegistrationView, SearchAnswer } from "../src/api.ts"
+import type { Found, InvoiceView, Links, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
   balanceRows, changesOf, CODE_CHIPS, holderOf, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
@@ -42,9 +42,13 @@ const pending = (ownerCode: string): PendingCode => ({ ownerCode, label: "bob", 
 
 // the registrar's GRACE_PERIOD, as the search answer gives it
 const GRACE_S = 90 * 86_400
-const registered = (records: { contact: string; channel: string } | null = { contact: CONTACT, channel: "" }, change: Partial<Extract<SearchAnswer, { status: "registered" }>> = {}): SearchAnswer =>
-  ({ status: "registered", entities: [], records, owner: OWNER, recordsNonce: 3, recordEdits: { left: 3, nextAt: null }, expiresAt: NOW / 1000 + 2 * YEAR_S, gracePeriod: GRACE_S, community: null, ...change })
-const available: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, community: null, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` } }
+const registered = (records: Links | null = { contact: CONTACT, channel: "" }, change: Partial<Extract<Found, { type: "registered" }>> = {}, own: { nonce?: number; edits?: RecordEdits } = {}): SearchAnswer => ({
+  found: { type: "registered", entities: [], owner: OWNER, resolver: OWNER, expiresAt: NOW / 1000 + 2 * YEAR_S, gracePeriod: GRACE_S,
+    records: records === null ? { type: "other" } : { type: "own", ...records, nonce: 3, edits: { left: 3, nextAt: null }, ...own }, ...change },
+  community: null,
+})
+const registering: SearchAnswer = { found: { type: "registering" }, community: null }
+const available: SearchAnswer = { found: { type: "available", price: 1500, years: 2, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` } }, community: null }
 const registeredView = (change: Partial<RegistrationView> = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
 
 const stored = (change: Partial<Stored> = {}): Stored => ({ orders: [], pending: [], codes: [], canPersist: true, ...change })
@@ -76,7 +80,7 @@ describe("list helpers", () => {
   it("registrableAgain: counts the grace period the answer gives, and none from an answer without one", () => {
     const expiresAt = NOW / 1000 - 1
     expect(registrableAgain(expiresAt, registered(undefined, { gracePeriod: 3600 }), NOW)).toEqual({ when: "from", at: expiresAt + 3600 })
-    expect(registrableAgain(expiresAt, registered(undefined, { gracePeriod: undefined }), NOW)).toEqual({ when: "taken" })
+    expect(registrableAgain(expiresAt, registering, NOW)).toEqual({ when: "taken" })
   })
   it("ranOut and againLine say when a name ran out and when it can be registered again, as the edit page and search show it", () => {
     const expiresAt = Date.parse("2028-11-16T12:00:00Z") / 1000
@@ -131,7 +135,7 @@ describe("list helpers", () => {
     expect(editable(registered(), OWNER.toLowerCase())).toBe(true)
     expect(editable(registered(undefined, { owner: APP }), OWNER)).toBe(false)
     expect(editable(registered(null), OWNER)).toBe(false)
-    expect(editable(registered(undefined, { owner: undefined }), OWNER)).toBe(true)
+    expect(editable(registering, OWNER)).toBe(true)
     expect(editable(available, OWNER)).toBe(true)
   })
   it("hasLinks: a name's records once read, else the links it was ordered with", () => {
@@ -449,7 +453,7 @@ describe("edit", () => {
     "edit-expired": answered(opened, available),
     "edit-in-app": answered(opened, registered(undefined, { owner: APP })),
     "edit-elsewhere": answered(opened, registered(null)),
-    "edit-not-registered": answered(opened, { status: "reserved", community: null }, registration({ phase: "committed" })),
+    "edit-not-registered": answered(opened, { found: { type: "reserved" }, community: null }, registration({ phase: "committed" })),
     edit: editing,
   }
 
@@ -464,7 +468,7 @@ describe("edit", () => {
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
-      ["a registered name without a records nonce", answered(opened, registered(undefined, { recordsNonce: null })), "edit-not-registered"],
+      ["a name another order is registering", answered(opened, registering), "edit-not-registered"],
       ["a registered name with its links", STATES.edit, "edit"],
     ]
     it.each(cases)("%s", (_, state, kind) => {
@@ -478,13 +482,12 @@ describe("edit", () => {
         current: { contact: CONTACT, channel: "" }, values: { contact: CONTACT, channel: "" }, nonce: 3, changes: {},
         saving: false, unanswered: false, settled: false, result: null, hold: null, edits: { left: 3, nextAt: null },
       })
-      expect(form(answered(opened, registered(undefined, { recordEdits: undefined }))).edits, "a service that counts no edits").toBeNull()
       expect(form(answered(opened, registered(), undefined, { hold: { until: NOW + 5000, lead: NO_LEAD } })).hold).toEqual({ until: NOW + 5000, lead: NO_LEAD })
       expect(STATES["edit-in-app"].form).toBeNull()
     })
     it("answered again keeps the form as it is typed", () => {
       const typed = reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL })
-      expect(form(answered(typed, registered(undefined, { recordsNonce: 9 }))).values.channel).toBe(CHANNEL)
+      expect(form(answered(typed, registered(undefined, {}, { nonce: 9 }))).values.channel).toBe(CHANNEL)
     })
     it("opened changes nothing", () => {
       expect(reduceEdit(STATES["edit-no-code"], { type: "opened" })).toBe(STATES["edit-no-code"])
@@ -524,13 +527,10 @@ describe("edit", () => {
       const one = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
       expect(form(reduceEdit(one, { type: "save-done", at: NOW / 1000 }))).toMatchObject({ nonce: 4, current: { contact: CONTACT, channel: CHANNEL }, edits: { left: 2, nextAt: NOW / 1000 + YEAR_S } })
     })
-    it("save-done keeps when the oldest counted edit returns, and counts nothing for a service that counts none", () => {
-      const counted = answered(opened, registered(undefined, { recordEdits: { left: 2, nextAt: NOW / 1000 + 100 } }))
+    it("save-done keeps when the oldest counted edit returns", () => {
+      const counted = answered(opened, registered(undefined, {}, { edits: { left: 2, nextAt: NOW / 1000 + 100 } }))
       const sending = reduceEdit(reduceEdit(counted, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
       expect(form(reduceEdit(sending, { type: "save-done", at: NOW / 1000 })).edits).toEqual({ left: 1, nextAt: NOW / 1000 + 100 })
-      const uncounted = answered(opened, registered(undefined, { recordEdits: null }))
-      const sent = reduceEdit(reduceEdit(reduceEdit(uncounted, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" }), { type: "save-done", at: NOW / 1000 })
-      expect(form(sent).edits).toBeNull()
     })
     it("save-done leaves Save on for a field typed while the Save was on its way", () => {
       const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })

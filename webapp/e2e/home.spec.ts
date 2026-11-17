@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test"
-import { okPreview, search, shot, test } from "./helpers.ts"
+import { okPreview, registeredAnswer, search, shot, test } from "./helpers.ts"
 
 const PHONE = { width: 390, height: 844 }
 const LAPTOP = { width: 1280, height: 800 }
@@ -21,7 +21,7 @@ const BAKERY = [chat("contact", "Alice's Bakery", { fullName: "Sourdough and pas
   chat("channel", "Bakery news", { fullName: "Daily bakes and opening hours", publicMemberCount: 1204, link: CHANNEL_LINK, deepLink: CHANNEL_DEEP_LINK })]
 
 async function answerWith(page: Page, entities: unknown[]): Promise<void> {
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: { status: "registered", entities, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", community: null } }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", Math.floor(Date.now() / 1000) + 365 * 86400, { contact: "", channel: "" }, entities) }))
 }
 
 test("a taken name shows each chat it opens as the app's default picture for its kind, or the profile's own picture", async ({ page }) => {

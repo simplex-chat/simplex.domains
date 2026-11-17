@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { InvoiceView, RegistrationView } from "../src/api.ts"
+import type { Community, InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
@@ -55,7 +55,7 @@ const committed = { phase: "committed", commitTx: "0xc0", revealAfter: NOW / 100
 // buyer's ask of them
 const SIGNED = `0x${"c7".repeat(32)}`
 const CHANGED = `0x${"d8".repeat(32)}`
-const communityEntry = (text: string | null = null) => ({ for: text, years: 2 })
+const communityEntry = (text?: string): Community => ({ ...text === undefined ? {} : { for: text }, years: 2 })
 const termsOf = (hash: string) => ({ hash, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
 const acceptanceFor = (termsHash: string, kind: "general" | "community" = "community") => ({ kind, policy: "0x3", termsHash, nonce: 0 })
 const reask = (hash = CHANGED) => askFor(record().label, termsOf(hash), communityEntry(), true)

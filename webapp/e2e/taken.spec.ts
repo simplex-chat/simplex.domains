@@ -70,7 +70,7 @@ test("a failed order whose name was registered or reserved since offers another 
   await page.evaluate(() => new Promise((drawn) => setTimeout(drawn)))
   await expect(onStep(page).getByRole("button", { name: "Choose another name" }), "a name still available is tried again").toHaveCount(0)
   await control(request, "take", { label })
-  await expect.poll(async () => (await searchName(request, label)).status, { timeout: REGISTRATION_MS }).toBe("registered")
+  await expect.poll(async () => (await searchName(request, label)).type, { timeout: REGISTRATION_MS }).toBe("registered")
   await page.reload()
   await expect(onStep(page).getByRole("button", { name: "Choose another name" }), "registered by another").toBeVisible()
   await answersReserved(page, label)
@@ -263,7 +263,7 @@ test("an order whose links the service refuses at its reveal registers without t
   const view = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { registration: { moves: number } }
   expect(view.registration.moves).toBe(1)
   const answer = await searchName(request, label)
-  expect(answer.records).toEqual({ contact: "", channel: "" })
+  expect(answer.records).toMatchObject({ contact: "", channel: "" })
 })
 
 test("Register without links that loses a race follows the order as it is now, saying nothing changed only when nothing did", async ({ page, request }) => {
@@ -350,7 +350,7 @@ test("an order failed with links the service refused offers no Try again, which 
 
   await onStep(page).getByRole("button", { name: "Register without links" }).click()
   await waitRegistered(page, label)
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel: "" })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel: "" })
 })
 
 test("a failed order's move to a cheaper name says the rest stays as its balance", async ({ page, request }) => {

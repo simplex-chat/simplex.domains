@@ -1,6 +1,6 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
-  agreeToTerms, brokenNames, CHAIN, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registrationOf, rowFit, savedToReview, search, shot,
+  agreeToTerms, brokenNames, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, rowFit, savedToReview, search, shot,
   shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
@@ -679,9 +679,8 @@ test("Your names moves no row once drawn as its reads answer, on a browser's fir
           : { cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bcrt1q", cryptoAmountPaid: "0.00156", paidInFull: true }) }, route))
     }
     // the first name has its two chats, the other none
-    await context.route("**/api/name/**", (route) => slowly({ status: "registered", entities: route.request().url().includes(kept[0][0].request.labelHash)
-      ? [linkedChat("contact"), linkedChat("channel")] : [], owner: kept[0][0].owner, resolver: CHAIN.resolver,
-    records: { contact: "", channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, community: null }, route))
+    await context.route("**/api/name/**", (route) => slowly(registeredAnswer(kept[0][0].owner, now + ROW_YEAR_S, { contact: "", channel: "" },
+      route.request().url().includes(kept[0][0].request.labelHash) ? [linkedChat("contact"), linkedChat("channel")] : []), route))
     const reads = kept.length + 3
     for (const [tab, opening] of [[page, "first opening"], [await context.newPage(), "new tab"]] as const) {
       const before = answered
@@ -772,8 +771,7 @@ test("a row drawn from the last reads stays drawn as it was, until its name regi
     await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
     await page.route("**/api/name/**", async (route) => {
       await new Promise((wait) => setTimeout(wait, ROW_READ_MS))
-      await route.fulfill({ json: { status: "registered", entities: [linkedChat("contact")], owner: order.owner, resolver: CHAIN.resolver,
-        records: { contact: contactLink("R1"), channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, community: null } })
+      await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
     })
     await rowFrames(page)
     await page.goto("about:blank")
@@ -801,8 +799,7 @@ test("a row drawn not read after the bound keeps its height on a phone when its 
   await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
   await page.route("**/api/name/**", async (route) => {
     await new Promise((wait) => setTimeout(wait, LATE_ANSWER_MS))
-    await route.fulfill({ json: { status: "registered", entities: [linkedChat("contact")], owner: order.owner, resolver: CHAIN.resolver,
-      records: { contact: contactLink("R1"), channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, community: null } })
+    await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
   })
   await rowFrames(page)
   await page.goto("about:blank")

@@ -110,7 +110,7 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await expect(chip(page)).toBeHidden()
   await waitRegistered(page, label)
   const registered = await searchName(request, label)
-  expect(registered.status).toBe("registered")
+  expect(registered.type).toBe("registered")
   await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
   const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { years: number; duration: number; registerTx: string }
@@ -151,8 +151,8 @@ test("a prepaid code registers a name with its links, which its records on chain
   const { registrationId, label } = await registerWithCode(page, request, "clinks", links)
   await waitRegistered(page, label)
   const answer = await searchName(request, label)
-  expect(answer.status).toBe("registered")
-  expect(answer.records).toEqual(links)
+  expect(answer.type).toBe("registered")
+  expect(answer.records).toMatchObject(links)
   const owner = checksumAddress(walletOf(await ownerCodeOf(page, registrationId))!.address)
   expect(answer.owner, "the name code's wallet owns the name").toBe(owner)
   const { registerTx } = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { registerTx: string }
@@ -204,7 +204,7 @@ test("a code order's name code, entered in another browser before the reveal, le
   await waitRegistered(restored, label)
   expect(reveals.length, "the restoring browser revealed the name").toBeGreaterThan(0)
   const answer = await searchName(request, label)
-  expect(answer.records).toEqual(links)
+  expect(answer.records).toMatchObject(links)
   expect(answer.owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
   await expect(await shownCode(restored), "the restored browser holds the name code").toHaveText(ownerCode)
   await other.close()
@@ -241,7 +241,7 @@ test("Edit links on a name registered with a code adds both its links on chain i
   expect(sends.map((body) => body.edits.map((e) => [e.key, e.value])), "one request with both links").toEqual([[["simplex.contact", contact], ["simplex.channel", channel]]])
   const { tx } = await (await answered).json() as { tx: string }
   expect(await textChangesOf(tx), "one multicall that set both records").toEqual({ multicall: true, changes: [["simplex.contact", contact], ["simplex.channel", channel]] })
-  expect((await searchName(request, label)).records).toEqual({ contact, channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact, channel })
 
   // read again from the chain, the page shows the saved links, and a second edit spends the next nonce
   await page.reload()
@@ -252,7 +252,7 @@ test("Edit links on a name registered with a code adds both its links on chain i
   await previewsShown(page)
   await save.click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact: nextContact, channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: nextContact, channel })
 })
 
 test("Check your code checks a code with the key icon, and Search keeps the magnifying glass", async ({ page }) => {
@@ -422,7 +422,7 @@ test("Edit links counts the name's edits left this year under Save, one per Save
   const { registrationId, label } = await registerWithCode(page, request, "ccount")
   await waitRegistered(page, label)
   await expect(onStep(page).getByRole("button", { name: "Add links" }), "a name without links adds them").toHaveClass("btn quiet small")
-  expect((await searchName(request, label)).recordEdits, "links set at registration count no edit").toEqual({ left: 3, nextAt: null })
+  expect((await searchName(request, label)).records, "links set at registration count no edit").toMatchObject({ edits: { left: 3 } })
   await page.goto(`/#/edit/${registrationId}`)
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
@@ -454,7 +454,7 @@ test("Edit links counts the name's edits left this year under Save, one per Save
   expect(sends.map((body) => body.edits.map((e) => e.nonce)), "the next Save from the nonce both spent").toEqual([[nonce, nonce + 1], [nonce + 2]])
   await page.reload()
   await expect(editCount(page)).toHaveText("1 edit left this year.")
-  expect((await searchName(request, label)).recordEdits).toMatchObject({ left: 1 })
+  expect((await searchName(request, label)).records).toMatchObject({ edits: { left: 1 } })
 })
 
 test("Edit links saves both links with the last edit left, then keeps Save off until the edits return", async ({ page, request }) => {
@@ -476,7 +476,7 @@ test("Edit links saves both links with the last edit left, then keeps Save off u
   await expect(saveLinks(page)).toBeEnabled()
   await saveLinks(page).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact, channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact, channel })
   const again = `You can edit links again on ${dateOf(made + YEAR_S)}.`
   await expect(editCount(page)).toHaveText(again)
   await link.fill("")
@@ -511,7 +511,7 @@ test("a Save of both links from a tab opened before the name's edits ran out say
   await expect(editCount(page)).toHaveText(again)
   await expect(saveLinks(page)).toBeDisabled()
   await expect(onStep(page).locator(".notice")).toHaveCount(0)
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel: "" })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel: "" })
 })
 
 test("the tab's code pays for each name it covers until it is taken off, which takes it off the checkout too", async ({ page, request }) => {
@@ -754,7 +754,7 @@ test("Save pressed in Edit links while a link is still checked waits for its che
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
   await expect(save).toHaveAccessibleName("Save links")
   await expect(save).not.toHaveAttribute("aria-busy", "true")
-  expect((await searchName(request, label)).records).toEqual({ contact: second, channel: channelLink("CW") })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: second, channel: channelLink("CW") })
   await control(request, "search", { fetchDelays: {} })
 })
 

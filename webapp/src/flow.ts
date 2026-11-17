@@ -40,17 +40,18 @@ export interface Draft {
   terms: string
 }
 
-type Available = Extract<api.SearchAnswer, { status: "available" }>
+export type Available = Extract<api.Found, { type: "available" }> & { community: api.Community | null }
 export type Quote = Available & { terms: api.Terms }
 export const orderable = (a: Available): a is Quote => a.terms !== null
+export const availableOf = ({ found, community }: api.SearchAnswer): Available | null => found.type === "available" ? { ...found, community } : null
 export const chainOf = (q: api.ChainInfo): api.ChainInfo => ({ resolver: q.resolver, sponsor: q.sponsor, chainId: q.chainId, tld: q.tld })
 
 // The name's search answer as an order needs it, or null when it can no longer be ordered.
 export async function quoteOf(label: string): Promise<Quote | null> {
-  const answer = await api.searchName(hex(labelHash(label)), label.length, (await namesSite()).chainId)
-  if (answer.status !== "available") return null
-  if (!orderable(answer)) throw new api.ApiError("terms_unavailable", 503, null, {})
-  return answer
+  const available = availableOf(await api.searchName(hex(labelHash(label)), label.length, (await namesSite()).chainId))
+  if (available === null) return null
+  if (!orderable(available)) throw new api.ApiError("terms_unavailable", 503, null, {})
+  return available
 }
 
 // An order of a record's name and links again, as a new order of its code: a new commitment for the term from now.

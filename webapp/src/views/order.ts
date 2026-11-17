@@ -120,7 +120,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
   let codeChecked = false
   let sourceRead = false
   let unreadReads = 0
-  let status: api.SearchAnswer["status"] | null | undefined
+  let status: api.Found["type"] | null | undefined
   // forgetting the last answer makes the next read answer at once
   const forget = () => {
     invoice = null
@@ -276,11 +276,11 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
   }
 }
 
-async function statusNow(view: api.RegistrationView, record: store.OrderRecord | null): Promise<api.SearchAnswer["status"] | null> {
+async function statusNow(view: api.RegistrationView, record: store.OrderRecord | null): Promise<api.Found["type"] | null> {
   const label = labelOf(view, record)
   if (label === null) return null
   const answer = await api.searchName(view.labelHash, label.length, readSite().chainId).catch(() => null)
-  return answer?.status ?? null
+  return answer?.found.type ?? null
 }
 
 // Another order of the same buyer: one of this commitment, or of the code's wallet once it moved to another name.
@@ -360,11 +360,12 @@ function askAgain(record: store.OrderRecord): void {
   // view's, the view is read again; one that answered the name as registered or reserved ends the ask, which the page says
   const later = (delay: number, again: () => void) => setTimeout(() => { done(); again() }, delay)
   const tick = () => answer(gen, { type: "tick", now: api.serviceNow() })
-  api.searchName(state.view!.labelHash, record.label.length, readSite().chainId).then((quote) => {
+  api.searchName(state.view!.labelHash, record.label.length, readSite().chainId).then((searched) => {
     if (!isOpen(gen) || !askAgainDue(state)) return done()
-    if (quote.status !== "available") {
+    const quote = flow.availableOf(searched)
+    if (quote === null) {
       done()
-      return answer(gen, { type: "name-unavailable", key: commitKey(state.view!), status: quote.status })
+      return answer(gen, { type: "name-unavailable", key: commitKey(state.view!), status: searched.found.type })
     }
     if (!flow.orderable(quote) || quote.terms.hash !== state.view!.acceptance!.termsHash) return later(RETRY_MS, () => reread(gen))
     done()
@@ -492,7 +493,7 @@ function watchName(s: OrderState): void {
     try {
       const answer = await api.searchName(labelHash, length, readSite().chainId)
       if (nameWatch !== watch) return
-      nameCheck = { invoiceId, taken: answer.status === "registered", at: Date.now() }
+      nameCheck = { invoiceId, taken: answer.found.type === "registered" || answer.found.type === "registering", at: Date.now() }
       showNameCheck()
     } catch (e) {
       next = api.retryDelay(e, RETRY_MS) ?? NAME_CHECK_MS
@@ -1339,7 +1340,7 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   const alert = failedAlert(s)
   const support = [el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with its reference."]
   // a name taken or reserved since cannot be registered by this order, so it can move to another one with its code
-  const gone = s.nameStatus === "registered" || s.nameStatus === "reserved"
+  const gone = s.nameStatus === "registered" || s.nameStatus === "registering" || s.nameStatus === "reserved"
   const alt = gone && s.record && !s.codeRefused ? link("Choose another name", () => go(`/#/?retarget=${view.id}`)) : null
   return screen({ title: invoice ? "Paid, not registered" : "Not registered", lead: failedLead(s), action, alt },
     el("p", { class: "note center" }, ...orderLine(s)),

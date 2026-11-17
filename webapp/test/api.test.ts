@@ -16,6 +16,7 @@ function answerWith(status: number, body: string, headers: Record<string, string
 }
 
 const CHAIN_ID = 31337
+const REGISTERED = { type: "registered", owner: "0x1", resolver: "0x2", expiresAt: 1, gracePeriod: 2, entities: [], records: { type: "other" } }
 
 async function errorOf(chainId = CHAIN_ID): Promise<ApiError> {
   const e = await searchName(HASH, 8, chainId).then(() => null, (e: unknown) => e)
@@ -154,24 +155,29 @@ describe("service errors", () => {
     expect([(limited as ApiError).code, (limited as ApiError).retryAfter, limited instanceof EditLimited]).toEqual(["rate_limited", 4, false])
   })
 
-  it("passes a registered name's record edits, and takes ones that cannot be so as no answer", async () => {
-    const answer = { status: "registered", entities: [], records: { contact: "", channel: "" }, recordsNonce: 2, community: null }
-    for (const recordEdits of [{ left: 3, nextAt: null }, { left: 0, nextAt: 1824249600 }, { left: 1, nextAt: 1824249600 }, null]) {
-      answerWith(200, JSON.stringify({ ...answer, recordEdits }))
-      expect(await searchName(HASH, 8, CHAIN_ID), JSON.stringify(recordEdits)).toMatchObject({ recordEdits })
+  it("passes a registered name's record edits, with when the next returns in seconds, and takes ones that cannot be so as no answer", async () => {
+    const own = { type: "own", contact: "", channel: "", nonce: 2 }
+    for (const [edits, read] of [[{ left: 3 }, { left: 3, nextAt: null }], [{ left: 0, nextAt: "2027-10-23T00:00:00Z" }, { left: 0, nextAt: 1824249600 }],
+      [{ left: 1, nextAt: "2027-10-23T00:00:00Z" }, { left: 1, nextAt: 1824249600 }]] as const) {
+      answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
+      expect(await searchName(HASH, 8, CHAIN_ID), JSON.stringify(edits)).toMatchObject({ found: { records: { ...own, edits: read } } })
     }
-    for (const recordEdits of [{ left: 0, nextAt: null }, { left: -1, nextAt: null }, { left: 1.5, nextAt: null }, { left: 2 }, { left: 2, nextAt: "soon" }, 3]) {
-      answerWith(200, JSON.stringify({ ...answer, recordEdits }))
-      expect((await errorOf()).code, JSON.stringify(recordEdits)).toBe("network")
+    for (const edits of [{ left: 0 }, { left: -1 }, { left: 1.5 }, {}, { left: 2, nextAt: "soon" }, { left: 2, nextAt: 1824249600 }, 3, undefined]) {
+      answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
+      expect((await errorOf()).code, JSON.stringify(edits)).toBe("network")
     }
   })
 
   it("takes a search answer the page cannot draw as no answer", async () => {
-    for (const body of [
-      { status: "weird" }, { status: "registered" }, [], "registered",
-      { status: "registered", entities: [{}] }, { status: "registered", entities: [null] },
-      { status: "available", price: "100", years: 2, currency: "USD" }, { status: "available", price: 5, currency: "USD" },
+    for (const found of [
+      { type: "weird" }, { type: "registered" }, [], "registered", undefined, { ...REGISTERED, owner: undefined }, { ...REGISTERED, records: undefined }, { ...REGISTERED, records: { type: "own" } },
+      { ...REGISTERED, records: null }, { ...REGISTERED, entities: [{}] }, { ...REGISTERED, entities: [null] },
+      { type: "available", price: "100", years: 2 }, { type: "available", price: 5 },
     ]) {
+      answerWith(200, JSON.stringify({ found }))
+      expect((await errorOf()).code, JSON.stringify(found)).toBe("network")
+    }
+    for (const body of [[], "registered", { status: "available", price: 5, years: 2 }]) {
       answerWith(200, JSON.stringify(body))
       expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
     }
@@ -185,14 +191,20 @@ describe("service errors", () => {
   // the profile as the page draws it, its kind and subscribers told from the link data
   const DRAWN = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
   const LINK = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
-  const registeredWith = (...entities: unknown[]) => JSON.stringify({ status: "registered", entities, community: null })
+  const registeredWith = (...entities: unknown[]) => JSON.stringify({ found: { ...REGISTERED, entities } })
 
   it("passes a search answer the page can draw", async () => {
-    const available = { status: "available", price: 10000, currency: "usd", years: 2, community: null, terms: TERMS }
-    answerWith(200, JSON.stringify(available))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual(available)
+    const available = { type: "available", price: 10000, years: 2, terms: TERMS }
+    answerWith(200, JSON.stringify({ found: available }))
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: available, community: null })
+    answerWith(200, JSON.stringify({ found: { type: "available", price: 10000, years: 2 } }))
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
     answerWith(200, registeredWith({ preview: PREVIEW, ...LINK }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ status: "registered", entities: [{ ...DRAWN, ...LINK }], community: null })
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
+    for (const type of ["registering", "reserved"]) {
+      answerWith(200, JSON.stringify({ found: { type } }))
+      expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { type }, community: null })
+    }
   })
 
   it("takes a linked chat without its names, a type the app has not, a member count that cannot be, or a link not as text, as no answer", async () => {
@@ -213,7 +225,7 @@ describe("service errors", () => {
     for (const [kind, type] of [["contact", "address"], ["channel", "channel"]]) {
       for (const profile of ["unread", "unavailable"]) {
         answerWith(200, registeredWith({ preview: { kind, profile: { type: profile } }, ...LINK }))
-        expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${kind} ${profile}`).toMatchObject({ entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] })
+        expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
       }
     }
     // an address is a business by its flag or its peer type, a bot by its peer type, and a contact by any other
@@ -222,7 +234,7 @@ describe("service errors", () => {
     for (const [profile, business, kind] of [[{}, false, "contact"], [{ peerType: "human" }, false, "contact"], [{ peerType: "agent" }, false, "contact"], [{ peerType: "robot" }, false, "contact"],
       [{}, true, "business"], [{ peerType: "business" }, false, "business"], [{ peerType: "bot" }, false, "bot"], [{ peerType: "bot" }, true, "business"]] as const) {
       answerWith(200, registeredWith({ preview: contactPreview(profile, business), ...LINK }))
-      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), JSON.stringify([profile, business])).toMatchObject({ entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] })
+      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), JSON.stringify([profile, business])).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
     }
     for (const [profile, business] of [[{}, undefined], [{}, "yes"], [{ peerType: 5 }, false]] as const) {
       answerWith(200, registeredWith({ preview: contactPreview(profile, business), ...LINK }))
@@ -378,12 +390,12 @@ describe("service errors", () => {
   })
 
   it("takes a search or code answer with values that cannot be so as no answer", async () => {
-    for (const body of [
-      { status: "available", price: -500, years: 2, currency: "usd" }, { status: "available", price: 500, years: 0, currency: "usd" },
-      { status: "registered", entities: [], owner: 5 }, { status: "registered", entities: [], records: { contact: 1 } },
+    for (const found of [
+      { type: "available", price: -500, years: 2 }, { type: "available", price: 500, years: 0 },
+      { ...REGISTERED, owner: 5 }, { ...REGISTERED, records: { type: "own", contact: 1, channel: "", nonce: 0, edits: { left: 1 } } },
     ]) {
-      answerWith(200, JSON.stringify(body))
-      expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
+      answerWith(200, JSON.stringify({ found }))
+      expect((await errorOf()).code, JSON.stringify(found)).toBe("network")
     }
     answerWith(200, JSON.stringify({ state: "unused", minLength: -3, years: -1 }))
     expect(((await checkCode("SN6-X").then(() => null, (e: unknown) => e)) as ApiError).code).toBe("network")
@@ -395,13 +407,14 @@ describe("service errors", () => {
     const LOCAL_TERMS = termsOf(`http://127.0.0.1:8098/terms/${"c7".repeat(32)}.md#sha256=${"c7".repeat(32)}`)
     const SIGNED = `community/${COMMUNITY_TERMS.hash.slice(2)}`
     const OLDER_SIGNED = `2026-10-23/community/${"c7".repeat(32)}`
-    const AVAILABLE = { status: "available", price: 10000, currency: "usd", years: 2, community: COMMUNITY, terms: COMMUNITY_TERMS }
+    const AVAILABLE = { found: { type: "available", price: 10000, years: 2, terms: COMMUNITY_TERMS }, community: COMMUNITY }
+    const availableWith = (terms: unknown) => ({ ...AVAILABLE, found: { ...AVAILABLE.found, terms } })
     const ORDER = { labelHash: `0x${"ab".repeat(32)}`, length: 6, duration: 2 * 365 * 86400, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", terms: SIGNED, timestamp: 1, signature: "0x" }
 
     it("signs the general terms' hash for a name not on the community list, and community/ with the community terms' hash for one on it", () => {
       expect(termsFor(TERMS, null)).toBe(TERMS.hash.slice(2))
       expect(termsFor(COMMUNITY_TERMS, COMMUNITY)).toBe(SIGNED)
-      expect(currentTerms(AVAILABLE as never)).toBe(SIGNED)
+      expect(currentTerms({ terms: COMMUNITY_TERMS, community: COMMUNITY })).toBe(SIGNED)
     })
 
     it("reads the hash of the terms an order signed, and none from the version an older page signed", () => {
@@ -422,29 +435,30 @@ describe("service errors", () => {
       for (const terms of [TERMS.hash.slice(2), "2026-10-23", null, undefined]) expect(communityAgreed(terms), String(terms)).toBe(false)
     })
 
-    it("passes a community entry in every search answer, and the terms of the name's kind in the available one, null while they can't be read", async () => {
+    it("passes the community entry of a community name's search answer, and the terms of the name's kind in the available one", async () => {
       for (const body of [
-        AVAILABLE, { status: "reserved", community: COMMUNITY }, { status: "registered", entities: [], community: COMMUNITY },
-        { ...AVAILABLE, community: { ...COMMUNITY, for: null } }, { ...AVAILABLE, community: null, terms: TERMS }, { ...AVAILABLE, terms: null }, { ...AVAILABLE, terms: LOCAL_TERMS },
-        { status: "registered", entities: [], records: null, owner: "0x1", resolver: "0x2", recordsNonce: null, expiresAt: 1, gracePeriod: 2, community: null },
+        AVAILABLE, { found: { type: "reserved" }, community: COMMUNITY }, { found: REGISTERED, community: COMMUNITY },
+        { ...AVAILABLE, community: { years: 2 } }, { ...availableWith(TERMS), community: null }, availableWith(LOCAL_TERMS),
       ]) {
         answerWith(200, JSON.stringify(body))
-        expect(await searchName(HASH, 6, CHAIN_ID), body.status).toEqual(body)
+        expect(await searchName(HASH, 6, CHAIN_ID), JSON.stringify(body)).toEqual(body)
       }
+      answerWith(200, JSON.stringify({ found: REGISTERED }))
+      expect(await searchName(HASH, 6, CHAIN_ID), "a name off the community list").toEqual({ found: REGISTERED, community: null })
     })
 
-    it("takes an answer without its community, or the available one with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
+    it("takes a community entry that cannot be so, or the available answer with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
       for (const body of [
-        { ...AVAILABLE, community: undefined }, { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } },
-        { ...AVAILABLE, community: { for: COMMUNITY.for } }, { ...AVAILABLE, terms: undefined }, { ...AVAILABLE, terms: { link: TERMS.link } }, { ...AVAILABLE, terms: { hash: TERMS.hash } },
-        { ...AVAILABLE, terms: { ...TERMS, hash: COMMUNITY_TERMS.hash } }, { ...AVAILABLE, terms: { ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") } },
-        { ...AVAILABLE, terms: termsOf(TERMS.link.replace("https:", "http:")) }, { ...AVAILABLE, terms: termsOf("https://simplex.chat/terms") },
-        { status: "reserved" }, { status: "registered", entities: [] },
+        { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, for: null } },
+        { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } }, { ...AVAILABLE, community: { for: COMMUNITY.for } }, availableWith({ link: TERMS.link }), availableWith({ hash: TERMS.hash }),
+        availableWith(null), availableWith({ ...TERMS, hash: COMMUNITY_TERMS.hash }), availableWith({ ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") }),
+        availableWith(termsOf(TERMS.link.replace("https:", "http:"))), availableWith(termsOf("https://simplex.chat/terms")),
+        { found: { type: "registered" } }, { community: COMMUNITY },
       ]) {
         answerWith(200, JSON.stringify(body))
         expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
       }
-      answerWith(200, JSON.stringify({ ...AVAILABLE, terms: LOCAL_TERMS }))
+      answerWith(200, JSON.stringify(availableWith(LOCAL_TERMS)))
       expect((await errorOf(1)).code, "terms on this machine, on another chain").toBe("network")
     })
 

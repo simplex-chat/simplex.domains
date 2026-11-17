@@ -155,7 +155,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(saved).toBeFocused()
   await expect(saved).toBeInViewport()
   await shot(page, "N12b-edit-links")
-  expect((await searchName(request, label)).records).toEqual({ contact, channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact, channel })
 
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer").getByRole("button", { name: "Contact A1Y8m3, contact address" })).toBeVisible()
@@ -182,7 +182,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   // a second edit spends the next resolver nonce
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
 
   // a Save of both links is one request, so a refusal leaves both as the chain has them
   const nextChannel = channelLink("C3")
@@ -197,18 +197,18 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The links were not saved\. Try again in/ })).toBeVisible({ timeout: 30_000 })
   expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["simplex.contact", "simplex.channel"]])
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
   await page.unroute("**/api/name/records")
   await expect(page.getByRole("button", { name: "Save links" })).toBeEnabled({ timeout: 10_000 })
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact, channel: nextChannel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact, channel: nextChannel })
 
   // a Save refused because an earlier one moved the nonce shows the links on chain in both fields
   const nonceMoved = (ahead: number, records: { contact: string; channel: string }) => page.route(/\/api\/name\/(0x)?[0-9a-f]{64}/, async (route) => {
     const res = await route.fetch()
-    const json = await res.json() as { recordsNonce: number }
-    await route.fulfill({ response: res, json: { ...json, recordsNonce: json.recordsNonce + ahead, records } })
+    const json = await res.json() as { found: { records: { nonce: number } } }
+    await route.fulfill({ response: res, json: { ...json, found: { ...json.found, records: { ...json.found.records, ...records, nonce: json.found.records.nonce + ahead } } } })
   })
   await page.route("**/api/name/records", (route) => route.fulfill({ status: 400, json: { error: "bad_request" } }))
   await nonceMoved(2, { contact, channel: nextChannel })
@@ -230,7 +230,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await link.fill("")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel: nextChannel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel: nextChannel })
 
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -1390,7 +1390,7 @@ test("on a phone, a long name wraps beside its chats on Check your order, the ch
 const NAME_CHECK_MINUTES = 5
 const AVAILABLE = /^The name is available \(checked at \d\d:\d\d\)\. If someone registers it before you pay and the registration succeeds, what you paid is kept as your balance for another name, or refunded on request\.$/
 const TAKEN = /^Someone has registered this name \(checked at \d\d:\d\d\)\. Don't pay this invoice: cancel it and choose another name\.$/
-const takenAnswer = (route: Route) => route.fulfill({ json: { status: "registered", entities: [], tld: "simplex", community: null } })
+const takenAnswer = (route: Route) => route.fulfill({ json: { found: { type: "registering" } } })
 // the heading, the note, the payment's details and the link under them: where each is and how tall
 const payPlaces = (page: Page) => page.evaluate(() => ["h1", ".name-check", ":is(.card.pay, .stripe)", ".actions-row .alt"]
   .map((s) => { const b = document.querySelector(`body > main ${s}`)!.getBoundingClientRect(); return `${s} ${Math.round(b.top)} ${Math.round(b.height)}` }))

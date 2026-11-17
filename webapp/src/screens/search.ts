@@ -74,8 +74,7 @@ export const initialSearch = (): SearchState => ({
 // An available name this browser has an order for, under its TLD, is checked again rather than offered while the order is read.
 export function returnedTo(s: SearchState, opening: Opening, name: string, tld: string | undefined, orders: Pick<OrderRecord, "label" | "tld">[]): SearchState {
   if (s.opening !== opening || s.name !== name || s.answer?.kind !== "found") return initialSearch()
-  const found = s.answer.answer
-  const ordered = found.status === "available" && orders.some((o) => o.label === name && o.tld === tld)
+  const ordered = s.answer.answer.found.type === "available" && orders.some((o) => o.label === name && o.tld === tld)
   return { ...s, searching: null, register: IDLE, answer: ordered ? { kind: "checking" } : s.answer }
 }
 
@@ -104,7 +103,7 @@ function searched(s: SearchState, e: Extract<SearchEvent, { type: "searched" }>)
   return { ...started, searching: { label: e.label } }
 }
 
-const termsOf = (a: SearchAnswer) => a.status === "available" && a.terms ? termsFor(a.terms, a.community) : null
+const termsOf = ({ found, community }: SearchAnswer) => found.type === "available" && found.terms ? termsFor(found.terms, community) : null
 
 function answered(s: SearchState, e: Extract<SearchEvent, { type: "answered" }>): SearchState {
   if (e.seq !== s.seq) return s
@@ -116,8 +115,9 @@ function answered(s: SearchState, e: Extract<SearchEvent, { type: "answered" }>)
 }
 
 function termsChanged(s: SearchState, e: Extract<SearchEvent, { type: "terms-changed" }>): SearchState {
-  if (s.answer?.kind !== "found" || s.answer.label !== e.label || s.answer.answer.status !== "available") return s
-  const answer = { ...s.answer, answer: { ...s.answer.answer, terms: e.terms, community: e.community } }
+  const found = s.answer?.kind === "found" && s.answer.label === e.label ? s.answer.answer.found : null
+  if (s.answer?.kind !== "found" || found?.type !== "available") return s
+  const answer = { ...s.answer, answer: { found: { ...found, terms: e.terms }, community: e.community } }
   return { ...s, answer, agreed: false, accepted: false, termsChanged: true, register: IDLE }
 }
 

@@ -1,4 +1,4 @@
-import { holdsPayment, type CodeState, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, type SearchAnswer } from "../api.ts"
+import { holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, type SearchAnswer } from "../api.ts"
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
 import { type CodeRecord, type OrderRecord, orderUrl, type PendingCode } from "../store.ts"
@@ -168,7 +168,7 @@ export function nameRows(s: ListState): OrderRecord[] {
 // A registered name past its expiry: there are no renewals, so the page takes it as over, though the chain keeps it its
 // holder's through the grace period, and whether or not someone has registered it again since.
 export const lapsed = ({ view, answer }: Pick<RowSeen, "view" | "answer">, now: number) =>
-  view.phase === "registered" && ((view.expiresAt !== null && view.expiresAt < now / 1000) || answer?.status === "available")
+  view.phase === "registered" && ((view.expiresAt !== null && view.expiresAt < now / 1000) || answer?.found.type === "available")
 
 export const waitsToSign = (view: RegistrationView, now: number) =>
   view.phase === "committed" && view.label === null && view.revealAfter !== null && now / 1000 >= view.revealAfter
@@ -229,9 +229,9 @@ export const CODE_CHIPS: Record<CodeState, [string, string]> = {
   expired: ["Expired", "bad"], unpaid: ["Not paid yet", "warn"], revoked: ["Not valid", "bad"],
 }
 
-export function editable(answer: SearchAnswer, owner: string): boolean {
-  if (answer.status !== "registered" || answer.owner === undefined) return true
-  return answer.owner.toLowerCase() === owner.toLowerCase() && answer.records !== null
+export function editable({ found }: SearchAnswer, owner: string): boolean {
+  if (found.type !== "registered") return true
+  return found.owner.toLowerCase() === owner.toLowerCase() && found.records.type === "own"
 }
 
 // what opens Edit links for a name: adding its first links, or editing them
@@ -239,7 +239,8 @@ export const linksAction = (has: boolean) => has ? "Edit links" : "Add links"
 
 // whether a name opens any chat, by its records once read, else by the links it was ordered with
 export const hasLinks = (o: OrderRecord, answer: SearchAnswer | null | undefined): boolean =>
-  answer?.status === "registered" && answer.records !== undefined ? Boolean(answer.records?.contact || answer.records?.channel) || answer.entities.length > 0
+  answer?.found.type === "registered"
+    ? (answer.found.records.type === "own" && Boolean(answer.found.records.contact || answer.found.records.channel)) || answer.found.entities.length > 0
     : Boolean(o.contact || o.channel)
 
 type RefusalKind = "none" | "unasked" | "other"
@@ -315,9 +316,9 @@ export const changesOf = (f: EditForm): Partial<Links> => Object.fromEntries(LIN
 
 type Again = { when: "now" } | { when: "from"; at: number } | { when: "taken" }
 // an expired name stays its holder's for the registrar's grace period, which the search answer gives, before anyone can register it again
-export function registrableAgain(expiresAt: number | null, answer: SearchAnswer, now: number): Again {
-  if (answer.status === "available") return { when: "now" }
-  const grace = answer.status === "registered" ? answer.gracePeriod : undefined
+export function registrableAgain(expiresAt: number | null, { found }: SearchAnswer, now: number): Again {
+  if (found.type === "available") return { when: "now" }
+  const grace = found.type === "registered" ? found.gracePeriod : undefined
   if (expiresAt !== null && grace !== undefined && now / 1000 < expiresAt + grace) return { when: "from", at: expiresAt + grace }
   return { when: "taken" }
 }
@@ -348,23 +349,25 @@ export function editsLine(f: EditForm): string {
 // a Save is one transaction, so a Save that fails changed no link
 export const NOT_SAVED = "The links were not saved."
 
-const owns = (answer: SearchAnswer, owner: string) => answer.status === "registered" && answer.owner !== undefined && answer.owner.toLowerCase() === owner.toLowerCase()
+const owns = (found: Extract<Found, { type: "registered" }>, owner: string) => found.owner.toLowerCase() === owner.toLowerCase()
 
 export function screenOfEdit(s: EditState): EditKind {
   if (!s.record) return "edit-no-code"
   if (!s.read) return "edit-unreadable"
   const { view, answer, now } = s.read
+  const { found } = answer
   if (lapsed({ view, answer }, now)) return "edit-expired"
-  if (answer.status === "registered" && answer.owner !== undefined && !owns(answer, s.record.owner)) return "edit-in-app"
-  if (answer.status === "registered" && owns(answer, s.record.owner) && answer.records === null) return "edit-elsewhere"
-  if (view.phase !== "registered" || answer.status !== "registered" || !answer.records || answer.recordsNonce == null) return "edit-not-registered"
+  if (found.type === "registered" && !owns(found, s.record.owner)) return "edit-in-app"
+  if (found.type === "registered" && found.records.type === "other") return "edit-elsewhere"
+  if (view.phase !== "registered" || found.type !== "registered") return "edit-not-registered"
   return "edit"
 }
 
-function formOf(answer: SearchAnswer, hold: Hold | null): EditForm | null {
-  if (answer.status !== "registered" || !answer.records || answer.recordsNonce == null) return null
-  return { current: { ...answer.records }, values: { ...answer.records }, nonce: answer.recordsNonce, changes: {},
-    saving: false, unanswered: false, settled: false, result: null, hold, edits: answer.recordEdits ?? null }
+function formOf({ found }: SearchAnswer, hold: Hold | null): EditForm | null {
+  if (found.type !== "registered" || found.records.type !== "own") return null
+  const { contact, channel, nonce, edits } = found.records
+  return { current: { contact, channel }, values: { contact, channel }, nonce, changes: {},
+    saving: false, unanswered: false, settled: false, result: null, hold, edits }
 }
 
 function applyToForm(f: EditForm, e: EditEvent): EditForm {

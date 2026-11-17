@@ -180,7 +180,7 @@ for (const [host, file, commitPage] of [
     await page.route("**/api/name/*", async (route) => {
       const response = await route.fetch()
       const json = await response.json()
-      await route.fulfill({ response, json: json.status === "available" ? { ...json, terms: { hash, link } } : json })
+      await route.fulfill({ response, json: json.found.type === "available" ? { ...json, found: { ...json.found, terms: { hash, link } } } : json })
     })
     await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ json: { link, text } }))
     await search(page, COMMUNITY_LABEL)
@@ -488,7 +488,7 @@ test("changed community terms that a search answers otherwise than the view are 
       const response = await route.fetch()
       const json = await response.json()
       const link = `http://127.0.0.1:8098/terms/${"d8".repeat(32)}.md#sha256=${"d8".repeat(32)}`
-      json.terms = { hash: keccak256(toHex(link)), link }
+      json.found.terms = { hash: keccak256(toHex(link)), link }
       answered = true
       await route.fulfill({ response, json })
     })
@@ -506,7 +506,7 @@ test("changed community terms of a name reserved meanwhile are not asked for: th
     await page.route("**/api/name/*", async (route) => {
       if ((await invoiceViewOf(request, invoiceId)).phase !== "committed") return route.fallback()
       searches++
-      await route.fulfill({ json: { status: "reserved", community: null } })
+      await route.fulfill({ json: { found: { type: "reserved" } } })
     })
     await control(request, `settle/${invoiceId}`)
     await expect(onStep(page).locator(".notice", { hasText: "The name was reserved meanwhile" })).toContainText("This order can't register it.", { timeout: REGISTRATION_MS })

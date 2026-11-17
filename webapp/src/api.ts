@@ -76,10 +76,10 @@ export interface Terms {
   link: string
 }
 
-// A community name: what it is for, null when the service has no words for it, and the years it is registered for. In a
+// A community name: what it is for, absent when the service has no words for it, and the years it is registered for. In a
 // search answer, a name on the chain's list; in an order's view, an order that signed the community terms.
 export interface Community {
-  for: string | null
+  for?: string
   years: number
 }
 
@@ -127,10 +127,13 @@ export interface RecordEdits {
   nextAt: number | null
 }
 
-export type SearchAnswer =
-  | { status: "available"; price: number; currency: string; years: number; community: Community | null; terms: Terms | null }
-  | { status: "registered"; entities: Entity[]; records?: Links | null; owner?: string; resolver?: string; recordsNonce?: number | null; recordEdits?: RecordEdits | null; expiresAt?: number; gracePeriod?: number; community: Community | null }
-  | { status: "reserved"; community: Community | null }
+export type ResolverRecords = ({ type: "own"; nonce: number; edits: RecordEdits } & Links) | { type: "other" }
+export type Found =
+  | { type: "available"; price: number; years: number; terms: Terms | null }
+  | { type: "registering" }
+  | { type: "reserved" }
+  | { type: "registered"; owner: string; resolver: string; expiresAt: number; gracePeriod: number; entities: Entity[]; records: ResolverRecords }
+export interface SearchAnswer { found: Found; community: Community | null }
 
 export type ChatKind = "contact" | "channel" | "business" | "bot"
 // whether the service read the link's data: not now (unread), or never, for a host it does not fetch (unavailable)
@@ -381,7 +384,7 @@ const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.
 const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,112}$/.test(v)
 const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
 const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
-const isCommunity = (v: unknown) => v === null || (isObject(v) && nullable(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
+const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
 const isAcceptance = (v: unknown) => isObject(v) && (v.kind === "general" || v.kind === "community") && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && PHASES.includes(v.phase as Phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
@@ -396,19 +399,35 @@ const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open",
   && optional(v.cryptoCurrency, (x) => ["card", "btc", "xmr"].includes(x as string)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
 const clampDue = (inv: InvoiceView): InvoiceView => inv.cryptoAmountDue?.startsWith("-") ? { ...inv, cryptoAmountDue: "0" } : inv
 const checkedInvoice = (answer: Promise<unknown>) => checked<InvoiceView>(answer, isInvoice).then(clampDue)
-const isRecords = (v: unknown) => isObject(v) && isText(v.contact) && isText(v.channel)
+const isTime = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v))
 // none left only while an edit is counted, which returns at nextAt
-const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && nullable(v.nextAt, isAmount) && (v.left !== 0 || v.nextAt !== null)
+const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && optional(v.nextAt, isTime) && (v.left !== 0 || v.nextAt !== undefined)
+const isResolverRecords = (v: unknown) => isObject(v) && (v.type === "other" || (v.type === "own" && isText(v.contact) && isText(v.channel) && isAmount(v.nonce) && isRecordEdits(v.edits)))
+const isNameFound = (v: unknown, chainId: number) => isObject(v) && (v.type === "reserved" || v.type === "registering"
+  || (v.type === "available" && isAmount(v.price) && isCount(v.years) && optional(v.terms, (t) => isTerms(t, chainId)))
+  || (v.type === "registered" && isText(v.owner) && isText(v.resolver) && isAmount(v.expiresAt) && isAmount(v.gracePeriod) && Array.isArray(v.entities) && v.entities.every(isEntity)
+    && isResolverRecords(v.records)))
 
-type SearchReply = Exclude<SearchAnswer, { status: "registered" }> | (Omit<Extract<SearchAnswer, { status: "registered" }>, "entities"> & { entities: LinkEntity[] })
+type WireRecords = ({ type: "own"; nonce: number; edits: { left: number; nextAt?: string } } & Links) | { type: "other" }
+type WireFound = Extract<Found, { type: "registering" | "reserved" }> | { type: "available"; price: number; years: number; terms?: Terms }
+  | (Omit<Extract<Found, { type: "registered" }>, "entities" | "records"> & { entities: LinkEntity[]; records: WireRecords })
 
-export const searchName = (labelHash: string, length: number, chainId: number) => checked<SearchReply>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
-  a.status === "reserved"
-  || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isText(a.currency) && nullable(a.terms, (t) => isTerms(t, chainId)))
-  || (a.status === "registered" && Array.isArray(a.entities) && a.entities.every(isEntity) && optional(a.owner, isText)
-    && optional(a.resolver, isText) && optional(a.records, (r) => nullable(r, isRecords)) && optional(a.recordsNonce, (n) => nullable(n, isAmount)) && optional(a.recordEdits, (r) => nullable(r, isRecordEdits))
-    && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount))))
-  .then((a): SearchAnswer => a.status === "registered" ? { ...a, entities: a.entities.map(entityOf) } : a)
+function foundOf(f: WireFound): Found {
+  switch (f.type) {
+    case "available": return { type: "available", price: f.price, years: f.years, terms: f.terms ?? null }
+    case "registered": {
+      const records: ResolverRecords = f.records.type === "own"
+        ? { ...f.records, edits: { left: f.records.edits.left, nextAt: f.records.edits.nextAt === undefined ? null : Date.parse(f.records.edits.nextAt) / 1000 } }
+        : f.records
+      return { ...f, entities: f.entities.map(entityOf), records }
+    }
+    default: return f
+  }
+}
+
+export const searchName = (labelHash: string, length: number, chainId: number) =>
+  checked<{ found: WireFound; community?: Community }>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => optional(a.community, isCommunity) && isNameFound(a.found, chainId))
+    .then((a): SearchAnswer => ({ found: foundOf(a.found), community: a.community ?? null }))
 export const previewLink = (link: string) => checked<Preview>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 
 // The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very

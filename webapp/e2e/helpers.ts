@@ -173,7 +173,7 @@ export async function searchName(request: APIRequestContext, label: string): Pro
   const { labelHash } = await import("../src/crypto/registration.ts")
   const { hex } = await import("../src/crypto/wallet.ts")
   const res = await request.get(`${MOCK}/api/name/${hex(labelHash(label))}?length=${label.length}`)
-  return res.json()
+  return (await res.json()).found
 }
 
 // The page in light and dark, on a desktop and on a phone; the theme is a class, so no redraw is needed.
@@ -532,13 +532,16 @@ export async function failedOrder(page: Page, request: APIRequestContext, label:
 
 // The page's searches of a name answer that it is reserved, as for one the controller's owner reserved after an order's commit.
 export const answersReserved = (page: Page, label: string) =>
-  page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: { status: "reserved", community: null } }))
+  page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: { found: { type: "reserved" } } }))
 
 export async function waitRegistered(page: Page, label: string): Promise<void> {
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible({ timeout: REGISTRATION_MS })
 }
 
 export const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
+
+export const registeredAnswer = (owner: string, expiresAt: number, links: { contact: string; channel: string }, entities: unknown[] = [], nonce = 0, gracePeriod = 90 * 86400) =>
+  ({ found: { type: "registered", owner, resolver: CHAIN.resolver, expiresAt, gracePeriod, entities, records: { type: "own", ...links, nonce, edits: { left: 3 } } } })
 
 export function okPreview(kind: "contact" | "channel", displayName: string, change: { fullName?: string; image?: string; peerType?: string; business?: boolean; publicMemberCount?: number } = {}) {
   const { fullName = "", image, peerType, business = false, publicMemberCount = 12 } = change
@@ -580,8 +583,7 @@ export async function fakeRegisteredName(page: Page, label: string, links: { con
   await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt }) }))
   await page.route("**/api/name/**", (route) => {
     const now = records()
-    return route.fulfill({ json: { status: "registered", entities: [], owner: order.owner, resolver: CHAIN.resolver, records: now.links, recordsNonce: now.nonce,
-      recordEdits: { left: 3, nextAt: null }, expiresAt, community: null } })
+    return route.fulfill({ json: registeredAnswer(order.owner, expiresAt, now.links, [], now.nonce) })
   })
   return order
 }

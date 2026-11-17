@@ -20,7 +20,7 @@ const TERMS = {
 }
 const SIGNED = TERMS.hash.slice(2)
 const COMMUNITY_SIGNED = `community/${"c7".repeat(32)}`
-const QUOTE = { status: "available" as const, price: 20000, currency: "usd", years: 2, community: null, terms: TERMS }
+const QUOTE = { type: "available" as const, price: 20000, years: 2, community: null, terms: TERMS }
 const SITE = { stripePublishableKey: null, names: { codesOnly: false, ...CHAIN, termStart: TERM_START } }
 const LINKS = { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
 
@@ -178,7 +178,7 @@ describe("retargetOrder", () => {
     const record = flow.recordFor(fiveYears, built, "code", 0, { registrationId: "reg1", invoiceId: null })
     store.saveOrder(record)
     answers["POST /api/registration/reg1/name"] = view(built.request)
-    const community = { ...QUOTE, community: { for: null, years: 2 } }
+    const community = { ...QUOTE, community: { years: 2 } }
     await flow.retargetOrder(record, "another", LINKS, community, COMMUNITY_SIGNED)
     expect(Math.floor((calls[0].body as { duration: number }).duration / YEAR_S)).toBe(2)
     expect(store.orderByRegistration("reg1")?.years).toBe(5)
@@ -192,7 +192,7 @@ describe("retargetOrder", () => {
     const { flow } = await modules()
     await (await import("../src/config.ts")).namesSite()
     const record = flow.recordFor(draft(), await flow.orderRequest(draft()), "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
-    const community = { for: null, years: 2 }
+    const community = { years: 2 }
     expect(flow.draftAgain(record, { ...QUOTE, years: 3 }, SIGNED).years).toBe(3)
     expect(flow.draftAgain(record, { ...QUOTE, years: 3, community }, SIGNED).years).toBe(2)
   })
@@ -356,7 +356,7 @@ describe("spendBalance", () => {
   it("drafts a spend for a community name for the community's years, else for the answer's", async () => {
     const { flow, store } = await modules()
     const record = await source(store, flow)
-    const community = { for: null, years: 2 }
+    const community = { years: 2 }
     expect(flow.spendDraft(record, "another", NO_LINKS, { ...quote(10000), years: 3, community }, SPEND.terms).years).toBe(2)
     expect(flow.spendDraft(record, "another", NO_LINKS, { ...quote(10000), years: 3 }, SPEND.terms).years).toBe(3)
   })

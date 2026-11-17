@@ -357,23 +357,23 @@ export async function search(hash: string, lengthText: string | null): Promise<R
   const length = Number(lengthText)
   if (!Number.isInteger(length) || length < MIN_LABEL_LENGTH || length > MAX_LABEL_LENGTH) throw new HttpError(400, "invalid_name")
   const { listed, terms } = await nameTerms(hash).catch(unavailable)
-  return { ...await answerFor(hash, length, terms), community: listed ? communityEntry(hash) : null }
+  return { found: await answerFor(hash, length, terms, listed), ...listed ? { community: communityEntry(hash) } : {} }
 }
 
-async function answerFor(hash: Hex, length: number, terms: Terms | null): Promise<Record<string, unknown>> {
+async function answerFor(hash: Hex, length: number, terms: Terms | null, listed: boolean): Promise<Record<string, unknown>> {
   const found = await lookup(hash)
-  if (found.type === "reserved") return { status: "reserved" }
+  if (found.type === "reserved") return { type: "reserved" }
   if (found.type === "available") {
-    if (registering(hash)) return { status: "registered", entities: [] }
-    const price = await priceOf(length, YEARS).catch(unavailable)
+    if (registering(hash)) return { type: "registering" }
+    const years = listed ? COMMUNITY_YEARS : YEARS
+    const price = await priceOf(length, years).catch(unavailable)
     const readable = terms && await termsText(terms).catch(() => null) !== null ? terms : null
-    return { status: "available", price, currency: "usd", years: YEARS, terms: readable }
+    return { type: "available", price, years, ...readable ? { terms: readable } : {} }
   }
+  const registered = { type: "registered", owner: found.owner, resolver: found.resolver, expiresAt: found.expires, gracePeriod: found.grace }
   // Records are read only from the store's own resolver: calling whatever contract a name points at would let anyone
   // make the service run arbitrary code. A name pointed elsewhere is shown with its owner and no links.
-  if (found.resolver !== getAddress(deployment.resolver)) {
-    return { status: "registered", entities: [], records: null, owner: found.owner, resolver: found.resolver, recordsNonce: null, recordEdits: null, expiresAt: found.expires, gracePeriod: found.grace }
-  }
+  if (found.resolver !== getAddress(deployment.resolver)) return { ...registered, entities: [], records: { type: "other" } }
   const node = nodeOf(hash)
   let contact: string, channel: string, nonce: bigint
   try {
@@ -387,7 +387,9 @@ async function answerFor(hash: Hex, length: number, terms: Terms | null): Promis
     throw new HttpError(503, "provider_unavailable")
   }
   const entities = [...await entitiesOf("contact", contact), ...await entitiesOf("channel", channel)]
-  return { status: "registered", entities, records: { contact, channel }, owner: found.owner, resolver: found.resolver, recordsNonce: Number(nonce), recordEdits: editsLeft(hash), expiresAt: found.expires, gracePeriod: found.grace }
+  const { left, nextAt } = editsLeft(hash)
+  const edits = { left, ...nextAt === null ? {} : { nextAt: new Date(nextAt * 1000).toISOString() } }
+  return { ...registered, entities, records: { type: "own", contact, channel, nonce: Number(nonce), edits } }
 }
 
 function nodeOf(labelHash: Hex): Hex {
@@ -402,7 +404,7 @@ function nodeOf(labelHash: Hex): Hex {
 // words only say what a listed name is for. The terms of each kind are the policy's links, whose texts the service fetches.
 const communities = new Map<Hex, string>([[keccak256(toHex("bakers")), "bakers and pastry chefs"]])
 
-const communityEntry = (labelHash: Hex) => ({ for: communities.get(labelHash) ?? null, years: COMMUNITY_YEARS })
+const communityEntry = (labelHash: Hex) => ({ ...communities.has(labelHash) ? { for: communities.get(labelHash) } : {}, years: COMMUNITY_YEARS })
 // a community name's order pays for these years, whatever years its code gives
 const orderYears = (o: { terms: string }, years: number) => communityAgreed(o.terms) ? COMMUNITY_YEARS : years
 

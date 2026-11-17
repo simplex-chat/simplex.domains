@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  brokenNames, CHAIN, channelLink, codeField, contactLink, control, keepOrder, LINKS_HEADING, onStep, previewsShown, registrationView, search, test, toReview, uniqueLabel, useCode,
+  brokenNames, channelLink, codeField, contactLink, control, keepOrder, LINKS_HEADING, onStep, previewsShown, registeredAnswer, registrationView, search, test, toReview, uniqueLabel, useCode,
 } from "./helpers.ts"
 
 const PHONE = { width: 390, height: 844 }
@@ -14,8 +14,7 @@ const EXPIRES_AT = 1861833600
 async function registeredName(page: Page, id: string, label: string, links: { contact: string; channel: string }): Promise<void> {
   const order = await keepOrder(page, id, null, label, links)
   await page.route(`**/api/registration/${id}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: EXPIRES_AT }) }))
-  await page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: { status: "registered", entities: [], owner: order.owner, resolver: CHAIN.resolver,
-    records: links, recordsNonce: 0, expiresAt: EXPIRES_AT, community: null } }))
+  await page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: registeredAnswer(order.owner, EXPIRES_AT, links) }))
 }
 
 // Each focus stop from the page's start, with whether it draws a ring: on itself, on the pill of the field it is in,

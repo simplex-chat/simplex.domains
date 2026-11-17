@@ -156,7 +156,7 @@ describe("the page's builders reproduce Appendix C", () => {
   })
 
   const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, chain: CHAIN, years: YEARS, termStart: TERM_START, ownerCode: OWNER_CODE, terms })
-  const quote = { status: "available" as const, price: 10000, currency: "usd", years: YEARS, community: null, terms: {
+  const quote = { type: "available" as const, price: 10000, years: YEARS, community: null, terms: {
     hash: `0x${PLAIN}`,
     link: "https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/5fb3fb63fa5a059abf6e397621ba4d7c3618c702/docs/terms.md#sha256=8b6cf03192081aa7b2cd3a82fd665fdd0f28c1ced65792837a5ac2492e6a8070",
   } }
