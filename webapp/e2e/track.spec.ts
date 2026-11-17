@@ -128,6 +128,7 @@ function oneFrame(frames: Record<string, Frame[]>): void {
 }
 
 test("every purchase step fits a laptop's and a phone's window, its heading and main button at one place on every step", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   await page.goto("/")
   await fitsWindow(page, "1-home")
   // a taken name with both its links
@@ -177,6 +178,7 @@ test("every purchase step fits a laptop's and a phone's window, its heading and 
 })
 
 test("the balance's steps fit both windows, their heading, main button and link where every step's are", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   const frames: Record<string, Frame[]> = {}
   await takenOrder(page, request, uniqueLabel("fitbal"))
   await fitsWindow(page, "b1-taken", frames)
