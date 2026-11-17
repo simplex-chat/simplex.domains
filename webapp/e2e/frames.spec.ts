@@ -159,7 +159,7 @@ const NON_LATIN_NAME = "Łukasz Żak"
 
 test("a font face that a step's change loads leaves the step where it holds, after a refused link", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.route("**/api/link/preview", (route) => route.fulfill({ json: { type: "address", kind: "contact", displayName: NON_LATIN_NAME, fullName: "", image: null, subscribers: null, profile: "ok" } }))
+  await page.route("**/api/link/preview", (route) => route.fulfill({ json: { type: "address", profile: "ok", displayName: NON_LATIN_NAME, fullName: "", image: null, peerType: null, business: false } }))
   await search(page, uniqueLabel("face"))
   await onStep(page).getByRole("button", { name: "Register" }).click()
   await heading(page, LINKS_HEADING)

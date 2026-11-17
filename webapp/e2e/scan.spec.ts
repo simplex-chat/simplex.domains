@@ -1,10 +1,10 @@
 import { chromium, expect, type Browser } from "@playwright/test"
-import { readFileSync, writeFileSync } from "node:fs"
+import { writeFileSync } from "node:fs"
 import { newOwnerCode } from "../src/flow.ts"
 import { encodeQr } from "../src/qr.ts"
 import type { Pixels } from "../src/scan.ts"
 import { qrPixels, withQuietZone } from "../test/qr-image.ts"
-import { codeField, LINKS_HEADING, onStep, search, test, uniqueLabel } from "./helpers.ts"
+import { codeField, contactLink, LINKS_HEADING, onStep, search, test, uniqueLabel } from "./helpers.ts"
 
 // Chromium's fake camera stands in for a phone's: listed as a device, refused until the camera is granted, and showing a
 // still frame of a QR code when given a video file.
@@ -13,9 +13,8 @@ test.skip(({ browserName }) => browserName !== "chromium", "only Chromium has a 
 const PHONE = { width: 390, height: 844 }
 const LAPTOP = { width: 1280, height: 900 }
 const FAKE_CAMERA = "--use-fake-device-for-media-stream"
-// the decode test's fixture: a link's QR code in grey, tilted and noisy, as a binary PGM
-const FIXTURE = new URL("../test/fixtures/scan-link.pgm", import.meta.url)
-const FIXTURE_LINK = "https://smp8.simplex.im/a#ScanY8m3qT0vLw2Ab7cD9eF1gH3jK5mN7p"
+// a link the service takes, whose QR code the fake camera shows
+const SCANNED_LINK = contactLink("Scan")
 const NO_CAMERA = "Allow the camera, or paste the link."
 
 // Playwright's headless shell has no cameras at all; the full Chromium, in its own headless mode, has the fake one
@@ -31,7 +30,7 @@ function y4mOf(pgm: Buffer): Buffer {
 
 // the white border, in modules, a QR code is shown with
 const QUIET_ZONE = 4
-// a reader's picture of a name code's QR, as a binary PGM, in grey
+// a reader's picture of a QR code, as a binary PGM, in grey
 function pgmOf({ data, width, height }: Pixels): Buffer {
   const grey = Buffer.alloc(width * height)
   for (let i = 0; i < grey.length; i++) grey[i] = data[i * 4]
@@ -88,7 +87,7 @@ test("a camera not allowed says so, and the field still takes a pasted link", as
     await expect(onStep(page).locator(".field-error")).toHaveText(NO_CAMERA)
     await expect(page.getByRole("dialog")).toHaveCount(0)
     const link = onStep(page).getByRole("textbox", { name: "Link", exact: true })
-    await link.fill(FIXTURE_LINK)
+    await link.fill(SCANNED_LINK)
     await expect(onStep(page).locator(".link-field").first()).toHaveAttribute("data-state", "ok")
     await expect(onStep(page).getByText(NO_CAMERA)).toHaveCount(0)
   } finally {
@@ -98,13 +97,13 @@ test("a camera not allowed says so, and the field still takes a pasted link", as
 
 test("the camera reads a link's QR code into the Link field", async ({ baseURL }, testInfo) => {
   const video = testInfo.outputPath("scan-link.y4m")
-  writeFileSync(video, y4mOf(readFileSync(FIXTURE)))
+  writeFileSync(video, y4mOf(pgmOf(qrPixels(withQuietZone(encodeQr(SCANNED_LINK)!.modules, QUIET_ZONE)))))
   const browser = await withCamera([FAKE_CAMERA, `--use-file-for-fake-video-capture=${video}`])
   try {
     const { page, scan } = await linksStep(browser, baseURL!, true)
     await scan.click()
     const link = onStep(page).getByRole("textbox", { name: "Link", exact: true })
-    await expect(link).toHaveValue(FIXTURE_LINK, { timeout: 10_000 })
+    await expect(link).toHaveValue(SCANNED_LINK, { timeout: 10_000 })
     await expect(page.getByRole("dialog"), "the camera's view goes once it has read the code").toHaveCount(0)
     await expect(onStep(page).locator(".link-field").first()).toHaveAttribute("data-state", "ok")
     await expect(link).toBeFocused()

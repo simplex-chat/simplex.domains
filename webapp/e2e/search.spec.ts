@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test"
+import { deepLinkOf } from "../dev/mock/links.ts"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
@@ -29,11 +30,11 @@ test("search answers every kind of name", async ({ page, request }) => {
   // the chats the name opens, as the app's own pictures in its row, and whose it is
   await expect(page.locator(".answer .row .chat")).toHaveCount(2)
   await expect(page.locator(".answer .row")).toContainText("Taken")
-  // the seeded links are no short links the chat core parses, so no chat's profile is read and each opens its own text
-  await expect(page.locator(".answer").getByRole("button", { name: "Contact address", exact: true })).toBeVisible()
-  await page.locator(".answer").getByRole("button", { name: "Channel", exact: true }).click()
+  // each chat is named by its profile, and opens the chat core's form of its seeded link, which keeps the link's server
+  await expect(page.locator(".answer").getByRole("button", { name: "Contact Y8m3qT, contact address", exact: true })).toBeVisible()
+  await page.locator(".answer").getByRole("button", { name: "Channel Rk27xN, channel", exact: true }).click()
   const { records } = await searchName(request, "bakery") as { records: { channel: string } }
-  await expect(page.getByRole("dialog", { name: "Channel" }).getByRole("link", { name: "Open channel in SimpleX" })).toHaveAttribute("href", records.channel)
+  await expect(page.getByRole("dialog", { name: "Channel Rk27xN" }).getByRole("link", { name: "Open channel in SimpleX" })).toHaveAttribute("href", deepLinkOf(records.channel)!)
   await page.keyboard.press("Escape")
   await shot(page, "N2a-taken")
   await search(page, "harbour")

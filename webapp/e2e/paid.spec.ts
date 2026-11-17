@@ -402,7 +402,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(link).toHaveValue(contact)
 
   // a link of the kind the other field holds is refused, and Save takes focus to it
-  await link.fill("https://smp8.simplex.im/c#notacontact")
+  await link.fill("https://smp8.simplex.im/c#notacontactA")
   await expect(page.getByText("This is a channel link. Paste a contact address here.")).toBeVisible()
   await shot(page, "N12f-link-wrong-kind")
   await page.getByRole("button", { name: "Save links" }).click()

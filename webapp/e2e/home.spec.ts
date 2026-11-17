@@ -7,15 +7,16 @@ const LAPTOP = { width: 1280, height: 800 }
 // a name with one chat of each kind the app knows, the contact with a picture of its own
 const PICTURE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxIDEiPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNjNzZhM2IiLz48L3N2Zz4="
 const chat = (kind: string, displayName: string, extra: Record<string, unknown> = {}) => ({
-  type: kind === "channel" ? "channel" : "address", kind, displayName, fullName: "", image: null, subscribers: kind === "channel" ? 1 : null, profile: "ok",
-  link: `https://smp8.simplex.im/${kind === "channel" ? "c" : "a"}#${kind}`, deepLink: `simplex:/${kind === "channel" ? "c" : "a"}#${kind}?h=smp8.simplex.im`, ...extra,
+  type: kind === "channel" ? "channel" : "address", displayName, fullName: "", image: null, profile: "ok",
+  ...kind === "channel" ? { groupType: "channel", publicMemberCount: 1 } : { peerType: kind === "bot" ? "bot" : null, business: kind === "business" },
+  link: `https://smp8.simplex.im/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}`, deepLink: `simplex:/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}?h=smp8.simplex.im`, ...extra,
 })
 const EVERY_KIND = [chat("contact", "Ann", { image: PICTURE }), chat("channel", "News"), chat("business", "Shop"), chat("bot", "Helper")]
 // a name's two chats whose profiles the service read, with the channel's link and the chat core's form of it
-const CHANNEL_LINK = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm"
-const CHANNEL_DEEP_LINK = "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm?h=smp9.simplex.im"
+const CHANNEL_LINK = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA"
+const CHANNEL_DEEP_LINK = "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?h=smp9.simplex.im"
 const BAKERY = [chat("contact", "Alice's Bakery", { fullName: "Sourdough and pastries, Lisbon" }),
-  chat("channel", "Bakery news", { fullName: "Daily bakes and opening hours", subscribers: 1204, link: CHANNEL_LINK, deepLink: CHANNEL_DEEP_LINK })]
+  chat("channel", "Bakery news", { fullName: "Daily bakes and opening hours", publicMemberCount: 1204, link: CHANNEL_LINK, deepLink: CHANNEL_DEEP_LINK })]
 
 async function answerWith(page: Page, entities: unknown[]): Promise<void> {
   await page.route("**/api/name/**", (route) => route.fulfill({ json: { status: "registered", entities, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", tld: "simplex", community: null } }))

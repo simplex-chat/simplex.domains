@@ -21,7 +21,7 @@ const TERMS = {
 const SIGNED = TERMS.hash.slice(2)
 const COMMUNITY_SIGNED = `community/${"c7".repeat(32)}`
 const QUOTE = { status: "available" as const, price: 20000, currency: "usd", years: 2, termStart: TERM_START, community: null, terms: TERMS, ...CHAIN }
-const LINKS = { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS", channel: "" }
+const LINKS = { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
 
 type Call = { method: string; path: string; body: Record<string, unknown> }
 let calls: Call[]
@@ -515,12 +515,12 @@ describe("saveLinks", () => {
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/name/records"] = { tx: "0xabc" }
-    const tx = await flow.saveLinks(record, CHAIN, 5, { contact: "", channel: "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm" })
+    const tx = await flow.saveLinks(record, CHAIN, 5, { contact: "", channel: "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?h=smp9.simplex.im" })
     expect(tx).toBe("0xabc")
     expect(calls).toHaveLength(1)
     const { labelHash: sentHash, edits } = calls[0].body as { labelHash: string; edits: { key: string; value: string; nonce: number; deadline: number; signature: Hex }[] }
     expect(sentHash).toBe(hex(labelHash("dynamis")))
-    expect(edits.map((e) => [e.key, e.value, e.nonce])).toEqual([[flow.KEYS.contact, "", 5], [flow.KEYS.channel, "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm", 6]])
+    expect(edits.map((e) => [e.key, e.value, e.nonce])).toEqual([[flow.KEYS.contact, "", 5], [flow.KEYS.channel, "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?h=smp9.simplex.im", 6]])
     expect(new Set(edits.map((e) => e.deadline)).size, "one deadline for the Save").toBe(1)
     const node = namehash("simplex", "dynamis")
     for (const e of edits) {

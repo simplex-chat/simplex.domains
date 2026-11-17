@@ -160,7 +160,7 @@ test("a link's profile takes its placeholder's place as it is, rather than arriv
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.route("**/api/link/preview", async (route) => {
     await new Promise((done) => setTimeout(done, PREVIEW_DELAY_MS))
-    await route.fulfill({ json: { type: "address", kind: "contact", displayName: "Late profile", fullName: "", image: null, subscribers: null, profile: "ok" } })
+    await route.fulfill({ json: { type: "address", profile: "ok", displayName: "Late profile", fullName: "", image: null, peerType: null, business: false } })
   })
   await search(page, uniqueLabel("inplace"))
   await onStep(page).getByRole("button", { name: "Register" }).click()
