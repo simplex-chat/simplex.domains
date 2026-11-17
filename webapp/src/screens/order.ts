@@ -193,14 +193,9 @@ export const coinOf = (invoice: InvoiceView): Coin | null => invoice.cryptoCurre
 
 export const TICKER: Record<Coin, string> = { btc: "BTC", ln: "BTC", xmr: "XMR" }
 
-// a BOLT11 invoice is paid in full or not at all, so only a coin sent on chain can have part of it arrive
-export const partlyPaid = (invoice: InvoiceView) => invoice.cryptoCurrency !== "ln" && Number(invoice.cryptoAmountPaid ?? "0") > 0
-
 // the count stays with its word on one line; a payment taken on first sight waits for no confirmation at all
 const confirmations = (n: number) => (n === 1 ? "Waiting for 1\u00a0confirmation" : n > 1 ? `Waiting for ${n}\u00a0confirmations` : "Waiting for the payment to settle")
 
-// What the page says of a coin payment seen in full that the service has not settled yet. A Lightning payment is final
-// once paid and waits for no confirmation, so its page shows only until the service reads the invoice paid.
 export function seenWords(invoice: InvoiceView, coin: Coin): { title: string; alert: string; text: string } {
   const arrived = `${invoice.cryptoAmount} ${TICKER[coin]} arrived`
   if (coin === "ln") return { title: "Payment received", alert: "Starting registration", text: `${arrived} by Lightning. Registration starts in a moment; this page moves on by itself.` }
