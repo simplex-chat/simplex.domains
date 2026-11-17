@@ -839,6 +839,7 @@ async function advance(reg: Registration): Promise<void> {
     if (reg.phase === "committed" && reg.intent) await register(reg)
     reg.resends = 0
   } catch (e) {
+    console.error(`${new Date().toISOString()} ${reg.id} ${reg.phase}, try ${reg.resends}: ${e instanceof Error ? e.message : e}`)
     if (e instanceof NotSent && reg.resends < RESENDS) {
       reg.resends += 1
       setTimeout(() => void advance(reg), RESEND_MS)
@@ -879,6 +880,7 @@ async function commit(reg: Registration): Promise<void> {
     const at = Number(await read<bigint>(controller, "commitments", [reg.commitment]))
     // a commit the wall clock calls lapsed can still be live on chain for a few blocks; reusing it would lapse at once
     if (at + deployment.maxCommitmentAge > nowSeconds()) break
+    console.error(`${new Date().toISOString()} ${reg.id} commit at ${at}, now ${nowSeconds()}`)
     await sleep(1000)
   }
   const committedAt = Number(await read<bigint>(controller, "commitments", [reg.commitment]))
