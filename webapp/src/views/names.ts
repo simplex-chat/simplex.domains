@@ -1,5 +1,6 @@
 // Your names: this browser's orders and codes, restoring an order with its name code, and editing a name's links.
 import * as api from "../api.ts"
+import { namesSite, readSite } from "../config.ts"
 import { alertBox, announce, btn, chip, codeDisplay, copyButton, el, type Kid, nameCodeQr, nameText, nameTitle, reducedMotion, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { dateOf, dollars, SEP } from "../format.ts"
@@ -146,6 +147,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   let view: api.RegistrationView
   let invoice: api.InvoiceView | null = null
   try {
+    await namesSite()
     if (o.invoiceId) {
       invoice = await api.readInvoice(o.invoiceId)
       view = invoice.registration
@@ -164,7 +166,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   if (!isRoute(route)) return
   dispatchList({ type: "row-read", id, view, invoice, now: api.serviceNow() })
   if (view.phase !== "registered") return
-  const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length).catch(() => null)
+  const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length, readSite().chainId).catch(() => null)
   answerList(route, { type: "row-answered", id, answer })
 }
 
@@ -302,7 +304,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const seen = s.seen[id]
   // the order may have moved to another name since it was stored
   const label = seen?.view.label ?? o.label
-  const tld = seen?.view.tld ?? o.tld
+  const tld = seen ? readSite().tld : o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
   const registered = seen?.view.phase === "registered"
   const code = registered ? o.ownerCode : null
@@ -373,7 +375,7 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
     : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
-  const sub = ["From ", nameText(view.label ?? o.label, view.tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
+  const sub = ["From ", nameText(view.label ?? o.label, readSite().tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
     b.held ? `${SEP}in use by another order ${heldWords(b.heldUntil)}` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, b.held ? chip("In use", "brand", true) : null, acts)
@@ -516,7 +518,7 @@ async function readEdit(route: number): Promise<void> {
   try {
     view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId)).registration : await api.readRegistration(stored.registrationId)
     record = await flow.syncRecord(stored, view) ?? stored
-    answer = await api.searchName(record.request.labelHash, record.label.length)
+    answer = await api.searchName(record.request.labelHash, record.label.length, (await namesSite()).chainId)
   } catch (e) {
     // a forgotten unpaid order may have a newer one, found with the code
     const newer = e instanceof api.ApiError && e.code === "not_found" ? await flow.newerOrder(stored).catch(() => null) : null
@@ -587,10 +589,10 @@ async function saveLinks(links: LinkFields): Promise<void> {
   }).finally(() => { awaitingChecks = false })
   if (!settled || !isRoute(route)) return showEdit()
   dispatchEdit({ type: "save-started" })
-  const { record, read, form } = edit
+  const { record, form } = edit
   if (!form?.saving) return
   try {
-    await flow.saveLinks(record!, read!.view, form.nonce, form.changes)
+    await flow.saveLinks(record!, readSite(), form.nonce, form.changes)
     answerEdit(route, { type: "save-done", at: api.serviceSeconds() })
   } catch (e) {
     // no answer is not a refusal: the edit may still be mined, and sending it again would pay for it twice
@@ -603,7 +605,7 @@ async function saveLinks(links: LinkFields): Promise<void> {
     if (holdFrom(e)) return answerEdit(route, { type: "save-held", until: holdEnd() })
     // A refused edit may mean the nonce moved: an earlier save, from a page reloaded before it was mined, or from
     // another browser. The next save signs with the fresh one, and the page says why this one did not go.
-    const fresh = await api.searchName(record!.request.labelHash, record!.label.length).catch(() => null)
+    const fresh = await api.searchName(record!.request.labelHash, record!.label.length, readSite().chainId).catch(() => null)
     if (!isRoute(route)) return
     const now = edit.form!
     const nonce = fresh?.status === "registered" && fresh.recordsNonce != null && fresh.recordsNonce > now.nonce ? fresh.recordsNonce : null

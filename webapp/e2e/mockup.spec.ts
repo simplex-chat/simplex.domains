@@ -15,7 +15,7 @@ async function registeredName(page: Page, id: string, label: string, links: { co
   const order = await keepOrder(page, id, null, label, links)
   await page.route(`**/api/registration/${id}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: EXPIRES_AT }) }))
   await page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: { status: "registered", entities: [], owner: order.owner, resolver: CHAIN.resolver,
-    chainId: CHAIN.chainId, records: links, recordsNonce: 0, expiresAt: EXPIRES_AT, tld: "simplex", community: null } }))
+    records: links, recordsNonce: 0, expiresAt: EXPIRES_AT, community: null } }))
 }
 
 // Each focus stop from the page's start, with whether it draws a ring: on itself, on the pill of the field it is in,

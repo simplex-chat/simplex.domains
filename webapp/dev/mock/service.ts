@@ -6,6 +6,7 @@ import {
   zeroHash, type Address, type Hex,
 } from "viem"
 import { communityAgreed, type LinkData, termsLink } from "../../src/api.ts"
+import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
 import { CODES_ONLY, type Mode } from "../../src/mode.ts"
@@ -358,18 +359,17 @@ export async function search(hash: string, lengthText: string | null): Promise<R
 
 async function answerFor(hash: Hex, length: number, terms: Terms | null): Promise<Record<string, unknown>> {
   const found = await lookup(hash)
-  const chain = { chainId: deployment.chainId, tld: deployment.tld }
   if (found.type === "reserved") return { status: "reserved" }
   if (found.type === "available") {
-    if (registering(hash)) return { status: "registered", entities: [], tld: deployment.tld }
+    if (registering(hash)) return { status: "registered", entities: [] }
     const price = await priceOf(length, YEARS).catch(unavailable)
     const readable = terms && await termsText(terms).catch(() => null) !== null ? terms : null
-    return { status: "available", price, currency: "usd", years: YEARS, termStart: TERM_START_S, resolver: deployment.resolver, sponsor: deployment.sponsor, ...chain, terms: readable }
+    return { status: "available", price, currency: "usd", years: YEARS, terms: readable }
   }
   // Records are read only from the store's own resolver: calling whatever contract a name points at would let anyone
   // make the service run arbitrary code. A name pointed elsewhere is shown with its owner and no links.
   if (found.resolver !== getAddress(deployment.resolver)) {
-    return { status: "registered", entities: [], records: null, owner: found.owner, resolver: found.resolver, recordsNonce: null, recordEdits: null, expiresAt: found.expires, gracePeriod: found.grace, ...chain }
+    return { status: "registered", entities: [], records: null, owner: found.owner, resolver: found.resolver, recordsNonce: null, recordEdits: null, expiresAt: found.expires, gracePeriod: found.grace }
   }
   const node = nodeOf(hash)
   let contact: string, channel: string, nonce: bigint
@@ -384,7 +384,7 @@ async function answerFor(hash: Hex, length: number, terms: Terms | null): Promis
     throw new HttpError(503, "provider_unavailable")
   }
   const entities = [...await entitiesOf("contact", contact), ...await entitiesOf("channel", channel)]
-  return { status: "registered", entities, records: { contact, channel }, owner: found.owner, resolver: found.resolver, recordsNonce: Number(nonce), recordEdits: editsLeft(hash), expiresAt: found.expires, gracePeriod: found.grace, ...chain }
+  return { status: "registered", entities, records: { contact, channel }, owner: found.owner, resolver: found.resolver, recordsNonce: Number(nonce), recordEdits: editsLeft(hash), expiresAt: found.expires, gracePeriod: found.grace }
 }
 
 function nodeOf(labelHash: Hex): Hex {
@@ -466,7 +466,7 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
   const acceptance = reg.phase === "committed" && reg.label === null ? await viewRead("acceptance", unread, () => acceptanceOf(reg)) : null
   return {
     id: reg.id, version: reg.version, moves: reg.moves, phase: reg.phase, labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
-    resolver: deployment.resolver, sponsor: deployment.sponsor, chainId: deployment.chainId, tld: deployment.tld, years: reg.years, duration: reg.duration, price: reg.paid,
+    years: reg.years, duration: reg.duration, price: reg.paid,
     fromBalance: reg.fromBalance, balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx, revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
     intentNonce, acceptance, unread, expiresAt: reg.expiresAt, error: reg.error, linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: reg.terms,
   }
@@ -1591,6 +1591,11 @@ export function controlMode(body: Record<string, unknown>): Record<string, unkno
 }
 
 export const modeNow = () => ({ mode: control.mode })
+
+export const siteConfig = (): { stripePublishableKey: null; names: NamesSite } => ({
+  stripePublishableKey: null,
+  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S },
+})
 
 // The service's record_edits_per_year as a restart with a new ini sets it, and a name's counted edits: count of them, all
 // made at `at` in unix seconds (now when not given), in place of those it has.

@@ -1,5 +1,6 @@
 // The home: the landing's headline, the search box and every answer it can show.
 import * as api from "../api.ts"
+import { loadedSite, namesSite, readSite } from "../config.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
 import { alertBox, btn, el, icon, type Kid, line, link, nameText, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
@@ -49,7 +50,7 @@ export function searchPage(params: URLSearchParams): void {
   const fresh = !isRedraw() || shown === null || state.opening !== opening
   const returned = fresh && throughHistory()
   if (fresh) {
-    state = returned ? returnedTo(state, opening, name, store.orders()) : initialSearch()
+    state = returned ? returnedTo(state, opening, name, loadedSite()?.tld, store.orders()) : initialSearch()
     shown = null
     opens += 1
   }
@@ -101,7 +102,7 @@ async function runSearch(label: string, seq: number): Promise<void> {
   const hash = hex(labelHash(label))
   let answer: api.SearchAnswer
   try {
-    answer = await api.searchName(hash, label.length)
+    answer = await api.searchName(hash, label.length, (await namesSite()).chainId)
   } catch (e) {
     if (!awaited()) return
     if (holdFrom(e)) return dispatch({ type: "search-held", seq, until: holdEnd() })
@@ -198,14 +199,15 @@ async function register(): Promise<void> {
 }
 
 function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode: string | null): void {
-  const chain = flow.chainOf(answer)
+  const site = readSite()
+  const chain = flow.chainOf(site)
   const code = codeFor(s, label)
   // a balance pays under its order's name code, which then owns this name too
   const source = s.balance && store.orderByRegistration(s.balance.source)
   const balance = source ? s.balance : null
   const { ownerCode, saved } = orderCode(source ? source.ownerCode : null, closedCode)
   const started = session.checkout()
-  const quote = { price: answer.price, years: answer.years, termStart: answer.termStart, chain, terms: answer.terms, community: answer.community }
+  const quote = { price: answer.price, years: answer.years, termStart: site.termStart, chain, terms: answer.terms, community: answer.community }
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
   if (started && started.label === label && started.price === answer.price && started.chain.chainId === chain.chainId && !session.isSending(started) && sameCode) {
     const agreed = started.agreed && api.currentTerms(started) === api.currentTerms(answer)
@@ -377,7 +379,7 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
   const deal = free ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, free.years)} years`)]
     : [el("b", { class: "price" }, dollars(answer.price)), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, answer.years)} years`)]
   return [
-    el("div", { class: "card row buy" }, rowName(label, answer.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
+    el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !code && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
     s.balance ? balanceLine(s.balance, answer.price) : null,
@@ -394,7 +396,7 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
 function moveAgreement(s: SearchState, label: string, answer: flow.Quote): HTMLElement {
   const agree = (agreed: boolean) => dispatch({ type: "agreed", agreed })
   const accept = (accepted: boolean) => dispatch({ type: "accepted", accepted })
-  return termsChecks({ terms: answer.terms, community: answer.community, agreed: s.agreed, accepted: s.accepted, changed: s.termsChanged, label, tld: answer.tld, chainId: answer.chainId, disabled: s.register.busy }, agree, accept)
+  return termsChecks({ terms: answer.terms, community: answer.community, agreed: s.agreed, accepted: s.accepted, changed: s.termsChanged, label, tld: readSite().tld, chainId: readSite().chainId, disabled: s.register.busy }, agree, accept)
 }
 
 function balanceLine(balance: session.AppliedBalance, price: number): HTMLElement {
@@ -430,9 +432,10 @@ function takenAnswer(found: Found, answer: Extract<api.SearchAnswer, { status: "
   const registering = answer.owner === undefined
   const whose = mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
     : el("span", { class: "soft" }, registering ? "Being registered" : "Taken")
-  const name = `${label}.${answer.tld}`
+  const { tld } = readSite()
+  const name = `${label}.${tld}`
   return [
-    el("div", { class: "card row" }, rowName(label, answer.tld, answer.community, "community"),
+    el("div", { class: "card row" }, rowName(label, tld, answer.community, "community"),
       answer.entities.length ? el("span", { class: "chats" }, answer.entities.map((e, i) => chatButton(e, name, `chat-${i}`, answer.community !== null))) : null, whose),
     lapsed ? line("", "clock", lapsed) : registering ? line("", "clock", "Someone is registering it right now. Its owner and links show once it is on chain.") : null,
   ]

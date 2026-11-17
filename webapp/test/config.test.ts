@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CONFIG_PATH, configOf, loadConfig, readConfig } from "../src/config.ts"
-import { codesOnly, modeOf, pageMode, setPageMode } from "../src/mode.ts"
+import { codesOnly, pageMode, setPageMode } from "../src/mode.ts"
 import { publishableKey, setPublishableKey } from "../src/stripe.ts"
 
 const INDEX = readFileSync(new URL("../index.html", import.meta.url), "utf8")
+
+const NAMES = { codesOnly: false, chainId: 31337, resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", tld: "simplex", termStart: 1798761600 }
 
 // a service answering GET /api/config with this status and body, or a network that fails
 function serviceAnswering(status: number, body: unknown): ReturnType<typeof vi.fn> {
@@ -19,37 +21,27 @@ afterEach(() => {
   setPublishableKey("")
 })
 
-describe("modeOf", () => {
-  it("reads codes only from the word codes", () => {
-    expect(modeOf("codes")).toBe("codes")
-  })
-  it("reads open from open, anything else and nothing", () => {
-    expect(modeOf("open")).toBe("open")
-    expect(modeOf("")).toBe("open")
-    expect(modeOf(null)).toBe("open")
-    expect(modeOf(undefined)).toBe("open")
-    expect(modeOf("Codes"), "the service writes the word in lower case").toBe("open")
-    expect(modeOf(" codes"), "the service sends the word alone").toBe("open")
-  })
-})
-
 describe("configOf", () => {
-  it("reads the service's answer in each mode, with and without a key", () => {
-    expect(configOf({ mode: "codes", stripePublishableKey: "pk_test_x" })).toEqual({ mode: "codes", stripePublishableKey: "pk_test_x" })
-    expect(configOf({ mode: "open", stripePublishableKey: null })).toEqual({ mode: "open", stripePublishableKey: "" })
-    expect(configOf({ mode: "open", stripePublishableKey: " pk_test_y\n" })).toEqual({ mode: "open", stripePublishableKey: "pk_test_y" })
+  it("reads the service's answer with and without a key and a names deployment", () => {
+    expect(configOf({ stripePublishableKey: "pk_test_x", names: { ...NAMES, codesOnly: true } })).toEqual({ stripePublishableKey: "pk_test_x", names: { ...NAMES, codesOnly: true } })
+    expect(configOf({ stripePublishableKey: null, names: NAMES })).toEqual({ stripePublishableKey: "", names: NAMES })
+    expect(configOf({ stripePublishableKey: " pk_test_y\n", names: null })).toEqual({ stripePublishableKey: "pk_test_y", names: null })
   })
-  it("refuses an answer that is not the service's, as a portal's", () => {
+  it("refuses an answer that is not the service's, as a portal's, or a deployment it cannot use", () => {
     expect(configOf(null)).toBeNull()
     expect(configOf("<!doctype html>")).toBeNull()
     expect(configOf({ error: "not_found" })).toBeNull()
+    expect(configOf({ stripePublishableKey: null })).toBeNull()
+    for (const change of [{ codesOnly: "no" }, { chainId: -1 }, { chainId: "1" }, { resolver: 1 }, { sponsor: null }, { tld: undefined }, { termStart: 1.5 }]) {
+      expect(configOf({ stripePublishableKey: null, names: { ...NAMES, ...change } }), JSON.stringify(change)).toBeNull()
+    }
   })
 })
 
 describe("readConfig", () => {
   it("asks GET /api/config with the init given", async () => {
-    const fetch = serviceAnswering(200, { mode: "codes", stripePublishableKey: null })
-    expect(await readConfig({ cache: "no-store" })).toEqual({ mode: "codes", stripePublishableKey: "" })
+    const fetch = serviceAnswering(200, { stripePublishableKey: null, names: { ...NAMES, codesOnly: true } })
+    expect(await readConfig({ cache: "no-store" })).toEqual({ stripePublishableKey: "", names: { ...NAMES, codesOnly: true } })
     expect(fetch).toHaveBeenCalledWith(CONFIG_PATH, { cache: "no-store" })
   })
   it("is null when the service answers an error or the network fails", async () => {
@@ -62,7 +54,7 @@ describe("readConfig", () => {
 
 describe("loadConfig", () => {
   it("sets the page's mode and Stripe key from the service", async () => {
-    serviceAnswering(200, { mode: "codes", stripePublishableKey: "pk_test_load" })
+    serviceAnswering(200, { stripePublishableKey: "pk_test_load", names: { ...NAMES, codesOnly: true } })
     await loadConfig()
     expect([pageMode(), codesOnly(), publishableKey()]).toEqual(["codes", true, "pk_test_load"])
   })
@@ -70,6 +62,29 @@ describe("loadConfig", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
     await loadConfig()
     expect([pageMode(), codesOnly(), publishableKey()]).toEqual(["open", false, ""])
+  })
+})
+
+describe("namesSite", () => {
+  it("reads the deployment again when the load could not, and asks no more once it has it", async () => {
+    vi.resetModules()
+    const config = await import("../src/config.ts")
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
+    await config.loadConfig()
+    expect(config.loadedSite()).toBeNull()
+    expect(() => config.readSite()).toThrow()
+    await expect(config.namesSite()).rejects.toMatchObject({ code: "network" })
+    const fetch = serviceAnswering(200, { stripePublishableKey: null, names: NAMES })
+    expect(await config.namesSite()).toEqual(NAMES)
+    expect(await config.namesSite()).toEqual(NAMES)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(config.readSite()).toEqual(NAMES)
+  })
+  it("refuses a service that sells no names", async () => {
+    vi.resetModules()
+    const config = await import("../src/config.ts")
+    serviceAnswering(200, { stripePublishableKey: null, names: null })
+    await expect(config.namesSite()).rejects.toMatchObject({ code: "network" })
   })
 })
 

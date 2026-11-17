@@ -128,8 +128,8 @@ export interface RecordEdits {
 }
 
 export type SearchAnswer =
-  | ({ status: "available"; price: number; currency: string; years: number; termStart: number; community: Community | null; terms: Terms | null } & ChainInfo)
-  | { status: "registered"; entities: Entity[]; records?: Links | null; owner?: string; resolver?: string; recordsNonce?: number | null; recordEdits?: RecordEdits | null; expiresAt?: number; gracePeriod?: number; chainId?: number; tld: string; community: Community | null }
+  | { status: "available"; price: number; currency: string; years: number; community: Community | null; terms: Terms | null }
+  | { status: "registered"; entities: Entity[]; records?: Links | null; owner?: string; resolver?: string; recordsNonce?: number | null; recordEdits?: RecordEdits | null; expiresAt?: number; gracePeriod?: number; community: Community | null }
   | { status: "reserved"; community: Community | null }
 
 export type ChatKind = "contact" | "channel" | "business" | "bot"
@@ -175,7 +175,7 @@ export interface Balance {
   refunded: number
 }
 
-export interface RegistrationView extends ChainInfo {
+export interface RegistrationView {
   id: string
   // counts the service's changes to the registration, which a long poll holds on
   version: number
@@ -368,7 +368,6 @@ const isPreview = (e: unknown) => isObject(e) && (e.type === "address" || e.type
     ? nullable(e.peerType, isText) && typeof e.business === "boolean"
     : nullable(e.groupType, isText) && nullable(e.publicMemberCount, isAmount))))
 const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unknown>).link) && isText((e as Record<string, unknown>).deepLink)
-const isChain = (a: Record<string, unknown>) => isText(a.resolver) && isText(a.sponsor) && typeof a.chainId === "number" && isText(a.tld)
 const PHASES: Phase[] = ["unpaid", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
 const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded)
 const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,112}$/.test(v)
@@ -376,7 +375,7 @@ const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(
 const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
 const isCommunity = (v: unknown) => v === null || (isObject(v) && nullable(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
 const isAcceptance = (v: unknown) => isObject(v) && (v.kind === "general" || v.kind === "community") && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
-const isRegistration = (v: unknown) => isObject(v) && isChain(v) && isText(v.id) && Number.isInteger(v.version) && PHASES.includes(v.phase as Phase) && isText(v.labelHash)
+const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && PHASES.includes(v.phase as Phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isAmount(v.fromBalance) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => isObject(l) && LATE_WAITS.includes(l.waiting as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.revealAfter, isAmount) && nullable(v.revealBefore, isAmount)
@@ -395,12 +394,12 @@ const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) &&
 
 type SearchReply = Exclude<SearchAnswer, { status: "registered" }> | (Omit<Extract<SearchAnswer, { status: "registered" }>, "entities"> & { entities: LinkEntity[] })
 
-export const searchName = (labelHash: string, length: number) => checked<SearchReply>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
+export const searchName = (labelHash: string, length: number, chainId: number) => checked<SearchReply>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
   a.status === "reserved"
-  || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isAmount(a.termStart) && isText(a.currency) && isChain(a) && nullable(a.terms, (t) => isTerms(t, a.chainId as number)))
-  || (a.status === "registered" && isText(a.tld) && Array.isArray(a.entities) && a.entities.every(isEntity) && optional(a.owner, isText)
+  || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isText(a.currency) && nullable(a.terms, (t) => isTerms(t, chainId)))
+  || (a.status === "registered" && Array.isArray(a.entities) && a.entities.every(isEntity) && optional(a.owner, isText)
     && optional(a.resolver, isText) && optional(a.records, (r) => nullable(r, isRecords)) && optional(a.recordsNonce, (n) => nullable(n, isAmount)) && optional(a.recordEdits, (r) => nullable(r, isRecordEdits))
-    && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount) && optional(a.chainId, isAmount))))
+    && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount))))
   .then((a): SearchAnswer => a.status === "registered" ? { ...a, entities: a.entities.map(entityOf) } : a)
 export const previewLink = (link: string) => checked<LinkData>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 

@@ -10,13 +10,12 @@ import type { OrderRecord } from "../src/store.ts"
 
 const NOW = Date.parse("2026-10-17T12:00:00Z")
 const OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
-const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const termsOf = (hash: string) => ({ hash: `0x${hash}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
 const TERMS = termsOf("21".repeat(32))
 const NEWER = termsOf("f6".repeat(32))
 const BAKERS = { for: "bakers and pastry chefs", years: 2 }
-const AVAILABLE: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, community: null, terms: TERMS, ...CHAIN }
-const TAKEN: SearchAnswer = { status: "registered", entities: [], owner: OWNER, tld: "simplex", community: null }
+const AVAILABLE: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, community: null, terms: TERMS }
+const TAKEN: SearchAnswer = { status: "registered", entities: [], owner: OWNER, community: null }
 
 function record(change: Partial<OrderRecord> = {}): OrderRecord {
   return {
@@ -303,7 +302,7 @@ describe("reduce: register", () => {
 describe("returnedTo", () => {
   it("a search gone back to for the same name shows its last answer again, with nothing searched again", () => {
     const s = shown("alice1", TAKEN)
-    const back = returnedTo(s, "plain", "alice1", [])
+    const back = returnedTo(s, "plain", "alice1", "simplex", [])
     expect(back).toEqual(s)
     expect(searchDue(reduce(back, openedEvent({ name: "alice1" })))).toBe(false)
     expect(reduce(back, openedEvent({ name: "alice1" })).answer).toEqual(s.answer)
@@ -312,33 +311,33 @@ describe("returnedTo", () => {
     const s = shown()
     const left = { ...reduce(reduce(s, { type: "register-started" }), searchedEvent("bobby1")), name: "alice1" }
     expect(left.searching).not.toBeNull()
-    expect(returnedTo(left, "plain", "alice1", [])).toEqual({ ...left, searching: null, register: { busy: false, refusal: null } })
+    expect(returnedTo(left, "plain", "alice1", "simplex", [])).toEqual({ ...left, searching: null, register: { busy: false, refusal: null } })
   })
   it("starts anew for another name, another way of opening, or a page that showed no answer", () => {
     const s = shown()
-    expect(returnedTo(s, "plain", "bobby1", [])).toEqual(initialSearch())
-    expect(returnedTo(s, "retarget", "alice1", [])).toEqual(initialSearch())
-    expect(returnedTo(open({ name: "alice1" }), "plain", "alice1", [])).toEqual(initialSearch())
+    expect(returnedTo(s, "plain", "bobby1", "simplex", [])).toEqual(initialSearch())
+    expect(returnedTo(s, "retarget", "alice1", "simplex", [])).toEqual(initialSearch())
+    expect(returnedTo(open({ name: "alice1" }), "plain", "alice1", "simplex", [])).toEqual(initialSearch())
     const ruled = reduce(open({ name: "abc" }), searchedEvent("abc"))
-    expect(returnedTo(ruled, "plain", "abc", [])).toEqual(initialSearch())
+    expect(returnedTo(ruled, "plain", "abc", "simplex", [])).toEqual(initialSearch())
   })
   it("a wait met elsewhere in the tab still pauses a search gone back to", () => {
-    const back = returnedTo(shown(), "plain", "alice1", [])
+    const back = returnedTo(shown(), "plain", "alice1", "simplex", [])
     expect(reduce(back, openedEvent({ name: "alice1", hold: wait(NOW + 5000) }))).toMatchObject({ paused: true, answer: null })
   })
   it("an available name this browser has ordered since is checked again before anything is offered for it", () => {
-    const back = returnedTo(shown(), "plain", "alice1", [record()])
+    const back = returnedTo(shown(), "plain", "alice1", "simplex", [record()])
     expect(back.answer).toEqual({ kind: "checking" })
     expect(back.searching).toBeNull()
     expect(reduce(reduce(back, openedEvent({ name: "alice1" })), answered({ ...back, searching: { label: "alice1" } }, TAKEN)).answer).toMatchObject({ kind: "found", answer: TAKEN })
-    expect(returnedTo(shown("alice1", TAKEN), "plain", "alice1", [record()]).answer).toMatchObject({ kind: "found", answer: TAKEN })
+    expect(returnedTo(shown("alice1", TAKEN), "plain", "alice1", "simplex", [record()]).answer).toMatchObject({ kind: "found", answer: TAKEN })
   })
   it("an order for the same letters under another TLD leaves the answer shown", () => {
-    const back = returnedTo(shown(), "plain", "alice1", [record({ tld: "other" })])
+    const back = returnedTo(shown(), "plain", "alice1", "simplex", [record({ tld: "other" })])
     expect(back.answer).toMatchObject({ kind: "found", answer: AVAILABLE })
   })
   it("a search gone back to whose check again fails no longer shows its remembered answer", () => {
-    const back = reduce(returnedTo(shown(), "plain", "alice1", []), openedEvent({ name: "alice1" }))
+    const back = reduce(returnedTo(shown(), "plain", "alice1", "simplex", []), openedEvent({ name: "alice1" }))
     expect(back.answer).toMatchObject({ kind: "found", answer: AVAILABLE })
     expect(reduce(back, { type: "unanswered", seq: back.seq })).toMatchObject({ answer: { kind: "unchecked" }, paused: false })
     expect(reduce(back, { type: "search-held", seq: back.seq, until: NOW + 10_000 })).toMatchObject({ answer: null, paused: true, hold: { until: NOW + 10_000, lead: NO_LEAD } })
@@ -524,6 +523,6 @@ describe("codes-only mode", () => {
   })
   it("leaves no uncovered answer to return to, so a name searched again is bounded again", () => {
     const s = reduce(open({ name: "alice1" }), searchedEvent("alice1", null, 7))
-    expect(returnedTo(s, "plain", "alice1", [])).toEqual(initialSearch())
+    expect(returnedTo(s, "plain", "alice1", "simplex", [])).toEqual(initialSearch())
   })
 })

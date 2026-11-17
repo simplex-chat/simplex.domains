@@ -72,10 +72,10 @@ export const initialSearch = (): SearchState => ({
 })
 
 // An available name this browser has an order for, under its TLD, is checked again rather than offered while the order is read.
-export function returnedTo(s: SearchState, opening: Opening, name: string, orders: Pick<OrderRecord, "label" | "tld">[]): SearchState {
+export function returnedTo(s: SearchState, opening: Opening, name: string, tld: string | undefined, orders: Pick<OrderRecord, "label" | "tld">[]): SearchState {
   if (s.opening !== opening || s.name !== name || s.answer?.kind !== "found") return initialSearch()
   const found = s.answer.answer
-  const ordered = found.status === "available" && orders.some((o) => o.label === name && o.tld === found.tld)
+  const ordered = found.status === "available" && orders.some((o) => o.label === name && o.tld === tld)
   return { ...s, searching: null, register: IDLE, answer: ordered ? { kind: "checking" } : s.answer }
 }
 

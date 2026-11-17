@@ -137,13 +137,14 @@ describe("the page's builders reproduce Appendix C", () => {
       setItem: (k: string, v: string) => void data.set(k, v), removeItem: (k: string) => void data.delete(k),
     } })
     sent = []
-    vi.stubGlobal("fetch", async (_: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
+      if (path === "/api/config") return new Response(JSON.stringify({ stripePublishableKey: null, names: { codesOnly: false, ...CHAIN, termStart: TERM_START } }), { status: 200 })
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       sent.push(body)
       return new Response(JSON.stringify({
         id: REGISTRATION_ID, version: 2, moves: 1, phase: "queued", label: null, owner: OWNER, years: YEARS, price: 10000, fromBalance: 0, balance: null, latePayment: null,
         commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false,
-        community: null, ...CHAIN, ...body,
+        community: null, ...body,
       }), { status: 200 })
     })
     vi.resetModules()
@@ -155,10 +156,10 @@ describe("the page's builders reproduce Appendix C", () => {
   })
 
   const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, chain: CHAIN, years: YEARS, termStart: TERM_START, ownerCode: OWNER_CODE, terms })
-  const quote = { status: "available" as const, price: 10000, currency: "usd", years: YEARS, termStart: TERM_START, community: null, terms: {
+  const quote = { status: "available" as const, price: 10000, currency: "usd", years: YEARS, community: null, terms: {
     hash: `0x${PLAIN}`,
     link: "https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/5fb3fb63fa5a059abf6e397621ba4d7c3618c702/docs/terms.md#sha256=8b6cf03192081aa7b2cd3a82fd665fdd0f28c1ced65792837a5ac2492e6a8070",
-  }, ...CHAIN }
+  } }
 
   it.each(TERMS)("order with terms %s", async (terms) => {
     const { flow } = await builders()
@@ -178,7 +179,7 @@ describe("the page's builders reproduce Appendix C", () => {
   it.each(TERMS)("spend with terms %s", async (terms) => {
     const { flow } = await builders()
     const source = { registrationId: REGISTRATION_ID, ownerCode: OWNER_CODE }
-    const { spend } = await flow.spendRequest(source, flow.spendDraft(source, LABEL, NO_LINKS, quote, terms), 10000, 20000, "btc")
+    const { spend } = await flow.spendRequest(source, flow.spendDraft(source, LABEL, NO_LINKS, { ...quote, ...CHAIN, termStart: TERM_START }, terms), 10000, 20000, "btc")
     expect(spend).toEqual({ labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, price: 10000, balance: 20000, terms, timestamp: TIMESTAMP, signature: vector("spend", terms).signature })
   })
 })

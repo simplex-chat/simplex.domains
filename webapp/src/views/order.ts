@@ -1,5 +1,6 @@
 // An order's page (?order=<invoice>) or a code registration's (?registration=<id>): payment, registration, and every ending.
 import * as api from "../api.ts"
+import { namesSite, readSite } from "../config.ts"
 import { parseNameCode } from "../crypto/code.ts"
 import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
@@ -129,6 +130,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     const asked = Date.now()
     const seq = ++reads
     try {
+      await namesSite()
       if (invoiceId) {
         invoice = await api.readInvoice(invoiceId, invoice ? api.seenOf(invoice) : undefined, signal)
         view = invoice.registration
@@ -277,7 +279,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
 async function statusNow(view: api.RegistrationView, record: store.OrderRecord | null): Promise<api.SearchAnswer["status"] | null> {
   const label = labelOf(view, record)
   if (label === null) return null
-  const answer = await api.searchName(view.labelHash, label.length).catch(() => null)
+  const answer = await api.searchName(view.labelHash, label.length, readSite().chainId).catch(() => null)
   return answer?.status ?? null
 }
 
@@ -358,7 +360,7 @@ function askAgain(record: store.OrderRecord): void {
   // view's, the view is read again; one that answered the name as registered or reserved ends the ask, which the page says
   const later = (delay: number, again: () => void) => setTimeout(() => { done(); again() }, delay)
   const tick = () => answer(gen, { type: "tick", now: api.serviceNow() })
-  api.searchName(state.view!.labelHash, record.label.length).then((quote) => {
+  api.searchName(state.view!.labelHash, record.label.length, readSite().chainId).then((quote) => {
     if (!isOpen(gen) || !askAgainDue(state)) return done()
     if (quote.status !== "available") {
       done()
@@ -433,7 +435,7 @@ function termLine({ view, invoice }: OrderState): Kid[] {
 // the order in one line, the lead of each screen that pays or registers it
 function orderLine(s: OrderState): Kid[] {
   const label = labelOf(s.view!, s.record)
-  return [label ? nameText(label, s.view!.tld) : UNKNOWN_NAME, SEP, ...termLine(s)]
+  return [label ? nameText(label, readSite().tld) : UNKNOWN_NAME, SEP, ...termLine(s)]
 }
 
 const TICKER: Record<"btc" | "xmr", string> = { btc: "BTC", xmr: "XMR" }
@@ -488,7 +490,7 @@ function watchName(s: OrderState): void {
   const check = async () => {
     let next = NAME_CHECK_MS
     try {
-      const answer = await api.searchName(labelHash, length)
+      const answer = await api.searchName(labelHash, length, readSite().chainId)
       if (nameWatch !== watch) return
       nameCheck = { invoiceId, taken: answer.status === "registered", at: Date.now() }
       showNameCheck()
@@ -749,7 +751,7 @@ function agreement({ ask, view, busy, reveal }: OrderState, focus: string): HTML
   const accept = (accepted: boolean) => dispatch({ type: "terms-accepted", accepted, now: api.serviceNow() })
   // a reveal on its way has signed the ticked terms already
   const signing = reveal?.sending === true && reveal.key === revealKey(view!)
-  const box = termsBox({ ...ask, tld: view!.tld, chainId: view!.chainId, disabled: busy !== null || signing }, agree, focus, accept)
+  const box = termsBox({ ...ask, tld: readSite().tld, chainId: readSite().chainId, disabled: busy !== null || signing }, agree, focus, accept)
   box.setAttribute(UNKEPT_TICKS, "")
   return box
 }
@@ -852,7 +854,7 @@ async function orderAgain(record: store.OrderRecord): Promise<void> {
   if (!quote) return go(searchLink(record.label))
   if (balance) session.setActiveBalance(balance)
   session.setCheckout({
-    label: record.label, price: quote.price, years: quote.years, termStart: quote.termStart, chain: flow.chainOf(quote), contact: record.contact, channel: record.channel,
+    label: record.label, price: quote.price, years: quote.years, termStart: readSite().termStart, chain: flow.chainOf(readSite()), contact: record.contact, channel: record.channel,
     terms: quote.terms, community: quote.community,
     method: record.method === "code" || record.method === "balance" ? "btc" : record.method, code: null, balance, ownerCode: record.ownerCode, saved: true, agreed: false, searchAt: historyPlace(), step: "review",
   })
@@ -987,7 +989,7 @@ function reorder(): void {
 
 function buildPriceChanged({ record, invoice, price }: OrderState): HTMLElement {
   const { label } = record!
-  return outcome({ tone: "warn", icon: "alert", title: "The price changed", text: [nameText(label, invoice!.registration.tld), ` costs ${dollars(price!)} now. Nothing was charged.`],
+  return outcome({ tone: "warn", icon: "alert", title: "The price changed", text: [nameText(label, readSite().tld), ` costs ${dollars(price!)} now. Nothing was charged.`],
     action: btn("Search again", "", () => go(searchLink(label))), reference: invoice!.invoiceId })
 }
 
@@ -1020,7 +1022,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const terms = termsOrAsk(gen, record, signed, quote)
     if (terms === null) return
     const built = await flow.orderRequest(flow.draftAgain(record, quote, terms))
-    const res = await api.createOrder(built.request, method, invoice.amount, quote.chainId)
+    const res = await api.createOrder(built.request, method, invoice.amount, readSite().chainId)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
     store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, ...flow.paidWith(res), cancelled: false, cardSubmittedAt: undefined, replacedBy: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
@@ -1075,7 +1077,7 @@ async function spendAgain(record: store.OrderRecord, source: string, quote: flow
   }
   const terms = termsOrAsk(gen, record, signed, quote)
   if (terms === null) return
-  const next = await flow.spendBalance(paying, record.label, { contact: record.contact, channel: record.channel }, quote, balance.amount, method, terms)
+  const next = await flow.spendBalance(paying, record.label, { contact: record.contact, channel: record.channel }, { ...quote, ...readSite() }, balance.amount, method, terms)
   replacedWith(record, store.orderUrl(next), gen)
 }
 
@@ -1112,7 +1114,7 @@ const stagesOf = (view: api.RegistrationView): StageState[] => view.phase === "r
 
 function headingOf({ view, record }: OrderState): Kid {
   const label = labelOf(view!, record)
-  return label ? ["Registering ", gradName(label, view!.tld)] : "Registering the name"
+  return label ? ["Registering ", gradName(label, readSite().tld)] : "Registering the name"
 }
 
 const leadOf = ({ record }: OrderState) => record ? ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)]
@@ -1258,9 +1260,10 @@ function buildRegistered(s: OrderState): HTMLElement {
   const code = s.record?.ownerCode ?? null
   // the code's QR is under everything, there only while the code is shown
   const qr = el("div", { class: "code-qr" })
-  return screen({ title: [label ? gradName(label, view.tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record), action: registeredAction(s.record) },
+  const { tld } = readSite()
+  return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record), action: registeredAction(s.record) },
     code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
-      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", view.tld, "."), " For a channel, set it in the channel's profile.")),
+      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
     codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
     // under the code and over its QR, so showing the code moves it and nothing above it
@@ -1277,7 +1280,7 @@ function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HT
   const view = taken!
   const label = labelOf(view, record)
   const released = releasedCode(view, record)
-  const name = label ? nameText(label, view.tld) : "The name"
+  const name = label ? nameText(label, readSite().tld) : "The name"
   return outcome({ tone: "info", icon: "key", title: reserved ? "The name was reserved meanwhile" : "Someone registered it first",
     text: [name, reserved ? " can't be registered." : " was registered just before ours.", " Your code was not spent: use it for another name."],
     extra: released ? codeDisplay(released.code) : null,
@@ -1298,7 +1301,7 @@ function buildTaken(s: OrderState): HTMLElement {
     ? el("div", { class: "notice plain" }, el("b", {}, "What you paid is kept as your balance."), uses, " Your names shows the balance.")
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been spent or refunded since; Your names shows it.")
   const reserved = s.nameStatus === "reserved"
-  const title = label ? [gradName(label, view.tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
+  const title = label ? [gradName(label, readSite().tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
   return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : "Someone registered it before your order could.",
     ...balanceActions(s) },
     stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),

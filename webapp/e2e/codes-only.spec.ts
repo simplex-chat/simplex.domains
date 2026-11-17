@@ -66,10 +66,10 @@ async function noPaymentUi(page: Page): Promise<void> {
 
 test("the service's mode is at /api/config: open by default, codes once the mock takes codes only, the page the same in both", async ({ page, request }) => {
   expect(await (await request.get(`${MOCK}/control/mode`)).json()).toEqual({ mode: "open" })
-  expect(await (await page.request.get("/api/config")).json()).toEqual({ mode: "open", stripePublishableKey: null })
+  expect(await (await page.request.get("/api/config")).json()).toMatchObject({ stripePublishableKey: null, names: { codesOnly: false } })
   const open = await (await page.request.get("/")).text()
   await setMode(request, "codes")
-  expect(await (await page.request.get("/api/config")).json()).toEqual({ mode: "codes", stripePublishableKey: null })
+  expect(await (await page.request.get("/api/config")).json()).toMatchObject({ stripePublishableKey: null, names: { codesOnly: true } })
   expect(await (await page.request.get("/")).text()).toBe(open)
 })
 

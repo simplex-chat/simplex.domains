@@ -15,8 +15,10 @@ function answerWith(status: number, body: string, headers: Record<string, string
   vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status, headers })))
 }
 
-async function errorOf(): Promise<ApiError> {
-  const e = await searchName(HASH, 8).then(() => null, (e: unknown) => e)
+const CHAIN_ID = 31337
+
+async function errorOf(chainId = CHAIN_ID): Promise<ApiError> {
+  const e = await searchName(HASH, 8, chainId).then(() => null, (e: unknown) => e)
   expect(e).toBeInstanceOf(ApiError)
   return e as ApiError
 }
@@ -153,10 +155,10 @@ describe("service errors", () => {
   })
 
   it("passes a registered name's record edits, and takes ones that cannot be so as no answer", async () => {
-    const answer = { status: "registered", tld: "simplex", entities: [], records: { contact: "", channel: "" }, recordsNonce: 2, community: null }
+    const answer = { status: "registered", entities: [], records: { contact: "", channel: "" }, recordsNonce: 2, community: null }
     for (const recordEdits of [{ left: 3, nextAt: null }, { left: 0, nextAt: 1824249600 }, { left: 1, nextAt: 1824249600 }, null]) {
       answerWith(200, JSON.stringify({ ...answer, recordEdits }))
-      expect(await searchName(HASH, 8), JSON.stringify(recordEdits)).toMatchObject({ recordEdits })
+      expect(await searchName(HASH, 8, CHAIN_ID), JSON.stringify(recordEdits)).toMatchObject({ recordEdits })
     }
     for (const recordEdits of [{ left: 0, nextAt: null }, { left: -1, nextAt: null }, { left: 1.5, nextAt: null }, { left: 2 }, { left: 2, nextAt: "soon" }, 3]) {
       answerWith(200, JSON.stringify({ ...answer, recordEdits }))
@@ -165,11 +167,10 @@ describe("service errors", () => {
   })
 
   it("takes a search answer the page cannot draw as no answer", async () => {
-    const chain = { resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex" }
     for (const body of [
-      { status: "weird" }, { status: "registered", tld: "simplex" }, [], "registered",
-      { status: "registered", tld: "simplex", entities: [{}] }, { status: "registered", tld: "simplex", entities: [null] },
-      { status: "available", price: "100", years: 2, currency: "USD", ...chain }, { status: "available", price: 5, currency: "USD", ...chain },
+      { status: "weird" }, { status: "registered" }, [], "registered",
+      { status: "registered", entities: [{}] }, { status: "registered", entities: [null] },
+      { status: "available", price: "100", years: 2, currency: "USD" }, { status: "available", price: 5, currency: "USD" },
     ]) {
       answerWith(200, JSON.stringify(body))
       expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
@@ -182,12 +183,12 @@ describe("service errors", () => {
   const DRAWN = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
 
   it("passes a search answer the page can draw", async () => {
-    const available = { status: "available", price: 10000, currency: "usd", years: 2, termStart: 1798761600, resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: TERMS }
+    const available = { status: "available", price: 10000, currency: "usd", years: 2, community: null, terms: TERMS }
     answerWith(200, JSON.stringify(available))
-    expect(await searchName("ab".repeat(32), 8)).toEqual(available)
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual(available)
     const link = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
-    answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...PROFILE, ...link }], community: null }))
-    expect(await searchName("ab".repeat(32), 8)).toEqual({ status: "registered", tld: "simplex", entities: [{ ...DRAWN, ...link }], community: null })
+    answerWith(200, JSON.stringify({ status: "registered", entities: [{ ...PROFILE, ...link }], community: null }))
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ status: "registered", entities: [{ ...DRAWN, ...link }], community: null })
   })
 
   it("takes a linked chat without its names, a type the app has not, a member count that cannot be, or a link not as text, as no answer", async () => {
@@ -195,25 +196,25 @@ describe("service errors", () => {
     const changes = [{ type: "group" }, { type: undefined }, { displayName: undefined }, { fullName: undefined }, { publicMemberCount: -1 }, { publicMemberCount: "many" }, { groupType: 5 },
       { type: "address" }, { profile: undefined }, { profile: "lost" }, { deepLink: undefined }, { deepLink: null }, { deepLink: 5 }, { link: null }]
     for (const change of changes) {
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...PROFILE, ...link, ...change }], community: null }))
+      answerWith(200, JSON.stringify({ status: "registered", entities: [{ ...PROFILE, ...link, ...change }], community: null }))
       expect((await errorOf()).code, JSON.stringify(change)).toBe("network")
     }
     // a link whose data the service did not read is still a chat, drawn without its profile
     for (const [type, kind] of [["address", "contact"], ["channel", "channel"]]) {
       for (const profile of ["unread", "unavailable"]) {
-        answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ type, profile, ...link }], community: null }))
-        expect(await searchName("ab".repeat(32), 8), `${type} ${profile}`).toMatchObject({ entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...link }] })
+        answerWith(200, JSON.stringify({ status: "registered", entities: [{ type, profile, ...link }], community: null }))
+        expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${type} ${profile}`).toMatchObject({ entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...link }] })
       }
     }
     // an address is a business by its flag or its peer type, a bot by its peer type, and a contact by any other
     const address = { type: "address", profile: "ok", displayName: "Alice", fullName: "", image: null, peerType: null, business: false, ...link }
     for (const [change, kind] of [[{}, "contact"], [{ peerType: "human" }, "contact"], [{ peerType: "agent" }, "contact"], [{ peerType: "robot" }, "contact"],
       [{ business: true }, "business"], [{ peerType: "business" }, "business"], [{ peerType: "bot" }, "bot"], [{ peerType: "bot", business: true }, "business"]] as const) {
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...address, ...change }], community: null }))
-      expect(await searchName("ab".repeat(32), 8), JSON.stringify(change)).toMatchObject({ entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...link }] })
+      answerWith(200, JSON.stringify({ status: "registered", entities: [{ ...address, ...change }], community: null }))
+      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), JSON.stringify(change)).toMatchObject({ entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...link }] })
     }
     for (const change of [{ business: undefined }, { business: "yes" }, { peerType: 5 }]) {
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...address, ...change }], community: null }))
+      answerWith(200, JSON.stringify({ status: "registered", entities: [{ ...address, ...change }], community: null }))
       expect((await errorOf()).code, JSON.stringify(change)).toBe("network")
     }
   })
@@ -236,7 +237,7 @@ describe("service errors", () => {
   const REGISTRATION = {
     id: "r1", version: 4, unread: [], moves: 0, phase: "unpaid", labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: "2026-10-23", acceptance: null,
+    community: null, terms: "2026-10-23", acceptance: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -364,11 +365,9 @@ describe("service errors", () => {
   })
 
   it("takes a search or code answer with values that cannot be so as no answer", async () => {
-    const chain = { resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex" }
     for (const body of [
-      { status: "available", price: -500, years: 2, termStart: 1798761600, currency: "usd", ...chain }, { status: "available", price: 500, years: 0, termStart: 1798761600, currency: "usd", ...chain },
-      { status: "available", price: 500, years: 2, currency: "usd", ...chain }, { status: "available", price: 500, years: 2, termStart: "2027", currency: "usd", ...chain },
-      { status: "registered", tld: "simplex", entities: [], owner: 5 }, { status: "registered", tld: "simplex", entities: [], records: { contact: 1 } },
+      { status: "available", price: -500, years: 2, currency: "usd" }, { status: "available", price: 500, years: 0, currency: "usd" },
+      { status: "registered", entities: [], owner: 5 }, { status: "registered", entities: [], records: { contact: 1 } },
     ]) {
       answerWith(200, JSON.stringify(body))
       expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
@@ -383,7 +382,7 @@ describe("service errors", () => {
     const LOCAL_TERMS = termsOf(`http://127.0.0.1:8098/terms/${"c7".repeat(32)}.md#sha256=${"c7".repeat(32)}`)
     const SIGNED = `community/${COMMUNITY_TERMS.hash.slice(2)}`
     const OLDER_SIGNED = `2026-10-23/community/${"c7".repeat(32)}`
-    const AVAILABLE = { status: "available", price: 10000, currency: "usd", years: 2, termStart: 1798761600, resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: COMMUNITY, terms: COMMUNITY_TERMS }
+    const AVAILABLE = { status: "available", price: 10000, currency: "usd", years: 2, community: COMMUNITY, terms: COMMUNITY_TERMS }
     const ORDER = { labelHash: `0x${"ab".repeat(32)}`, length: 6, duration: 2 * 365 * 86400, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", terms: SIGNED, timestamp: 1, signature: "0x" }
 
     it("signs the general terms' hash for a name not on the community list, and community/ with the community terms' hash for one on it", () => {
@@ -412,12 +411,12 @@ describe("service errors", () => {
 
     it("passes a community entry in every search answer, and the terms of the name's kind in the available one, null while they can't be read", async () => {
       for (const body of [
-        AVAILABLE, { status: "reserved", community: COMMUNITY }, { status: "registered", entities: [], tld: "simplex", community: COMMUNITY },
+        AVAILABLE, { status: "reserved", community: COMMUNITY }, { status: "registered", entities: [], community: COMMUNITY },
         { ...AVAILABLE, community: { ...COMMUNITY, for: null } }, { ...AVAILABLE, community: null, terms: TERMS }, { ...AVAILABLE, terms: null }, { ...AVAILABLE, terms: LOCAL_TERMS },
-        { status: "registered", entities: [], records: null, owner: "0x1", resolver: "0x2", recordsNonce: null, expiresAt: 1, gracePeriod: 2, chainId: 1, tld: "simplex", community: null },
+        { status: "registered", entities: [], records: null, owner: "0x1", resolver: "0x2", recordsNonce: null, expiresAt: 1, gracePeriod: 2, community: null },
       ]) {
         answerWith(200, JSON.stringify(body))
-        expect(await searchName(HASH, 6), body.status).toEqual(body)
+        expect(await searchName(HASH, 6, CHAIN_ID), body.status).toEqual(body)
       }
     })
 
@@ -426,12 +425,14 @@ describe("service errors", () => {
         { ...AVAILABLE, community: undefined }, { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } },
         { ...AVAILABLE, community: { for: COMMUNITY.for } }, { ...AVAILABLE, terms: undefined }, { ...AVAILABLE, terms: { link: TERMS.link } }, { ...AVAILABLE, terms: { hash: TERMS.hash } },
         { ...AVAILABLE, terms: { ...TERMS, hash: COMMUNITY_TERMS.hash } }, { ...AVAILABLE, terms: { ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") } },
-        { ...AVAILABLE, terms: termsOf(TERMS.link.replace("https:", "http:")) }, { ...AVAILABLE, terms: termsOf("https://simplex.chat/terms") }, { ...AVAILABLE, chainId: 1, terms: LOCAL_TERMS },
-        { status: "reserved" }, { status: "registered", entities: [], tld: "simplex" },
+        { ...AVAILABLE, terms: termsOf(TERMS.link.replace("https:", "http:")) }, { ...AVAILABLE, terms: termsOf("https://simplex.chat/terms") },
+        { status: "reserved" }, { status: "registered", entities: [] },
       ]) {
         answerWith(200, JSON.stringify(body))
         expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
       }
+      answerWith(200, JSON.stringify({ ...AVAILABLE, terms: LOCAL_TERMS }))
+      expect((await errorOf(1)).code, "terms on this machine, on another chain").toBe("network")
     })
 
     it("passes an order's community entry and the terms it signed, also the version an older page signed, null for an order stored without them", async () => {

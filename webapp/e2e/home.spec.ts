@@ -19,7 +19,7 @@ const BAKERY = [chat("contact", "Alice's Bakery", { fullName: "Sourdough and pas
   chat("channel", "Bakery news", { fullName: "Daily bakes and opening hours", publicMemberCount: 1204, link: CHANNEL_LINK, deepLink: CHANNEL_DEEP_LINK })]
 
 async function answerWith(page: Page, entities: unknown[]): Promise<void> {
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: { status: "registered", entities, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", tld: "simplex", community: null } }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: { status: "registered", entities, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", community: null } }))
 }
 
 test("a taken name shows each chat it opens as the app's default picture for its kind, or the profile's own picture", async ({ page }) => {

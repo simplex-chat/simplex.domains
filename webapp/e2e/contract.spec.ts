@@ -4,6 +4,7 @@ import { expect, type APIRequestContext } from "@playwright/test"
 import type { Hex } from "viem"
 import { CODE_LIMIT } from "../dev/mock/limits.ts"
 import * as api from "../src/api.ts"
+import { namesSite, readSite } from "../src/config.ts"
 import { CHANNEL_KEY, CONTACT_KEY, labelHash, namehash, setTextDigest, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, fromHex, hex, personalDigest, signDigest } from "../src/crypto/wallet.ts"
 import * as flow from "../src/flow.ts"
@@ -57,7 +58,7 @@ async function quote(label: string): Promise<Quote> {
 
 async function draftOf(label: string, links = { contact: "", channel: "" }): Promise<flow.Draft> {
   const q = await quote(label)
-  return { label, links, chain: flow.chainOf(q), years: q.years, termStart: q.termStart, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q) }
+  return { label, links, chain: flow.chainOf(readSite()), years: q.years, termStart: readSite().termStart, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q) }
 }
 
 // the order moved to another name, or the same with other links, under the terms the service has for that name now
@@ -69,7 +70,7 @@ async function moveOf(record: store.OrderRecord, to: string, links = NO_LINKS): 
 // another name paid from the record's balance as read, under the terms the service has for it now
 async function spendOn(record: store.OrderRecord, label: string, balance: number): Promise<store.OrderRecord> {
   const q = await quote(label)
-  return flow.spendBalance(record, label, NO_LINKS, q, balance, "btc", api.currentTerms(q))
+  return flow.spendBalance(record, label, NO_LINKS, { ...q, ...readSite() }, balance, "btc", api.currentTerms(q))
 }
 
 // the order signed again by its owner at another time
@@ -241,7 +242,7 @@ test("a code order closes an overdue invoice of its wallet and name with nothing
 test("search quotes the oracle with the term's start, and a registered name carries its grace period", async () => {
   const label = uniqueLabel("cq")
   const answer = await quote(label)
-  expect([answer.price, answer.years, answer.termStart]).toEqual([await oracleQuote(label, 2), 2, TERM_START])
+  expect([answer.price, answer.years, (await namesSite()).termStart]).toEqual([await oracleQuote(label, 2), 2, TERM_START])
   for (const [length, cents] of [[6, 40000], [7, 20000], [12, 10000]]) {
     const res = await call("GET", `/api/name/${hex(labelHash("x".repeat(length)))}?length=${length}`)
     expect(res.json.price, `${length} letters`).toBe(cents)
@@ -594,7 +595,7 @@ test("a spend refuses in the contract's order: formats, the paying order, its ow
   // a name the code already has a live order for
   const ordered = shortLabel(7)
   await call("POST", "/api/invoice", invoiceBody(await orderOf(src, ordered), "btc", PRICE.seven))
-  const off = await orderOf(src, label, { termStart: (await quote(label)).termStart + TERM_SLACK_S + 100 })
+  const off = await orderOf(src, label, { termStart: (await namesSite()).termStart + TERM_SLACK_S + 100 })
   const refusals: [string, string, Json | Promise<Json>, number, Json][] = [
     ["a method for a covered price", src.id, signed({ price: PRICE.long, balance: PRICE.long, method: "btc" }), 400, { error: "bad_request" }],
     ["no method for a difference", src.id, signed({ price: PRICE.seven, balance: PRICE.long }), 400, { error: "bad_request" }],
@@ -1070,7 +1071,7 @@ test("a committed community name's view asks for the owner's acceptance of the c
     expect(view.acceptance).toEqual({ kind: "community", policy: NAME_POLICY, termsHash: COMMUNITY_TERMS_HASH, nonce: 0 })
     const accept = view.acceptance!
     for (const [what, acceptance] of [["none", null], ["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: `0x${"d8".repeat(32)}` }],
-      ["the other kind", { ...accept, kind: "general" }], ["another policy", { ...accept, policy: view.sponsor }]] as const) {
+      ["the other kind", { ...accept, kind: "general" }], ["another policy", { ...accept, policy: readSite().sponsor }]] as const) {
       await expect(flow.revealOrder({ ...view, acceptance }, record), what).rejects.toMatchObject({ code: "bad_request" })
     }
     await flow.revealOrder(view, record)

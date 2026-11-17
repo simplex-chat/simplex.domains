@@ -20,7 +20,8 @@ const TERMS = {
 }
 const SIGNED = TERMS.hash.slice(2)
 const COMMUNITY_SIGNED = `community/${"c7".repeat(32)}`
-const QUOTE = { status: "available" as const, price: 20000, currency: "usd", years: 2, termStart: TERM_START, community: null, terms: TERMS, ...CHAIN }
+const QUOTE = { status: "available" as const, price: 20000, currency: "usd", years: 2, community: null, terms: TERMS }
+const SITE = { stripePublishableKey: null, names: { codesOnly: false, ...CHAIN, termStart: TERM_START } }
 const LINKS = { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
 
 type Call = { method: string; path: string; body: Record<string, unknown> }
@@ -39,9 +40,10 @@ function fakeBrowser(): void {
       removeItem: (k: string) => void data.delete(k),
     },
   })
-  vi.stubGlobal("fetch", async (path: string, init: RequestInit) => {
-    const method = init.method ?? "GET"
-    const body = init.body ? JSON.parse(String(init.body)) : {}
+  vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
+    if (path === "/api/config") return new Response(JSON.stringify(SITE), { status: 200 })
+    const method = init?.method ?? "GET"
+    const body = init?.body ? JSON.parse(String(init.body)) : {}
     calls.push({ method, path, body })
     const key = `${method} ${path.split("?")[0]}`
     if (!(key in answers)) return new Response(JSON.stringify({ error: "not_found" }), { status: 404 })
@@ -188,6 +190,7 @@ describe("retargetOrder", () => {
 
   it("drafts a new invoice for the answer's years, or a community name's own", async () => {
     const { flow } = await modules()
+    await (await import("../src/config.ts")).namesSite()
     const record = flow.recordFor(draft(), await flow.orderRequest(draft()), "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     const community = { for: null, years: 2 }
     expect(flow.draftAgain(record, { ...QUOTE, years: 3 }, SIGNED).years).toBe(3)
