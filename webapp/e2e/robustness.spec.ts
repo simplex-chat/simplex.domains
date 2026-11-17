@@ -649,8 +649,8 @@ test("a Continue checkout drawn before its checkout ended draws the list anew ra
 const ROW_READ_MS = 1500
 const ROW_YEAR_S = 365 * 86400
 
-const linkedChat = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", kind, displayName: kind, fullName: "", image: null,
-  subscribers: kind === "channel" ? 12 : null, link: kind === "contact" ? contactLink("R1") : channelLink("R2"), deepLink: "simplex:/a#x", profile: "ok" })
+const linkedChat = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", displayName: kind, fullName: "", image: null,
+  ...kind === "channel" ? { groupType: "channel", publicMemberCount: 12 } : { peerType: null, business: false }, link: kind === "contact" ? contactLink("R1") : channelLink("R2"), deepLink: "simplex:/a#x", profile: "ok" })
 
 test("Your names moves no row once drawn as its reads answer, on a browser's first opening and in a new tab after it", async ({ browser }) => {
   for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {

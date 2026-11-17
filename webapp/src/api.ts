@@ -145,11 +145,30 @@ export interface Profile {
   subscribers: number | null
   profile: typeof PROFILE_STATES[number]
 }
-// the chat core's own form of the link, null for a link the core cannot parse, which is opened as it is
+// the link as the chat core writes it, and its simplex:/ form, which the app opens
 export interface Entity extends Profile {
   link: string
-  deepLink: string | null
+  deepLink: string
 }
+
+interface ProfileNames { displayName: string; fullName: string; image: string | null }
+// A link's data as the service answers it: the names and picture of a profile read, with an address's peer type and
+// business flag, or a channel's group type and member count.
+export type LinkData = { type: "address" | "channel"; profile: "unread" | "unavailable" }
+  | (ProfileNames & { type: "address"; profile: "ok"; peerType: string | null; business: boolean })
+  | (ProfileNames & { type: "channel"; profile: "ok"; groupType: string | null; publicMemberCount: number | null })
+type LinkEntity = LinkData & { link: string; deepLink: string }
+
+// The chat's kind: an address of a business, by its flag or its peer type, is a business; one whose peer type is bot is a
+// bot; a channel's members are its subscribers.
+function profileOf(d: LinkData): Profile {
+  if (d.profile !== "ok") return { type: d.type, kind: d.type === "channel" ? "channel" : "contact", displayName: "", fullName: "", image: null, subscribers: null, profile: d.profile }
+  const { displayName, fullName, image } = d
+  if (d.type === "channel") return { type: d.type, kind: "channel", displayName, fullName, image, subscribers: d.publicMemberCount, profile: d.profile }
+  const kind = d.business || d.peerType === "business" ? "business" : d.peerType === "bot" ? "bot" : "contact"
+  return { type: d.type, kind, displayName, fullName, image, subscribers: null, profile: d.profile }
+}
+const entityOf = (e: LinkEntity): Entity => ({ ...profileOf(e), link: e.link, deepLink: e.deepLink })
 
 // An order's balance, in cents: what is left to spend, whether an invoice of another order holds it and until when (null
 // once money reached that invoice, which holds it until its payment settles), and what support has refunded from it
@@ -347,12 +366,12 @@ const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined 
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)
 // an image the page holds itself, as the service sends it: the page's CSP loads images from nowhere else
 const isImage = (v: unknown) => v === null || (typeof v === "string" && v.startsWith("data:image/"))
-const CHAT_KINDS: ChatKind[] = ["contact", "channel", "business", "bot"]
-// a channel's record holds a channel; an address's, any other kind of chat
-const isPreview = (e: unknown) => isObject(e) && (e.type === "address" || e.type === "channel") && CHAT_KINDS.includes(e.kind as ChatKind)
-  && (e.type === "channel") === (e.kind === "channel") && isText(e.displayName)
-  && isText(e.fullName) && isImage(e.image) && nullable(e.subscribers, isAmount) && PROFILE_STATES.includes(e.profile as Profile["profile"])
-const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unknown>).link) && nullable((e as Record<string, unknown>).deepLink, isText)
+// the names and picture only of a profile read, with an address's peer type and business flag, or a channel's group type and member count
+const isPreview = (e: unknown) => isObject(e) && (e.type === "address" || e.type === "channel") && PROFILE_STATES.includes(e.profile as Profile["profile"])
+  && (e.profile !== "ok" || (isText(e.displayName) && isText(e.fullName) && isImage(e.image) && (e.type === "address"
+    ? nullable(e.peerType, isText) && typeof e.business === "boolean"
+    : nullable(e.groupType, isText) && nullable(e.publicMemberCount, isAmount))))
+const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unknown>).link) && isText((e as Record<string, unknown>).deepLink)
 const isChain = (a: Record<string, unknown>) => isText(a.resolver) && isText(a.sponsor) && typeof a.chainId === "number" && isText(a.tld)
 const PHASES: Phase[] = ["unpaid", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
 const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded)
@@ -378,13 +397,17 @@ const isRecords = (v: unknown) => isObject(v) && isText(v.contact) && isText(v.c
 // none left only while an edit is counted, which returns at nextAt
 const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && nullable(v.nextAt, isAmount) && (v.left !== 0 || v.nextAt !== null)
 
-export const searchName = (labelHash: string, length: number) => checked<SearchAnswer>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
+// a search answer as the service sends it, each entity as its link data
+type SearchReply = Exclude<SearchAnswer, { status: "registered" }> | (Omit<Extract<SearchAnswer, { status: "registered" }>, "entities"> & { entities: LinkEntity[] })
+
+export const searchName = (labelHash: string, length: number) => checked<SearchReply>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
   a.status === "reserved"
   || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isAmount(a.termStart) && isText(a.currency) && isChain(a) && nullable(a.terms, (t) => isTerms(t, a.chainId as number)))
   || (a.status === "registered" && isText(a.tld) && Array.isArray(a.entities) && a.entities.every(isEntity) && optional(a.owner, isText)
     && optional(a.resolver, isText) && optional(a.records, (r) => nullable(r, isRecords)) && optional(a.recordsNonce, (n) => nullable(n, isAmount)) && optional(a.recordEdits, (r) => nullable(r, isRecordEdits))
     && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount) && optional(a.chainId, isAmount))))
-export const previewLink = (link: string) => checked<Profile>(call("POST", "/api/link/preview", { link }), isPreview)
+  .then((a): SearchAnswer => a.status === "registered" ? { ...a, entities: a.entities.map(entityOf) } : a)
+export const previewLink = (link: string) => checked<LinkData>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 
 // The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very
 // text whose acceptance the owner signs.

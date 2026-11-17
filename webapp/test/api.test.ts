@@ -177,39 +177,44 @@ describe("service errors", () => {
   })
 
   const TERMS = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
-  const PROFILE = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
+  const PROFILE = { type: "channel", profile: "ok", displayName: "Alice", fullName: "Alice's news", image: null, groupType: "channel", publicMemberCount: 12 }
+  // the profile as the page draws it, its kind and subscribers told from the link data
+  const DRAWN = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
 
   it("passes a search answer the page can draw", async () => {
     const available = { status: "available", price: 10000, currency: "usd", years: 2, termStart: 1798761600, resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: TERMS }
     answerWith(200, JSON.stringify(available))
     expect(await searchName("ab".repeat(32), 8)).toEqual(available)
-    const entity = { ...PROFILE, link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
-    answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [entity], community: null }))
-    expect(await searchName("ab".repeat(32), 8)).toMatchObject({ status: "registered", entities: [entity] })
+    const link = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
+    answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...PROFILE, ...link }], community: null }))
+    expect(await searchName("ab".repeat(32), 8)).toEqual({ status: "registered", tld: "simplex", entities: [{ ...DRAWN, ...link }], community: null })
   })
 
-  it("takes a linked chat without its kind, full name or subscriber count, with a kind the app has not, or a kind its record cannot hold, as no answer", async () => {
+  it("takes a linked chat without its names, a type the app has not, a member count that cannot be, or a link not as text, as no answer", async () => {
     const link = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
-    const changes = [{ kind: undefined }, { kind: "group" }, { fullName: undefined }, { subscribers: undefined }, { subscribers: -1 }, { subscribers: "many" },
-      { type: "address" }, { kind: "contact" }, { profile: undefined }, { profile: "lost" }, { deepLink: undefined }, { deepLink: 5 }]
+    const changes = [{ type: "group" }, { type: undefined }, { displayName: undefined }, { fullName: undefined }, { publicMemberCount: -1 }, { publicMemberCount: "many" }, { groupType: 5 },
+      { type: "address" }, { profile: undefined }, { profile: "lost" }, { deepLink: undefined }, { deepLink: null }, { deepLink: 5 }, { link: null }]
     for (const change of changes) {
       answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...PROFILE, ...link, ...change }], community: null }))
       expect((await errorOf()).code, JSON.stringify(change)).toBe("network")
     }
     // a link whose data the service did not read is still a chat, drawn without its profile
-    for (const profile of ["unread", "unavailable"]) {
-      const entity = { ...PROFILE, ...link, displayName: "", fullName: "", subscribers: null, profile }
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [entity], community: null }))
-      expect(await searchName("ab".repeat(32), 8), profile).toMatchObject({ entities: [entity] })
+    for (const [type, kind] of [["address", "contact"], ["channel", "channel"]]) {
+      for (const profile of ["unread", "unavailable"]) {
+        answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ type, profile, ...link }], community: null }))
+        expect(await searchName("ab".repeat(32), 8), `${type} ${profile}`).toMatchObject({ entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...link }] })
+      }
     }
-    // a link the chat core cannot parse has no deep link, and its own text is opened
-    const unparsed = { ...PROFILE, ...link, deepLink: null, displayName: "", fullName: "", subscribers: null, profile: "unavailable" }
-    answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [unparsed], community: null }))
-    expect(await searchName("ab".repeat(32), 8)).toMatchObject({ entities: [unparsed] })
-    for (const kind of ["contact", "business", "bot"]) {
-      const entity = { ...PROFILE, ...link, type: "address", kind, subscribers: null }
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [entity], community: null }))
-      expect(await searchName("ab".repeat(32), 8), kind).toMatchObject({ entities: [entity] })
+    // an address is a business by its flag or its peer type, a bot by its peer type, and a contact by any other
+    const address = { type: "address", profile: "ok", displayName: "Alice", fullName: "", image: null, peerType: null, business: false, ...link }
+    for (const [change, kind] of [[{}, "contact"], [{ peerType: "human" }, "contact"], [{ peerType: "agent" }, "contact"], [{ peerType: "robot" }, "contact"],
+      [{ business: true }, "business"], [{ peerType: "business" }, "business"], [{ peerType: "bot" }, "bot"], [{ peerType: "bot", business: true }, "business"]] as const) {
+      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...address, ...change }], community: null }))
+      expect(await searchName("ab".repeat(32), 8), JSON.stringify(change)).toMatchObject({ entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...link }] })
+    }
+    for (const change of [{ business: undefined }, { business: "yes" }, { peerType: 5 }]) {
+      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...address, ...change }], community: null }))
+      expect((await errorOf()).code, JSON.stringify(change)).toBe("network")
     }
   })
 
@@ -350,7 +355,7 @@ describe("service errors", () => {
 
   it("takes a link preview whose image is no image the page can show as no answer", async () => {
     answerWith(200, JSON.stringify({ ...PROFILE, image: "data:image/png;base64,iVBORw0KGgo=" }))
-    expect(await previewLink("x")).toMatchObject({ displayName: "Alice" })
+    expect(await previewLink("x")).toMatchObject({ displayName: "Alice", kind: "channel", subscribers: 12 })
     for (const image of ["javascript:alert(1)", "http://example.com/a.png", "https://example.com/a.png", 5]) {
       answerWith(200, JSON.stringify({ ...PROFILE, image }))
       const e = await previewLink("x").then(() => null, (e: unknown) => e)

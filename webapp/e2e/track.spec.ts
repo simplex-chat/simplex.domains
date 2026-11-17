@@ -624,8 +624,8 @@ test("the home keeps its headline and search still as each kind of answer comes,
   }
 })
 
-const linked = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", kind, displayName: kind, fullName: "", image: null,
-  subscribers: kind === "channel" ? 12 : null, link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x", profile: "ok" })
+const linked = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", displayName: kind, fullName: "", image: null,
+  ...kind === "channel" ? { groupType: "channel", publicMemberCount: 12 } : { peerType: null, business: false }, link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x", profile: "ok" })
 // the search's answers for a name: available, taken with two chats, and this browser's, of `owner`, with two chats
 const homeAnswers = (owner: string) => ({
   available: { status: "available", price: 10000, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, ...CHAIN, community: null, terms: TERMS },

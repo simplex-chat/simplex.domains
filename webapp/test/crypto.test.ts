@@ -132,11 +132,11 @@ describe("registration", () => {
   })
 
   it("encodes the records and the commitment as the contract's ABI does", () => {
-    const r = registration(owner, ["https://smp8.simplex.im/a#contact"], ["https://smp9.simplex.im/c#channel"])
+    const r = registration(owner, ["https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"], ["https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA"])
     const node = viemNamehash("dynamis.simplex")
     const data = [
-      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.contact", "https://smp8.simplex.im/a#contact"] }),
-      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.channel", "https://smp9.simplex.im/c#channel"] }),
+      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.contact", "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"] }),
+      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.channel", "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA"] }),
     ]
     expect(recordCalls(r).map(hex)).toEqual(data)
     const tuple = { label: r.label, owner: checksumAddress(owner) as `0x${string}`, duration: r.duration, secret: hex(r.secret), resolver: hex(RESOLVER), data, reverseRecord: 0, referrer: zeroHash }
@@ -152,7 +152,7 @@ describe("registration", () => {
 
   it("signs RegisterName as viem's typed data, recoverable to the owner", async () => {
     const wallet = walletFromEntropy(ENTROPY)
-    const r = registration(wallet.address, ["https://smp8.simplex.im/a#contact"])
+    const r = registration(wallet.address, ["https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"])
     const typed = {
       domain: { name: "SimplexSponsor", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(SPONSOR) },
       types: { RegisterName: [
@@ -205,7 +205,7 @@ describe("registration", () => {
 describe("sealed order", () => {
   it("opens with the same code and not with another", async () => {
     const seed = walletFromEntropy(ENTROPY).seed
-    const order = { label: "dynamis", contact: "https://smp8.simplex.im/a#contact", channel: "" }
+    const order = { label: "dynamis", contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
     const sealed = await seal(seed, order)
     expect(sealed).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(await unseal(seed, sealed)).toEqual(order)

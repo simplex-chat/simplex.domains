@@ -5,7 +5,7 @@ import {
   encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
-import { type ChatKind, communityAgreed, type Profile, termsLink } from "../../src/api.ts"
+import { communityAgreed, type LinkData, termsLink } from "../../src/api.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
 import { CODES_ONLY, type Mode } from "../../src/mode.ts"
@@ -16,7 +16,7 @@ import {
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
 import { savedTerms } from "../serve-terms.ts"
 import { addressFor } from "./addresses.ts"
-import { deepLinkOf } from "./links.ts"
+import { coreLink, deepLinkOf } from "./links.ts"
 
 const YEARS = 2
 const COMMUNITY_YEARS = 2
@@ -303,30 +303,26 @@ const UNREAD_TAG = "Unr"
 // a profile picture as the app sends one, a small image in a data URI
 const PICTURE = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#C76A3B"/><circle cx="32" cy="26" r="12" fill="#F6E3C8"/><path d="M12 60c2-14 10-20 20-20s18 6 20 20z" fill="#F6E3C8"/></svg>').toString("base64")}`
 
-function linkProfile(link: string): Profile | null {
+// null for a link the chat core cannot parse, which the service refuses
+function linkProfile(link: string): LinkData | null {
   const kind = linkKind(link)
-  if (kind === null) return null
+  if (kind === null || deepLinkOf(link) === null) return null
   const fragment = link.split("#")[1].slice(0, 6)
   const type = kind === "contact" ? "address" : "channel"
-  const empty = { type, kind, displayName: "", fullName: "", image: null, subscribers: null } as const
-  // a link the chat core cannot parse, as the seeded names' links, names no server to fetch it from
-  if (deepLinkOf(link) === null || fragment.startsWith(UNFETCHED_TAG)) return { ...empty, profile: "unavailable" }
-  if (fragment.startsWith(UNREAD_TAG)) return { ...empty, profile: "unread" }
-  const chat: ChatKind = kind === "channel" ? "channel" : fragment.startsWith(BUSINESS_TAG) ? "business" : fragment.startsWith(BOT_TAG) ? "bot" : "contact"
+  if (fragment.startsWith(UNFETCHED_TAG)) return { type, profile: "unavailable" }
+  if (fragment.startsWith(UNREAD_TAG)) return { type, profile: "unread" }
+  const names = { displayName: kind === "contact" ? `Contact ${fragment}` : `Channel ${fragment}`, fullName: "", image: fragment.startsWith(PICTURE_TAG) ? PICTURE : null }
   // a channel's count, the same for the same link
-  const subscribers = kind === "channel" ? [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000 : null
-  return {
-    type, kind: chat, profile: "ok", displayName: kind === "contact" ? `Contact ${fragment}` : `Channel ${fragment}`,
-    fullName: "", image: fragment.startsWith(PICTURE_TAG) ? PICTURE : null, subscribers,
-  }
+  if (kind === "channel") return { type: "channel", profile: "ok", ...names, groupType: "channel", publicMemberCount: [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000 }
+  return { type: "address", profile: "ok", ...names, peerType: fragment.startsWith(BOT_TAG) ? "bot" : null, business: fragment.startsWith(BUSINESS_TAG) }
 }
 
 // A profile that was read is kept this long, as the service caches it; one not read now is fetched again.
 const PROFILE_CACHE_MS = 10 * 60_000
-const readProfiles = new Map<string, { profile: Profile; until: number }>()
+const readProfiles = new Map<string, { profile: LinkData; until: number }>()
 
 // The link's profile as a fetch gives it: a link not fetched answers at once, and a fetch takes the delay a test set for its link.
-async function fetchedProfile(link: string): Promise<Profile | null> {
+async function fetchedProfile(link: string): Promise<LinkData | null> {
   const profile = linkProfile(link)
   if (profile === null || profile.profile === "unavailable") return profile
   const kept = readProfiles.get(link)
@@ -343,12 +339,12 @@ async function fetchedProfile(link: string): Promise<Profile | null> {
 
 async function entity(link: string) {
   const profile = await fetchedProfile(link)
-  return profile && { ...profile, link, deepLink: deepLinkOf(link) }
+  return profile && { ...profile, link: coreLink(link)!, deepLink: deepLinkOf(link)! }
 }
 
-// the short links of the key's kind in its record, in the record's order
+// the short links of the key's kind in its record that the chat core parses, in the record's order
 const entitiesOf = async (kind: LinkKind, text: string) =>
-  (await Promise.all(splitLinks(text).filter((link) => linkProblem(kind, link) === null).slice(0, MAX_ENTITIES_PER_KEY).map(entity))).filter((e) => e !== null)
+  (await Promise.all(splitLinks(text).filter((link) => linkProblem(kind, link) === null && deepLinkOf(link) !== null).slice(0, MAX_ENTITIES_PER_KEY).map(entity))).filter((e) => e !== null)
 
 // --- search
 
@@ -1028,7 +1024,7 @@ function linksOf(records: unknown): { contact: string[]; channel: string[] } {
 }
 
 const linksTaken = (records: { contact: string[]; channel: string[] }) =>
-  (["contact", "channel"] as const).every((kind) => records[kind].every((link) => linkProblem(kind, link) === null))
+  (["contact", "channel"] as const).every((kind) => records[kind].every((link) => linkProblem(kind, link) === null && deepLinkOf(link) !== null))
 
 // A reveal includes the owner's signature of the acceptance its view returns, of the terms of the name's kind on chain now.
 async function checkAcceptance(reg: Registration, accepted: unknown, deadline: number): Promise<Registration["acceptance"]> {
@@ -1264,7 +1260,7 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
     balanceSource: r.balanceSource, heldBy: heldBy(r.id) })) }
 }
 
-export async function previewLink(body: Record<string, unknown>): Promise<Profile> {
+export async function previewLink(body: Record<string, unknown>): Promise<LinkData> {
   if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link")
   return (await fetchedProfile(body.link))!
 }
@@ -1330,7 +1326,7 @@ function signedEdits(edits: unknown): SignedEdit[] {
   if (new Set(keys).size !== keys.length || (keys.includes(null) && parsed.length > 1)) throw badRequest()
   if (parsed.some((e, i) => i > 0 && e.nonce !== parsed[i - 1].nonce + 1)) throw badRequest()
   for (const { key, value } of parsed) {
-    if (key !== null && value !== "" && linkProblem(key === CONTACT_KEY ? "contact" : "channel", value) !== null) throw new HttpError(400, "invalid_link")
+    if (key !== null && value !== "" && (linkProblem(key === CONTACT_KEY ? "contact" : "channel", value) !== null || deepLinkOf(value) === null)) throw new HttpError(400, "invalid_link")
   }
   return parsed.map((e) => ({ ...e, signature: checkSignature(e.signature) }))
 }
@@ -1385,7 +1381,8 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   if (signers[0] !== owner) throw badRequest()
   // the relay writes only the store's resolver, which a name pointed elsewhere no longer reads
   if (nameResolver !== getAddress(deployment.resolver)) throw badRequest()
-  if (BigInt(edits[0].nonce) !== current) throw badRequest()
+  // a nonce the owner has moved past, or not reached, is the page's to read again
+  if (BigInt(edits[0].nonce) !== current) throw new HttpError(409, "stale_nonce")
   // kept from the moment it goes out, and counted once whatever it changes
   const edit: { sent: SentEdit | null } = { sent: null }
   const goingOut = (hash: Hex) => {

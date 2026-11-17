@@ -27,7 +27,7 @@ const subscribers = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "su
 
 // After the app's connection plan alert (ConnectPlan.kt, AlertManager.showOpenChatAlert): the profile, its link as a QR, open and copy.
 function openChat(e: api.Entity, name: string, key: string, community: boolean): void {
-  const target = e.deepLink ?? e.link
+  const target = e.deepLink
   const open = SAFE_LINK.test(target) ? el("a", { class: "btn", href: target }, e.kind === "channel" ? "Open channel in SimpleX" : "Open in SimpleX") : null
   const qr = SAFE_LINK.test(e.link) ? qrSvg(e.link, `QR code of the link to ${chatName(e)}`) : null
   showPopup(key, [
