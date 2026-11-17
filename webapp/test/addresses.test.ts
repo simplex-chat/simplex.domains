@@ -42,7 +42,6 @@ function fromFiveBits(values: number[], pad = false): number[] {
 
 const numberOf = (groups: number[]) => groups.reduce((n, g) => n * 32 + g, 0)
 
-// BOLT11's reader: the timestamp, each tagged field by its letter, and the signature's 104 groups before the checksum
 function bolt11Decode(invoice: string) {
   const { hrp, data } = bech32Decode(invoice)
   const body = data.slice(0, -104)
@@ -120,7 +119,6 @@ describe("the mock's invoice addresses", () => {
     expect(fromFiveBits(fields.get("p")!), "a 32-byte payment hash").toHaveLength(32)
     expect(fromFiveBits(fields.get("s")!), "a 32-byte payment secret").toHaveLength(32)
     expect(numberOf(fields.get("x")!)).toBe(EXPIRY_S)
-    // a key recovered from a hash the mock did not sign would differ from one invoice to the next
     expect(nodeKey(invoice), "the node key that signed the prefix and fields").toBe(nodeKey(lightningInvoice(ids[0], "0.5", CREATED + 1, EXPIRY_S)))
   })
 

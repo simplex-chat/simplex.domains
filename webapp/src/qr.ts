@@ -3,7 +3,6 @@
 const MODE_BYTE = 0b0100;
 const MODE_ALPHANUMERIC = 0b0010;
 const MODE_BITS = 4;
-// the alphanumeric mode's 45 characters, each its index; two take 11 bits, a last odd one 6
 const ALPHANUMERIC = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 const ALPHANUMERIC_BASE = 45;
 const ALPHANUMERIC_PAIR_BITS = 11;
@@ -98,7 +97,6 @@ function numDataCodewords(version: number): number {
   return totalCodewords(version) - ECC_PER_BLOCK_M[version]! * NUM_BLOCKS_M[version]!;
 }
 
-// ISO/IEC 18004 table 3: the character count's width for versions 1-9, 10-26 and 27-40
 function charCountBits(mode: number, version: number): number {
   if (mode === MODE_BYTE) return version < 10 ? 8 : 16;
   return version < 10 ? 9 : version < 27 ? 11 : 13;
@@ -108,7 +106,6 @@ function pushBits(bits: number[], value: number, width: number): void {
   for (let i = width - 1; i >= 0; i--) bits.push((value >>> i) & 1);
 }
 
-// Alphanumeric mode when every character is in its set, as an uppercase BOLT11 URI is; UTF-8 bytes otherwise.
 function segmentOf(payload: string): Segment {
   const data: number[] = [];
   if ([...payload].every((ch) => ALPHANUMERIC.includes(ch))) {
@@ -405,7 +402,6 @@ export function encodeQr(payload: string): QrSymbol | null {
 }
 
 // Monero GUI, a laptop's wallet, opens only `monero://`; a phone's wallets and QR readers take `monero:`.
-// Lightning wallets on both register `lightning:`, and a BOLT11 invoice carries its own amount.
 export function paymentUri(method: "btc" | "ln" | "xmr", address: string, amount: string, desktop = false): string | null {
   if (method === "ln") return address === "" ? null : `lightning:${encodeURIComponent(address)}`;
   if (address === "" || amount === "") return null;

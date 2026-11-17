@@ -716,7 +716,6 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .code-input input { font-size: 14px; letter-spacing: 0; }
   .order > .row { padding-inline: 16px 12px; }
   .table { padding: 2px 16px 4px; }
-  /* four methods' names in one row down to a 320 px phone, "Lightning" the widest */
   .methods { gap: 8px; }
   .method { height: 72px; padding-inline: 2px; font-size: min(14px, 3.8vw); }
   .review:has(.line) .order .name { font-size: 16px; }
