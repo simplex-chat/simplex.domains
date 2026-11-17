@@ -3,7 +3,7 @@
 export const MIN_LABEL_LENGTH = 6
 export const MAX_LABEL_LENGTH = 63
 // a record value's bound, as the service enforces it
-export const LINK_MAX_BYTES = 4096
+export const LINK_MAX_BYTES = 1024
 
 export type LabelProblem = "short" | "long" | "chars"
 

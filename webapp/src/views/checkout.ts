@@ -24,6 +24,7 @@ import {
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
 import { openedInstead } from "./order.ts"
+import { loadNextRouteAfresh } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
 const CHECKOUT_NOTE = "checkout-note"
@@ -450,7 +451,7 @@ function buildCommunity(s: CheckoutState): HTMLElement {
   const text = !read ? el("p", { class: "note center" }, "Loading the terms…")
     : read.text === null ? line("bad", "alert", CANT_SHOW)
     : [termsText(read.text), commitLink(c.terms, c.chain.chainId)]
-  return screen({ title: "Community terms", lead: [nameText(c.label, c.chain.tld), " is a community name. Its owner accepts these terms."], back: checkoutUrl("code"),
+  return screen({ title: "Community terms", lead: [nameText(c.label, c.chain.tld), " is a community name. Its owner accepts these conditions."], back: checkoutUrl("code"),
     action: continueButton(() => go(checkoutUrl("review")), !c.accepted) },
     c.termsChanged ? termsChangedLine("continue") : null,
     text,
@@ -652,7 +653,10 @@ function orderError(e: unknown, c: session.Checkout): void {
   }
   if (code === "provider_unavailable") return void act({ type: "order-refused", reason: "method" })
   if (code === "terms_unavailable") return void act({ type: "order-refused", reason: "unavailable" })
-  if (code === CODES_ONLY) return dispatch({ type: "order-refused", reason: "codes-only" })
+  if (code === CODES_ONLY) {
+    loadNextRouteAfresh()
+    return dispatch({ type: "order-refused", reason: "codes-only" })
+  }
   if (code === "catalog_changed" && e instanceof api.ApiError && typeof e.body.price === "number") return void act({ type: "price-changed", price: e.body.price })
   // the tab's wait started as the order was refused; the page holds for what is left of it
   if (code === "rate_limited") return dispatch({ type: "hold-started", until: holdEnd() })

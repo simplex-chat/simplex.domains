@@ -15,11 +15,11 @@ import { RETRY_MS } from "../src/screens/order.ts"
 const COMMUNITY_LABEL = "bakers"
 // the community name dev/deploy.ts registered under the terms, with links
 const TAKEN_COMMUNITY = "bakehouse"
-const ACCEPT_WORDS = "I accept the community terms and will use this name for its community."
-const PLAIN_WORDS = "I agree to SimpleX general terms and do not knowingly violate any trademarks."
-const TERMS_CHANGED = "The terms changed. Agree to them again."
+const ACCEPT_WORDS = "I accept the Names Conditions and will use this name to benefit its community."
+const PLAIN_WORDS = "I accept the SimpleX Names Conditions of Use."
+const TERMS_CHANGED = "The Names Conditions changed. Accept them again."
 // what the popup says of every community name after what the name is for
-const POPUP_END = "Its owner agrees to use it for this community, not as the name of one person or business."
+const POPUP_END = "Its owner agrees to use it to benefit this community, not as the brand of one person or business."
 // what the tests put a name on the list for
 const LISTED_FOR = "test bakers"
 const MARKER = "Community name: about it"
@@ -158,28 +158,41 @@ test("a community name's order shows its community terms on their own step befor
   await expect(onStep(page).getByRole("checkbox", { name: ACCEPT }), "the step gone back to keeps its tick").toBeChecked()
 })
 
-test("community terms at a commit of git.simplex.chat link that commit's page under their text", async ({ page }) => {
-  const text = "# Community terms\n\n- Use the name for its community.\n"
-  const digest = createHash("sha256").update(text).digest("hex")
-  const commit = "4cb24444a1f2e3d4c5b6a7980716253443526170"
-  const path = `simplex-chat/simplex-chat/raw/commit/${commit}/docs/community-terms.md`
-  const link = `https://git.simplex.chat/${path}#sha256=${digest}`
-  const hash = keccak256(toHex(link))
-  await page.route("**/api/name/*", async (route) => {
-    const response = await route.fetch()
-    const json = await response.json()
-    await route.fulfill({ response, json: json.status === "available" ? { ...json, terms: { hash, link } } : json })
+const TERMS_COMMIT = "4cb24444a1f2e3d4c5b6a7980716253443526170"
+
+for (const [host, file, commitPage] of [
+  [
+    "git.simplex.chat",
+    `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${TERMS_COMMIT}/docs/community-terms.md`,
+    `https://git.simplex.chat/simplex-chat/simplex-chat/src/commit/${TERMS_COMMIT}/docs/community-terms.md`,
+  ],
+  [
+    "GitHub",
+    `https://raw.githubusercontent.com/simplex-chat/simplex-chat/${TERMS_COMMIT}/docs/community-terms.md`,
+    `https://github.com/simplex-chat/simplex-chat/blob/${TERMS_COMMIT}/docs/community-terms.md`,
+  ],
+] as const) {
+  test(`community terms at a commit of ${host} link that commit's page under their text`, async ({ page }) => {
+    const text = "# Community terms\n\n- Use the name for its community.\n"
+    const digest = createHash("sha256").update(text).digest("hex")
+    const link = `${file}#sha256=${digest}`
+    const hash = keccak256(toHex(link))
+    await page.route("**/api/name/*", async (route) => {
+      const response = await route.fetch()
+      const json = await response.json()
+      await route.fulfill({ response, json: json.status === "available" ? { ...json, terms: { hash, link } } : json })
+    })
+    await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ json: { link, text } }))
+    await search(page, COMMUNITY_LABEL)
+    await toCodeStep(page)
+    await onStep(page).getByText(SAVED).click()
+    await onStep(page).getByRole("button", { name: "Continue" }).click()
+    // the terms' own heading has the step's words too
+    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
+    await expect(onStep(page).locator(".terms-text h3")).toHaveText("Community terms")
+    await expect(onStep(page).getByRole("link", { name: `View at commit ${TERMS_COMMIT.slice(0, 7)}` })).toHaveAttribute("href", commitPage)
   })
-  await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ json: { link, text } }))
-  await search(page, COMMUNITY_LABEL)
-  await toCodeStep(page)
-  await onStep(page).getByText(SAVED).click()
-  await onStep(page).getByRole("button", { name: "Continue" }).click()
-  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
-  await expect(onStep(page).locator(".terms-text h3")).toHaveText("Community terms")
-  await expect(onStep(page).getByRole("link", { name: `View at commit ${commit.slice(0, 7)}` }))
-    .toHaveAttribute("href", `https://git.simplex.chat/${path.replace("/raw/commit/", "/src/commit/")}`)
-})
+}
 
 test("an order refused for terms changed meanwhile unticks the box and says so in place, the box and Pay staying put, and signs the new terms once ticked", async ({ page, request }) => {
   const label = uniqueLabel("ct")
@@ -196,7 +209,7 @@ test("an order refused for terms changed meanwhile unticks the box and says so i
     await expect(onStep(page).getByRole("checkbox", { name: AGREE })).not.toBeChecked()
     await expect(payButton(page)).toBeDisabled()
     expect(await places(page, parts), "with the notice").toEqual(before)
-    await expect(onStep(page).getByRole("link", { name: "SimpleX general terms" }), "the box links the changed terms")
+    await expect(onStep(page).getByRole("link", { name: "SimpleX Names Conditions of Use" }), "the box links the changed terms")
       .toHaveAttribute("href", ((await (await page.request.get(`/api/terms/${hash}`)).json()) as { link: string }).link.split("#")[0])
     await agreeToTerms(page)
     await expect(notice).toHaveCount(0)
@@ -259,7 +272,7 @@ test("a failed order moved through the search to another name asks for that name
     await page.getByLabel("Name", { exact: true }).press("Enter")
     const move = page.getByRole("button", { name: "Register with your payment" })
     await expect(page.locator(".answer .check.terms")).toHaveText([ACCEPT_WORDS])
-    await page.locator(".answer .check.terms").getByRole("button", { name: "community terms" }).click()
+    await page.locator(".answer .check.terms").getByRole("button", { name: "Names Conditions" }).click()
     const popup = page.getByRole("dialog", { name: "Community terms" })
     await expect(popup.locator(".terms-text h3"), "the terms of the hash the move signs").toHaveText(headingOf((await termsOnChain(page)).text))
     await popup.getByRole("button", { name: "Close" }).click()

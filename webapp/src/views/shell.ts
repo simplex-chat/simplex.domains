@@ -5,6 +5,7 @@ import type { Hold } from "../screens/hold.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { secondsLeft } from "./hold.ts"
+import { reloadedForRoute } from "./served-mode.ts"
 
 export const CONTACT_EMAIL = "chat@simplex.chat"
 
@@ -116,7 +117,7 @@ export function go(url: string): void {
   history.pushState({ at: historyAt }, "", url)
   popped = false
   scrollTarget = 0
-  rerender()
+  if (!reloadedForRoute()) rerender()
 }
 
 export const searchLink = (label: string) => `/#/?${new URLSearchParams({ name: label })}`
@@ -124,7 +125,7 @@ export const searchLink = (label: string) => `/#/?${new URLSearchParams({ name: 
 // for a page that sends the buyer elsewhere: replacing the entry keeps Back and Forward usable
 export function redirect(url: string): void {
   history.replaceState({ at: historyAt }, "", url)
-  rerender()
+  if (!reloadedForRoute()) rerender()
 }
 
 export function refresh(): void {

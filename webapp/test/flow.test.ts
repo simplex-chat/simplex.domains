@@ -109,20 +109,31 @@ describe("orderRequest", () => {
 })
 
 describe("revealOrder", () => {
-  it("sends the label, secret and links with a RegisterName signature from the code's key, at the commitment's deadline", async () => {
+  it("sends the label, secret and links with a RegisterName signature from the code's key, a week ahead of the service's clock", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
     await flow.revealOrder(view(built.request) as never, record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
-    expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: [LINKS.contact], channel: [] }, nonce: 3, deadline: 87400 })
+    expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: [LINKS.contact], channel: [] }, nonce: 3 })
+    expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
     const r = {
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
       resolver: fromHex(CHAIN.resolver), contactLinks: [LINKS.contact], channelLinks: [],
     }
-    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 3n, 87400n)
+    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 3n, BigInt(body.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: body.signature })).toBe(OWNER)
+  })
+
+  it("signs no deadline before the commitment lapses, as the service refuses one", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
+    answers["POST /api/registration/reg1/reveal"] = {}
+    const revealBefore = Math.floor(Date.now() / 1000) + 30 * 86400
+    await flow.revealOrder(view(built.request, { revealBefore }) as never, record)
+    expect((calls[0].body as { deadline: number }).deadline).toBe(revealBefore)
   })
 
   it.each([["name", false], ["community", true]] as const)("signs the acceptance of the %s terms on chain with the code's key, at the same deadline, as their kind's type", async (kind, community) => {
@@ -132,10 +143,10 @@ describe("revealOrder", () => {
     answers["POST /api/registration/reg1/reveal"] = {}
     const acceptance = { kind, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: `0x${"c7".repeat(32)}`, nonce: 2 }
     await flow.revealOrder(view(built.request, { acceptance }) as never, record)
-    const sent = calls[0].body as { acceptance: { termsHash: string; nonce: number; signature: Hex } }
+    const sent = calls[0].body as { deadline: number; acceptance: { termsHash: string; nonce: number; signature: Hex } }
     expect(sent.acceptance).toMatchObject({ termsHash: acceptance.termsHash, nonce: 2 })
-    const digest = acceptTermsDigest(community, 31337n, fromHex(acceptance.policy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, 87400n)
-    const other = acceptTermsDigest(!community, 31337n, fromHex(acceptance.policy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, 87400n)
+    const digest = acceptTermsDigest(community, 31337n, fromHex(acceptance.policy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, BigInt(sent.deadline))
+    const other = acceptTermsDigest(!community, 31337n, fromHex(acceptance.policy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, BigInt(sent.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: sent.acceptance.signature })).toBe(OWNER)
     expect(await recoverAddress({ hash: hex(other) as Hex, signature: sent.acceptance.signature })).not.toBe(OWNER)
   })

@@ -1,4 +1,5 @@
 // The router: one page per route, redrawn on navigation.
+import { loadConfig } from "./config.ts"
 import { codesOnly } from "./mode.ts"
 import { checkoutStepOf, EDIT_PATH, fromOrder, viewOf } from "./screens/routes.ts"
 import * as session from "./session.ts"
@@ -7,6 +8,7 @@ import { setUpChrome } from "./views/chrome.ts"
 import { checkCodePage, editPage, historyPage, trademarksPage } from "./views/names.ts"
 import { orderPage } from "./views/order.ts"
 import { searchPage } from "./views/search.ts"
+import { followServedMode, reloadedForRoute } from "./views/served-mode.ts"
 import { go, historyMoved, nextRoute, setRenderer } from "./views/shell.ts"
 
 function render(): void {
@@ -26,11 +28,21 @@ function render(): void {
 }
 
 setRenderer(render)
+// The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
+// Its listener is added before the await below, as Chromium fires load without waiting for a module's top-level await.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  addEventListener("load", () => {
+    // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
+  })
+}
+// The mode decides the first screen, so nothing between the header and the footer is drawn before it is known.
+await loadConfig()
 // a balance pays nothing in codes-only mode, so one this tab took before pays no more
 if (codesOnly()) session.setActiveBalance(null)
 setUpChrome()
 window.addEventListener("popstate", (e) => {
-  if (historyMoved(e)) render()
+  if (historyMoved(e) && !reloadedForRoute()) render()
 })
 // The second click of a double click is dropped everywhere: an action that redraws the page or opens a popup puts
 // another control under the pointer, where it would land (a checkbox, a payment method, the popup's backdrop).
@@ -54,10 +66,4 @@ document.addEventListener("click", (e) => {
   go(href)
 })
 render()
-// The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  addEventListener("load", () => {
-    // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
-    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
-  })
-}
+followServedMode()

@@ -90,6 +90,8 @@ function submit(): void {
     params.set("name", label)
     history.replaceState(history.state, "", `/#/?${params}`)
   }
+  // the name searched is in the URL, which a reload draws again, so the field holds nothing a reload would lose
+  if (field) field.defaultValue = label
   if (state.searching) void runSearch(label, state.seq)
 }
 

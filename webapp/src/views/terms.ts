@@ -3,17 +3,17 @@ import { el, icon, line, nameText, nameTitle } from "../dom.ts"
 import { blocksOf, spansOf } from "../markdown.ts"
 import { POPUP_TITLE, showPopup } from "./shell.ts"
 
-const TERMS_CHANGED = "The terms changed. Agree to them again."
+const TERMS_CHANGED = "The Names Conditions changed. Accept them again."
 const INFO_KEY = "community-info"
 const TERMS_KEY = "community-terms"
-export const CANT_SHOW = "The community terms can't be shown now. Try again in a moment."
+export const CANT_SHOW = "The Names Conditions can't be shown now. Try again in a moment."
 export const NO_ORDERS = "Names can't be ordered right now"
 
 function showCommunity(label: string, tld: string, community: api.Community | null, key: string): void {
   showPopup(key, [
     el("h2", { id: POPUP_TITLE }, nameText(label, tld)),
     el("span", { class: "soft" }, "Community name"),
-    el("p", {}, community?.for ? `This name is for ${community.for}. ` : "", "Its owner agrees to use it for this community, not as the name of one person or business."),
+    el("p", {}, community?.for ? `This name is for ${community.for}. ` : "", "Its owner agrees to use it to benefit this community, not as the brand of one person or business."),
   ], null)
 }
 
@@ -64,8 +64,8 @@ export interface Agreement {
 export function termsCheck(a: Agreement, agree: (agreed: boolean) => void): HTMLLabelElement {
   const box = el("input", { type: "checkbox", checked: a.agreed, disabled: a.disabled, "data-focus": "agreed" })
   box.addEventListener("change", () => agree(box.checked))
-  const terms = el("a", { class: "nowrap", href: api.readerUrl(a.terms.link), target: "_blank", rel: "noopener" }, "SimpleX general terms")
-  return el("label", { class: "check terms" }, box, el("span", { class: "box" }), el("span", {}, "I agree to ", terms, " and do not knowingly violate any trademarks."))
+  const terms = el("a", { class: "nowrap", href: api.readerUrl(a.terms.link), target: "_blank", rel: "noopener" }, "SimpleX Names Conditions of Use")
+  return el("label", { class: "check terms" }, box, el("span", { class: "box" }), el("span", {}, "I accept the ", terms, "."))
 }
 
 // A community name's own tick: its words open the community terms' text, unless their step shows it above them, and its ⓘ
@@ -74,9 +74,9 @@ export function communityCheck(a: Agreement, accept: (accepted: boolean) => void
   const community = a.community!
   const box = el("input", { type: "checkbox", checked: a.accepted, disabled: a.disabled, "data-focus": "accepted" })
   box.addEventListener("change", () => accept(box.checked))
-  const terms = shown ? "community terms" : el("button", { class: "text-link", type: "button", "aria-haspopup": "dialog", "data-focus": TERMS_KEY,
-    onclick: () => showTerms(a.terms, a.chainId, TERMS_KEY) }, "community terms")
-  return el("label", { class: "check terms" }, box, el("span", { class: "box" }), el("span", {}, "I accept the ", terms, " and will use this name for its community.",
+  const terms = shown ? "Names Conditions" : el("button", { class: "text-link", type: "button", "aria-haspopup": "dialog", "data-focus": TERMS_KEY,
+    onclick: () => showTerms(a.terms, a.chainId, TERMS_KEY) }, "Names Conditions")
+  return el("label", { class: "check terms" }, box, el("span", { class: "box" }), el("span", {}, "I accept the ", terms, " and will use this name to benefit its community.",
     el("button", { class: "cinfo", type: "button", "aria-label": "Which community this name is for", "aria-haspopup": "dialog", "data-focus": INFO_KEY,
       onclick: () => showCommunity(a.label, a.tld, community, INFO_KEY) }, icon("info"))))
 }

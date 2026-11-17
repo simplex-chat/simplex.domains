@@ -58,6 +58,7 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/control\/general-terms$/, (_, b) => controlGeneralTerms(b)],
   ["POST", /^\/control\/mode$/, (_, b) => controlMode(b)],
   ["GET", /^\/control\/mode$/, () => modeNow()],
+  ["GET", /^\/api\/config$/, () => ({ ...modeNow(), stripePublishableKey: null })],
   ["POST", /^\/control\/community$/, (_, b) => controlCommunity(b)],
   ["POST", /^\/control\/community-terms$/, (_, b) => controlCommunityTerms(b)],
   ["POST", /^\/control\/edits$/, (_, b) => controlEdits(b)],

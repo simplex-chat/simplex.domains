@@ -10,6 +10,7 @@ import { checksumAddress, fromHex, hex, personalDigest, signDigest, walletFromEn
 import * as store from "./store.ts"
 
 const EDIT_DEADLINE_SECONDS = 3600
+const REVEAL_DEADLINE_SECONDS = 7 * 86400
 
 // signed timestamps and deadlines are judged by the service's clock
 const now = api.serviceSeconds
@@ -80,20 +81,22 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
   }
 }
 
-// The owner signs the registration once the commit has aged; the deadline is when the commitment lapses anyway.
+// The owner signs the registration once the commit has aged, with a deadline a week ahead and never before the commitment
+// lapses, so the service can commit again after a lapse and register without the page.
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, view, BigInt(view.duration))
-  const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.intentNonce!), BigInt(view.revealBefore!))
+  const deadline = Math.max(view.revealBefore!, now() + REVEAL_DEADLINE_SECONDS)
+  const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.intentNonce!), BigInt(deadline))
   const a = view.acceptance
   const acceptance = a ? {
     termsHash: a.termsHash, nonce: a.nonce,
-    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.kind === "community", BigInt(view.chainId), fromHex(a.policy), fromHex(view.commitment), fromHex(a.termsHash), BigInt(a.nonce), BigInt(view.revealBefore!)))),
+    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.kind === "community", BigInt(view.chainId), fromHex(a.policy), fromHex(view.commitment), fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
   } : undefined
   await api.reveal(view.id, {
     label: record.label, secret: hex(r.secret),
     records: { contact: r.contactLinks, channel: r.channelLinks },
-    nonce: view.intentNonce!, deadline: view.revealBefore!, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
+    nonce: view.intentNonce!, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   })
 }
 
