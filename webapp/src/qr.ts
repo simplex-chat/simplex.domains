@@ -1,12 +1,16 @@
-// The QR encoder and drawing, as the badges webapp has them (simplex-chat apps/simplex-badge-service/web/src/qr.ts);
+// The QR encoder and drawing, as the badges webapp has them (simplex-chat apps/simplex-store-service/web/src/qr.ts);
 // the encoder moves to @simplex-chat/store with the shared library.
-const MODE_BYTE = 0b0100;
-const MODE_ALPHANUMERIC = 0b0010;
-const MODE_BITS = 4;
+type Mode = "byte" | "alphanumeric";
+const MODE_INDICATORS: Readonly<Record<Mode, number>> = { byte: 0b0100, alphanumeric: 0b0010 };
+const COUNT_BITS: Readonly<Record<Mode, readonly [number, number, number]>> = {
+  byte: [8, 16, 16],
+  alphanumeric: [9, 11, 13],
+};
 const ALPHANUMERIC = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
-const ALPHANUMERIC_BASE = 45;
+const BYTE_BITS = 8;
 const ALPHANUMERIC_PAIR_BITS = 11;
 const ALPHANUMERIC_SINGLE_BITS = 6;
+const MODE_INDICATOR_BITS = 4;
 const ECC_LEVEL_M_BITS = 0b00;
 const MIN_VERSION = 1;
 const MAX_VERSION = 40;
@@ -20,12 +24,6 @@ const NUM_BLOCKS_M: readonly number[] = [
   -1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16,
   17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49,
 ];
-
-interface Segment {
-  mode: number;
-  count: number;
-  data: number[];
-}
 
 interface QrSymbol {
   version: number;
@@ -97,33 +95,42 @@ function numDataCodewords(version: number): number {
   return totalCodewords(version) - ECC_PER_BLOCK_M[version]! * NUM_BLOCKS_M[version]!;
 }
 
-function charCountBits(mode: number, version: number): number {
-  if (mode === MODE_BYTE) return version < 10 ? 8 : 16;
-  return version < 10 ? 9 : version < 27 ? 11 : 13;
+function charCountBits(mode: Mode, version: number): number {
+  return COUNT_BITS[mode][version < 10 ? 0 : version < 27 ? 1 : 2];
 }
 
-function pushBits(bits: number[], value: number, width: number): void {
-  for (let i = width - 1; i >= 0; i--) bits.push((value >>> i) & 1);
+function capacity(mode: Mode, version: number): number {
+  const room = numDataCodewords(version) * 8 - MODE_INDICATOR_BITS - charCountBits(mode, version);
+  if (mode === "byte") return Math.floor(room / BYTE_BITS);
+  const pairs = Math.floor(room / ALPHANUMERIC_PAIR_BITS);
+  return 2 * pairs + (room - pairs * ALPHANUMERIC_PAIR_BITS >= ALPHANUMERIC_SINGLE_BITS ? 1 : 0);
+}
+
+interface Segment {
+  mode: Mode;
+  count: number;
+  chunks: ReadonlyArray<readonly [value: number, width: number]>;
 }
 
 function segmentOf(payload: string): Segment {
-  const data: number[] = [];
-  if ([...payload].every((ch) => ALPHANUMERIC.includes(ch))) {
-    for (let i = 0; i < payload.length; i += 2) {
-      const first = ALPHANUMERIC.indexOf(payload[i]!);
-      if (i + 1 < payload.length) pushBits(data, first * ALPHANUMERIC_BASE + ALPHANUMERIC.indexOf(payload[i + 1]!), ALPHANUMERIC_PAIR_BITS);
-      else pushBits(data, first, ALPHANUMERIC_SINGLE_BITS);
+  const values = Array.from(payload, (c) => ALPHANUMERIC.indexOf(c));
+  if (values.every((v) => v >= 0)) {
+    const chunks: Array<readonly [number, number]> = [];
+    for (let i = 0; i < values.length; i += 2) {
+      const second = values[i + 1];
+      chunks.push(second === undefined
+        ? [values[i]!, ALPHANUMERIC_SINGLE_BITS]
+        : [values[i]! * ALPHANUMERIC.length + second, ALPHANUMERIC_PAIR_BITS]);
     }
-    return { mode: MODE_ALPHANUMERIC, count: payload.length, data };
+    return { mode: "alphanumeric", count: values.length, chunks };
   }
   const bytes = new TextEncoder().encode(payload);
-  for (const byte of bytes) pushBits(data, byte, 8);
-  return { mode: MODE_BYTE, count: bytes.length, data };
+  return { mode: "byte", count: bytes.length, chunks: Array.from(bytes, (b) => [b, BYTE_BITS] as const) };
 }
 
 function versionFor(segment: Segment): number | null {
   for (let version = MIN_VERSION; version <= MAX_VERSION; version++) {
-    if (MODE_BITS + charCountBits(segment.mode, version) + segment.data.length <= numDataCodewords(version) * 8) return version;
+    if (segment.count <= capacity(segment.mode, version)) return version;
   }
   return null;
 }
@@ -141,9 +148,12 @@ function alignmentPositions(version: number): number[] {
 function dataCodewords(segment: Segment, version: number): number[] {
   const capacity = numDataCodewords(version);
   const bits: number[] = [];
-  pushBits(bits, segment.mode, MODE_BITS);
-  pushBits(bits, segment.count, charCountBits(segment.mode, version));
-  bits.push(...segment.data);
+  const push = (value: number, width: number): void => {
+    for (let i = width - 1; i >= 0; i--) bits.push((value >>> i) & 1);
+  };
+  push(MODE_INDICATORS[segment.mode], MODE_INDICATOR_BITS);
+  push(segment.count, charCountBits(segment.mode, version));
+  for (const [value, width] of segment.chunks) push(value, width);
   for (let i = 0; i < 4 && bits.length < capacity * 8; i++) bits.push(0);
   while (bits.length % 8 !== 0) bits.push(0);
   const codewords: number[] = [];
