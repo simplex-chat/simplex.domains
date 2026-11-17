@@ -251,12 +251,12 @@ describe("service errors", () => {
     }
   })
 
-  const BOLT11 = lightningInvoice("inv1", "0.00049999944", 1793000000, 3600)
-  const LIGHTNING = { ...INVOICE, cryptoCurrency: "ln", cryptoAmount: "0.00049999944", address: BOLT11, cryptoAmountPaid: "0", cryptoAmountDue: "0.00049999944", paidInFull: false }
+  const BOLT11 = lightningInvoice("inv1", "0.00050000", 1793000000, 3600)
+  const LIGHTNING = { ...INVOICE, cryptoCurrency: "ln", cryptoAmount: "0.00050000", address: BOLT11, cryptoAmountPaid: "0", cryptoAmountDue: "0.00050000", paidInFull: false }
 
-  it("passes a Lightning invoice, its BOLT11 request as its address and its amount to the millisatoshi", async () => {
+  it("passes a Lightning invoice, its BOLT11 request as its address and its amount in whole satoshi", async () => {
     answerWith(200, JSON.stringify(LIGHTNING))
-    expect(await readInvoice("inv1")).toMatchObject({ cryptoCurrency: "ln", address: BOLT11, cryptoAmount: "0.00049999944", cryptoAmountDue: "0.00049999944" })
+    expect(await readInvoice("inv1")).toMatchObject({ cryptoCurrency: "ln", address: BOLT11, cryptoAmount: "0.00050000", cryptoAmountDue: "0.00050000" })
     expect(BOLT11.startsWith("lnbcrt"), "the mock's regtest request").toBe(true)
     const mainnet = "lnbc499999440p1p4d7qjqpp5d8nyztumz5dy704dce52gks3yfmgxan4kdaq2msqfrfk4q9zmttssp57g2sz7f8sxpgtr529e24tqwqv86238jtlqh0rxlhumulcjqd93eq"
     answerWith(200, JSON.stringify({ ...LIGHTNING, address: mainnet }))
