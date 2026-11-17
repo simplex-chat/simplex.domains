@@ -428,8 +428,8 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .have-code > .code-entry > .verdict:not(:empty) { display: block; padding: 10px 14px; font-size: var(--fs-small); }
 .notes { display: grid; gap: 4px; font-size: var(--fs-small); color: var(--ink-soft); text-align: center; text-wrap: balance; }
 /* the payment methods as the badges checkout's cards: the mark over the name, the chosen one ringed */
-/* the methods share the row evenly, three or the two left when the card cannot take a small difference */
-.methods { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 12px; }
+/* the methods share the row evenly, four or the three left when the card cannot take a small difference */
+.methods { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
 .method { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 66px; padding: 0 8px; font-size: 15px;
   border: 1px solid var(--surface-line); border-radius: 18px; background: var(--surface); cursor: pointer; }
 .method svg { width: 26px; height: 26px; }
@@ -716,7 +716,9 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .code-input input { font-size: 14px; letter-spacing: 0; }
   .order > .row { padding-inline: 16px 12px; }
   .table { padding: 2px 16px 4px; }
-  .method { height: 72px; font-size: 14px; }
+  /* four methods' names in one row down to a 320 px phone, "Lightning" the widest */
+  .methods { gap: 8px; }
+  .method { height: 72px; padding-inline: 2px; font-size: min(14px, 3.8vw); }
   .review:has(.line) .order .name { font-size: 16px; }
   /* the card page tighter still, so a lead of four lines, its notice and Stripe's form fit above Pay */
   .screen:has(> .screen-body > .stripe) .lead { line-height: 1.3; }

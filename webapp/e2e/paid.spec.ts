@@ -312,7 +312,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.locator(".card.order .chat")).toHaveCount(2)
   await expect(step.getByRole("button", { name: "Contact F1Y8m3, contact address" })).toBeVisible()
   await expect(step.getByRole("button", { name: /^Change/ })).toHaveCount(0)
-  await expect(step.getByRole("radio")).toHaveText(["Card", "Bitcoin", "Monero"])
+  await expect(step.getByRole("radio")).toHaveText(["Card", "Bitcoin", "Lightning", "Monero"])
   // the ETH link ends the note under the methods, and nothing sits under Pay
   const dapp = step.locator(".notes").getByRole("link", { name: "Pay with ETH" })
   await expect(dapp).toHaveAttribute("href", "https://app.simplex.domains")

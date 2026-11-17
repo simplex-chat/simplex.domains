@@ -4,10 +4,10 @@ import { parseNameCode } from "../crypto/code.ts"
 import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
-import { paymentUri, qrSvg } from "../qr.ts"
+import { paymentQr, paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  type OrderState, partlyPaid, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, seenWords, stalledAt, TICKER, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -26,9 +26,6 @@ import {
   asStep, type Builder, CONTACT_EMAIL, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
   searchLink, showRefund, useBalance, whenDropped, whenLeaving,
 } from "./shell.ts"
-
-// the count stays with its word on one line; a payment taken on first sight waits for no confirmation at all
-const confirmations = (n: number) => (n === 1 ? "Waiting for 1\u00a0confirmation" : n > 1 ? `Waiting for ${n}\u00a0confirmations` : "Waiting for the payment to settle")
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -436,8 +433,14 @@ function orderLine(s: OrderState): Kid[] {
   return [label ? nameText(label, s.view!.tld) : UNKNOWN_NAME, SEP, ...termLine(s)]
 }
 
-const TICKER: Record<"btc" | "xmr", string> = { btc: "BTC", xmr: "XMR" }
 const WALLET = "Open in wallet"
+// a BOLT11 invoice is a payment request, not an address to send to
+const destinationName = (coin: api.Coin) => coin === "ln" ? "Lightning invoice" : `${methodName(coin)} address`
+// A BOLT11 request runs to 400 characters, more than the pay card has room for, so it shows its start and end on one
+// line of a phone's field; Copy, the QR and the wallet link carry all of it.
+const INVOICE_HEAD = 14
+const INVOICE_TAIL = 8
+const shownDestination = (coin: api.Coin, address: string) => coin === "ln" ? `${address.slice(0, INVOICE_HEAD)}…${address.slice(-INVOICE_TAIL)}` : address
 
 // the invoice an earlier try made, which a checkout opened in place of paying as it chose; said until its page is left
 let instead: { invoiceId: string; had: string; chosen: string } | null = null
@@ -450,10 +453,10 @@ const insteadLine = (invoice: api.InvoiceView) => {
   return words && el("p", { class: "note" }, words)
 }
 
-function copyField(label: string, value: string): HTMLElement {
+function copyField(label: string, value: string, text = value): HTMLElement {
   // A long value, as an address, may break between any two letters, which the field's balance evens out: WebKit
   // balances only between the breaks it is given, Firefox only in a word that breaks anywhere (.word).
-  const shown = [...value].flatMap((ch, i) => i ? [el("wbr"), ch] : [ch])
+  const shown = [...text].flatMap((ch, i) => i ? [el("wbr"), ch] : [ch])
   return el("div", { class: "copy-field" }, el("span", { class: "label" }, label),
     el("div", { class: "val" }, el("span", { class: "word" }, ...shown), copyButton(value, "field-copy", `Copy ${label}`)))
 }
@@ -574,14 +577,14 @@ function turnOff<T extends HTMLElement>(details: T, off: boolean): T {
   return details
 }
 
-const partSeen = (invoice: api.InvoiceView, coin: "btc" | "xmr") => `Part of the payment arrived: ${invoice.cryptoAmountPaid} of ${invoice.cryptoAmount} ${TICKER[coin]} is seen.`
-const restAsked = (invoice: api.InvoiceView, coin: "btc" | "xmr") => `Send the remaining ${invoice.cryptoAmountDue} ${TICKER[coin]} to the same address.`
+const partSeen = (invoice: api.InvoiceView, coin: api.Coin) => `Part of the payment arrived: ${invoice.cryptoAmountPaid} of ${invoice.cryptoAmount} ${TICKER[coin]} is seen.`
+const restAsked = (invoice: api.InvoiceView, coin: api.Coin) => `Send the remaining ${invoice.cryptoAmountDue} ${TICKER[coin]} to the same address.`
 const INVOICE_EXPIRED = "The invoice expired before the full amount arrived. Don't send more; what you sent is kept as your balance."
 
 // A part-paid invoice stays open past its rate window until it closes, and past the window asks for no more: of its
 // payment controls only the address stays. When the window ends in view, the words and controls that ask for more are
 // hidden in place, so nothing on the screen moves.
-function partLines(invoice: api.InvoiceView, coin: "btc" | "xmr", payMore: (HTMLElement | null)[], signal: AbortSignal): { notice: Kid; rate: HTMLElement; ended: boolean } {
+function partLines(invoice: api.InvoiceView, coin: api.Coin, payMore: (HTMLElement | null)[], signal: AbortSignal): { notice: Kid; rate: HTMLElement; ended: boolean } {
   const left = () => (Date.parse(invoice.expiresAt) - api.serviceNow()) / 1000
   if (left() <= 0) return { notice: partSeen(invoice, coin), rate: el("span", {}, INVOICE_EXPIRED), ended: true }
   const rest = el("span", {}, restAsked(invoice, coin))
@@ -610,15 +613,15 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
 function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const coin = coinOf(inv)!
-  const partial = Number(inv.cryptoAmountPaid ?? "0") > 0
+  const partial = partlyPaid(inv)
   const due = partial ? inv.cryptoAmountDue! : inv.cryptoAmount!
   const uri = paymentUri(coin, inv.address!, due)
   holdEnds(signal)(s.hold !== null)
   // the QR's link shows on a laptop only, as styles.css draws the phone's layout without the QR
-  const qr = uri ? el("div", { class: "qr" }, qrSvg(uri, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
+  const qr = uri ? el("div", { class: "qr" }, qrSvg(paymentQr(coin, inv.address!, due)!, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
   // labels in sentence case, as their copy buttons say them; the label style draws them in capitals
   const amount = copyField(`${partial ? "rest to send" : "amount"} in ${TICKER[coin]}`, due)
-  const address = copyField(`${methodName(coin)} address`, inv.address!)
+  const address = copyField(destinationName(coin), inv.address!, shownDestination(coin, inv.address!))
   const wallet = uri ? el("a", { class: "wallet", href: uri }, WALLET) : null
   const part = partial ? partLines(inv, coin, [qr, amount, wallet], signal) : null
   const waiting = el("span", { class: "waiting" }, el("i", { class: "dot", "aria-hidden": "true" }), "Waiting for payment")
@@ -727,7 +730,6 @@ const CODES_ONLY_NOTE: Note = { tone: "warn", icon: "key", title: CODES_ONLY_TIT
 
 const CLOSED_TITLE = "Invoice closed"
 const KEPT_LATE = "kept as your balance for this name or another, or refunded on request; Your names shows it."
-const partlyPaid = (invoice: api.InvoiceView) => Number(invoice.cryptoAmountPaid ?? "0") > 0
 
 function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
@@ -880,12 +882,12 @@ function buildCardUnconfirmed(s: OrderState, signal: AbortSignal): HTMLElement {
 
 // a card form that did not load leaves the coins: each cancels the card invoice and orders the name again paid with it
 function coinLinks(s: OrderState): HTMLElement {
-  const coin = (method: "btc" | "xmr") => {
+  const coin = (method: api.Coin) => {
     const pay = link(`Pay with ${methodName(method)}`, () => void reorderAfterCancel(method))
     if (s.busy !== null || s.hold !== null || unagreed(s)) pay.setAttribute("aria-disabled", "true")
     return pay
   }
-  return el("span", {}, coin("btc"), SEP, coin("xmr"))
+  return el("span", {}, coin("btc"), SEP, coin("ln"), SEP, coin("xmr"))
 }
 
 // Once the service has seen a card payment, entering the card again could charge twice.
@@ -961,13 +963,13 @@ async function cancelInvoice(): Promise<void> {
 function buildConfirming(s: OrderState): HTMLElement {
   const invoice = s.invoice!
   const coin = coinOf(invoice)
-  const notice = coin
-    ? alertBox("info", "clock", confirmations(invoice.requiredConfirmations ?? 1),
-      `${invoice.cryptoAmount} ${TICKER[coin]} arrived. Registration starts once it confirms; this page moves on by itself.`)
+  const seen = coin && seenWords(invoice, coin)
+  const notice = seen
+    ? alertBox("info", "clock", seen.alert, seen.text)
     : alertBox("info", "clock", "Waiting for Stripe to\u00a0confirm", "Stripe usually confirms within a minute. Registration starts by itself; this page moves on.")
   // a card Stripe has not confirmed can still be cancelled while nothing is paid, as an unpaid crypto invoice can
   const cancel = !coin && !invoice.amountPaid ? cancelLink(s) : null
-  return screen({ title: coin ? "Confirming your payment" : "Paying by card", lead: orderLine(s), alt: cancel }, notice, referenceLine(invoice.invoiceId), actionNote(s, null))
+  return screen({ title: seen ? seen.title : "Paying by card", lead: orderLine(s), alt: cancel }, notice, referenceLine(invoice.invoiceId), actionNote(s, null))
 }
 
 function enterCardAgain(): void {

@@ -1,4 +1,4 @@
-import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
+import { type Balance, type Coin, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -189,7 +189,23 @@ export const failedAlert = ({ view, codeRefused }: OrderState) => ({ title: view
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase === b.phase && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves
 
-export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
+export const coinOf = (invoice: InvoiceView): Coin | null => invoice.cryptoCurrency === "card" ? null : invoice.cryptoCurrency ?? null
+
+export const TICKER: Record<Coin, string> = { btc: "BTC", ln: "BTC", xmr: "XMR" }
+
+// a BOLT11 invoice is paid in full or not at all, so only a coin sent on chain can have part of it arrive
+export const partlyPaid = (invoice: InvoiceView) => invoice.cryptoCurrency !== "ln" && Number(invoice.cryptoAmountPaid ?? "0") > 0
+
+// the count stays with its word on one line; a payment taken on first sight waits for no confirmation at all
+const confirmations = (n: number) => (n === 1 ? "Waiting for 1\u00a0confirmation" : n > 1 ? `Waiting for ${n}\u00a0confirmations` : "Waiting for the payment to settle")
+
+// What the page says of a coin payment seen in full that the service has not settled yet. A Lightning payment is final
+// once paid and waits for no confirmation, so its page shows only until the service reads the invoice paid.
+export function seenWords(invoice: InvoiceView, coin: Coin): { title: string; alert: string; text: string } {
+  const arrived = `${invoice.cryptoAmount} ${TICKER[coin]} arrived`
+  if (coin === "ln") return { title: "Payment received", alert: "Starting registration", text: `${arrived} by Lightning. Registration starts in a moment; this page moves on by itself.` }
+  return { title: "Confirming your payment", alert: confirmations(invoice.requiredConfirmations ?? 1), text: `${arrived}. Registration starts once it confirms; this page moves on by itself.` }
+}
 
 // How a closed invoice's order gets a new one: a new spend of the balance that paid part of it, once find names that
 // balance where this browser's record does not; a spend of its own balance, which money on the invoice became; or a new

@@ -3,8 +3,8 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, commitKey, nameUnavailable,
+  type OrderState, partlyPaid, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, seenWords, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS,
+  unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -28,6 +28,14 @@ const crypto = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView
   invoiceId: "inv-1", status: "open", amount: 1500, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: registration(reg),
   address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", cryptoAmount: "0.00025", cryptoCurrency: "btc", cryptoAmountPaid: "0", cryptoAmountDue: "0.00025",
   paidInFull: false, requiredConfirmations: 1, ...change,
+})
+
+// a Lightning invoice as the service gives it: its BOLT11 request, its amount to the millisatoshi and no confirmations
+const LN_AMOUNT = "0.00049999944"
+const lightning = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView> = {}): InvoiceView => ({
+  invoiceId: "inv-1", status: "open", amount: 1500, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: registration(reg),
+  address: "lnbcrt499999440p1p4d7qjqpp5d8nyztumz5dy704dce52gks3yfmgxan4kdaq2msqfrfk4q9zmttssp57g2sz7f8sxpg", cryptoAmount: LN_AMOUNT, cryptoCurrency: "ln",
+  cryptoAmountPaid: "0", cryptoAmountDue: LN_AMOUNT, paidInFull: false, ...change,
 })
 
 const card = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView> = {}): InvoiceView => ({
@@ -735,5 +743,32 @@ describe("sameStep", () => {
     expect(sameStep(refused, { ...refused, label: "alice" })).toBe(false)
     expect(sameStep(refused, { ...refused, linksRefused: false })).toBe(false)
     expect(sameStep(refused, { ...refused, moves: 1 })).toBe(false)
+  })
+})
+
+describe("a Lightning invoice", () => {
+  it("is paid on the coin's pay page while open, and leaves it once paid, as a coin on chain does", () => {
+    expect(screenOf(read(lightning()))).toBe("pay-crypto")
+    expect(screenOf(read(lightning({ status: "paid", paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" }), registration({ phase: "queued" })))).toBe("registering")
+    expect(screenOf(read(lightning({ status: "expired" })))).toBe("status:closed")
+    expect(closedCase(read(lightning({ status: "expired" })))).toBe("expired")
+  })
+  it("is never part paid, as a BOLT11 invoice is paid in full or not at all, while a coin on chain can be", () => {
+    expect(partlyPaid(lightning({ cryptoAmountPaid: "0.0002", cryptoAmountDue: "0.00029999944" }))).toBe(false)
+    expect(partlyPaid(crypto({ cryptoAmountPaid: "0.0001", cryptoAmountDue: "0.00015" }))).toBe(true)
+    expect(partlyPaid(crypto())).toBe(false)
+  })
+  it("seen paid says it arrived and registration starts, and never that it waits for a confirmation", () => {
+    const seen = seenWords(lightning({ paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" }), "ln")
+    expect(seen).toEqual({ title: "Payment received", alert: "Starting registration",
+      text: `${LN_AMOUNT} BTC arrived by Lightning. Registration starts in a moment; this page moves on by itself.` })
+    expect(Object.values(seen).join(" "), "the Lightning words").not.toMatch(/confirm/i)
+  })
+  it("leaves a coin on chain waiting for its confirmations, one when the invoice names none", () => {
+    expect(seenWords(crypto({ paidInFull: true }), "btc")).toEqual({ title: "Confirming your payment", alert: "Waiting for 1\u00a0confirmation",
+      text: "0.00025 BTC arrived. Registration starts once it confirms; this page moves on by itself." })
+    expect(seenWords(crypto({ requiredConfirmations: 3 }), "btc").alert).toBe("Waiting for 3\u00a0confirmations")
+    expect(seenWords(crypto({ requiredConfirmations: 0 }), "btc").alert).toBe("Waiting for the payment to settle")
+    expect(seenWords(crypto({ requiredConfirmations: undefined, cryptoCurrency: "xmr", cryptoAmount: "0.45" }), "xmr")).toMatchObject({ alert: "Waiting for 1\u00a0confirmation", text: expect.stringMatching(/^0\.45 XMR arrived\./) })
   })
 })
