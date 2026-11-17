@@ -29,8 +29,7 @@ const RATES = { btc: 64000, ln: 64000, xmr: 160 }
 const CENTS_PER_DOLLAR = 100n
 // a coin's atomic units: satoshi, millisatoshi and piconero
 const UNIT_DECIMALS = { btc: 8, ln: 11, xmr: 12 }
-// the decimals an invoice's crypto amount is given to; BTCPay gives a Lightning amount to the millisatoshi
-const AMOUNT_DECIMALS = { btc: 5, ln: 11, xmr: 3 }
+const AMOUNT_DECIMALS = { btc: 5, ln: 8, xmr: 3 }
 const INVOICE_MINUTES = 60
 
 function wholeEnv(name: string, fallback: number): number {
