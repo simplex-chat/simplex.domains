@@ -3,7 +3,7 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, partlyPaid, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, seenWords, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS,
+  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, seenWords, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS,
   unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
@@ -30,8 +30,7 @@ const crypto = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView
   paidInFull: false, requiredConfirmations: 1, ...change,
 })
 
-// a Lightning invoice as the service gives it: its BOLT11 request, its amount to the millisatoshi and no confirmations
-const LN_AMOUNT = "0.00049999944"
+const LN_AMOUNT = "0.00050000"
 const lightning = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView> = {}): InvoiceView => ({
   invoiceId: "inv-1", status: "open", amount: 1500, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: registration(reg),
   address: "lnbcrt499999440p1p4d7qjqpp5d8nyztumz5dy704dce52gks3yfmgxan4kdaq2msqfrfk4q9zmttssp57g2sz7f8sxpg", cryptoAmount: LN_AMOUNT, cryptoCurrency: "ln",
@@ -753,10 +752,8 @@ describe("a Lightning invoice", () => {
     expect(screenOf(read(lightning({ status: "expired" })))).toBe("status:closed")
     expect(closedCase(read(lightning({ status: "expired" })))).toBe("expired")
   })
-  it("is never part paid, as a BOLT11 invoice is paid in full or not at all, while a coin on chain can be", () => {
-    expect(partlyPaid(lightning({ cryptoAmountPaid: "0.0002", cryptoAmountDue: "0.00029999944" }))).toBe(false)
-    expect(partlyPaid(crypto({ cryptoAmountPaid: "0.0001", cryptoAmountDue: "0.00015" }))).toBe(true)
-    expect(partlyPaid(crypto())).toBe(false)
+  it("paid in full after a cancel closed it reads paid late, the money kept as balance", () => {
+    expect(closedCase(read(lightning({ status: "expired", paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" })))).toBe("paid-late")
   })
   it("seen paid says it arrived and registration starts, and never that it waits for a confirmation", () => {
     const seen = seenWords(lightning({ paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" }), "ln")
