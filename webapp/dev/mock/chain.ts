@@ -114,20 +114,33 @@ function revertName(e: unknown): string | null {
 // control's change of the contracts' settings, the holder for a rival's commit.
 let sending: Promise<unknown> = Promise.resolve()
 export function send(contract: Contract, functionName: string, args: unknown[], goingOut?: (hash: Hex) => void, from = registrar): Promise<Hex> {
+  const queued = Date.now()
+  const log = (what: string) => console.log(`tx ${functionName} from ${from.address}: ${what}, ${Date.now() - queued} ms after it was queued`)
   const run = async (): Promise<Hex> => {
+    log("started")
     let serializedTransaction: Hex
+    let nonce: number
     try {
       await publicClient.simulateContract({ ...contract, functionName, args, account: from })
       const request = await walletClient.prepareTransactionRequest({
         account: from, to: contract.address, data: encodeFunctionData({ abi: contract.abi, functionName, args }), chain: null,
       })
+      nonce = request.nonce
       serializedTransaction = await walletClient.signTransaction({ ...request, chain: null })
     } catch (e) {
+      log(`not sent: ${isRevert(e) ? `reverted ${revertName(e)}` : (e as Error).message.split("\n")[0]}`)
       throw isRevert(e) ? new Reverted(revertName(e)) : new NotSent()
     }
     goingOut?.(keccak256(serializedTransaction))
-    const hash = await sender.sendRawTransaction({ serializedTransaction })
-    const receipt = await sender.waitForTransactionReceipt({ hash, timeout: SEND_TIMEOUT_MS })
+    const hash = await sender.sendRawTransaction({ serializedTransaction }).catch((e: Error) => {
+      log(`nonce ${nonce} send failed: ${e.message.split("\n")[0]}`)
+      throw e
+    })
+    const receipt = await sender.waitForTransactionReceipt({ hash, timeout: SEND_TIMEOUT_MS }).catch((e: Error) => {
+      log(`nonce ${nonce} ${hash} without a receipt: ${e.message.split("\n")[0]}`)
+      throw e
+    })
+    log(`nonce ${nonce} ${hash} ${receipt.status} in block ${receipt.blockNumber}`)
     if (receipt.status !== "success") throw new Reverted(null)
     return hash
   }
