@@ -807,7 +807,12 @@ function closedWords(closed: ClosedCase, inv: api.InvoiceView, view: api.Registr
   const kept = (lead: string): Kid => waiting === "support" ? [lead, creditBySupport] : `${lead} ${waiting ? KEPT_ONCE[waiting] : "It is"} ${KEPT_LATE}`
   switch (closed) {
     case "paid-late": return ["warn", kept("The payment arrived after this invoice had closed, so nothing was registered.")]
-    case "cancelled": return ["info", "This invoice was cancelled and nothing was received."]
+    case "cancelled": {
+      const payableUntil = Date.parse(inv.expiresAt)
+      return inv.cryptoCurrency === "ln" && payableUntil > api.serviceNow()
+        ? ["warn", `This invoice was cancelled and nothing was received. Its Lightning invoice can still be paid until ${timeOf(payableUntil)}: don't pay it.`]
+        : ["info", "This invoice was cancelled and nothing was received."]
+    }
     case "received": {
       const coin = coinOf(inv)
       return ["warn", kept(coin && partlyPaid(inv) && !inv.paidInFull ? `${inv.cryptoAmountPaid} ${TICKER[coin]} arrived, which is not the full amount.` : "A payment did not complete before the invoice closed.")]

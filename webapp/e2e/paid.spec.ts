@@ -709,6 +709,26 @@ test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and
   await expect(wallet).toHaveAttribute("href", `monero:${address}?tx_amount=${cryptoAmount}`)
 })
 
+test("a Lightning invoice shows its BOLT11 as an invoice, scans it bare in upper case, links lightning:, and settles to a registration", async ({ page, request }) => {
+  const label = uniqueLabel("lnpay")
+  const { invoiceId } = await startOrder(page, label, { method: "ln" })
+  await expect(page.getByRole("heading", { name: "Pay with Lightning" })).toBeVisible()
+  const view = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; requiredConfirmations?: number }
+  expect(view.requiredConfirmations, "a Lightning payment waits for no confirmation").toBeUndefined()
+  await expect(onStep(page).getByRole("link", { name: "Open in wallet" })).toHaveAttribute("href", `lightning:${view.address}`)
+  expect(await qrText(onStep(page).locator(".card.pay .qr svg")), "the QR").toBe(view.address.toUpperCase())
+  await expect(onStep(page).locator(".copy-field .label", { hasText: "Lightning invoice" })).toBeVisible()
+  expect((await request.post(`${MOCK}/control/partial/${invoiceId}`, { data: {} })).status(), "a BOLT11 is paid in full or not at all").toBe(400)
+  await control(request, `settle/${invoiceId}`)
+  await waitRegistered(page, label)
+})
+
+test("a cancelled Lightning invoice warns that it can still be paid until it expires", async ({ page }) => {
+  await startOrder(page, uniqueLabel("lncx"), { method: "ln" })
+  await page.getByRole("button", { name: "Cancel this invoice" }).click()
+  await expect(page.getByText(/^This invoice was cancelled and nothing was received\. Its Lightning invoice can still be paid until \d\d:\d\d: don't pay it\.$/)).toBeVisible()
+})
+
 test("the owner code restores an order in another browser, and a bad code is refused", async ({ page, browser, request }) => {
   const label = uniqueLabel("rest")
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "xmr" })
