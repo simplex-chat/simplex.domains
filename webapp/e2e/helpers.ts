@@ -539,6 +539,14 @@ export async function waitRegistered(page: Page, label: string): Promise<void> {
 }
 
 export const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
+
+export function okPreview(kind: "contact" | "channel", displayName: string, change: { fullName?: string; image?: string; peerType?: string; business?: boolean; publicMemberCount?: number } = {}) {
+  const { fullName = "", image, peerType, business = false, publicMemberCount = 12 } = change
+  const names = { displayName, fullName, ...image === undefined ? {} : { image } }
+  return kind === "channel"
+    ? { kind, profile: { type: "ok", linkData: { type: "channel", channel: { groupProfile: { ...names, publicGroup: { groupType: "channel" } }, publicGroupData: { publicMemberCount } } } } }
+    : { kind, profile: { type: "ok", linkData: { type: "contact", contact: { profile: { ...names, ...peerType === undefined ? {} : { peerType } }, business } } } }
+}
 // the terms an available name's answer asks the buyer to agree to, as dev/deploy.ts links them
 export const TERMS = { hash: GENERAL_TERMS_HASH, link: deployment.generalTermsLink }
 export const LISTED_TERMS = { hash: COMMUNITY_TERMS_HASH, link: deployment.communityTermsLink }

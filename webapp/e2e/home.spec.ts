@@ -1,16 +1,18 @@
 import { expect, type Page } from "@playwright/test"
-import { search, shot, test } from "./helpers.ts"
+import { okPreview, search, shot, test } from "./helpers.ts"
 
 const PHONE = { width: 390, height: 844 }
 const LAPTOP = { width: 1280, height: 800 }
 
 // a name with one chat of each kind the app knows, the contact with a picture of its own
 const PICTURE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxIDEiPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNjNzZhM2IiLz48L3N2Zz4="
-const chat = (kind: string, displayName: string, extra: Record<string, unknown> = {}) => ({
-  type: kind === "channel" ? "channel" : "address", displayName, fullName: "", image: null, profile: "ok",
-  ...kind === "channel" ? { groupType: "channel", publicMemberCount: 1 } : { peerType: kind === "bot" ? "bot" : null, business: kind === "business" },
-  link: `https://smp8.simplex.im/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}`, deepLink: `simplex:/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}?h=smp8.simplex.im`, ...extra,
-})
+const chat = (kind: string, displayName: string, change: { fullName?: string; image?: string; publicMemberCount?: number; link?: string; deepLink?: string } = {}) => {
+  const { link, deepLink, ...profile } = change
+  return {
+    preview: okPreview(kind === "channel" ? "channel" : "contact", displayName, { peerType: kind === "bot" ? "bot" : undefined, business: kind === "business", publicMemberCount: 1, ...profile }),
+    link: link ?? `https://smp8.simplex.im/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}`, deepLink: deepLink ?? `simplex:/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}?h=smp8.simplex.im`,
+  }
+}
 const EVERY_KIND = [chat("contact", "Ann", { image: PICTURE }), chat("channel", "News"), chat("business", "Shop"), chat("bot", "Helper")]
 // a name's two chats whose profiles the service read, with the channel's link and the chat core's form of it
 const CHANNEL_LINK = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA"

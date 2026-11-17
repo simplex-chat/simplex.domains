@@ -472,7 +472,7 @@ test("search splits a record set elsewhere on semicolons, trims each link, and a
   await ownerSetsText(name.draft.ownerCode, name.label, CHANNEL_KEY, channel)
   const answer = (await call("GET", `/api/name/${name.labelHash}?length=${name.label.length}`)).json
   expect(answer.records).toEqual({ contact, channel })
-  expect((answer.entities as Json[]).map((e) => [e.type, e.link])).toEqual([...contacts.slice(0, 5).map((link) => ["address", link]), ["channel", channelLink("K1")]])
+  expect((answer.entities as Json[]).map((e) => [(e.preview as Json).kind, e.link])).toEqual([...contacts.slice(0, 5).map((link) => ["contact", link]), ["channel", channelLink("K1")]])
 })
 
 test("search answers a link whose data was not read now as unread with its deep link, and leaves out one the chat core cannot parse, whose preview is invalid_link", async ({ request }) => {
@@ -483,9 +483,9 @@ test("search answers a link whose data was not read now as unread with its deep 
   await ownerSetsText(name.draft.ownerCode, name.label, CHANNEL_KEY, unparsed)
   const answer = (await call("GET", `/api/name/${name.labelHash}?length=${name.label.length}`)).json
   expect(answer.entities).toEqual([
-    { type: "address", profile: "unread", link: unread, deepLink: `simplex:/a#${unread.split("#")[1]}?h=smp8.simplex.im` },
+    { preview: { kind: "contact", profile: { type: "unread" } }, link: unread, deepLink: `simplex:/a#${unread.split("#")[1]}?h=smp8.simplex.im` },
   ])
-  expect((await call("POST", "/api/link/preview", { link: unread })).json, "a preview").toEqual({ type: "address", profile: "unread" })
+  expect((await call("POST", "/api/link/preview", { link: unread })).json, "a preview").toEqual({ kind: "contact", profile: { type: "unread" } })
   expect(await call("POST", "/api/link/preview", { link: unparsed }), "a link the chat core cannot parse").toEqual({ status: 400, json: { error: "invalid_link" } })
 })
 

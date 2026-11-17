@@ -151,20 +151,25 @@ export interface Entity extends Profile {
   deepLink: string
 }
 
-interface ProfileNames { displayName: string; fullName: string; image: string | null }
-export type LinkData = { type: "address" | "channel"; profile: "unread" | "unavailable" }
-  | (ProfileNames & { type: "address"; profile: "ok"; peerType: string | null; business: boolean })
-  | (ProfileNames & { type: "channel"; profile: "ok"; groupType: string | null; publicMemberCount: number | null })
-type LinkEntity = LinkData & { link: string; deepLink: string }
+interface ContactData { profile: { displayName: string; fullName: string; image?: string; peerType?: string }; business: boolean }
+interface ChannelData { groupProfile: { displayName: string; fullName: string; image?: string; publicGroup?: { groupType: string } }; publicGroupData?: { publicMemberCount: number } }
+export type LinkData = { type: "contact"; contact: ContactData } | { type: "channel"; channel: ChannelData }
+export interface Preview { kind: typeof LINK_KINDS[number]; profile: { type: "ok"; linkData: LinkData } | { type: "unread" | "unavailable" } }
+type LinkEntity = { preview: Preview; link: string; deepLink: string }
 
-function profileOf(d: LinkData): Profile {
-  if (d.profile !== "ok") return { type: d.type, kind: d.type === "channel" ? "channel" : "contact", displayName: "", fullName: "", image: null, subscribers: null, profile: d.profile }
-  const { displayName, fullName, image } = d
-  if (d.type === "channel") return { type: d.type, kind: "channel", displayName, fullName, image, subscribers: d.publicMemberCount, profile: d.profile }
-  const kind = d.business || d.peerType === "business" ? "business" : d.peerType === "bot" ? "bot" : "contact"
-  return { type: d.type, kind, displayName, fullName, image, subscribers: null, profile: d.profile }
+function profileOf({ kind, profile: read }: Preview): Profile {
+  const type = kind === "channel" ? "channel" : "address"
+  if (read.type !== "ok") return { type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile: read.type }
+  const d = read.linkData
+  if (d.type === "channel") {
+    const { displayName, fullName, image } = d.channel.groupProfile
+    return { type, kind: "channel", displayName, fullName, image: image || null, subscribers: d.channel.publicGroupData?.publicMemberCount ?? null, profile: "ok" }
+  }
+  const { profile: { displayName, fullName, image, peerType }, business } = d.contact
+  const chat = business || peerType === "business" ? "business" : peerType === "bot" ? "bot" : "contact"
+  return { type, kind: chat, displayName, fullName, image: image || null, subscribers: null, profile: "ok" }
 }
-const entityOf = (e: LinkEntity): Entity => ({ ...profileOf(e), link: e.link, deepLink: e.deepLink })
+const entityOf = (e: LinkEntity): Entity => ({ ...profileOf(e.preview), link: e.link, deepLink: e.deepLink })
 
 // An order's balance, in cents: what is left to spend, whether an invoice of another order holds it and until when (null
 // once money reached that invoice, which holds it until its payment settles), and what support has refunded from it
@@ -361,13 +366,16 @@ const isDue = (v: unknown) => typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)
 const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined || test(v)
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)
 // an image the page holds itself, as the service sends it: the page's CSP loads images from nowhere else
-const isImage = (v: unknown) => v === null || (typeof v === "string" && v.startsWith("data:image/"))
+const isImage = (v: unknown) => typeof v === "string" && (v === "" || v.startsWith("data:image/"))
 // the names and picture only of a profile read, with an address's peer type and business flag, or a channel's group type and member count
-const isPreview = (e: unknown) => isObject(e) && (e.type === "address" || e.type === "channel") && PROFILE_STATES.includes(e.profile as Profile["profile"])
-  && (e.profile !== "ok" || (isText(e.displayName) && isText(e.fullName) && isImage(e.image) && (e.type === "address"
-    ? nullable(e.peerType, isText) && typeof e.business === "boolean"
-    : nullable(e.groupType, isText) && nullable(e.publicMemberCount, isAmount))))
-const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unknown>).link) && isText((e as Record<string, unknown>).deepLink)
+const isContactData = (c: unknown) => isObject(c) && isObject(c.profile) && isText(c.profile.displayName) && isText(c.profile.fullName) && optional(c.profile.image, isImage)
+  && optional(c.profile.peerType, isText) && typeof c.business === "boolean"
+const isChannelData = (c: unknown) => isObject(c) && isObject(c.groupProfile) && isText(c.groupProfile.displayName) && isText(c.groupProfile.fullName) && optional(c.groupProfile.image, isImage)
+  && optional(c.groupProfile.publicGroup, (g) => isObject(g) && isText(g.groupType)) && optional(c.publicGroupData, (p) => isObject(p) && isAmount(p.publicMemberCount))
+const isLinkData = (d: unknown, kind: unknown) => isObject(d) && d.type === kind && (kind === "contact" ? isContactData(d.contact) : isChannelData(d.channel))
+const isPreview = (p: unknown) => isObject(p) && LINK_KINDS.includes(p.kind as Preview["kind"]) && isObject(p.profile)
+  && (p.profile.type === "ok" ? isLinkData(p.profile.linkData, p.kind) : PROFILE_STATES.includes(p.profile.type as Profile["profile"]))
+const isEntity = (e: unknown) => isObject(e) && isPreview(e.preview) && isText(e.link) && isText(e.deepLink)
 const PHASES: Phase[] = ["unpaid", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
 const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded)
 const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,112}$/.test(v)
@@ -401,7 +409,7 @@ export const searchName = (labelHash: string, length: number, chainId: number) =
     && optional(a.resolver, isText) && optional(a.records, (r) => nullable(r, isRecords)) && optional(a.recordsNonce, (n) => nullable(n, isAmount)) && optional(a.recordEdits, (r) => nullable(r, isRecordEdits))
     && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount))))
   .then((a): SearchAnswer => a.status === "registered" ? { ...a, entities: a.entities.map(entityOf) } : a)
-export const previewLink = (link: string) => checked<LinkData>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
+export const previewLink = (link: string) => checked<Preview>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 
 // The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very
 // text whose acceptance the owner signs.

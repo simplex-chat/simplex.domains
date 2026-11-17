@@ -2,7 +2,7 @@ import { type APIRequestContext, expect, type Locator, type Page } from "@playwr
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
 import {
-  agreeToTerms, AVAILABLE_BRIEF, brokenNames, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, onStep, payButton, previewsShown, SAVED,
+  agreeToTerms, AVAILABLE_BRIEF, brokenNames, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, okPreview, onStep, payButton, previewsShown, SAVED,
   lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registrationOf, registrationView, rowFit, savedToReview, search, sevenLetters, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
   TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey,
 } from "./helpers.ts"
@@ -626,8 +626,7 @@ test("the home keeps its headline and search still as each kind of answer comes,
   }
 })
 
-const linked = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", displayName: kind, fullName: "", image: null,
-  ...kind === "channel" ? { groupType: "channel", publicMemberCount: 12 } : { peerType: null, business: false }, link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x", profile: "ok" })
+const linked = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x" })
 // the search's answers for a name: available, taken with two chats, and this browser's, of `owner`, with two chats
 const homeAnswers = (owner: string) => ({
   available: { status: "available", price: 10000, currency: "usd", years: 2, community: null, terms: TERMS },

@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test"
 import {
-  CODE_HEADING, contactLink, control, LINKS_HEADING, onStep, payButton, recordedFrames, recordFrames, registrationOf, savedToReview, search, startOrder, test, toReview, uniqueLabel,
+  CODE_HEADING, contactLink, control, LINKS_HEADING, okPreview, onStep, payButton, recordedFrames, recordFrames, registrationOf, savedToReview, search, startOrder, test, toReview, uniqueLabel,
 } from "./helpers.ts"
 
 const SIZES = [{ width: 1280, height: 800 }, { width: 390, height: 844 }]
@@ -160,7 +160,7 @@ test("a link's profile takes its placeholder's place as it is, rather than arriv
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.route("**/api/link/preview", async (route) => {
     await new Promise((done) => setTimeout(done, PREVIEW_DELAY_MS))
-    await route.fulfill({ json: { type: "address", profile: "ok", displayName: "Late profile", fullName: "", image: null, peerType: null, business: false } })
+    await route.fulfill({ json: okPreview("contact", "Late profile") })
   })
   await search(page, uniqueLabel("inplace"))
   await onStep(page).getByRole("button", { name: "Register" }).click()

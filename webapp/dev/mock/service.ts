@@ -5,7 +5,7 @@ import {
   encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
-import { communityAgreed, type LinkData, termsLink } from "../../src/api.ts"
+import { communityAgreed, type Preview, termsLink } from "../../src/api.ts"
 import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
@@ -304,32 +304,35 @@ const UNREAD_TAG = "Unr"
 // a profile picture as the app sends one, a small image in a data URI
 const PICTURE = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#C76A3B"/><circle cx="32" cy="26" r="12" fill="#F6E3C8"/><path d="M12 60c2-14 10-20 20-20s18 6 20 20z" fill="#F6E3C8"/></svg>').toString("base64")}`
 
-function linkProfile(link: string): LinkData | null {
+function linkProfile(link: string): Preview | null {
   const kind = linkKind(link)
   if (kind === null || deepLinkOf(link) === null) return null
   const fragment = link.split("#")[1].slice(0, 6)
-  const type = kind === "contact" ? "address" : "channel"
-  if (fragment.startsWith(UNFETCHED_TAG)) return { type, profile: "unavailable" }
-  if (fragment.startsWith(UNREAD_TAG)) return { type, profile: "unread" }
-  const names = { displayName: kind === "contact" ? `Contact ${fragment}` : `Channel ${fragment}`, fullName: "", image: fragment.startsWith(PICTURE_TAG) ? PICTURE : null }
+  if (fragment.startsWith(UNFETCHED_TAG)) return { kind, profile: { type: "unavailable" } }
+  if (fragment.startsWith(UNREAD_TAG)) return { kind, profile: { type: "unread" } }
+  const names = { displayName: kind === "contact" ? `Contact ${fragment}` : `Channel ${fragment}`, fullName: "", ...fragment.startsWith(PICTURE_TAG) ? { image: PICTURE } : {} }
   // a channel's count, the same for the same link
-  if (kind === "channel") return { type: "channel", profile: "ok", ...names, groupType: "channel", publicMemberCount: [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000 }
-  return { type: "address", profile: "ok", ...names, peerType: fragment.startsWith(BOT_TAG) ? "bot" : null, business: fragment.startsWith(BUSINESS_TAG) }
+  if (kind === "channel") {
+    const publicMemberCount = [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000
+    return { kind, profile: { type: "ok", linkData: { type: "channel", channel: { groupProfile: { ...names, publicGroup: { groupType: "channel" } }, publicGroupData: { publicMemberCount } } } } }
+  }
+  const peerType = fragment.startsWith(BOT_TAG) ? { peerType: "bot" } : {}
+  return { kind, profile: { type: "ok", linkData: { type: "contact", contact: { profile: { ...names, ...peerType }, business: fragment.startsWith(BUSINESS_TAG) } } } }
 }
 
 // A profile that was read is kept this long, as the service caches it; one not read now is fetched again.
 const PROFILE_CACHE_MS = 10 * 60_000
-const readProfiles = new Map<string, { profile: LinkData; until: number }>()
+const readProfiles = new Map<string, { profile: Preview; until: number }>()
 
 // The link's profile as a fetch gives it: a link not fetched answers at once, and a fetch takes the delay a test set for its link.
-async function fetchedProfile(link: string): Promise<LinkData | null> {
+async function fetchedProfile(link: string): Promise<Preview | null> {
   const profile = linkProfile(link)
-  if (profile === null || profile.profile === "unavailable") return profile
+  if (profile === null || profile.profile.type === "unavailable") return profile
   const kept = readProfiles.get(link)
   if (kept && kept.until > Date.now()) return kept.profile
   const delay = control.fetchDelays[link]
   if (delay) await sleep(delay)
-  if (profile.profile === "ok") {
+  if (profile.profile.type === "ok") {
     const now = Date.now()
     for (const [cached, { until }] of readProfiles) if (until <= now) readProfiles.delete(cached)
     readProfiles.set(link, { profile, until: now + PROFILE_CACHE_MS })
@@ -338,8 +341,8 @@ async function fetchedProfile(link: string): Promise<LinkData | null> {
 }
 
 async function entity(link: string) {
-  const profile = await fetchedProfile(link)
-  return profile && { ...profile, link: coreLink(link)!, deepLink: deepLinkOf(link)! }
+  const preview = await fetchedProfile(link)
+  return preview && { preview, link: coreLink(link)!, deepLink: deepLinkOf(link)! }
 }
 
 // the short links of the key's kind in its record that the chat core parses, in the record's order
@@ -1261,7 +1264,7 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
     balanceSource: r.balanceSource, heldBy: heldBy(r.id) })) }
 }
 
-export async function previewLink(body: Record<string, unknown>): Promise<LinkData> {
+export async function previewLink(body: Record<string, unknown>): Promise<Preview> {
   if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link")
   return (await fetchedProfile(body.link))!
 }
