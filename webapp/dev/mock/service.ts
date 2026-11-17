@@ -130,7 +130,6 @@ interface Invoice {
   amount: number
   expiresAt: string
   cryptoAmount: string | null
-  // a coin's address, or a Lightning invoice's BOLT11 request
   address: string | null
   amountPaid: number | null
   cryptoAmountPaid: string | null
@@ -573,7 +572,6 @@ async function invoiceView(inv: Invoice): Promise<Record<string, unknown>> {
   }
   for (const k of ["amountPaid", "cryptoAmountPaid", "cryptoAmountDue", "paidInFull", "settledAt"] as const) if (inv[k] !== null) view[k] = inv[k]
   if (inv.method === "card") view.clientSecret = inv.clientSecret
-  // a Lightning payment is final once paid, so the service names no confirmations for it
   else Object.assign(view, { address: inv.address, cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, ...inv.method === "ln" ? {} : { requiredConfirmations: 1 } })
   return view
 }
@@ -1456,7 +1454,6 @@ export function controlInvoice(action: string, invoiceId: string, body: Record<s
   if (!inv) throw new HttpError(404, "not_found")
   expireIfDue(inv)
   const reg = registrations.get(inv.registrationId)!
-  // a BOLT11 invoice is paid in full or not at all, and a Lightning payment is final once paid
   if (inv.method === "ln" && (action === "partial" || action === "confirming")) throw badRequest()
   if (action === "settle") {
     settle(inv, reg, settledUnits(inv, body.paid))

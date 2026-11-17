@@ -434,10 +434,7 @@ function orderLine(s: OrderState): Kid[] {
 }
 
 const WALLET = "Open in wallet"
-// a BOLT11 invoice is a payment request, not an address to send to
 const destinationName = (coin: api.Coin) => coin === "ln" ? "Lightning invoice" : `${methodName(coin)} address`
-// A BOLT11 request runs to 400 characters, more than the pay card has room for, so it shows its start and end on one
-// line of a phone's field; Copy, the QR and the wallet link carry all of it.
 const INVOICE_HEAD = 14
 const INVOICE_TAIL = 8
 const shownDestination = (coin: api.Coin, address: string) => coin === "ln" ? `${address.slice(0, INVOICE_HEAD)}…${address.slice(-INVOICE_TAIL)}` : address

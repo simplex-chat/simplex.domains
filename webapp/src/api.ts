@@ -344,8 +344,6 @@ const isCount = (v: unknown) => Number.isInteger(v) && (v as number) >= 1
 const isDecimal = (v: unknown) => typeof v === "string" && /^\d+(\.\d+)?$/.test(v)
 // BTCPay reports an overpaid invoice's due below zero, which the page reads as nothing left to pay
 const isDue = (v: unknown) => typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)
-// A BOLT11 payment request as BTCPay gives it: lowercase `ln`, a network's prefix and maybe an amount, `1`, then bech32's
-// alphabet. Only a Lightning invoice's address is one, so a wallet is never handed an address of the wrong kind.
 const BOLT11 = /^ln(bc|bcrt|tb|tbs|sb)(\d+[munp]?)?1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+$/
 const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined || test(v)
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)

@@ -76,7 +76,6 @@ describe("a Lightning invoice's QR code", () => {
   })
 })
 
-// a symbol's version, mask and modules, to tell two encodings apart
 const fingerprint = (payload: string) => {
   const { version, mask, modules } = encodeQr(payload)!
   return `${version} ${mask} ${createHash("sha256").update(modules.flat().map((dark) => (dark ? "1" : "0")).join("")).digest("hex").slice(0, 16)}`
@@ -84,7 +83,6 @@ const fingerprint = (payload: string) => {
 
 describe("the QR encoder's modes", () => {
   const ALPHANUMERIC = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
-  // jsQR reads each segment's mode, which the page's reader does not report
   const segments = (payload: string) => {
     const symbol = encodeQr(payload)!
     const { data, width, height } = qrPixels(withQuietZone(symbol.modules, QUIET))
@@ -102,7 +100,6 @@ describe("the QR encoder's modes", () => {
       expect(segments(payload), payload).toEqual({ text: payload, modes: ["byte"] })
     }
   })
-  // ISO/IEC 18004 table 7 at level M: the most characters each version holds
   it.each([
     ["alphanumeric", "A", [[20, 1], [21, 2], [262, 9], [263, 10], [419, 12], [420, 13], [3391, 40]]],
     ["byte", "a", [[14, 1], [15, 2], [180, 9], [181, 10], [2331, 40]]],
@@ -110,7 +107,6 @@ describe("the QR encoder's modes", () => {
     for (const [length, version] of cases) expect(encodeQr(ch.repeat(length))?.version, `${length} characters`).toBe(version)
     expect(encodeQr(ch.repeat(cases.at(-1)![0] + 1)), "past version 40").toBeNull()
   })
-  // the symbols the encoder drew before it had an alphanumeric mode (f93446c), which wallets have scanned since
   it("draws Bitcoin's and Monero's QR as it did before, in byte mode", () => {
     const XMR = "5AH4kYBG5e8fRrw5aKYx9ZDmFmS3cUvXzVRRxGW2pdXtStdmrMZoq3iPMQV4eR1DWh1hKeU3wgaMdPp7kq9DKV2WSUE5NWq"
     expect(fingerprint(paymentQr("btc", "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s", "0.00156")!)).toBe("5 2 999f07cc2a84bfae")

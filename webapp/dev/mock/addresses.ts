@@ -87,14 +87,11 @@ function stagenetAddress(seed: Uint8Array): string {
   return moneroBase58(new Uint8Array([...body, ...keccak_256(body).slice(0, CHECKSUM_BYTES)]))
 }
 
-// BOLT11: the network and amount in the prefix, then a timestamp, tagged fields and a recoverable signature over them
 const LIGHTNING_HRP = "lnbcrt"
-// the amount's multipliers of a bitcoin, in picobitcoin, largest first
 const MULTIPLIERS: [string, bigint][] = [["m", 10n ** 9n], ["u", 10n ** 6n], ["n", 10n ** 3n], ["p", 1n]]
 const PICO_DECIMALS = 12
 const TIMESTAMP_GROUPS = 7
 const LENGTH_GROUPS = 2
-// var_onion_optin and payment_secret, both compulsory, as every current invoice sets them
 const FEATURES = (1 << 8) | (1 << 14)
 const DESCRIPTION = "SimpleX name"
 
