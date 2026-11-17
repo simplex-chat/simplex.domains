@@ -383,7 +383,7 @@ export async function agreeToTerms(page: Page): Promise<void> {
 async function tick(page: Page, name: RegExp): Promise<void> {
   const box = onStep(page).getByRole("checkbox", { name })
   if (!await box.isChecked()) await onStep(page).locator(".check.terms", { has: page.getByRole("checkbox", { name }) }).locator(".box").click()
-  await expect(box).toBeChecked()
+  await expect(onStep(page).getByRole("checkbox", { name, checked: false })).toHaveCount(0)
 }
 
 // An available name's Register, through the links skipped and the name code saved, to Check your order.
