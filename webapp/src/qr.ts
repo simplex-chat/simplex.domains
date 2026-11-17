@@ -415,11 +415,9 @@ export function paymentUri(method: "btc" | "ln" | "xmr", address: string, amount
   return `${scheme}${encodeURIComponent(address)}?${parameter}=${encodeURIComponent(amount)}`;
 }
 
-// BOLT11 asks for an invoice's QR in uppercase, which alphanumeric mode packs in a smaller symbol than lowercase bytes;
-// wallets read the scheme and the invoice in either case.
 export function paymentQr(method: "btc" | "ln" | "xmr", address: string, amount: string): string | null {
-  const uri = paymentUri(method, address, amount);
-  return method === "ln" ? uri?.toUpperCase() ?? null : uri;
+  if (method === "ln") return address === "" ? null : address.toUpperCase();
+  return paymentUri(method, address, amount);
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
