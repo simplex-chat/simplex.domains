@@ -58,16 +58,15 @@ describe("a payment's wallet URI", () => {
 })
 
 describe("a Lightning invoice's QR code", () => {
-  // the longest BOLT11 request BTCPay is expected to give, with route hints and a fallback address
   const LONGEST = 400
-  // `LIGHTNING:` and 400 uppercase characters, in alphanumeric mode at level M; lowercase bytes needed version 15
   const MAX_VERSION_FOR_LONGEST = 12
 
-  it("holds the invoice in uppercase, while the wallet links keep it lowercase", async () => {
+  it("holds the bare invoice in uppercase, while the wallet links keep it lowercase behind lightning:", async () => {
     const invoice = lightningInvoice("2RWx7gmoLy73IvifBS1V5Q", "0.0015625", 1793000000, 3600)
-    expect(paymentQr("ln", invoice, "")).toBe(`LIGHTNING:${invoice.toUpperCase()}`)
+    expect(paymentQr("ln", invoice, "")).toBe(invoice.toUpperCase())
     expect(paymentUri("ln", invoice, "")).toBe(`lightning:${invoice}`)
-    expect(await readBack(paymentQr("ln", invoice, "")!)).toBe(`LIGHTNING:${invoice.toUpperCase()}`)
+    expect(await readBack(paymentQr("ln", invoice, "")!)).toBe(invoice.toUpperCase())
+    expect(paymentQr("ln", "", "0.0015625")).toBeNull()
   })
   it(`holds a request of ${LONGEST} characters at version ${MAX_VERSION_FOR_LONGEST} or below, which reads back whole`, async () => {
     const request = `lnbc499999440p1${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(13)}`.slice(0, LONGEST)
