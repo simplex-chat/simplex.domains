@@ -411,19 +411,24 @@ export function encodeQr(payload: string): QrSymbol | null {
   return { version, size: matrix.size, mask: best, modules: matrix.modules };
 }
 
-// Monero GUI, a laptop's wallet, opens only `monero://`; a phone's wallets and QR readers take `monero:`.
-export function paymentUri(method: "btc" | "ln" | "xmr", address: string, amount: string, desktop = false): string | null {
-  if (method === "ln") return address === "" ? null : `lightning:${encodeURIComponent(address)}`;
-  if (address === "" || amount === "") return null;
-  const scheme = method === "btc" ? "bitcoin:" : desktop ? "monero://" : "monero:";
-  const parameter = method === "btc" ? "amount" : "tx_amount";
-  // The address is percent-encoded so that a `?`, `&`, or `#` in it cannot add its own parameters to the URI.
-  return `${scheme}${encodeURIComponent(address)}?${parameter}=${encodeURIComponent(amount)}`;
+export interface PaymentCode {
+  link: string;
+  desktopLink: string;
+  qr: string;
 }
 
-export function paymentQr(method: "btc" | "ln" | "xmr", address: string, amount: string): string | null {
-  if (method === "ln") return address === "" ? null : address.toUpperCase();
-  return paymentUri(method, address, amount);
+// Monero GUI, a laptop's wallet, opens only `monero://`; a phone's wallets and QR readers take `monero:`.
+export function paymentCode(method: "btc" | "ln" | "xmr", address: string, amount: string): PaymentCode | null {
+  if (address === "" || amount === "") return null;
+  // The address is percent-encoded so that a `?`, `&`, or `#` in it cannot add its own parameters to the URI.
+  const destination = encodeURIComponent(address);
+  if (method === "ln") {
+    const link = `lightning:${destination}`;
+    return { link, desktopLink: link, qr: address.toUpperCase() };
+  }
+  const query = `${destination}?${method === "btc" ? "amount" : "tx_amount"}=${encodeURIComponent(amount)}`;
+  const link = `${method === "btc" ? "bitcoin" : "monero"}:${query}`;
+  return { link, desktopLink: method === "btc" ? link : `monero://${query}`, qr: link };
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";

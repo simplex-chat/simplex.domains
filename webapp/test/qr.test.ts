@@ -3,7 +3,7 @@ import jsQR from "jsqr"
 import { describe, expect, it } from "vitest"
 import { formatOwnerCode, parseNameCode } from "../src/crypto/code.ts"
 import { lightningInvoice } from "../dev/mock/addresses.ts"
-import { encodeQr, paymentQr, paymentUri } from "../src/qr.ts"
+import { encodeQr, paymentCode } from "../src/qr.ts"
 import { readQr } from "../src/scan.ts"
 import { qrPixels, withQuietZone } from "./qr-image.ts"
 
@@ -33,27 +33,28 @@ describe("a payment's wallet URI", () => {
   const BTC = "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s"
 
   it("opens Monero GUI on a laptop by monero://, and a phone's wallet or a QR's reader by monero:", () => {
-    expect(paymentUri("xmr", XMR, "0.4512", true)).toBe(`monero://${XMR}?tx_amount=0.4512`)
-    expect(paymentUri("xmr", XMR, "0.4512")).toBe(`monero:${XMR}?tx_amount=0.4512`)
+    expect(paymentCode("xmr", XMR, "0.4512")).toEqual({
+      link: `monero:${XMR}?tx_amount=0.4512`, desktopLink: `monero://${XMR}?tx_amount=0.4512`, qr: `monero:${XMR}?tx_amount=0.4512`,
+    })
   })
-  it("keeps Bitcoin's bitcoin: form on a laptop and a phone", () => {
-    expect(paymentUri("btc", BTC, "0.00156", true)).toBe(`bitcoin:${BTC}?amount=0.00156`)
-    expect(paymentUri("btc", BTC, "0.00156")).toBe(`bitcoin:${BTC}?amount=0.00156`)
+  it("keeps Bitcoin's bitcoin: form on a laptop, a phone and in the QR", () => {
+    const link = `bitcoin:${BTC}?amount=0.00156`
+    expect(paymentCode("btc", BTC, "0.00156")).toEqual({ link, desktopLink: link, qr: link })
   })
-  it("percent-encodes the address in either form, so it cannot add parameters of its own", () => {
-    expect(paymentUri("xmr", "a?b&c#d", "1", true)).toBe("monero://a%3Fb%26c%23d?tx_amount=1")
-    expect(paymentUri("xmr", "a?b&c#d", "1")).toBe("monero:a%3Fb%26c%23d?tx_amount=1")
-  })
-  it("is null without an address or an amount", () => {
-    expect([paymentUri("xmr", "", "1", true), paymentUri("xmr", XMR, "", true), paymentUri("btc", "", "1")]).toEqual([null, null, null])
+  it("percent-encodes the address in every form, so it cannot add parameters of its own", () => {
+    expect(paymentCode("xmr", "a?b&c#d", "1")).toEqual({
+      link: "monero:a%3Fb%26c%23d?tx_amount=1", desktopLink: "monero://a%3Fb%26c%23d?tx_amount=1", qr: "monero:a%3Fb%26c%23d?tx_amount=1",
+    })
   })
 
   const BOLT11 = lightningInvoice("q7ZpL2dN9xWc4KfR8tYb1A", "0.00050000", 1793000000, 3600)
+  it("is null without an address or an amount, for every method", () => {
+    expect([paymentCode("xmr", "", "1"), paymentCode("xmr", XMR, ""), paymentCode("btc", "", "1"), paymentCode("ln", "", "0.00050000"), paymentCode("ln", BOLT11, "")])
+      .toEqual([null, null, null, null, null])
+  })
   it("opens a Lightning wallet by lightning: on a laptop and a phone alike, with no amount beside the one the invoice holds", () => {
-    expect(paymentUri("ln", BOLT11, "0.00050000", true)).toBe(`lightning:${BOLT11}`)
-    expect(paymentUri("ln", BOLT11, "0.00050000")).toBe(`lightning:${BOLT11}`)
-    expect(paymentUri("ln", BOLT11, "")).toBe(`lightning:${BOLT11}`)
-    expect(paymentUri("ln", "", "0.00050000", true)).toBeNull()
+    const link = `lightning:${BOLT11}`
+    expect(paymentCode("ln", BOLT11, "0.00050000")).toEqual({ link, desktopLink: link, qr: BOLT11.toUpperCase() })
   })
 })
 
@@ -63,14 +64,14 @@ describe("a Lightning invoice's QR code", () => {
 
   it("holds the bare invoice in uppercase, while the wallet links keep it lowercase behind lightning:", async () => {
     const invoice = lightningInvoice("2RWx7gmoLy73IvifBS1V5Q", "0.0015625", 1793000000, 3600)
-    expect(paymentQr("ln", invoice, "")).toBe(invoice.toUpperCase())
-    expect(paymentUri("ln", invoice, "")).toBe(`lightning:${invoice}`)
-    expect(await readBack(paymentQr("ln", invoice, "")!)).toBe(invoice.toUpperCase())
-    expect(paymentQr("ln", "", "0.0015625")).toBeNull()
+    const { link, qr } = paymentCode("ln", invoice, "0.0015625")!
+    expect(qr).toBe(invoice.toUpperCase())
+    expect(link).toBe(`lightning:${invoice}`)
+    expect(await readBack(qr)).toBe(invoice.toUpperCase())
   })
   it(`holds a request of ${LONGEST} characters at version ${MAX_VERSION_FOR_LONGEST} or below, which reads back whole`, async () => {
-    const request = `lnbc499999440p1${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(13)}`.slice(0, LONGEST)
-    const payload = paymentQr("ln", request, "")!
+    const request = `lnbc500u1${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(13)}`.slice(0, LONGEST)
+    const payload = paymentCode("ln", request, "0.00050000")!.qr
     expect(encodeQr(payload)!.version).toBeLessThanOrEqual(MAX_VERSION_FOR_LONGEST)
     expect(await readBack(payload)).toBe(payload)
   })
@@ -109,8 +110,9 @@ describe("the QR encoder's modes", () => {
   })
   it("draws Bitcoin's and Monero's QR as it did before, in byte mode", () => {
     const XMR = "5AH4kYBG5e8fRrw5aKYx9ZDmFmS3cUvXzVRRxGW2pdXtStdmrMZoq3iPMQV4eR1DWh1hKeU3wgaMdPp7kq9DKV2WSUE5NWq"
-    expect(fingerprint(paymentQr("btc", "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s", "0.00156")!)).toBe("5 2 999f07cc2a84bfae")
-    expect(fingerprint(paymentQr("xmr", XMR, "0.4512")!)).toBe("7 5 2c75de003cf32020")
-    expect(segments(paymentQr("btc", "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s", "0.00156")!).modes).toEqual(["byte"])
+    const btc = paymentCode("btc", "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s", "0.00156")!.qr
+    expect(fingerprint(btc)).toBe("5 2 999f07cc2a84bfae")
+    expect(fingerprint(paymentCode("xmr", XMR, "0.4512")!.qr)).toBe("7 5 2c75de003cf32020")
+    expect(segments(btc).modes).toEqual(["byte"])
   })
 })
