@@ -36,8 +36,6 @@ const SHORT_LINK: Record<LinkKind, RegExp> = {
 }
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
-// a key the core decodes as base64url and that encodes back to itself: of a length bytes encode to, its last character
-// without the bits no byte holds
 function canonicalKey(key: string): boolean {
   const spare = [0, 6, 4, 2][key.length % 4]
   return spare < 6 && (BASE64URL.indexOf(key[key.length - 1]) & ((1 << spare) - 1)) === 0
