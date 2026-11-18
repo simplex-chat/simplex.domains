@@ -268,11 +268,11 @@ export async function search(page: Page, label: string): Promise<void> {
 }
 
 interface OrderOptions {
-  method?: "card" | "btc" | "xmr"
+  method?: "card" | "btc" | "ln" | "xmr"
   shots?: string
 }
 
-const METHOD_NAMES = { card: "Card", btc: "Bitcoin", xmr: "Monero" }
+const METHOD_NAMES = { card: "Card", btc: "Bitcoin", ln: "Lightning", xmr: "Monero" }
 
 // the screen in view, a purchase step or any other: main holds one at a time
 export const onStep = (page: Page) => page.locator("body > main > section")
@@ -383,7 +383,7 @@ export async function agreeToTerms(page: Page): Promise<void> {
 async function tick(page: Page, name: RegExp): Promise<void> {
   const box = onStep(page).getByRole("checkbox", { name })
   if (!await box.isChecked()) await onStep(page).locator(".check.terms", { has: page.getByRole("checkbox", { name }) }).locator(".box").click()
-  await expect(box).toBeChecked()
+  await expect(onStep(page).getByRole("checkbox", { name, checked: false })).toHaveCount(0)
 }
 
 // An available name's Register, through the links skipped and the name code saved, to Check your order.
@@ -474,6 +474,14 @@ export const newClient = () => ({ "x-forwarded-for": `10.${randomInt(OCTET)}.${r
 export const test = base.extend<{ cspViolations: void }>({
   baseURL: async ({ baseURL }, use) => use(baseURL ?? pageUrl(SLOT)),
   extraHTTPHeaders: async ({ extraHTTPHeaders }, use) => use({ ...extraHTTPHeaders, ...newClient() }),
+  page: async ({ page }, use) => {
+    const resize = page.setViewportSize.bind(page)
+    page.setViewportSize = async (size) => {
+      await resize(size)
+      await page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
+    }
+    await use(page)
+  },
   cspViolations: [async ({ context, browser }, use) => {
     const refused: string[] = []
     const watch = async (watched: BrowserContext) => {

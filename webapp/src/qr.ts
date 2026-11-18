@@ -377,8 +377,9 @@ export function encodeQr(payload: string): QrSymbol | null {
 }
 
 // Monero GUI, a laptop's wallet, opens only `monero://`; a phone's wallets and QR readers take `monero:`.
-export function paymentUri(method: "btc" | "xmr", address: string, amount: string, desktop = false): string | null {
+export function paymentUri(method: "btc" | "ln" | "xmr", address: string, amount: string, desktop = false): string | null {
   if (address === "" || amount === "") return null;
+  if (method === "ln") return `lightning:${encodeURIComponent(address)}`;
   const scheme = method === "btc" ? "bitcoin:" : desktop ? "monero://" : "monero:";
   const parameter = method === "btc" ? "amount" : "tx_amount";
   // The address is percent-encoded so that a `?`, `&`, or `#` in it cannot add its own parameters to the URI.

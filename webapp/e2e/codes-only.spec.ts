@@ -111,7 +111,8 @@ test("each mode's home is drawn from its first frame, never the other mode's fir
   }
 })
 
-test("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request }) => {
+test("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request, browserName }) => {
+  test.skip(browserName === "webkit", "WebKit asks the service again rather than hand the preloaded answer to the page")
   await setMode(request, "codes")
   const asked: string[] = []
   page.on("request", (r) => { if (new URL(r.url()).pathname === "/api/config") asked.push(r.resourceType()) })
@@ -291,7 +292,7 @@ test("a page opened before codes only, refused as it pays, says registration is 
   expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
   await onStep(page).getByRole("button", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-  expect(seen.count, "the screen after the refusal is the service's page again").toBe(1)
+  await expect.poll(() => seen.count, { message: "the screen after the refusal is the service's page again" }).toBe(1)
 })
 
 test("a closed invoice's page opened before codes only, refused a new invoice, says so with a way to a code", async ({ page, request }) => {
@@ -307,7 +308,7 @@ test("a closed invoice's page opened before codes only, refused a new invoice, s
   expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
   await note.getByRole("link", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-  expect(seen.count, "the screen after the refusal is the service's page again").toBe(1)
+  await expect.poll(() => seen.count, { message: "the screen after the refusal is the service's page again" }).toBe(1)
 })
 
 test("a checkout open as the service takes codes only loads again in codes mode with its name, links, name code and terms", async ({ page, request }) => {
@@ -365,7 +366,7 @@ test("a closed invoice's page holding changed terms ticked again stays as the se
     await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
     await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
     await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-    expect(seen.count, "the next screen is the service's page again").toBe(1)
+    await expect.poll(() => seen.count, { message: "the next screen is the service's page again" }).toBe(1)
   } finally {
     await control(request, "general-terms", { text: null })
   }

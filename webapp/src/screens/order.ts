@@ -1,4 +1,5 @@
-import { type Balance, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
+import { type Balance, type Coin, type Community, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type SearchAnswer, signedHash, type Terms } from "../api.ts"
+import { methodName } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -189,7 +190,31 @@ export const failedAlert = ({ view, codeRefused }: OrderState) => ({ title: view
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase === b.phase && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves
 
-export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
+export const coinOf = (invoice: InvoiceView): Coin | null => invoice.cryptoCurrency === "card" ? null : invoice.cryptoCurrency ?? null
+
+export const TICKER: Record<Coin, string> = { btc: "BTC", ln: "BTC", xmr: "XMR" }
+
+const INVOICE_HEAD = 8
+const INVOICE_TAIL = 6
+
+export const destinationOf = (coin: Coin, address: string): { label: string; shown: string } =>
+  coin === "ln"
+    ? { label: "Lightning invoice", shown: `${address.slice(0, INVOICE_HEAD)}…${address.slice(-INVOICE_TAIL)}` }
+    : { label: `${methodName(coin)} address`, shown: address }
+
+export function lightningPayableUntil(invoice: InvoiceView, now: number): number | null {
+  const until = Date.parse(invoice.expiresAt)
+  return invoice.cryptoCurrency === "ln" && until > now ? until : null
+}
+
+// the count stays with its word on one line; a payment taken on first sight waits for no confirmation at all
+const confirmations = (n: number) => (n === 1 ? "Waiting for 1\u00a0confirmation" : n > 1 ? `Waiting for ${n}\u00a0confirmations` : "Waiting for the payment to settle")
+
+export function seenWords(invoice: InvoiceView, coin: Coin): { title: string; alert: string; text: string } {
+  const arrived = `${invoice.cryptoAmount} ${TICKER[coin]} arrived`
+  if (coin === "ln") return { title: "Payment received", alert: "Starting registration", text: `${arrived} by Lightning. Registration starts in a moment; this page moves on by itself.` }
+  return { title: "Confirming your payment", alert: confirmations(invoice.requiredConfirmations ?? 1), text: `${arrived}. Registration starts once it confirms; this page moves on by itself.` }
+}
 
 // How a closed invoice's order gets a new one: a new spend of the balance that paid part of it, once find names that
 // balance where this browser's record does not; a spend of its own balance, which money on the invoice became; or a new

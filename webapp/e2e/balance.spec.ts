@@ -300,7 +300,7 @@ test("a balance held by another browser's invoice whose payment is confirming pa
   page.on("request", (r) => { if (r.method() === "GET" && /\/api\/registration\/[^/?]+$/.test(new URL(r.url()).pathname)) reads.push(Date.now()) })
   await onStep(page).getByRole("button", { name: "Register with your balance" }).click()
   const held = onStep(page).locator(".line", { hasText: "Your balance is in use by" })
-  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being confirmed.`)
+  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being completed.`)
   await expect(onStep(page).getByRole("button", { name: "Register with your balance" })).toBeDisabled()
   await page.waitForTimeout(8_000)
   expect(reads.length, `reads of the balance in ${reads.length ? reads[reads.length - 1] - reads[0] : 0} ms`).toBeLessThanOrEqual(3)
@@ -415,8 +415,10 @@ test("a difference order whose balance has grown to cover the price offers to re
   await payButton(page).click()
   await page.waitForURL(/\?order=/)
   const first = new URL(page.url()).searchParams.get("order")!
+  const sourceRead = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname === `/api/registration/${balanceSource}`)
   await control(request, `expire/${first}`)
   await expect(onStep(page).getByRole("button", { name: "Get a new invoice" })).toBeVisible()
+  await sourceRead
   // the balance grows to the whole price while the page is open: a press of Get a new invoice only relabels it
   await control(request, `credit/${balanceSource}`, { cents: 10000 })
   await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
@@ -452,7 +454,7 @@ test("a review following the order that holds its balance says the hold has no t
   const held = onStep(page).locator(".line", { hasText: "Your balance is in use by" })
   await expect(held).toHaveText(new RegExp(`^Your balance is in use by ${dearer}\\.simplex until \\d\\d:\\d\\d\\.$`))
   await control(request, `partial/${holder}`)
-  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being confirmed.`, { timeout: 10_000 })
+  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being completed.`, { timeout: 10_000 })
 })
 
 test("a held balance is waited for on the service's clock, however far the device's runs ahead, and find refused for its limit is asked again only after the wait it names", async ({ page, request }) => {
@@ -502,7 +504,7 @@ test("a covered spend whose answer was lost, its review opened again, says its o
   await waitRegistered(page, name)
 })
 
-test("a difference below the card's least charge is offered in Bitcoin and Monero only, its button where every step's is", async ({ page, request }) => {
+test("a difference below the card's least charge is offered in Bitcoin, Lightning and Monero only, its button where every step's is", async ({ page, request }) => {
   const label = uniqueLabel("bsmall")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
@@ -520,6 +522,7 @@ test("a difference below the card's least charge is offered in Bitcoin and Moner
   await toReview(page)
   await expect(page.getByRole("radio", { name: "Card" })).toHaveCount(0)
   await expect(page.getByRole("radio", { name: "Bitcoin" })).toHaveAttribute("aria-checked", "true")
+  await expect(page.getByRole("radio", { name: "Lightning" })).toBeVisible()
   await expect(page.getByRole("radio", { name: "Monero" })).toBeVisible()
   await expect(payButton(page)).toHaveText(/^Pay \$0\.\d\d with Bitcoin$/)
   for (const [size, top] of [[{ width: 1280, height: 800 }, 587], [{ width: 390, height: 844 }, 636]] as const) {

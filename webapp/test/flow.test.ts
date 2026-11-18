@@ -489,6 +489,16 @@ describe("syncRecord", () => {
     expect(store.orderByRegistration("reg1")?.label).toBe("another")
   })
 
+  it("drops the refusal of the old links once the order moved to other links", async () => {
+    const { flow, store } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = { ...flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }), linksRefused: true }
+    store.saveOrder(record)
+    const moved = await flow.orderRequest({ ...draft(), links: { contact: "", channel: "" } })
+    expect((await flow.syncRecord(record, view(moved.request) as never))?.linksRefused).toBeUndefined()
+    expect(store.orderByRegistration("reg1")?.linksRefused).toBeUndefined()
+  })
+
   it("takes the terms the order signed from the view, which a move with other terms changes", async () => {
     const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())

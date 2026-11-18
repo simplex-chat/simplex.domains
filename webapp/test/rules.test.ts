@@ -144,6 +144,7 @@ describe("formatting", () => {
     expect(clock(0)).toBe("0:00")
     expect(clock(-3)).toBe("0:00")
     expect(methodName("xmr")).toBe("Monero")
+    expect(methodName("ln")).toBe("Lightning")
     expect(methodName("code")).toBe("Code")
   })
 })

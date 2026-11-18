@@ -128,6 +128,7 @@ function oneFrame(frames: Record<string, Frame[]>): void {
 }
 
 test("every purchase step fits a laptop's and a phone's window, its heading and main button at one place on every step", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   await page.goto("/")
   await fitsWindow(page, "1-home")
   // a taken name with both its links
@@ -177,6 +178,7 @@ test("every purchase step fits a laptop's and a phone's window, its heading and 
 })
 
 test("the balance's steps fit both windows, their heading, main button and link where every step's are", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   const frames: Record<string, Frame[]> = {}
   await takenOrder(page, request, uniqueLabel("fitbal"))
   await fitsWindow(page, "b1-taken", frames)
@@ -258,7 +260,10 @@ const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
     } }
   } }),
 })`
-const loadCard = (page: Page) => page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+const loadCard = async (page: Page) => {
+  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: () => void }).__loadCard === "function")
+  await page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+}
 const cardSeen = (page: Page) => page.evaluate(() => {
   const w = window as unknown as { __logos?: string[]; __mounts?: number }
   return { logos: w.__logos ?? [], mounts: w.__mounts ?? 0 }
@@ -587,7 +592,10 @@ async function backInView(page: Page, name: string): Promise<void> {
 }
 
 // the tops of the home's headline and search
-const homeTops = (page: Page) => page.evaluate(() => ["h1", ".search-field"].map((s) => Math.round(document.querySelector(`.home ${s}`)!.getBoundingClientRect().top)))
+const homeTops = async (page: Page) => {
+  await expect(page.locator(".home .search-field")).toBeVisible()
+  return page.evaluate(() => ["h1", ".search-field"].map((s) => Math.round(document.querySelector(`.home ${s}`)!.getBoundingClientRect().top)))
+}
 
 test("a step's lead breaks where the mockup does on a laptop: in two even lines, or at its line break", async ({ page }) => {
   await search(page, uniqueLabel("lead"))
@@ -858,6 +866,7 @@ test("Check your code keeps its heading and main button still as a verdict comes
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
     await page.goto("/#/code")
+    await expect(page.locator("body > main .actions-row .btn")).toBeVisible()
     const at = () => page.evaluate(() => ["body > main h1", "body > main .actions-row .btn"].map((s) => Math.round(document.querySelector(s)!.getBoundingClientRect().top)))
     const before = await at()
     for (const [typed, verdict] of [["Q", ".verdict.bad"], [code, ".verdict.ok"], ["SN-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA", ".verdict.bad"], ["", ".verdict:empty"]]) {
