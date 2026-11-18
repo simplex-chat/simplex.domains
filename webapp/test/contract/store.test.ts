@@ -133,4 +133,37 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect(e).toBeInstanceOf(api.EditLimited)
     expect((e as api.EditLimited).nextAt).toBeGreaterThan(0)
   })
+
+  const order = { labelHash: HASH, length: LABEL.length, duration: 1, owner: "0x1", commitment: HASH, sealed: "sealed", terms: "ab".repeat(32), timestamp: 0, signature: "0x" }
+
+  it("reads a code order refused for changed terms with the terms and the community entry now", async () => {
+    const e = await refusal("register-terms-changed", () => api.registerWithCode(order, "code", chainId()))
+    expect(e).toBeInstanceOf(api.TermsChanged)
+    expect((e as api.TermsChanged).community).not.toBeNull()
+  })
+
+  it.each([
+    ["register-code-reserved", "code_reserved"], ["register-name-taken", "name_taken"], ["register-terms-unavailable", "terms_unavailable"],
+  ])("reads the code order refusal %s as %s", async (name, code) => {
+    expect((await refusal(name, () => api.registerWithCode(order, "code", chainId()))).code).toBe(code)
+  })
+
+  it("reads a spend refused for its balance with the balance now, and for its price with the price now", async () => {
+    const spending = { ...order, price: 1, balance: 1 }
+    const e = await refusal("spend-balance-changed", () => api.spend("r1", spending, chainId()))
+    expect(e).toBeInstanceOf(api.BalanceChanged)
+    expect((e as api.BalanceChanged).balance).not.toBeNull()
+    const price = await refusal("spend-catalog-changed", () => api.spend("r1", spending, chainId()))
+    expect([price.code, price.body.price]).toEqual(["catalog_changed", 10000])
+  })
+
+  it.each([["move-limit", "move_limit"], ["move-registration-changed", "registration_changed"]])("reads the move refusal %s as %s with the order as it reads now", async (name, code) => {
+    const e = await refusal(name, () => api.retarget("r1", order, chainId()))
+    expect([e.code, api.changedView(e)?.id]).toEqual([code, "registration"])
+  })
+
+  it("reads a move to a dearer name with its price", async () => {
+    const e = await refusal("move-price-too-high", () => api.retarget("r1", order, chainId()))
+    expect([e.code, e.body.price]).toEqual(["price_too_high", 20000])
+  })
 })
