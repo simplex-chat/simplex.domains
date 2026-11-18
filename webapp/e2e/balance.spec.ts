@@ -550,6 +550,7 @@ test.describe(() => {
       const view = registrationView(order, { phase: "taken", commitTx: "0x02",
         balance: { amount: 10000, held, heldUntil: held ? new Date(Date.now() + 900_000).toISOString() : null, refunded: 0 } })
       await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+      await page.route("**/api/config", (route) => route.continue())
       await page.route("**/api/registration/reg-balrow*", (route) => route.fulfill({ json: view }))
       await page.route("**/api/invoice/inv-balrow*", (route) => route.fulfill({ json: { invoiceId: "inv-balrow", status: "paid", amount: 10000, currency: "usd",
         expiresAt: new Date(Date.now() - 1000).toISOString(), kind: "name", registration: view, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bcrt1q", paidInFull: true } }))
