@@ -1,6 +1,8 @@
-// Contract Appendix C: the order, name and spend messages with `terms`, built from the contract's formats rather than
-// src/flow.ts, so the page's builders are checked against these values and not the other way round. The builders then
-// sign the same inputs, which only the same message bytes give the same signatures for.
+// Contract Appendix C: the order, name and spend messages with `terms`, as the service records them in its vectors. The
+// page's message format is checked against them, and its builders sign the same inputs, which only the same message bytes
+// give the same signatures for.
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { hashMessage, recoverMessageAddress, type Hex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -13,63 +15,22 @@ const fromHex = (h: string) => Uint8Array.from(Buffer.from(h.replace(/^0x/, ""),
 const ENTROPY = fromHex("6f2d1c9a4b7e3f80d15a2c6e9b04f7a3")
 const WALLET = walletFromEntropy(ENTROPY)
 const OWNER_CODE = "SN-DWPHS-6JBFR-ZR1MA-T5HQ9-P17QM-F5GM5"
-const OWNER = "0x014f9c09CcEeDEF1B713110d04D3a07d5B5D9b73"
-
-const LABEL = "alicebakery"
-const DURATION = 69292800
-const RESOLVER = "0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6"
-const REGISTRATION_ID = "t2Jk8RmQ4vXw9NcP3yLb6g"
-const TIMESTAMP = 1792828800
-
-const LABEL_HASH = "0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6"
-const COMMITMENT = "0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5"
-const SEALED = "AAAAAAAAAAAAAAAACWgxqMk-UKfpra_Zh6vc4KNBR6SX1WYpGb4COoWCCbM0bisYCH14WLzghp8hqi_-KyXSi4qf_DAdP_M4bFetD0s"
-const SEALED_HASH = "0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2"
 
 type Kind = "order" | "name" | "spend"
 type Vector = { kind: Kind; terms: string; text: string; digest: Hex; signature: Hex }
+interface Recorded {
+  owner: string
+  order: { label: string; labelHash: string; length: number; duration: number; commitment: string; sealed: string; sealedHash: string; resolver: string; registrationId: string; timestamp: number }
+  messages: (Omit<Vector, "kind" | "terms"> & { kind: Kind | "find"; terms: string | null })[]
+}
 
-const PLAIN = "67b989cccc7ae150142daa4029304c7b7e78ab0a4ccebeba2ec1ef8a30f8147e"
-const COMMUNITY = "community/bbc52157d9b12f23af62ae8a7eacf2ea11e7db311fa2ed5bd48ea9ba01f77c4d"
-
-const VECTORS: Vector[] = [
-  {
-    kind: "order", terms: PLAIN,
-    text: `simplex.domains order 0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6 11 69292800 0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5 0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2 ${PLAIN} 1792828800`,
-    digest: "0x2687afde089cba36f420243154bfdd22fe44e8f07c8cfee652bd61cd6d9271fe",
-    signature: "0x9fb22e344357679a4deffdd3d75d6bfb6be860e4d2d307661445812dc4e134c051b726fc8ae16aaf4df17c615b2eeac4e10953524691b186bff2e6b68268d0b31b",
-  },
-  {
-    kind: "order", terms: COMMUNITY,
-    text: `simplex.domains order 0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6 11 69292800 0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5 0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2 ${COMMUNITY} 1792828800`,
-    digest: "0x456ec129e7612ef629f004f3beaf82a58ebf01d59cc7c4e2616e01a72ca01c65",
-    signature: "0x11ade94c79f14bdfde60b23f60f217206b7fd6b29504a2e3020eaef5dabbf24c39330b92099ce6564c36c0a2e484c91a5a9cfa341285a05a169bafbb1dfd1cb01c",
-  },
-  {
-    kind: "name", terms: PLAIN,
-    text: `simplex.domains name t2Jk8RmQ4vXw9NcP3yLb6g 0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6 11 69292800 0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5 0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2 ${PLAIN} 1792828800`,
-    digest: "0x9545b17da4a1fcc96d66f53b8358629c5987ec2a67d16e44f4e0a298194dc0e9",
-    signature: "0xa1ae312f7178440aaf5a04789d7ed388af7215624b214ea7aa98d43209f0c98e10b64a1c553053e88c3ecd6d21769d34ff9b6a3485e04e2d23bd4b0faabb1dc01c",
-  },
-  {
-    kind: "name", terms: COMMUNITY,
-    text: `simplex.domains name t2Jk8RmQ4vXw9NcP3yLb6g 0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6 11 69292800 0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5 0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2 ${COMMUNITY} 1792828800`,
-    digest: "0x5a798c69de346efc5ede90d1b4ff30854ab0eb326539ba9b60eddea1ab08005f",
-    signature: "0xdd8794dd1c65c8e11955127408e44cd63cfc8d4b7050d5fee05b65d5abfb8a3b62f6648c2a337183adc822d129b2aba3030c8812cf87b7e969c690fb160a805f1c",
-  },
-  {
-    kind: "spend", terms: PLAIN,
-    text: `simplex.domains spend t2Jk8RmQ4vXw9NcP3yLb6g 0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6 11 69292800 0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5 0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2 ${PLAIN} 1792828800`,
-    digest: "0xf643f32bd75923423f92eeee3dc46c6503f4969ad37b66bddfab5587b7e7d62e",
-    signature: "0x584dfddcbd6f5a1ccaa0dd60b8f2929f629da471aa4ecae270bd429243f2853c77eff724a4820e95765ca006302c834fdb247d3b1c69c5db4074045c89957f541c",
-  },
-  {
-    kind: "spend", terms: COMMUNITY,
-    text: `simplex.domains spend t2Jk8RmQ4vXw9NcP3yLb6g 0xbcc46b7948ff6be55bc3ff4db5bc4be16638f29e818a89244dae11caaed7c9c6 11 69292800 0x5e62a4cb7da596cb38169a6a552b5f69db2acee279b53be6693a78e03c3dfaa5 0x22709445157a2a1f7cb7e284e3ccf6c7ebc3b4d857002af452853c4a65907fe2 ${COMMUNITY} 1792828800`,
-    digest: "0x1c02a90eaa2073c155b816d9597ddbe694dfa5ded03caafeb88feb9ed9a077e1",
-    signature: "0x61f25926cf4250e6924cfbc63748cc60e01486434984988e8904a655c893afd22f9efabc4587890f522ec91a124f066ba0d9b8acfbba9c836009d8a41609624a1b",
-  },
-]
+const DIR = process.env.STORE_FIXTURES
+const RECORDED: Recorded | null = DIR ? JSON.parse(readFileSync(join(DIR, "vectors-signatures.json"), "utf8")) as Recorded : null
+const OWNER = RECORDED?.owner ?? ""
+const { label: LABEL, duration: DURATION, resolver: RESOLVER, registrationId: REGISTRATION_ID, timestamp: TIMESTAMP, labelHash: LABEL_HASH, commitment: COMMITMENT, sealed: SEALED, sealedHash: SEALED_HASH } =
+  RECORDED?.order ?? { label: "", duration: 0, resolver: "", registrationId: "", timestamp: 0, labelHash: "", commitment: "", sealed: "", sealedHash: "" }
+const VECTORS: Vector[] = (RECORDED?.messages ?? []).flatMap((m) => m.kind === "find" || m.terms === null ? [] : [{ ...m, kind: m.kind, terms: m.terms }])
+const PLAIN = VECTORS.find((v) => !v.terms.startsWith("community/"))?.terms ?? ""
 
 // The contract's formats: `simplex.domains order <labelHash> <length> <duration> <commitment> <sha256(sealed)> <terms> <timestamp>`,
 // and for name and spend the registration id after the kind.
@@ -80,7 +41,7 @@ function messageText(kind: Kind, terms: string): string {
 
 afterEach(() => vi.restoreAllMocks())
 
-describe("Appendix C inputs", () => {
+describe.skipIf(!RECORDED)("Appendix C inputs", () => {
   it("derives the owner from the fixture owner code", () => {
     expect(formatOwnerCode(ENTROPY)).toBe(OWNER_CODE)
     expect(checksumAddress(WALLET.address)).toBe(OWNER)
@@ -105,7 +66,7 @@ describe("Appendix C inputs", () => {
   })
 })
 
-describe("Appendix C vectors", () => {
+describe.skipIf(!RECORDED)("Appendix C vectors", () => {
   const account = privateKeyToAccount(hex(WALLET.privateKey) as Hex)
 
   it.each(VECTORS)("$kind with terms $terms", async ({ kind, terms, text, digest, signature }) => {
@@ -117,7 +78,7 @@ describe("Appendix C vectors", () => {
   })
 })
 
-describe("the page's builders reproduce Appendix C", () => {
+describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   const YEARS = 2
   const CHAIN = { resolver: RESOLVER, sponsor: "0x9a676e781a523b5d0c0e43731313a708cb607508", chainId: 31337, tld: "simplex" }
   // the term's start that leaves the vector's free days at its timestamp

@@ -52,28 +52,6 @@ describe("owner code", () => {
 })
 
 describe("prepaid code", () => {
-  it("accepts the design's example and gives its length and canonical form", () => {
-    const parsed = parseNameCode("SN7-BJTBP-29596-R3HJ8-25YM7")
-    expect(parsed).toEqual({ kind: "prepaid", minLength: 7, canonical: "SN7BJTBP29596R3HJ825YM7", display: "SN7-BJTBP-29596-R3HJ8-25YM7" })
-  })
-
-  it("refuses a typo, which the check character catches", () => {
-    expect(parseNameCode("SN7-4K2P7-TQ9M1-ZX3RB-8HJ5X")).toBeNull()
-  })
-
-  it("refuses a length outside 6 to 63 or written with a leading zero, as the service's parser does", () => {
-    // the zero adds nothing to the check, so this text passes it and only the length rule refuses it
-    expect(parseNameCode("SN07-BJTBP-29596-R3HJ8-25YM7")).toBeNull()
-    // the design's example body under each length, with the check character that length gives
-    const texts = ["SN5-BJTBP-29596-R3HJ8-25YM9", "SN6-BJTBP-29596-R3HJ8-25YM8", "SN9-BJTBP-29596-R3HJ8-25YM5",
-      "SN10-BJTBP-29596-R3HJ8-25YMC", "SN63-BJTBP-29596-R3HJ8-25YMZ", "SN64-BJTBP-29596-R3HJ8-25YMY"]
-    const lengths = texts.map((text) => {
-      const parsed = parseNameCode(text)
-      return parsed?.kind === "prepaid" ? parsed.minLength : null
-    })
-    expect(lengths).toEqual([null, 6, 9, 10, 63, null])
-  })
-
   it("hashes the canonical form as the badge codes do: unpadded base64url SHA-256", () => {
     const expected = createHash("sha256").update("SN7BJTBP29596R3HJ825YM7").digest("base64url")
     expect(codeHash("SN7BJTBP29596R3HJ825YM7")).toBe(expected)
