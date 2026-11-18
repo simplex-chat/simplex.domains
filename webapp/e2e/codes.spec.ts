@@ -979,11 +979,11 @@ test("the registering page's clock tells the time left from the commit's wait", 
     const view = await response.json()
     const serviceNow = Date.parse(response.headers()["date"]!) / 1000
     await route.fulfill({ response, json: { ...view, label: null, commitTx: view.commitTx ?? `0x${"1".repeat(64)}`,
-      phase: { type: "committed", revealAfter: serviceNow + WAIT_S, revealBefore: serviceNow + 86400, signature: { type: "awaiting", toSign: { type: "unread" } } } } })
+      phase: { type: "committed", revealAfter: serviceNow + WAIT_S, revealBefore: serviceNow + 5 * 3600 - 60, signature: { type: "awaiting", toSign: { type: "unread" } } } } })
   })
   await page.reload()
   await expect(page.locator(".countdown b")).toHaveText(/^3:[12]\d$/)
-  await expect(page.locator(".screen-head .lead")).toHaveText("Keep this page open until the name is yours, or come back within 24 hours.")
+  await expect(page.locator(".screen-head .lead"), "the hours left to sign, from the order's revealBefore").toHaveText("Keep this page open until the name is yours, or come back within 5 hours.")
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 

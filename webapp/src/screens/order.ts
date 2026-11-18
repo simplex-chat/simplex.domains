@@ -6,8 +6,6 @@ import { askFor, type TermsAsk, ticked } from "./terms.ts"
 
 // a card payment Stripe has not confirmed after this long gets the "not confirmed" page
 export const CARD_SLOW_MS = 10 * 60 * 1000
-// the contract's maxCommitmentAge (dev/deploy.ts): a paid order not revealed within it lapses and has to commit again
-export const REVEAL_HOURS = 24
 // refusals of the signed registration after which the page stops signing and says so
 export const REVEAL_ATTEMPTS = 3
 export const RETRY_MS = 3000
@@ -197,7 +195,13 @@ export const movable = ({ view, codeRefused }: Pick<OrderState, "view" | "codeRe
 
 export const nameGone = (s: Pick<OrderState, "nameStatus">) => s.nameStatus === "registered" || s.nameStatus === "registering" || s.nameStatus === "reserved"
 
-export const retryDue = (s: OrderState) => s.view !== null && lapsedOf(s.view) && s.record !== null && !linksRefused(s) && !nameGone(s) && s.busy === null && s.hold === null
+export function hoursToSign({ view, now }: Pick<OrderState, "view" | "now">): number | null {
+  const committed = view && committedOf(view)
+  if (committed?.signature.type !== "awaiting") return null
+  return Math.max(1, Math.ceil((committed.revealBefore * 1000 - now) / 3_600_000))
+}
+
+export const retryDue =(s: OrderState) => s.view !== null && lapsedOf(s.view) && s.record !== null && !linksRefused(s) && !nameGone(s) && s.busy === null && s.hold === null
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase.type === b.phase.type && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves
 

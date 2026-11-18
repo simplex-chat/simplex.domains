@@ -4,7 +4,7 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, commitKey, movable, nameUnavailable, retryDue,
+  askAgainDue, commitKey, hoursToSign, movable, nameUnavailable, retryDue,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -504,6 +504,16 @@ describe("failedAlert", () => {
   })
 })
 
+describe("hoursToSign", () => {
+  it("counts the hours left to sign up to the order's revealBefore, an hour at least, and none outside the wait for a signature", () => {
+    expect(hoursToSign(read(null, registration({ ...committed, revealBefore: NOW / 1000 + 5 * 3600 - 60 })))).toBe(5)
+    expect(hoursToSign(read(null, registration({ ...committed, revealBefore: NOW / 1000 + 60 })))).toBe(1)
+    expect(hoursToSign(read(null, registration({ ...committed, revealBefore: NOW / 1000 + 60, label: "alice" }))), "signed").toBeNull()
+    expect(hoursToSign(LAPSED), "lapsed").toBeNull()
+    expect(hoursToSign(STATES.registering), "committing").toBeNull()
+  })
+})
+
 describe("retryDue", () => {
   it("asks for a new commitment of an order whose commitment lapsed unsigned, from the browser with the name code", () => {
     expect(retryDue(LAPSED)).toBe(true)
@@ -569,7 +579,7 @@ describe("a stalled stage", () => {
     expect(stalledAt(ticked), "timed from the last tick").toBe(NOW + 60_000 + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS)
     expect(stalledAt(seen(asking)), "changed terms that could not be asked for").not.toBeNull()
   })
-  it("is not said once the search for changed terms answered the name as registered or reserved, as the order then fails once its hours to sign are over", () => {
+  it("is not said once the search for changed terms answered the name as registered or reserved, as the order then moves to another name once its time to sign is over", () => {
     const asking = seen(registration({ ...committed, acceptance: acceptanceFor(CHANGED) }))
     expect(stalledAt(reduce(asking, { type: "name-unavailable", key: commitKey(asking.view!), status: "registered" }))).toBeNull()
   })

@@ -8,7 +8,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, movable, nameGone, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, hoursToSign, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -1124,8 +1124,12 @@ function headingOf({ view, record }: OrderState): Kid {
   return label ? ["Registering ", gradName(label, readSite().tld)] : "Registering the name"
 }
 
-const leadOf = ({ record }: OrderState) => record ? ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)]
-  : "The browser with its name code signed it."
+function leadOf(s: OrderState): Kid {
+  if (!s.record) return "The browser with its name code signed it."
+  const hours = hoursToSign(s)
+  return hours === null ? "Keep this page open until the name is yours."
+    : ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${hours === 1 ? "an hour" : `${hours} hours`}.`)]
+}
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
@@ -1178,7 +1182,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
     unavailable ? alertBox("warn", "alert", unavailable.status === "reserved" ? "The name was reserved meanwhile" : "Someone registered the name first",
-      `This order can't register it. Once its ${REVEAL_HOURS} hours to sign are over, choose another name for it.`) : null,
+      "This order can't register it. Once its time to sign is over, choose another name for it.") : null,
     referenceLine(s.invoice?.invoiceId ?? view.id),
     termsAskedAgain(s) ? agreement(s, "reveal") : null)
 }

@@ -7,7 +7,7 @@ import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } 
 import { type Method, methodMark } from "../icons.ts"
 import type { LinkKind } from "../names.ts"
 import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
-import { RETRY_MS, REVEAL_HOURS } from "../screens/order.ts"
+import { RETRY_MS } from "../screens/order.ts"
 import {
   awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
@@ -471,7 +471,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
-      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth))),
+      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, "After paying, keep this page open, or reopen its link later. ", eth))),
     payNote(s, blocked !== null, signal),
     agreement(s))
 }
