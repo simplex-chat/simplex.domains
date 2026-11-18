@@ -219,6 +219,7 @@ test("no reload while the service keeps answering the page's own mode", async ({
     const checked = modeChecked(page)
     await becomeVisible(page)
     await checked
+    await page.waitForTimeout(RELOAD_MS)
   }
   await page.waitForTimeout(SETTLE_MS)
   expect(seen.count).toBe(0)
