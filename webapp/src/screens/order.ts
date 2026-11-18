@@ -194,8 +194,8 @@ export const coinOf = (invoice: InvoiceView): Coin | null => invoice.cryptoCurre
 
 export const TICKER: Record<Coin, string> = { btc: "BTC", ln: "BTC", xmr: "XMR" }
 
-const INVOICE_HEAD = 14
-const INVOICE_TAIL = 8
+const INVOICE_HEAD = 8
+const INVOICE_TAIL = 6
 
 export const destinationOf = (coin: Coin, address: string): { label: string; shown: string } =>
   coin === "ln"

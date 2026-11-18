@@ -769,9 +769,9 @@ describe("a Lightning invoice", () => {
     expect(seenWords(crypto({ requiredConfirmations: 0 }), "btc").alert).toBe("Waiting for the payment to settle")
     expect(seenWords(crypto({ requiredConfirmations: undefined, cryptoCurrency: "xmr", cryptoAmount: "0.45" }), "xmr")).toMatchObject({ alert: "Waiting for 1\u00a0confirmation", text: expect.stringMatching(/^0\.45 XMR arrived\./) })
   })
-  it("is shown as its first 14 and last 8 characters under its own label, while an address is shown whole", () => {
-    const head = "lnbcrt500u1pqq"
-    const tail = "xyz12345"
+  it("is shown as its first 8 and last 6 characters under its own label, while an address is shown whole", () => {
+    const head = "lnbcrt50"
+    const tail = "xyz123"
     const bolt11 = `${head}${"q".repeat(BOLT11_MIDDLE)}${tail}`
     expect(destinationOf("ln", bolt11)).toEqual({ label: "Lightning invoice", shown: `${head}\u2026${tail}` })
     expect(destinationOf("btc", "bcrt1qaddress")).toEqual({ label: "Bitcoin address", shown: "bcrt1qaddress" })
