@@ -864,6 +864,7 @@ test("Check your code keeps its heading and main button still as a verdict comes
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
     await page.goto("/#/code")
+    await expect(page.locator("body > main .actions-row .btn")).toBeVisible()
     const at = () => page.evaluate(() => ["body > main h1", "body > main .actions-row .btn"].map((s) => Math.round(document.querySelector(s)!.getBoundingClientRect().top)))
     const before = await at()
     for (const [typed, verdict] of [["Q", ".verdict.bad"], [code, ".verdict.ok"], ["SN-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA", ".verdict.bad"], ["", ".verdict:empty"]]) {
