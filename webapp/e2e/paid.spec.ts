@@ -709,7 +709,7 @@ test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and
   await expect(wallet).toHaveAttribute("href", `monero:${address}?tx_amount=${cryptoAmount}`)
 })
 
-test("the BOLT11 of a Lightning invoice is shown as an invoice, scanned and linked as lightning:, and its settlement starts the registration", async ({ page, request }) => {
+test("the BOLT11 of a Lightning invoice is shown as an invoice, scanned and linked as lightning:, and the registration is started once it is settled", async ({ page, request }) => {
   const label = uniqueLabel("lnpay")
   const { invoiceId } = await startOrder(page, label, { method: "ln" })
   await expect(page.getByRole("heading", { name: "Pay with Lightning" })).toBeVisible()

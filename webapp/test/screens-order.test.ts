@@ -762,7 +762,7 @@ describe("a Lightning invoice", () => {
       text: `${LN_AMOUNT} BTC arrived by Lightning. Registration starts in a moment; this page moves on by itself.` })
     expect(Object.values(seen).join(" "), "the Lightning words").not.toMatch(/confirm/i)
   })
-  it("leaves a coin on chain waiting for its confirmations, one when the invoice names none", () => {
+  it("is worded apart from a coin on chain, which is shown waiting for its confirmations, one when none is given in the invoice", () => {
     expect(seenWords(crypto({ paidInFull: true }), "btc")).toEqual({ title: "Confirming your payment", alert: "Waiting for 1\u00a0confirmation",
       text: "0.00025 BTC arrived. Registration starts once it confirms; this page moves on by itself." })
     expect(seenWords(crypto({ requiredConfirmations: 3 }), "btc").alert).toBe("Waiting for 3\u00a0confirmations")
