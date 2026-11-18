@@ -225,12 +225,15 @@ export interface RegistrationView {
   // the fields left null because the service's chain read failed; reading the view again may fill them
   unread: string[]
   expiresAt: number | null
-  error: string | null
+  error: FailReason | null
   // a reveal was refused for its links, which the commitment holds: only another name or other links can register it
   linksRefused: boolean
   community: Community | null
   terms: string | null
 }
+
+export const FAIL_REASONS = ["not_signed_in_time", "not_registered"] as const
+export type FailReason = (typeof FAIL_REASONS)[number]
 
 const LATE_WAITS = ["confirming", "crediting", "support"] as const
 export type LateWait = typeof LATE_WAITS[number]
@@ -409,7 +412,7 @@ const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isI
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isAmount(v.fromBalance) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => isObject(l) && LATE_WAITS.includes(l.waiting as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.revealAfter, isAmount) && nullable(v.revealBefore, isAmount)
-  && nullable(v.intentNonce, isAmount) && nullable(v.acceptance, isAcceptance) && Array.isArray(v.unread) && v.unread.every(isText) && nullable(v.expiresAt, isAmount) && nullable(v.error, isText)
+  && nullable(v.intentNonce, isAmount) && nullable(v.acceptance, isAcceptance) && Array.isArray(v.unread) && v.unread.every(isText) && nullable(v.expiresAt, isAmount) && nullable(v.error, (e) => FAIL_REASONS.includes(e as FailReason))
   && typeof v.linksRefused === "boolean" && isCommunity(v.community) && nullable(v.terms, isSignedTerms)
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)

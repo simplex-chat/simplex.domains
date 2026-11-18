@@ -120,11 +120,11 @@ test("a failed registration is retried without paying again, and another tab fol
   await control(request, `fail/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: 60_000 })
-  // the service's own sentence, then what the buyer can do, with support's address for the reference below
-  const alert = onStep(page).locator(".notice", { hasText: "The blockchain did not take the commit" })
+  // the page's sentence for the service's reason, then what the buyer can do, with support's address for the reference below
+  const alert = onStep(page).locator(".notice", { hasText: "The name could not be registered" })
   // the lead above already says the payment is kept and that trying again charges nothing
   await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Trying again charges nothing.")
-  await expect(alert).toHaveText("The blockchain did not take the commitIf Try again still fails, write to chat@simplex.chat with its reference.")
+  await expect(alert).toHaveText("The name could not be registeredIf Try again still fails, write to chat@simplex.chat with its reference.")
   await expect(alert.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
   // the order's line centred under the heading and its lead, as it is when it is the lead
   for (const size of FIT_SIZES) {
@@ -293,7 +293,7 @@ test("Register without links that loses a race follows the order as it is now, s
 
   // the order lapsed first, failed with its links still refused, which keeps the same screen
   await page.unrouteAll({ behavior: "wait" })
-  const lapsed = { ...view, version: view.version + 1, phase: "failed", error: "The name was not signed in time" }
+  const lapsed = { ...view, version: view.version + 1, phase: "failed", error: "not_signed_in_time" }
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "registration_changed", registration: lapsed } }))
   await onStep(page).getByRole("button", { name: "Register without links" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Paid, not registered" })).toBeVisible()

@@ -1,4 +1,4 @@
-import { type Balance, type Community, type Found, holdsPayment, type InvoiceView, paidLate, type RegistrationView, signedHash, type Terms } from "../api.ts"
+import { type Balance, type Community, type FailReason, type Found, holdsPayment, type InvoiceView, paidLate, type RegistrationView, signedHash, type Terms } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -185,7 +185,12 @@ export const failedLead = ({ view, invoice, codeRefused, codeKept, record }: Ord
 
 const NOT_REGISTERED_YET = "The name could not be registered yet"
 
-export const failedAlert = ({ view, codeRefused }: OrderState) => ({ title: view!.error ?? NOT_REGISTERED_YET, retry: !view!.linksRefused && !codeRefused })
+const FAILED_TITLES: Record<FailReason, string> = {
+  not_signed_in_time: "The name was not signed in time",
+  not_registered: "The name could not be registered",
+}
+
+export const failedAlert = ({ view, codeRefused }: OrderState) => ({ title: view!.error ? FAILED_TITLES[view!.error] : NOT_REGISTERED_YET, retry: !view!.linksRefused && !codeRefused })
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase === b.phase && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves
 

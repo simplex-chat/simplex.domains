@@ -5,7 +5,7 @@ import {
   encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
-import { communityAgreed, type Preview, termsLink } from "../../src/api.ts"
+import { communityAgreed, type FailReason, type Preview, termsLink } from "../../src/api.ts"
 import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
@@ -54,10 +54,6 @@ const EXPIRY_READS = 3
 const EXPIRY_READ_MS = 1000
 const RESEND_MS = wholeEnv("MOCK_RESEND_MS", 5000)
 const RESENDS = wholeEnv("MOCK_RESENDS", 12)
-// what an order shows for a chain that failed it; the provider's own error carries its URL, which can hold an API key
-const CHAIN_FAILED = "The blockchain did not answer"
-// a contract's revert name is no message for a buyer
-const REFUSED = "The blockchain refused the transaction"
 const SEALED_MAX = 11095
 // the terms an order signs: the hash of the terms of the name's kind, after COMMUNITY_TERMS for a community name, or the
 // version an older page signed, with /community/ and the community terms' hash after it for a community name
@@ -104,7 +100,7 @@ interface Registration {
   revealAfter: number | null
   revealBefore: number | null
   expiresAt: number | null
-  error: string | null
+  error: FailReason | null
   createdAt: string
   failNext: boolean
   // successful moves to another name or other links, at most MAX_ORDER_MOVES
@@ -869,7 +865,7 @@ async function advance(reg: Registration): Promise<void> {
     if (e instanceof NotSent && reg.resends < RESENDS) {
       reg.resends += 1
       setTimeout(() => void advance(reg), RESEND_MS)
-    } else fail(reg, e instanceof Reverted ? REFUSED : CHAIN_FAILED)
+    } else fail(reg, "not_registered")
   } finally {
     busy.delete(reg.id)
   }
@@ -877,10 +873,10 @@ async function advance(reg: Registration): Promise<void> {
 
 // A commitment not revealed before revealBefore can no longer register: the order fails, for Try again to commit afresh.
 function lapse(reg: Registration): void {
-  if (reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore) fail(reg, "The name was not signed in time")
+  if (reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore) fail(reg, "not_signed_in_time")
 }
 
-function fail(reg: Registration, error: string): void {
+function fail(reg: Registration, error: FailReason): void {
   // a failed registration keeps its prepaid code reserved for Try again
   reg.phase = "failed"
   reg.error = error
@@ -892,7 +888,7 @@ async function commit(reg: Registration): Promise<void> {
   changed(reg)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "The blockchain did not take the commit")
+    return fail(reg, "not_registered")
   }
   for (;;) {
     try {
@@ -940,7 +936,7 @@ async function register(reg: Registration): Promise<void> {
   await taking.get(reg.label!)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "The register transaction did not go through")
+    return fail(reg, "not_registered")
   }
   const { nonce, deadline, signature } = reg.intent!
   const { acceptance } = reg
@@ -965,7 +961,7 @@ async function register(reg: Registration): Promise<void> {
   } catch (e) {
     if (e instanceof NotSent) throw e
     // a register with no answer may still be mined, so the order waits for the chain; a relay with no answer fails the order
-    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, CHAIN_FAILED)
+    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, "not_registered")
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
     // another registration by the same owner spent this nonce first, or the terms changed: the owner signs again
     if (SIGN_AGAIN.includes(e.revert ?? "")) {
@@ -976,17 +972,16 @@ async function register(reg: Registration): Promise<void> {
     const available = await read<boolean>(controller, "available", [reg.label])
     if (!available) {
       reg.phase = "taken"
-      reg.error = "Another registration took the name first"
       // a paid order keeps what it is worth as its balance; a code carries no money
       if (reg.prepaidCode) releaseCode(reg)
       else credit(reg.id, reg.paid)
       return changed(reg)
     }
-    return fail(reg, REFUSED)
+    return fail(reg, "not_registered")
   }
   // the transaction went through; the owner is checked as the chain answers it, and a read that fails leaves it at that
   const holder = await ownerOf(reg.labelHash).catch(() => reg.owner)
-  if (holder !== reg.owner) return fail(reg, "Registered to another address")
+  if (holder !== reg.owner) return fail(reg, "not_registered")
   await registered(reg)
 }
 
@@ -996,7 +991,7 @@ async function awaitRegistration(reg: Registration): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, PENDING_CHECK_MS))
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
   }
-  fail(reg, "The register transaction got no answer from the blockchain")
+  fail(reg, "not_registered")
 }
 
 // a few tries, as one failed read is the provider's moment, not the registration's

@@ -505,7 +505,7 @@ test.describe(() => {
     await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } },
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: "failed", commitTx: "0x02", error: "The registration transaction reverted on chain" }), "Paid, not registered")
+    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: "failed", commitTx: "0x02", error: "not_registered" }), "Paid, not registered")
     await page.route("**/api/registration/reg-fitall/retry", (route) => route.fulfill({ status: 500, json: { error: "internal" } }))
     await onStep(page).getByRole("button", { name: "Try again" }).click()
     await expect(onStep(page).getByText("That did not go through")).toBeVisible()

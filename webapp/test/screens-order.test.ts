@@ -70,7 +70,7 @@ const STATES: Record<OrderKind, OrderState> = {
   "links-refused": read(null, registration(committed), { record: record({ linksRefused: true }) }),
   registered: read(null, registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
-  failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", error: "The registration ran out of gas" })),
+  failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", error: "not_registered" })),
   "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
   "status:closed": read(crypto({ status: "expired" })),
   "status:card-unconfirmed": read(card(), undefined, { record: record({ method: "card" }), cardFailed: true }),
@@ -488,10 +488,11 @@ describe("failedLead", () => {
 
 describe("failedAlert", () => {
   const failed = (change: Partial<RegistrationView> = {}, state: Partial<OrderState> = {}) => read(null, registration({ phase: "failed", ...change }), state)
-  it("names what happened in the service's own sentence for the buyer", () => {
-    expect(failedAlert(failed({ error: "The name was not signed in time" })).title).toBe("The name was not signed in time")
+  it("words the service's reason for the buyer", () => {
+    expect(failedAlert(failed({ error: "not_signed_in_time" })).title).toBe("The name was not signed in time")
+    expect(failedAlert(failed({ error: "not_registered" })).title).toBe("The name could not be registered")
   })
-  it("says the name is not registered yet when the service gave no sentence", () => {
+  it("says the name is not registered yet when the service gave no reason", () => {
     expect(failedAlert(failed()).title).toBe("The name could not be registered yet")
   })
   it("offers Try again unless the order's links or its code were refused, which trying again cannot fix", () => {
