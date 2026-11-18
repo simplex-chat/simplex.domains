@@ -260,7 +260,7 @@ export async function codeOrderOf(text: string): Promise<CodeOrder | "none" | "o
 export const addOrder = async ({ code, order }: CodeOrder) => (await reopen(walletOf(code)!, code, order)).record
 
 // one paid into a registration is the order; otherwise the newest
-const chooseOrder = (found: Found[]) => found.find((r) => r.phase !== "unpaid") ?? found[0]
+const chooseOrder = (found: Found[]) => found.find((r) => r.phase !== "unpaid" && r.phase !== "closed") ?? found[0]
 
 // The owner code alone finds its orders and reopens the newest, checking that the code really owns it; null when find
 // lists no order.
@@ -277,7 +277,7 @@ export async function restore(text: string): Promise<RestoreResult | null> {
 export async function ownOrderFor(ownerCode: string, nameHash: string): Promise<store.OrderRecord | null> {
   const wallet = walletOf(ownerCode)!
   const found = (await findOrders(wallet)).filter((r) => r.labelHash === nameHash)
-  const chosen = found.find((r) => !["unpaid", "taken"].includes(r.phase)) ?? found.find((r) => r.phase === "unpaid")
+  const chosen = found.find((r) => !["unpaid", "closed", "taken"].includes(r.phase)) ?? found.find((r) => r.phase === "unpaid")
   return chosen ? (await reopen(wallet, ownerCode, chosen)).record : null
 }
 

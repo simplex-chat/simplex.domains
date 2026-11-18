@@ -227,6 +227,19 @@ describe("restore", () => {
     expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(SIGNED)
   })
 
+  it("restores the newest order when none is paid, a closed one counting as unpaid", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const found = (registrationId: string, phase: string) =>
+      ({ registrationId, invoiceId: `inv-${registrationId}`, phase, createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed, balanceSource: null, heldBy: null })
+    answers["POST /api/registration/find"] = { registrations: [found("reg2", "unpaid"), found("reg1", "closed")] }
+    answers["GET /api/invoice/inv-reg2"] = {
+      invoiceId: "inv-reg2", status: "open", amount: 20000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name", cryptoCurrency: "btc",
+      registration: view(built.request, { id: "reg2" }),
+    }
+    expect((await flow.restore(OWNER_CODE))!.record.registrationId).toBe("reg2")
+  })
+
   it("restores nothing for a code find lists no order of", async () => {
     const { flow, store } = await modules()
     answers["POST /api/registration/find"] = { registrations: [] }

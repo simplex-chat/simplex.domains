@@ -109,6 +109,11 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect(await api.findRegistrations("0x1", 0, "0x")).toEqual({ registrations: [] })
   })
 
+  it("reads an owner's orders newest first, each with its phase", async () => {
+    answering("find-orders")
+    expect((await api.findRegistrations("0x1", 0, "0x")).registrations.map((r) => [r.registrationId, r.phase])).toEqual([["listed2", "queued"], ["listed1", "failed"]])
+  })
+
   const edits = { labelHash: HASH, edits: [] }
 
   it("reads an applied link edit's transaction", async () => {

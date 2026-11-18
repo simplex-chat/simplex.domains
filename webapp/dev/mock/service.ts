@@ -463,8 +463,10 @@ async function toSignOf(reg: Registration): Promise<Record<string, unknown>> {
   }
 }
 
+const closedOf = (reg: Registration) => reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!.closedBy
+
 async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
-  const closedBy = reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!.closedBy
+  const closedBy = closedOf(reg)
   switch (reg.phase) {
     case "unpaid": return closedBy ? { type: "closed", closedBy } : { type: "unpaid" }
     case "committed": return { type: "committed", revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
@@ -1304,7 +1306,7 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
   const all = [...registrations.values()].filter((r) => r.owner === address).reverse()
   // a balance never expires, so an older order holding one is listed after the newest
   const found = [...all.slice(0, FOUND_MAX), ...all.slice(FOUND_MAX).filter((r) => (balances.get(r.id)?.amount ?? 0) > 0)]
-  return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed,
+  return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase === "unpaid" && closedOf(r) ? "closed" : r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed,
     balanceSource: r.balanceSource, heldBy: heldBy(r.id) })) }
 }
 
