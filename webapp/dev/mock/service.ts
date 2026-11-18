@@ -700,19 +700,23 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   return invoiceView(openInvoice(reg, method, price))
 }
 
-function addressOf(method: Coin, invoiceId: string, cryptoAmount: string): string {
-  return method === "ln" ? lightningInvoice(invoiceId, cryptoAmount, nowSeconds(), INVOICE_MINUTES * 60) : addressFor(method, invoiceId)
+function coinPayment(method: Coin, invoiceId: string, amount: number): Pick<Invoice, "cryptoAmount" | "address" | "clientSecret"> {
+  const cryptoAmount = (amount / 100 / RATES[method]).toFixed(AMOUNT_DECIMALS[method])
+  const address = method === "ln" ? lightningInvoice(invoiceId, cryptoAmount, nowSeconds(), INVOICE_MINUTES * 60) : addressFor(method, invoiceId)
+  return { cryptoAmount, address, clientSecret: null }
 }
 
 function openInvoice(reg: Registration, method: Method, amount: number): Invoice {
   const invoiceId = id()
-  const cryptoAmount = method === "card" ? null : (amount / 100 / RATES[method]).toFixed(AMOUNT_DECIMALS[method])
+  const payment = method === "card"
+    ? { cryptoAmount: null, address: null, clientSecret: `pi_mock_secret_${randomBytes(12).toString("hex")}` }
+    : coinPayment(method, invoiceId, amount)
   const inv: Invoice = {
     id: invoiceId, registrationId: reg.id, method, status: "open", amount,
     expiresAt: iso(nowSeconds() + INVOICE_MINUTES * 60),
-    cryptoAmount, address: method === "card" ? null : addressOf(method, invoiceId, cryptoAmount!),
+    ...payment,
     amountPaid: null, cryptoAmountPaid: null, cryptoAmountDue: null, paidInFull: null, confirmed: false, settledAt: null,
-    clientSecret: method === "card" ? `pi_mock_secret_${randomBytes(12).toString("hex")}` : null, lateUnits: 0n, lateCents: 0, lateWait: null,
+    lateUnits: 0n, lateCents: 0, lateWait: null,
   }
   reg.invoiceId = inv.id
   invoices.set(inv.id, inv)

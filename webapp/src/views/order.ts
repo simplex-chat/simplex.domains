@@ -606,7 +606,7 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
 function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const coin = coinOf(inv)!
-  const partial = partlyPaid(inv)
+  const partial = Number(inv.cryptoAmountPaid ?? "0") > 0
   const due = partial ? inv.cryptoAmountDue! : inv.cryptoAmount!
   const uri = paymentUri(coin, inv.address!, due)
   holdEnds(signal)(s.hold !== null)
