@@ -268,7 +268,7 @@ describe("service errors", () => {
 
   const REGISTRATION = {
     id: "r1", version: 4, moves: 0, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
-    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: false, latePayment: null,
+    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: null, latePayment: null,
     community: null, terms: { communityName: false, termsHash: TERMS.hash }, replacedBy: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }

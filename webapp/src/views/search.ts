@@ -141,7 +141,7 @@ async function readOrder(record: store.OrderRecord): Promise<{ view: api.Registr
   const view = await (record.invoiceId ? api.readInvoice(record.invoiceId).then((i) => i.registration) : api.readRegistration(record.registrationId)).catch(() => null)
   if (!view) return null
   const synced = await flow.syncRecord(record, view) ?? record
-  return { view, synced: { ...synced, paid: view.price, linksRefused: view.linksRefused || synced.linksRefused } }
+  return { view, synced: { ...synced, paid: view.price, linksRefused: view.linksRefused !== null || synced.linksRefused } }
 }
 
 // an order moves from a failed registration, or from links the service refused; a name taken first keeps its payment as a balance

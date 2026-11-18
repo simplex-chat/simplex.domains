@@ -236,7 +236,7 @@ export function costOf(view: RegistrationView, invoice: InvoiceView | null): { c
 
 // The service refused the order's links at its reveal, as the view says or as this browser saw: trying again would commit
 // the same links, so only another name or other links can register it.
-export const linksRefused = ({ view, record }: OrderState) => view?.linksRefused === true || record?.linksRefused === true
+export const linksRefused = ({ view, record }: OrderState) => (view?.linksRefused ?? null) !== null || record?.linksRefused === true
 
 export function screenOf(s: OrderState): OrderKind {
   if (s.gone) return "status:unknown-link"

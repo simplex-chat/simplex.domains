@@ -104,7 +104,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
       sent.push(body)
       return new Response(JSON.stringify({
         id: REGISTRATION_ID, version: 2, moves: 1, phase: { type: "queued" }, label: null, owner: OWNER, years: YEARS, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null,
-        latePayment: null, commitTx: null, registerTx: null, linksRefused: false, community: null, replacedBy: null, ...body.fields as Record<string, unknown>,
+        latePayment: null, commitTx: null, registerTx: null, linksRefused: null, community: null, replacedBy: null, ...body.fields as Record<string, unknown>,
       }), { status: 200 })
     })
     vi.resetModules()

@@ -18,7 +18,7 @@ const WARN: Note = { tone: "warn", icon: "alert", title: null, text: "The invoic
 
 const registration = (change: Short = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
-  price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: false, latePayment: null, community: null, terms: { communityName: false, termsHash: SIGNED },
+  price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: null, latePayment: null, community: null, terms: { communityName: false, termsHash: SIGNED },
 }, change)
 
 const crypto = (change: Partial<InvoiceView> = {}, reg: Short = {}): InvoiceView => ({
@@ -100,10 +100,10 @@ describe("screenOf", () => {
     ["a registered order", STATES.registered, "registered"],
     ["a name taken first", STATES.taken, "taken"],
     ["a failed registration", STATES.failed, "failed"],
-    ["a failed registration whose links the service refused, as its view says", read(null, registration({ phase: "failed", linksRefused: true })), "links-refused"],
+    ["a failed registration whose links the service refused, as its view says", read(null, registration({ phase: "failed", linksRefused: "contact" })), "links-refused"],
     ["a failed registration whose links this browser saw refused", read(null, registration({ phase: "failed" }), { record: record({ linksRefused: true }) }), "links-refused"],
-    ["a failed registration with refused links, seen without the name code", read(null, registration({ phase: "failed", linksRefused: true }), { record: null }), "failed"],
-    ["a commit whose links another browser saw refused", read(null, registration({ ...committed, linksRefused: true })), "links-refused"],
+    ["a failed registration with refused links, seen without the name code", read(null, registration({ phase: "failed", linksRefused: "contact" }), { record: null }), "failed"],
+    ["a commit whose links another browser saw refused", read(null, registration({ ...committed, linksRefused: "contact" })), "links-refused"],
     ["a commit in a browser without the name code", STATES["not-on-device"], "not-on-device"],
     ["a commit in the browser with the name code", STATES.registering, "registering"],
     ["a registration being sent, seen without the name code", read(null, registration({ phase: "registering" }), { record: null }), "registering"],
@@ -473,7 +473,7 @@ describe("failedLead", () => {
     expect(failedLead(usedUp)).toBe("Your payment is kept. Write to support.")
   })
   it("links the service refused send a browser without the code to enter it, as another commitment holds them too", () => {
-    const refused = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", linksRefused: true }), { record: null })
+    const refused = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", linksRefused: "contact" }), { record: null })
     expect(failedLead(refused)).toBe("The service refused its links. Enter its name code to register it without them, or another name.")
   })
   it("a refused code says it can no longer pay", () => {
@@ -610,7 +610,7 @@ describe("reveal helpers", () => {
     expect(revealDue({ ...waiting, record: null })).toBe(false)
     // links the service refused cannot be signed again
     expect(revealDue({ ...waiting, record: record({ linksRefused: true }) })).toBe(false)
-    expect(revealDue(read(null, registration({ ...committed, linksRefused: true }))), "refused at another browser's reveal").toBe(false)
+    expect(revealDue(read(null, registration({ ...committed, linksRefused: "contact" }))), "refused at another browser's reveal").toBe(false)
     expect(revealDue(read(null, registration({ ...committed, label: "alice" })))).toBe(false)
     expect(revealDue(read(null, registration({ ...committed, phase: "registering" })))).toBe(false)
     // the chain reads the service could not make leave nothing to sign with
@@ -748,14 +748,14 @@ describe("initialState", () => {
 })
 
 describe("sameStep", () => {
-  const refused = registration({ ...committed, linksRefused: true })
+  const refused = registration({ ...committed, linksRefused: "contact" })
   it("finds nothing changed in a view another request wrote without moving the order on", () => {
     expect(sameStep(refused, { ...refused, version: refused.version + 1 })).toBe(true)
   })
   it("finds the order moved on when its phase, its name, its refused links or its moves differ", () => {
     expect(sameStep(refused, { ...refused, phase: { type: "registered", expiresAt: NOW / 1000 } })).toBe(false)
     expect(sameStep(refused, { ...refused, label: "alice" })).toBe(false)
-    expect(sameStep(refused, { ...refused, linksRefused: false })).toBe(false)
+    expect(sameStep(refused, { ...refused, linksRefused: null })).toBe(false)
     expect(sameStep(refused, { ...refused, moves: 1 })).toBe(false)
   })
 })

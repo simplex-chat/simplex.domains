@@ -18,7 +18,7 @@ const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 
 const registration = (change: ShortView = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
-  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: false, latePayment: null,
+  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: null, latePayment: null,
   community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` },
 }, change)
 

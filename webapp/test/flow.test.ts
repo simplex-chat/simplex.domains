@@ -72,7 +72,7 @@ const draft = (label = "dynamis", terms = SIGNED) => ({ label, links: LINKS, cha
 
 const view = (request: { labelHash: string; duration: number; commitment: string; sealed: string }, extra: ShortView = {}) => viewOf({
   id: "reg1", version: 1, moves: 0, labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
-  years: 2, duration: request.duration, price: 20000, balance: null, commitTx: "0x01", registerTx: null, linksRefused: false, latePayment: null,
+  years: 2, duration: request.duration, price: 20000, balance: null, commitTx: "0x01", registerTx: null, linksRefused: null, latePayment: null,
   community: null, terms: { communityName: false, termsHash: TERMS.hash },
 }, { phase: "committed", revealAfter: 1000, revealBefore: 87400, intentNonce: 3, ...extra })
 

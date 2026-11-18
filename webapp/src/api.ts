@@ -2,7 +2,7 @@
 import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
-import { MAX_LABEL_LENGTH } from "./names.ts"
+import { type LinkKind, MAX_LABEL_LENGTH } from "./names.ts"
 
 const REFUSALS = [
   "bad_request", "invalid_name", "invalid_link", "not_found", "method_not_allowed", "internal", "rate_limited", "provider_unavailable", "terms_unavailable",
@@ -244,8 +244,8 @@ export interface RegistrationView {
   moves: number
   commitTx: string | null
   registerTx: string | null
-  // a reveal was refused for its links, which the commitment holds: only another name or other links can register it
-  linksRefused: boolean
+  // a reveal was refused for this link, which the commitment holds: only another name or other links can register it
+  linksRefused: LinkKind | null
   community: Community | null
   terms: AgreedTerms
   replacedBy: { registrationId: string; invoiceId: string | null } | null
@@ -448,7 +448,7 @@ const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) 
 const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && isPhase(v.phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
-  && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && typeof v.linksRefused === "boolean" && isCommunity(v.community) && isAgreedTerms(v.terms)
+  && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.linksRefused, (k) => LINK_KINDS.includes(k as LinkKind)) && isCommunity(v.community) && isAgreedTerms(v.terms)
   && nullable(v.replacedBy, (r) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText))
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)

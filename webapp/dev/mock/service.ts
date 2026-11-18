@@ -487,7 +487,7 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
   return {
     id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
-    linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
+    linksRefused: reg.linksRefused ? "contact" : null, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
     replacedBy: successorOf(reg),
   }
 }

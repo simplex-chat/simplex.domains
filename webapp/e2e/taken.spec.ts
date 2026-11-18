@@ -291,7 +291,7 @@ test("Register without links that loses a race follows the order as it is now, s
   await expect(onStep(page).getByRole("button", { name: "Register without links" })).not.toHaveAttribute("aria-busy", "true")
 
   await page.unrouteAll({ behavior: "wait" })
-  const moved = { ...view, version: view.version + 1, moves: 1, phase: { type: "queued" }, linksRefused: false, label: null, commitTx: null }
+  const moved = { ...view, version: view.version + 1, moves: 1, phase: { type: "queued" }, linksRefused: null, label: null, commitTx: null }
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "registration_changed", registration: moved } }))
   await onStep(page).getByRole("button", { name: "Register without links" }).click()
   await expect(onStep(page).getByRole("heading", { name: `Registering ${label}.simplex` })).toBeVisible()
