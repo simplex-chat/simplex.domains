@@ -549,6 +549,11 @@ async function spendBody(src: Paying, request: api.SignedOrder, money: Json, tim
   return { signed: api.signedFields({ ...request, timestamp, signature: hex(signDigest(flow.walletOf(ownerCode)!.privateKey, personalDigest(message))) }), ...money }
 }
 
+const withSignedFields = (body: Json, change: Json): Json => {
+  const signed = body.signed as Json
+  return { ...body, signed: { ...signed, fields: { ...(signed.fields as Json), ...change } } }
+}
+
 const spendCall = (id: string, body: Json) => call("POST", `/api/registration/${id}/spend`, body)
 const balanceOf = async (id: string) => (await viewOf(id)).balance
 const free = (amount: number, refunded = 0) => ({ amount, held: false, heldUntil: null, refunded })
@@ -621,9 +626,9 @@ test("a spend refuses in the contract's order: formats, the paying order, its ow
     ["no method for a difference", src.id, signed({ price: PRICE.seven, balance: PRICE.long }), 400, { error: "bad_request" }],
     ["a price of 0", src.id, signed({ price: 0, balance: PRICE.long }), 400, { error: "bad_request" }],
     ["a balance as text", src.id, signed({ ...difference, balance: String(PRICE.long) }), 400, { error: "bad_request" }],
-    ["no sealed", src.id, signed(difference).then((b) => ({ ...b, sealed: undefined })), 400, { error: "bad_request" }],
-    ["a sealed over 11095 characters", src.id, signed(difference).then((b) => ({ ...b, sealed: "a".repeat(11096) })), 400, { error: "bad_request" }],
-    ["a name of 5 letters", src.id, signed(difference).then((b) => ({ ...b, length: 5 })), 400, { error: "invalid_name" }],
+    ["no sealed", src.id, signed(difference).then((b) => withSignedFields(b, { sealed: undefined })), 400, { error: "bad_request" }],
+    ["a sealed over 11095 characters", src.id, signed(difference).then((b) => withSignedFields(b, { sealed: "a".repeat(11096) })), 400, { error: "bad_request" }],
+    ["a name of 5 letters", src.id, signed(difference).then((b) => withSignedFields(b, { length: 5 })), 400, { error: "invalid_name" }],
     ["an unknown order", "nope", signed(difference), 404, { error: "not_found" }],
     ["another key's signature", src.id, spendBody(src, order, difference, order.timestamp, flow.newOwnerCode()), 400, { error: "bad_request" }],
     ["a live order of the code for the name", src.id, signed(difference, await orderOf(src, ordered)), 409, { error: "order_exists" }],
@@ -1013,9 +1018,11 @@ test("an order signs the terms of its name's kind: the other kind or other terms
   expect([claimed.status, claimed.json]).toEqual([409, termsChanged(TERMS, null)])
   const draft = await draftOf(label)
   const { request: signed } = await flow.orderRequest(draft)
-  for (const terms of [undefined, "", "2026 10 23", "t".repeat(75), 5]) {
-    const res = await call("POST", "/api/invoice", invoiceBody({ ...signed, terms } as never, "btc", q.price))
-    expect([res.status, res.json], String(terms)).toEqual([400, { error: "bad_request" }])
+  const body = invoiceBody(signed, "btc", q.price)
+  const { termsHash } = body.order.fields.terms
+  for (const terms of [undefined, "", 5, { termsHash }, { communityName: "no", termsHash }, { communityName: false, termsHash: "2026 10 23" }, { communityName: false, termsHash: `0x${"t".repeat(64)}` }]) {
+    const res = await call("POST", "/api/invoice", { ...body, order: { ...body.order, fields: { ...body.order.fields, terms } } })
+    expect([res.status, res.json], JSON.stringify(terms)).toEqual([400, { error: "bad_request" }])
   }
   await withTerms(request, "general-terms", `the general terms, changed for ${label}`, async (terms) => {
     // a stale timestamp is checked before the terms
