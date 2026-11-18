@@ -447,14 +447,14 @@ test("a relayed link edit that reverts on chain still counts toward the name's y
   expect(after.edits.left, "the reverted relay is counted").toBe(before.edits.left - 1)
 })
 
-test("a records request of no edit, three, one key twice, a clear beside a set, or nonces not consecutive is bad_request", async () => {
+test("a records request of no edit, three, one key twice, a clear, or nonces not consecutive is bad_request", async () => {
   const signature = `0x${"11".repeat(64)}1b`
   const deadline = Math.floor(Date.now() / 1000) + 3600
   // a link that is not one, which would be invalid_link had the edits' formats passed
   const set = (key: string, nonce: number) => ({ key, value: "https://x/a", nonce, deadline, signature })
   const labelHash = `0x${"ab".repeat(32)}`
   for (const edits of [[], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 2), set(CONTACT_KEY, 3)], [set(CHANNEL_KEY, 1), set(CHANNEL_KEY, 2)],
-    [{ clear: true, nonce: 1, deadline, signature }, set(CONTACT_KEY, 2)], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 3)], [set(CONTACT_KEY, 2), set(CHANNEL_KEY, 1)]]) {
+    [{ clear: true, nonce: 1, deadline, signature }], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 3)], [set(CONTACT_KEY, 2), set(CHANNEL_KEY, 1)]]) {
     expect(await call("POST", "/api/name/records", { labelHash, edits }), JSON.stringify(edits)).toEqual({ status: 400, json: { type: "bad_request" } })
   }
 })

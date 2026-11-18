@@ -7,7 +7,7 @@ import { mnemonicToAccount } from "viem/accounts"
 import { describe, expect, it } from "vitest"
 import { codeHash, codeProgress, formatOwnerCode, mayBeOwnerCode, parseNameCode } from "../src/crypto/code.ts"
 import {
-  acceptTermsDigest, clearRecordsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
+  acceptTermsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
   registerIntentDigest, setTextDigest, type Registration,
 } from "../src/crypto/registration.ts"
 import { seal, unseal } from "../src/crypto/seal.ts"
@@ -168,18 +168,13 @@ describe("registration", () => {
     expect(await recoverTypedDataAddress({ ...typed, signature })).toBe(OWNER_ADDRESS)
   })
 
-  it("signs SetText and ClearRecords as viem's typed data", () => {
+  it("signs SetText as viem's typed data", () => {
     const node = viemNamehash("dynamis.simplex")
     const domain = { name: "SimplexResolver", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(RESOLVER) }
     expect(hex(setTextDigest(CHAIN_ID, RESOLVER, fromHex(node), "simplex.contact", "https://x", 3n, 99n))).toBe(hashTypedData({
       domain, primaryType: "SetText",
       types: { SetText: [{ name: "node", type: "bytes32" }, { name: "key", type: "string" }, { name: "value", type: "string" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
       message: { node, key: "simplex.contact", value: "https://x", nonce: 3n, deadline: 99n },
-    }))
-    expect(hex(clearRecordsDigest(CHAIN_ID, RESOLVER, fromHex(node), 4n, 99n))).toBe(hashTypedData({
-      domain, primaryType: "ClearRecords",
-      types: { ClearRecords: [{ name: "node", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
-      message: { node, nonce: 4n, deadline: 99n },
     }))
   })
 

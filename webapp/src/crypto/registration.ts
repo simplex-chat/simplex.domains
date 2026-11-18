@@ -81,11 +81,6 @@ export function setTextDigest(chainId: bigint, resolver: Uint8Array, node: Uint8
   return typedDigest(domainSeparator("SimplexResolver", chainId, resolver), intent)
 }
 
-export function clearRecordsDigest(chainId: bigint, resolver: Uint8Array, node: Uint8Array, nonce: bigint, deadline: bigint): Uint8Array {
-  const intent = hashStruct("ClearRecords(bytes32 node,uint256 nonce,uint256 deadline)", [node, uint256(nonce), uint256(deadline)])
-  return typedDigest(domainSeparator("SimplexResolver", chainId, resolver), intent)
-}
-
 export function acceptTermsDigest(community: boolean, chainId: bigint, policy: Uint8Array, commitment: Uint8Array, termsHash: Uint8Array, nonce: bigint, deadline: bigint): Uint8Array {
   const type = community ? "AcceptCommunityTerms" : "AcceptGeneralTerms"
   const intent = hashStruct(`${type}(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)`, [commitment, termsHash, uint256(nonce), uint256(deadline)])
