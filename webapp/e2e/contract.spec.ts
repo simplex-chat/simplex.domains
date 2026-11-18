@@ -80,7 +80,8 @@ async function signedAt(ownerCode: string, request: api.SignedOrder, timestamp: 
   return { ...request, timestamp, signature: hex(signDigest(flow.walletOf(ownerCode)!.privateKey, personalDigest(message))) }
 }
 
-const invoiceBody = (request: api.SignedOrder, method: api.Method, price: number) => ({ kind: "name", ...request, method, price })
+const invoiceBody = (request: api.SignedOrder, method: api.Method, price: number) => ({ kind: "name", order: api.orderOf(request), method, price })
+const codeBody = (request: api.SignedOrder, code: unknown) => ({ order: api.orderOf(request), code })
 
 const viewOf = async (id: string, seenVersion?: number) =>
   (await call("GET", `/api/registration/${id}${seenVersion === undefined ? "" : `?seenVersion=${seenVersion}`}`)).json as unknown as api.RegistrationView
@@ -100,7 +101,7 @@ async function codeOrder(request: APIRequestContext, label: string): Promise<{ d
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   const draft = await draftOf(label)
   const built = await flow.orderRequest(draft)
-  const res = await call("POST", "/api/name/register", { ...built.request, code })
+  const res = await call("POST", "/api/name/register", codeBody(built.request, code))
   expect(res.status, JSON.stringify(res.json)).toBe(200)
   return { draft, built, id: res.json.registrationId as string, code }
 }
@@ -176,16 +177,16 @@ test("an order refuses a wrong signer, a stale timestamp, free days off the term
   const { request } = await flow.orderRequest(draft)
   const stranger = flow.newOwnerCode()
   const off = (await flow.orderRequest({ ...draft, termStart: draft.termStart + TERM_SLACK_S + 100 })).request
-  const refusals: [string, object, number, Json][] = [
+  const refusals: [string, api.SignedOrder, number, Json][] = [
     ["another key's signature", await signedAt(stranger, request, request.timestamp), 400, { error: "bad_request" }],
     ["a timestamp past the window", await signedAt(draft.ownerCode, request, request.timestamp - SIGNED_WINDOW_S - 100), 400, { error: "bad_request" }],
     ["free days more than an hour off", off, 400, { error: "bad_request" }],
-    ["no sealed", { ...request, sealed: undefined }, 400, { error: "bad_request" }],
+    ["no sealed", { ...request, sealed: undefined as unknown as string }, 400, { error: "bad_request" }],
     ["a sealed over 11095 characters", { ...request, sealed: "a".repeat(11096) }, 400, { error: "bad_request" }],
     ["a name of 5 letters", { ...request, length: 5 }, 400, { error: "invalid_name" }],
   ]
   for (const [what, body, status, answer] of refusals) {
-    const res = await call("POST", "/api/invoice", { kind: "name", ...body, method: "btc", price: q.price })
+    const res = await call("POST", "/api/invoice", invoiceBody(body, "btc", q.price))
     expect([res.status, res.json], what).toEqual([status, answer])
   }
   const cheap = await call("POST", "/api/invoice", invoiceBody(request, "btc", q.price - 1))
@@ -235,7 +236,7 @@ test("an order past its invoice's expiry is closed by the next order of its wall
   await control(request, `overdue/${funded.json.invoiceId}`)
   expect(await order("btc"), "a paid order meeting the funded one").toEqual({ status: 409, json: { error: "order_exists" } })
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
-  const coded = await call("POST", "/api/name/register", { ...(await flow.orderRequest(draft)).request, code })
+  const coded = await call("POST", "/api/name/register", codeBody((await flow.orderRequest(draft)).request, code))
   expect(coded, "a code order meeting the funded one").toEqual({ status: 409, json: { error: "order_exists" } })
   const read = await call("GET", `/api/invoice/${funded.json.invoiceId}`)
   expect([read.json.status, read.json.cryptoAmountPaid], "a funded invoice past its expiry reads open").toEqual(["open", (Number(funded.json.cryptoAmount) / 2).toFixed(5)])
@@ -250,7 +251,7 @@ test("a code order closes an overdue invoice of its wallet and name with nothing
   const paid = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(draft)).request, "btc", (await quote(label)).price))
   await control(request, `overdue/${paid.json.invoiceId}`)
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
-  const coded = await call("POST", "/api/name/register", { ...(await flow.orderRequest(draft)).request, code })
+  const coded = await call("POST", "/api/name/register", codeBody((await flow.orderRequest(draft)).request, code))
   expect(coded.status, JSON.stringify(coded.json)).toBe(200)
   expect(await heldStatus(paid.json.invoiceId as string)).toBe("expired")
 })
@@ -287,7 +288,7 @@ test("a code order without a text code is bad_request, even for a name too short
   const { request } = await flow.orderRequest(await draftOf(uniqueLabel("ck")))
   for (const code of [undefined, null, 6, ["SN7-BJTBP-29596-R3HJ8-25YM7"]]) {
     for (const length of [request.length, 5]) {
-      const res = await call("POST", "/api/name/register", { ...request, length, code })
+      const res = await call("POST", "/api/name/register", codeBody({ ...request, length }, code))
       expect(res, `code ${JSON.stringify(code)}, length ${length}`).toEqual({ status: 400, json: { error: "bad_request" } })
     }
   }
@@ -296,7 +297,7 @@ test("a code order without a text code is bad_request, even for a name too short
 test("a code order whose text is no issued code is code_invalid", async () => {
   const { request } = await flow.orderRequest(await draftOf(uniqueLabel("ci")))
   for (const code of ["SN7-BJTBP-29596-R3HJ8-25YM7", "SN-8M7X0-8Z533-AG8DP-RBN5T-BPQ6D-YH09G", "nonsense", ""]) {
-    expect(await call("POST", "/api/name/register", { ...request, code }), code).toEqual({ status: 400, json: { error: "code_invalid" } })
+    expect(await call("POST", "/api/name/register", codeBody(request, code)), code).toEqual({ status: 400, json: { error: "code_invalid" } })
   }
 })
 
@@ -392,8 +393,8 @@ async function nameBody(record: store.OrderRecord, view: api.RegistrationView, t
   const sealedHash = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(view.sealed))))
   const length = record.label.length
   const message = `simplex.domains name ${view.id} ${view.labelHash} ${length} ${view.duration} ${view.commitment} ${sealedHash} ${terms} ${timestamp}`
-  return { labelHash: view.labelHash, length, duration: view.duration, commitment: view.commitment, sealed: view.sealed, terms, timestamp,
-    signature: hex(signDigest(flow.walletOf(record.ownerCode)!.privateKey, personalDigest(message))) }
+  return api.signedFields({ labelHash: view.labelHash, length, duration: view.duration, commitment: view.commitment, sealed: view.sealed, terms, timestamp,
+    signature: hex(signDigest(flow.walletOf(record.ownerCode)!.privateKey, personalDigest(message))) }) as unknown as Json
 }
 
 // a name registered from a code order, without links, with what made it
@@ -545,10 +546,7 @@ const orderOf = async (src: Paying, label: string, change: Partial<flow.Draft> =
 
 async function spendBody(src: Paying, request: api.SignedOrder, money: Json, timestamp = request.timestamp, ownerCode = src.draft.ownerCode): Promise<Json> {
   const message = `simplex.domains spend ${src.id} ${request.labelHash} ${request.length} ${request.duration} ${request.commitment} ${await sha256Of(request.sealed)} ${request.terms} ${timestamp}`
-  return {
-    labelHash: request.labelHash, length: request.length, duration: request.duration, commitment: request.commitment, sealed: request.sealed, ...money, terms: request.terms, timestamp,
-    signature: hex(signDigest(flow.walletOf(ownerCode)!.privateKey, personalDigest(message))),
-  }
+  return { signed: api.signedFields({ ...request, timestamp, signature: hex(signDigest(flow.walletOf(ownerCode)!.privateKey, personalDigest(message))) }), ...money }
 }
 
 const spendCall = (id: string, body: Json) => call("POST", `/api/registration/${id}/spend`, body)
@@ -1049,7 +1047,7 @@ test("an exact resend is answered after the terms changed, and two orders differ
 test("a code order meets changed terms before the code's state, and a spend before its balance", async ({ request }) => {
   const label = uniqueLabel("td")
   const { code } = await control(request, "code", { minLength: 6, state: "used" }) as { code: string }
-  const coded = await call("POST", "/api/name/register", { ...(await flow.orderRequest({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, code })
+  const coded = await call("POST", "/api/name/register", codeBody((await flow.orderRequest({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, code))
   expect([coded.status, coded.json]).toEqual([409, termsChanged(TERMS, null)])
   const src = await lateBalance(request)
   const spent = await spendCall(src.id, await spendBody(src, await orderOf(src, shortLabel(7), { terms: COMMUNITY_TERMS }), { price: PRICE.seven, balance: PRICE.long - 1, method: "btc" }))

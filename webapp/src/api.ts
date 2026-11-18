@@ -284,11 +284,11 @@ interface OrderFields { labelHash: string; length: number; duration: number; com
 interface SignedFields { fields: OrderFields; timestamp: number; signature: string }
 
 const agreedTerms = (terms: string): AgreedTerms => ({ communityName: terms.startsWith(COMMUNITY_TERMS), termsHash: signedHash(terms)! })
-const signedFields = (o: Omit<SignedOrder, "owner">): SignedFields => ({
+export const signedFields = (o: Omit<SignedOrder, "owner">): SignedFields => ({
   fields: { labelHash: o.labelHash, length: o.length, duration: o.duration, commitment: o.commitment, sealed: o.sealed, terms: agreedTerms(o.terms) },
   timestamp: o.timestamp, signature: o.signature,
 })
-const orderOf = (o: SignedOrder): SignedFields & { owner: string } => ({ owner: o.owner, ...signedFields(o) })
+export const orderOf = (o: SignedOrder): SignedFields & { owner: string } => ({ owner: o.owner, ...signedFields(o) })
 
 // A request is given up after this long, so a hung one never blocks the page for good. Long polls hold as long as
 // the service decides; a link edit answers once it is mined, which a fee bump can stretch to minutes.

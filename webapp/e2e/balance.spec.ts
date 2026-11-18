@@ -401,7 +401,7 @@ test("Try again after a spend whose answer was lost sends the same body, and the
   expect(bodies).toHaveLength(2)
   expect(bodies[1], "the kept body, sent again as it was").toBe(bodies[0])
   const { registrations } = await (await request.get(`${MOCK}/control/state`)).json() as { registrations: { labelHash: string }[] }
-  expect(registrations.filter((r) => r.labelHash === JSON.parse(bodies[0]).labelHash), "one order for the name").toHaveLength(1)
+  expect(registrations.filter((r) => r.labelHash === JSON.parse(bodies[0]).signed.fields.labelHash), "one order for the name").toHaveLength(1)
 })
 
 test("a difference order whose balance has grown to cover the price offers to register with it, which registers the name with nothing to pay", async ({ page, request }) => {
