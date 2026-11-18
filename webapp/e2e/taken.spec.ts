@@ -181,7 +181,7 @@ test("a chain that sends nothing for longer than its resends fails the order in 
     await control(request, "search", { unsentSeconds: 120 })
     await control(request, `settle/${invoiceId}`)
     await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: 120_000 })
-    await expect(page.getByText("The blockchain did not answer")).toBeVisible()
+    await expect(page.getByText("The name could not be registered", { exact: true })).toBeVisible()
   } finally {
     await control(request, "search", { unsentSeconds: 0 })
   }
