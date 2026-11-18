@@ -204,7 +204,7 @@ export async function syncRecord(record: store.OrderRecord, view: api.Registrati
     return synced
   }
   try {
-    const synced = { ...record, ...await openOrder(walletOf(record.ownerCode)!, view), paid: view.price }
+    const synced = { ...record, ...await openOrder(walletOf(record.ownerCode)!, view), paid: view.price, linksRefused: undefined }
     store.saveOrder(synced)
     return synced
   } catch {
