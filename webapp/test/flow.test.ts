@@ -165,13 +165,14 @@ describe("retargetOrder", () => {
     store.saveOrder(record)
     answers["POST /api/registration/reg1/name"] = view(built.request)
     await flow.retargetOrder(record, "another", LINKS, QUOTE, COMMUNITY_SIGNED)
-    const body = calls[0].body as { labelHash: string; length: number; duration: number; commitment: string; sealed: string; terms: string; timestamp: number; signature: Hex }
-    expect(body.labelHash).toBe(hex(labelHash("another")))
-    expect(body.terms).toBe(COMMUNITY_SIGNED)
-    const sealedHash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body.sealed))).toString("hex")
-    const message = `simplex.domains name reg1 ${body.labelHash} 7 ${body.duration} ${body.commitment} 0x${sealedHash} ${COMMUNITY_SIGNED} ${body.timestamp}`
+    const body = calls[0].body as { fields: { labelHash: string; length: number; duration: number; commitment: string; sealed: string; terms: unknown }; timestamp: number; signature: Hex }
+    const { fields } = body
+    expect(fields.labelHash).toBe(hex(labelHash("another")))
+    expect(fields.terms).toEqual({ communityName: true, termsHash: `0x${"c7".repeat(32)}` })
+    const sealedHash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fields.sealed))).toString("hex")
+    const message = `simplex.domains name reg1 ${fields.labelHash} 7 ${fields.duration} ${fields.commitment} 0x${sealedHash} ${COMMUNITY_SIGNED} ${body.timestamp}`
     expect(await recoverMessageAddress({ message, signature: body.signature })).toBe(OWNER)
-    expect(store.orderByRegistration("reg1")).toMatchObject({ label: "another", owner: OWNER, request: { labelHash: body.labelHash }, terms: COMMUNITY_SIGNED })
+    expect(store.orderByRegistration("reg1")).toMatchObject({ label: "another", owner: OWNER, request: { labelHash: fields.labelHash }, terms: COMMUNITY_SIGNED })
   })
 
   it("moves an order for its own years, kept with its record, or a community name for the community's", async () => {
@@ -183,12 +184,12 @@ describe("retargetOrder", () => {
     answers["POST /api/registration/reg1/name"] = view(built.request)
     const community = { ...QUOTE, community: { years: 2 } }
     await flow.retargetOrder(record, "another", LINKS, community, COMMUNITY_SIGNED)
-    expect(Math.floor((calls[0].body as { duration: number }).duration / YEAR_S)).toBe(2)
+    expect(Math.floor((calls[0].body as { fields: { duration: number } }).fields.duration / YEAR_S)).toBe(2)
     expect(store.orderByRegistration("reg1")?.years).toBe(5)
     const paid = { ...flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg2", invoiceId: "inv2" }), years: 3 }
     answers["POST /api/registration/reg2/name"] = view(built.request)
     await flow.retargetOrder(paid, "another", LINKS, QUOTE, SIGNED)
-    expect(Math.floor((calls[1].body as { duration: number }).duration / YEAR_S)).toBe(3)
+    expect(Math.floor((calls[1].body as { fields: { duration: number } }).fields.duration / YEAR_S)).toBe(3)
   })
 
   it("drafts a new invoice for the answer's years, or a community name's own", async () => {
@@ -318,8 +319,11 @@ describe("spendBalance", () => {
     await flow.spendBalance(record, "another", NO_LINKS, quote(10000), 20000, "btc", SPEND.terms)
     const message = `simplex.domains spend ${SPEND.registrationId} ${SPEND.labelHash} 7 ${SPEND.duration} ${SPEND.commitment} ${SPEND.sealedHash} ${SPEND.terms} ${SPEND.timestamp}`
     expect(calls[0].body).toEqual({
-      labelHash: SPEND.labelHash, length: 7, duration: SPEND.duration, commitment: SPEND.commitment, sealed: SPEND.sealed,
-      price: 10000, balance: 20000, terms: SPEND.terms, timestamp: SPEND.timestamp, signature: SPEND.signature,
+      signed: {
+        fields: { labelHash: SPEND.labelHash, length: 7, duration: SPEND.duration, commitment: SPEND.commitment, sealed: SPEND.sealed, terms: { communityName: false, termsHash: TERMS.hash } },
+        timestamp: SPEND.timestamp, signature: SPEND.signature,
+      },
+      price: 10000, balance: 20000,
     })
     expect(Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(SPEND.sealed))).toString("hex")).toBe(SPEND.sealedHash.slice(2))
     expect(hashMessage(message)).toBe(SPEND.digest)
@@ -334,7 +338,7 @@ describe("spendBalance", () => {
     expect(calls[0].body).not.toHaveProperty("method")
     expect(next).toMatchObject({ registrationId: "reg2", invoiceId: null, label: "another", ownerCode: OWNER_CODE, owner: OWNER, ...LINKS, method: "balance", paid: 10000, balanceSource: SPEND.registrationId, terms: COMMUNITY_SIGNED })
     expect(store.orderByRegistration("reg2")).toEqual(next)
-    expect(await unseal(WALLET.seed, (calls[0].body as { sealed: string }).sealed)).toEqual({ label: "another", ...LINKS })
+    expect(await unseal(WALLET.seed, (calls[0].body as { signed: { fields: { sealed: string } } }).signed.fields.sealed)).toEqual({ label: "another", ...LINKS })
   })
 
   it("sends the method for the difference, and keeps the order at its whole price with its invoice's method", async () => {
@@ -344,9 +348,9 @@ describe("spendBalance", () => {
       invoiceId: "inv2", status: "open", amount: 30000, currency: "usd", expiresAt: "2026-10-21T10:15:00Z", kind: "name", cryptoCurrency: "xmr", cryptoAmount: "1.875", address: "5x",
       registration: view(request, { id: "reg2", phase: "unpaid", price: 40000, fromBalance: 10000 }),
     })
-    answers[`POST /api/registration/${SPEND.registrationId}/spend`] = () => answer(calls[0].body as never)
+    answers[`POST /api/registration/${SPEND.registrationId}/spend`] = () => answer((calls[0].body as { signed: { fields: never } }).signed.fields)
     const next = await flow.spendBalance(record, "another", NO_LINKS, quote(40000), 10000, "xmr", SPEND.terms)
-    expect(calls[0].body).toMatchObject({ price: 40000, balance: 10000, method: "xmr" })
+    expect(calls[0].body).toMatchObject({ price: 40000, balance: 10000, method: { type: "crypto", currency: "xmr" } })
     expect(next).toMatchObject({ registrationId: "reg2", invoiceId: "inv2", method: "xmr", paid: 40000, balanceSource: SPEND.registrationId })
     expect(store.orderUrl(next)).toBe("/?order=inv2")
   })
@@ -381,7 +385,8 @@ describe("spendBalance", () => {
     await expect(flow.sendSpend(record, spend, built, 2)).rejects.toMatchObject({ code: "network" })
     expect(store.orderByRegistration("reg2"), "nothing kept for an unanswered spend").toBeUndefined()
     const next = await flow.sendSpend(record, spend, built, 2)
-    expect(calls.map((c) => c.body)).toEqual([built.spend, built.spend])
+    expect(calls[1].body).toEqual(calls[0].body)
+    expect(calls[0].body).toMatchObject({ signed: { timestamp: built.spend.timestamp, signature: built.spend.signature }, price: built.spend.price, balance: built.spend.balance })
     expect(next).toMatchObject({ registrationId: "reg2", request: built.request, method: "balance", balanceSource: SPEND.registrationId })
   })
 

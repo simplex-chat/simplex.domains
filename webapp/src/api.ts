@@ -279,6 +279,19 @@ interface OrderRequest {
 // an order as sent, signed by its owner at a time the service checks
 export type SignedOrder = OrderRequest & { timestamp: number; signature: string }
 
+interface AgreedTerms { communityName: boolean; termsHash: string }
+interface OrderFields { labelHash: string; length: number; duration: number; commitment: string; sealed: string; terms: AgreedTerms }
+interface SignedFields { fields: OrderFields; timestamp: number; signature: string }
+type PaymentMethod = { type: "card"; provider: "stripe" } | { type: "crypto"; currency: Exclude<Method, "card"> }
+
+const agreedTerms = (terms: string): AgreedTerms => ({ communityName: terms.startsWith(COMMUNITY_TERMS), termsHash: signedHash(terms)! })
+const signedFields = (o: Omit<SignedOrder, "owner">): SignedFields => ({
+  fields: { labelHash: o.labelHash, length: o.length, duration: o.duration, commitment: o.commitment, sealed: o.sealed, terms: agreedTerms(o.terms) },
+  timestamp: o.timestamp, signature: o.signature,
+})
+const orderOf = (o: SignedOrder): SignedFields & { owner: string } => ({ owner: o.owner, ...signedFields(o) })
+const paymentMethod = (m: Method): PaymentMethod => m === "card" ? { type: "card", provider: "stripe" } : { type: "crypto", currency: m }
+
 // A request is given up after this long, so a hung one never blocks the page for good. Long polls hold as long as
 // the service decides; a link edit answers once it is mined, which a fee bump can stretch to minutes.
 const REQUEST_TIMEOUT_MS = 60_000
@@ -464,9 +477,9 @@ const signingTerms = (sent: Promise<unknown>, chainId: number) => sent.catch((e:
 })
 
 export const createOrder = (order: SignedOrder, method: Method, price: number, chainId: number) =>
-  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", ...order, method, price }), chainId))
+  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", order: orderOf(order), method: paymentMethod(method), price }), chainId))
 export const registerWithCode = (order: SignedOrder, code: string, chainId: number) =>
-  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { ...order, code }), chainId), (a) => isText(a.registrationId))
+  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { order: orderOf(order), code }), chainId), (a) => isText(a.registrationId))
 export const cancelInvoice = (invoiceId: string) => checkedInvoice(call("POST", `/api/invoice/${encodeURIComponent(invoiceId)}/cancel`))
 
 // what a long poll on an invoice has seen: its status, its registration's version, and the payment marks, the paid amount
@@ -490,13 +503,15 @@ export const reveal = (registrationId: string, body: { label: string; secret: st
   acceptance: { termsHash: string; nonce: number; signature: string } }) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
 export const retarget = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>
-  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, body), chainId), isRegistration)
+  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, signedFields(body)), chainId), isRegistration)
 // another name paid from an order's balance: the balance the page read, and a method for the difference when it does not cover the price
 export type SpendRequest = Omit<SignedOrder, "owner"> & { price: number; balance: number; method?: Method }
 
 // The new order, without an invoice when the balance covered it, or with the invoice for the difference.
 export async function spend(registrationId: string, body: SpendRequest, chainId: number): Promise<{ registrationId: string } | InvoiceView> {
-  const sent = signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/spend`, body), chainId).catch((e: unknown) => {
+  const { price, balance, method } = body
+  const wire = { signed: signedFields(body), price, balance, ...method === undefined ? {} : { method: paymentMethod(method) } }
+  const sent = signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/spend`, wire), chainId).catch((e: unknown) => {
     if (!(e instanceof ApiError && e.code === "balance_changed")) throw e
     if (!nullable(e.body.balance, isBalance)) throw noAnswer()
     throw new BalanceChanged(e, e.body.balance as Balance | null)

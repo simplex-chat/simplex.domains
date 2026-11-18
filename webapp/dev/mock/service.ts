@@ -602,6 +602,33 @@ function orderFields(body: Record<string, unknown>): Omit<OrderBody, "owner"> {
   return { labelHash, length, duration: duration as number, commitment, sealed, terms }
 }
 
+const objectOf = (v: unknown): Record<string, unknown> => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw badRequest()
+  return v as Record<string, unknown>
+}
+
+function signedTermsOf(v: unknown): string {
+  const { communityName, termsHash } = objectOf(v)
+  if (typeof communityName !== "boolean" || !isHash(termsHash)) throw badRequest()
+  return `${communityName ? COMMUNITY_TERMS : ""}${termsHash.slice(2)}`
+}
+
+function flatSigned(v: unknown): Record<string, unknown> {
+  const { fields, timestamp, signature } = objectOf(v)
+  const sent = objectOf(fields)
+  return { ...sent, terms: signedTermsOf(sent.terms), timestamp, signature }
+}
+
+const flatOrder = (v: unknown): Record<string, unknown> => ({ ...flatSigned(v), owner: objectOf(v).owner })
+
+function methodOf(v: unknown): Method | undefined {
+  if (v === undefined) return undefined
+  const m = objectOf(v)
+  if (m.type === "card" && m.provider === "stripe") return "card"
+  if (m.type === "crypto" && (m.currency === "btc" || m.currency === "xmr")) return m.currency
+  throw badRequest()
+}
+
 // the paid years and the free days until the term starts, as the page counts them by the service's clock
 function checkDuration(duration: number, years: number): void {
   const free = duration - years * YEAR_S
@@ -679,16 +706,17 @@ function refuseWhenCodesOnly(): void {
 export async function createInvoice(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (body.kind !== "name") throw badRequest()
   refuseWhenCodesOnly()
-  const order = orderBody(body)
-  const method = body.method
+  const sent = flatOrder(body.order)
+  const order = orderBody(sent)
+  const method = methodOf(body.method)
   if (!isMethod(method)) throw badRequest()
   if (!Number.isInteger(body.price)) throw badRequest()
   await injectedRefusal(order.length)
-  await checkOrderSigner(order, body)
+  await checkOrderSigner(order, sent)
   const orderHash = orderHashOf("invoice", order, [method, body.price])
   const resent = existingOrder(order, orderHash)
   if (resent) return invoiceView(invoices.get(resent.invoiceId!)!)
-  freshTimestamp(body.timestamp)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, YEARS)
   await checkTerms(order)
   await nameFree(order.labelHash)
@@ -779,14 +807,15 @@ const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code
 
 export async function registerWithCode(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (typeof body.code !== "string") throw badRequest()
-  const order = orderBody(body)
+  const sent = flatOrder(body.order)
+  const order = orderBody(sent)
   const { hash, row } = prepaidOf(body.code)
   if (!row) throw new HttpError(400, "code_invalid")
-  await checkOrderSigner(order, body)
+  await checkOrderSigner(order, sent)
   const orderHash = orderHashOf("register", order, [hash])
   const resent = existingOrder(order, orderHash)
   if (resent) return { registrationId: resent.id }
-  freshTimestamp(body.timestamp)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, orderYears(order, row.years))
   await checkTerms(order)
   await nameFree(order.labelHash)
@@ -1126,13 +1155,14 @@ const sha256Hex = (text: string) => "0x" + createHash("sha256").update(text, "as
 export async function retarget(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  const order = orderBody({ ...body, owner: reg.owner })
-  await checkSigner(reg.owner, `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${body.timestamp}`, body.timestamp, body.signature)
+  const sent = flatSigned(body)
+  const order = orderBody({ ...sent, owner: reg.owner })
+  await checkSigner(reg.owner, `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`, sent.timestamp, sent.signature)
   const current = reg.labelHash === order.labelHash && reg.length === order.length && reg.duration === order.duration && reg.commitment === order.commitment && reg.sealed === order.sealed
     && reg.terms === order.terms
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
-  freshTimestamp(body.timestamp)
+  freshTimestamp(sent.timestamp)
   lapse(reg)
   // a failed order, or one whose reveal was refused for its links; a paid order taken first keeps its price as its balance
   const movable = reg.phase === "failed" || (reg.phase === "committed" && reg.linksRefused)
@@ -1176,20 +1206,22 @@ function spendable(source: Registration, seen: number): Invoice | null {
 // else all of it, held until an invoice for the difference is paid.
 export async function spend(sourceId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   refuseWhenCodesOnly()
-  const { price, balance, method } = body
-  if (!Number.isInteger(price) || !Number.isInteger(balance) || (price as number) <= 0 || (balance as number) <= 0 || !Number.isInteger(body.timestamp)) throw badRequest()
+  const { price, balance } = body
+  const sent = flatSigned(body.signed)
+  const method = methodOf(body.method)
+  if (!Number.isInteger(price) || !Number.isInteger(balance) || (price as number) <= 0 || (balance as number) <= 0 || !Number.isInteger(sent.timestamp)) throw badRequest()
   const difference = (price as number) > (balance as number)
   if (difference ? !isMethod(method) : method !== undefined) throw badRequest()
-  const fields = orderFields(body)
+  const fields = orderFields(sent)
   const source = registrations.get(sourceId)
   if (!source) throw new HttpError(404, "not_found")
   const order = { ...fields, owner: source.owner }
-  const message = `simplex.domains spend ${source.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${body.timestamp}`
-  if (await recoverMessageAddress({ message, signature: checkSignature(body.signature) }) !== source.owner) throw badRequest()
+  const message = `simplex.domains spend ${source.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`
+  if (await recoverMessageAddress({ message, signature: checkSignature(sent.signature) }) !== source.owner) throw badRequest()
   const orderHash = orderHashOf("balance", order, [source.id, price, balance, method ?? ""])
   const resent = existingOrder(order, orderHash)
   if (resent) return resent.invoiceId ? invoiceView(invoices.get(resent.invoiceId)!) : { registrationId: resent.id }
-  freshTimestamp(body.timestamp)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, YEARS)
   await checkTerms(order)
   spendable(source, balance as number)

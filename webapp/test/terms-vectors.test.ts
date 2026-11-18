@@ -144,7 +144,7 @@ describe("the page's builders reproduce Appendix C", () => {
       return new Response(JSON.stringify({
         id: REGISTRATION_ID, version: 2, moves: 1, phase: "queued", label: null, owner: OWNER, years: YEARS, price: 10000, fromBalance: 0, balance: null, latePayment: null,
         commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false,
-        community: null, ...body,
+        community: null, ...body.fields as Record<string, unknown>, terms: null,
       }), { status: 200 })
     })
     vi.resetModules()
@@ -173,7 +173,8 @@ describe("the page's builders reproduce Appendix C", () => {
     const record = flow.recordFor(draft(terms), built, "btc", 10000, { registrationId: REGISTRATION_ID, invoiceId: "inv" })
     store.saveOrder(record)
     await flow.retargetOrder(record, LABEL, NO_LINKS, quote, terms)
-    expect(sent[0]).toEqual({ labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, terms, timestamp: TIMESTAMP, signature: vector("name", terms).signature })
+    const agreed = { communityName: terms.startsWith("community/"), termsHash: `0x${terms.replace("community/", "")}` }
+    expect(sent[0]).toEqual({ fields: { labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, terms: agreed }, timestamp: TIMESTAMP, signature: vector("name", terms).signature })
   })
 
   it.each(TERMS)("spend with terms %s", async (terms) => {

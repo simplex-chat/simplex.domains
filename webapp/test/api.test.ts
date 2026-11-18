@@ -338,14 +338,21 @@ describe("service errors", () => {
     }
   })
 
-  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
+  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: TERMS.hash.slice(2), timestamp: 1, signature: "0x" }
+  const SPEND_SENT = {
+    signed: {
+      fields: { labelHash: SPEND.labelHash, length: 8, duration: SPEND.duration, commitment: SPEND.commitment, sealed: "sealed", terms: { communityName: false, termsHash: TERMS.hash } },
+      timestamp: 1, signature: "0x",
+    },
+    price: 20000, balance: 10000, method: { type: "crypto", currency: "btc" },
+  }
 
   it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify({ registrationId: "r2" }), { status: 200 }))
     vi.stubGlobal("fetch", fetched)
     expect(await spend("r/1", SPEND, 31337)).toEqual({ registrationId: "r2" })
     const [path, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
-    expect([path, init.method, JSON.parse(String(init.body))]).toEqual(["/api/registration/r%2F1/spend", "POST", SPEND])
+    expect([path, init.method, JSON.parse(String(init.body))]).toEqual(["/api/registration/r%2F1/spend", "POST", SPEND_SENT])
     const invoice = { ...INVOICE, amount: 10000, registration: { ...REGISTRATION, price: 20000, fromBalance: 10000 } }
     answerWith(200, JSON.stringify(invoice))
     expect(await spend("r1", SPEND, 31337)).toEqual(invoice)
@@ -509,7 +516,8 @@ describe("service errors", () => {
       vi.stubGlobal("fetch", fetched)
       await send().catch(() => undefined)
       const [, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
-      expect(JSON.parse(String(init.body)).terms).toBe(ORDER.terms)
+      const body = JSON.parse(String(init.body))
+      expect((body.order ?? body.signed ?? body).fields.terms).toEqual({ communityName: true, termsHash: COMMUNITY_TERMS.hash })
     })
 
     it.each(SENDS)("gives %s refused for changed terms the terms of the name's kind and the community entry as they are now", async (_, send) => {
