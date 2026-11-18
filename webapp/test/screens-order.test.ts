@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
-  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
+  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, destinationOf, lightningPayableUntil, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, seenWords, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS,
   unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
@@ -767,5 +767,16 @@ describe("a Lightning invoice", () => {
     expect(seenWords(crypto({ requiredConfirmations: 3 }), "btc").alert).toBe("Waiting for 3\u00a0confirmations")
     expect(seenWords(crypto({ requiredConfirmations: 0 }), "btc").alert).toBe("Waiting for the payment to settle")
     expect(seenWords(crypto({ requiredConfirmations: undefined, cryptoCurrency: "xmr", cryptoAmount: "0.45" }), "xmr")).toMatchObject({ alert: "Waiting for 1\u00a0confirmation", text: expect.stringMatching(/^0\.45 XMR arrived\./) })
+  })
+  it("is shown as its first 14 and last 8 characters under its own label, while an address is shown whole", () => {
+    const bolt11 = `lnbcrt500u1p${"q".repeat(300)}xyz12345`
+    expect(destinationOf("ln", bolt11)).toEqual({ label: "Lightning invoice", shown: `${bolt11.slice(0, 14)}\u2026xyz12345` })
+    expect(destinationOf("btc", "bcrt1qaddress")).toEqual({ label: "Bitcoin address", shown: "bcrt1qaddress" })
+  })
+  it("stays payable after a close until its expiry, and an invoice of another coin is never said to be", () => {
+    const expiresAt = Date.parse(lightning().expiresAt)
+    expect(lightningPayableUntil(lightning({ status: "expired" }), expiresAt - 1)).toBe(expiresAt)
+    expect(lightningPayableUntil(lightning({ status: "expired" }), expiresAt)).toBeNull()
+    expect(lightningPayableUntil(crypto({ status: "expired", expiresAt: lightning().expiresAt }), expiresAt - 1)).toBeNull()
   })
 })

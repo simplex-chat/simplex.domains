@@ -6,7 +6,7 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, destinationOf, lightningPayableUntil, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, seenWords, stalledAt, TICKER, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
@@ -434,10 +434,6 @@ function orderLine(s: OrderState): Kid[] {
 }
 
 const WALLET = "Open in wallet"
-const destinationName = (coin: api.Coin) => coin === "ln" ? "Lightning invoice" : `${methodName(coin)} address`
-const INVOICE_HEAD = 14
-const INVOICE_TAIL = 8
-const shownDestination = (coin: api.Coin, address: string) => coin === "ln" ? `${address.slice(0, INVOICE_HEAD)}…${address.slice(-INVOICE_TAIL)}` : address
 
 // the invoice an earlier try made, which a checkout opened in place of paying as it chose; said until its page is left
 let instead: { invoiceId: string; had: string; chosen: string } | null = null
@@ -618,7 +614,8 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const qr = uri ? el("div", { class: "qr" }, qrSvg(uri, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
   // labels in sentence case, as their copy buttons say them; the label style draws them in capitals
   const amount = copyField(`${partial ? "rest to send" : "amount"} in ${TICKER[coin]}`, due)
-  const address = copyField(destinationName(coin), inv.address!, shownDestination(coin, inv.address!))
+  const destination = destinationOf(coin, inv.address!)
+  const address = copyField(destination.label, inv.address!, destination.shown)
   const wallet = uri ? el("a", { class: "wallet", href: uri }, WALLET) : null
   const part = partial ? partLines(inv, coin, [qr, amount, wallet], signal) : null
   const waiting = el("span", { class: "waiting" }, el("i", { class: "dot", "aria-hidden": "true" }), "Waiting for payment")
@@ -803,10 +800,10 @@ const KEPT_ONCE: Record<Exclude<api.LateWait, "support">, string> = { confirming
 function closedWords(closed: ClosedCase, inv: api.InvoiceView, view: api.RegistrationView): [Tone, Kid] {
   const waiting = view.latePayment?.waiting
   const kept = (lead: string): Kid => waiting === "support" ? [lead, creditBySupport] : `${lead} ${waiting ? KEPT_ONCE[waiting] : "It is"} ${KEPT_LATE}`
-  const payableUntil = Date.parse(inv.expiresAt)
-  const nothingYet = (lead: string): [Tone, Kid] => inv.cryptoCurrency === "ln" && payableUntil > api.serviceNow()
-    ? ["warn", `${lead} Its Lightning invoice can still be paid until ${timeOf(payableUntil)}: don't pay it.`]
-    : ["info", lead]
+  const payableUntil = lightningPayableUntil(inv, api.serviceNow())
+  const nothingYet = (lead: string): [Tone, Kid] => payableUntil === null
+    ? ["info", lead]
+    : ["warn", `${lead} Its Lightning invoice can still be paid until ${timeOf(payableUntil)}: don't pay it.`]
   switch (closed) {
     case "paid-late": return ["warn", kept("The payment arrived after this invoice had closed, so nothing was registered.")]
     case "cancelled": return nothingYet("This invoice was cancelled and nothing was received.")
