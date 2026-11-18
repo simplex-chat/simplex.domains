@@ -390,12 +390,12 @@ async function registeredName(request: APIRequestContext, prefix: string) {
 }
 
 type RegisteredName = Awaited<ReturnType<typeof registeredName>>
-type LinkEdit = { key: string; value: string; nonce: number; deadline: number; signature: string }
+type LinkEdit = { key: "contact" | "channel"; value: string; nonce: number; deadline: number; signature: string }
 
 // one edit of a link of the name, signed by its key at this records nonce
-function linkEdit(name: RegisteredName, key: string, value: string, nonce: number): LinkEdit {
+function linkEdit(name: RegisteredName, key: LinkEdit["key"], value: string, nonce: number): LinkEdit {
   const deadline = Math.floor(Date.now() / 1000) + 3600
-  const digest = setTextDigest(BigInt(name.draft.chain.chainId), fromHex(name.draft.chain.resolver), namehash("simplex", name.label), key, value, BigInt(nonce), BigInt(deadline))
+  const digest = setTextDigest(BigInt(name.draft.chain.chainId), fromHex(name.draft.chain.resolver), namehash("simplex", name.label), flow.KEYS[key], value, BigInt(nonce), BigInt(deadline))
   return { key, value, nonce, deadline, signature: hex(signDigest(flow.walletOf(name.draft.ownerCode)!.privateKey, digest)) }
 }
 
@@ -404,7 +404,7 @@ const recordsOf = async (name: RegisteredName) => (await answerOf(name)).records
 
 // a request of one contact link edit of the name, at the name's records nonce unless one is given
 async function contactEdit(name: RegisteredName, value: string, nonce?: number): Promise<{ labelHash: string; edits: LinkEdit[] }> {
-  return { labelHash: name.labelHash, edits: [linkEdit(name, CONTACT_KEY, value, nonce ?? (await recordsOf(name)).nonce)] }
+  return { labelHash: name.labelHash, edits: [linkEdit(name, "contact", value, nonce ?? (await recordsOf(name)).nonce)] }
 }
 
 test("a link edit repeated after it was mined is answered from the edit, not checked anew", async ({ request }) => {
@@ -423,7 +423,7 @@ test("a Save's two link edits are one request and one multicall transaction, cou
   const before = await recordsOf(name)
   const nonce = before.nonce
   const [contact, channel] = [contactLink("Ct"), channelLink("Ct")]
-  const save = { labelHash: name.labelHash, edits: [linkEdit(name, CONTACT_KEY, contact, nonce), linkEdit(name, CHANNEL_KEY, channel, nonce + 1)] }
+  const save = { labelHash: name.labelHash, edits: [linkEdit(name, "contact", contact, nonce), linkEdit(name, "channel", channel, nonce + 1)] }
   const sent = await call("POST", "/api/name/records", save)
   expect(sent.status, JSON.stringify(sent.json)).toBe(200)
   expect(await textChangesOf(sent.json.tx as string)).toEqual({ multicall: true, changes: [[CONTACT_KEY, contact], [CHANNEL_KEY, channel]] })
@@ -447,14 +447,14 @@ test("a relayed link edit that reverts on chain still counts toward the name's y
   expect(after.edits.left, "the reverted relay is counted").toBe(before.edits.left - 1)
 })
 
-test("a records request of no edit, three, one key twice, a clear, or nonces not consecutive is bad_request", async () => {
+test("a records request of no edit, three, one key twice, a clear, nonces not consecutive, or a record's key in place of its kind is bad_request", async () => {
   const signature = `0x${"11".repeat(64)}1b`
   const deadline = Math.floor(Date.now() / 1000) + 3600
   // a link that is not one, which would be invalid_link had the edits' formats passed
   const set = (key: string, nonce: number) => ({ key, value: "https://x/a", nonce, deadline, signature })
   const labelHash = `0x${"ab".repeat(32)}`
-  for (const edits of [[], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 2), set(CONTACT_KEY, 3)], [set(CHANNEL_KEY, 1), set(CHANNEL_KEY, 2)],
-    [{ clear: true, nonce: 1, deadline, signature }], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 3)], [set(CONTACT_KEY, 2), set(CHANNEL_KEY, 1)]]) {
+  for (const edits of [[], [set("contact", 1), set("channel", 2), set("contact", 3)], [set("channel", 1), set("channel", 2)],
+    [{ clear: true, nonce: 1, deadline, signature }], [set("contact", 1), set("channel", 3)], [set("contact", 2), set("channel", 1)], [set(CONTACT_KEY, 1)]]) {
     expect(await call("POST", "/api/name/records", { labelHash, edits }), JSON.stringify(edits)).toEqual({ status: 400, json: { type: "bad_request" } })
   }
 })

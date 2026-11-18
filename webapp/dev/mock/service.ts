@@ -1317,8 +1317,9 @@ async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
 // A Save's edits: one link of each kind at most, so two
 const MAX_EDITS = 2
 
-// One signed edit of a request: a SetText of a key.
-interface SignedEdit { key: string; value: string; nonce: number; deadline: number; signature: Hex }
+// One signed edit of a request: a SetText of a kind's record.
+interface SignedEdit { key: "contact" | "channel"; value: string; nonce: number; deadline: number; signature: Hex }
+const recordKey = (kind: SignedEdit["key"]) => kind === "contact" ? CONTACT_KEY : CHANNEL_KEY
 
 // every edit's format and key, then every link, then every signature, as the service checks them
 function signedEdits(edits: unknown): SignedEdit[] {
@@ -1327,14 +1328,14 @@ function signedEdits(edits: unknown): SignedEdit[] {
     if (typeof e !== "object" || e === null) throw badRequest()
     const { key, value, nonce, deadline, signature } = e as Record<string, unknown>
     if (typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
-    if ((key !== CONTACT_KEY && key !== CHANNEL_KEY) || typeof value !== "string") throw badRequest()
-    return { key, value, nonce, deadline, signature }
+    if ((key !== "contact" && key !== "channel") || typeof value !== "string") throw badRequest()
+    return { key: key as SignedEdit["key"], value, nonce, deadline, signature }
   })
   const keys = parsed.map((e) => e.key)
   if (new Set(keys).size !== keys.length) throw badRequest()
   if (parsed.some((e, i) => i > 0 && e.nonce !== parsed[i - 1].nonce + 1)) throw badRequest()
   for (const { key, value } of parsed) {
-    if (value !== "" && (linkProblem(key === CONTACT_KEY ? "contact" : "channel", value) !== null || deepLinkOf(value) === null)) throw new HttpError(400, "invalid_link")
+    if (value !== "" && (linkProblem(key, value) !== null || deepLinkOf(value) === null)) throw new HttpError(400, "invalid_link")
   }
   return parsed.map((e) => ({ ...e, signature: checkSignature(e.signature) }))
 }
@@ -1343,11 +1344,11 @@ const SET_TEXT_TYPES = { SetText: [{ name: "node", type: "bytes32" }, { name: "k
 
 function editDigest(node: Hex, { key, value, nonce, deadline }: SignedEdit): Hex {
   const domain = { name: "SimplexResolver", version: "1", chainId: deployment.chainId, verifyingContract: deployment.resolver }
-  return hashTypedData({ domain, primaryType: "SetText", types: SET_TEXT_TYPES, message: { node, key, value, nonce: BigInt(nonce), deadline: BigInt(deadline) } })
+  return hashTypedData({ domain, primaryType: "SetText", types: SET_TEXT_TYPES, message: { node, key: recordKey(key), value, nonce: BigInt(nonce), deadline: BigInt(deadline) } })
 }
 
 const editCall = (node: Hex, { key, value, nonce, deadline, signature }: SignedEdit): [string, unknown[]] =>
-  ["setTextWithSig", [node, key, value, BigInt(nonce), BigInt(deadline), signature]]
+  ["setTextWithSig", [node, recordKey(key), value, BigInt(nonce), BigInt(deadline), signature]]
 
 // A request's one transaction: an edit alone as its own call, two as the resolver's multicall, which reverts both when
 // either fails.

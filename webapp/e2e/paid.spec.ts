@@ -1,6 +1,5 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test"
 import { walletOf } from "../src/flow.ts"
-import { CONTACT_KEY } from "../src/crypto/registration.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
 import { LINK_MAX_BYTES } from "../src/names.ts"
@@ -644,7 +643,7 @@ test("Edit links keeps several links on chain as the contact address they hold, 
   await step.locator(".link-field").first().getByRole("button", { name: "Remove link" }).click()
   await step.getByRole("button", { name: "Save links" }).click()
   await expect(step.getByText("Links saved")).toBeVisible()
-  expect(sent.map(({ edits }) => edits.map(({ key, value }) => ({ key, value }))), "the edits sent").toEqual([[{ key: CONTACT_KEY, value: "" }]])
+  expect(sent.map(({ edits }) => edits.map(({ key, value }) => ({ key, value }))), "the edits sent").toEqual([[{ key: "contact", value: "" }]])
 })
 
 test("Check your order draws a link whose profile cannot be read as its kind's default picture, named by the link", async ({ page }) => {

@@ -514,7 +514,7 @@ export interface FoundOrder {
 export const findRegistrations = (owner: string, timestamp: number, signature: string) =>
   checked<{ registrations: FoundOrder[] }>(
     call("POST", "/api/registration/find", { owner, timestamp, signature }), (a) => Array.isArray(a.registrations) && a.registrations.every(isFound))
-export interface SignedEdit { key: string; value: string; nonce: number; deadline: number; signature: string }
+export interface SignedEdit { key: typeof LINK_KINDS[number]; value: string; nonce: number; deadline: number; signature: string }
 export const editRecords = (body: { labelHash: string; edits: SignedEdit[] }) => {
   const sent = call("POST", "/api/name/records", body, undefined, EDIT_TIMEOUT_MS).catch((e: unknown) => {
     if (!(e instanceof ApiError && e.code === "edit_limit")) throw e

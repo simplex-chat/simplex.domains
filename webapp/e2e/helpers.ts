@@ -6,7 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
-import { newOwnerCode, walletOf } from "../src/flow.ts"
+import { KEYS, newOwnerCode, walletOf } from "../src/flow.ts"
 import { readQr } from "../src/scan.ts"
 import { qrPixels } from "../test/qr-image.ts"
 import { mockUrl, pageUrl } from "./slots.ts"
@@ -143,7 +143,7 @@ const CHAIN_BLOCK_S = 1
 
 // Another relayer's copy of a signed link edit, mined in the block before the mock's own transaction for it, which then
 // reverts on chain. Blocks are held from before the request until both transactions wait in the pool.
-export async function relayedAhead<T>(label: string, edit: { key: string; value: string; nonce: number; deadline: number; signature: string }, request: () => Promise<T>): Promise<T> {
+export async function relayedAhead<T>(label: string, edit: { key: keyof typeof KEYS; value: string; nonce: number; deadline: number; signature: string }, request: () => Promise<T>): Promise<T> {
   const transport = http(deployment.rpcUrl)
   const anvil = createTestClient({ mode: "anvil", transport })
   await anvil.setIntervalMining({ interval: 0 })
@@ -153,7 +153,7 @@ export async function relayedAhead<T>(label: string, edit: { key: string; value:
     const account = privateKeyToAccount(generatePrivateKey())
     await anvil.setBalance({ address: account.address, value: OWNER_GAS_WEI })
     const data = encodeFunctionData({ abi: CHAIN_ABI, functionName: "setTextWithSig",
-      args: [nodeOf(label), edit.key, edit.value, BigInt(edit.nonce), BigInt(edit.deadline), edit.signature as Hex] })
+      args: [nodeOf(label), KEYS[edit.key], edit.value, BigInt(edit.nonce), BigInt(edit.deadline), edit.signature as Hex] })
     const block = await chain.getBlock()
     await createWalletClient({ account, chain: { ...foundry, id: deployment.chainId }, transport })
       .sendTransaction({ to: deployment.resolver, data, gas: AHEAD_GAS, maxPriorityFeePerGas: AHEAD_TIP_WEI, maxFeePerGas: (block.baseFeePerGas ?? 0n) * 2n + AHEAD_TIP_WEI })

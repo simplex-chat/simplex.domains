@@ -147,7 +147,7 @@ describe("service errors", () => {
   })
 
   it("reads the service's edit_limit as its own refusal, with when the next edit fits in seconds, and no wait to hold", async () => {
-    const edit = { labelHash: `0x${HASH}`, edits: [{ key: "simplex.channel", value: "", nonce: 3, deadline: 1, signature: "0x" }] }
+    const edit = { labelHash: `0x${HASH}`, edits: [{ key: "channel" as const, value: "", nonce: 3, deadline: 1, signature: "0x" }] }
     answerWith(409, JSON.stringify({ type: "edit_limit", nextAt: "2027-10-23T00:00:00Z" }))
     const e = await editRecords(edit).then(() => null, (e: unknown) => e)
     expect(e).toBeInstanceOf(EditLimited)

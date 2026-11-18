@@ -337,7 +337,7 @@ export async function saveLinks(record: store.OrderRecord, chain: { chainId: num
   const edits = api.LINK_KINDS.filter((kind) => changes[kind] !== undefined).map((kind, i) => {
     const value = changes[kind]!
     const digest = setTextDigest(BigInt(chain.chainId), fromHex(chain.resolver), node, KEYS[kind], value, BigInt(nonce + i), BigInt(deadline))
-    return { key: KEYS[kind], value, nonce: nonce + i, deadline, signature: hex(signDigest(wallet.privateKey, digest)) }
+    return { key: kind, value, nonce: nonce + i, deadline, signature: hex(signDigest(wallet.privateKey, digest)) }
   })
   const { tx } = await api.editRecords({ labelHash: hex(labelHash(record.label)), edits })
   return tx
