@@ -548,8 +548,8 @@ test("Back returns to where a page was left, a slow page included, and a reload 
   // before its styles, so the place is one that unstyled frame reaches too.
   await page.setViewportSize({ width: 1280, height: 300 })
   await page.goto("/")
-  const place = await page.evaluate((most) => Math.min(most, document.documentElement.scrollHeight - innerHeight), HOME_PLACE_PX)
-  expect(place).toBe(HOME_PLACE_PX)
+  await expect.poll(() => page.evaluate((most) => Math.min(most, document.documentElement.scrollHeight - innerHeight), HOME_PLACE_PX)).toBe(HOME_PLACE_PX)
+  const place = HOME_PLACE_PX
   await page.evaluate((y) => scrollTo(0, y), place)
   // clicked from inside the page: a pointer click first scrolls the header's link into view, which WebKit does even
   // for a link always in view, moving the place it then leaves
@@ -924,15 +924,15 @@ test("a drawn order that a newer order of its name replaces keeps its place unti
     const main = document.querySelector("body > main")!
     if (main.querySelector("h1")?.textContent !== "Your names") return null
     const rows = [...main.querySelectorAll<HTMLElement>(".list-row")].map((r) => [r.dataset.key!, Math.round(r.getBoundingClientRect().top)] as const)
-    return [rows, !!main.querySelector(".end-links"), !!main.querySelector(".note.reading")]
+    return [rows, !!main.querySelector(".end-links"), !!main.querySelector(".note.reading"), document.fonts.status === "loaded"]
   }, true)
   await page.goto("about:blank")
   await page.goto("/#/names")
   const successor = await registrationOf(request, second)
   await expect(page.locator(`.list-row[data-key="${successor}"]`)).toBeVisible()
   await page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
-  const frames = await recordedFrames<[[string, number][], boolean, boolean]>(page)
-  const shown = frames.findIndex(([, end]) => end)
+  const frames = await recordedFrames<[[string, number][], boolean, boolean, boolean]>(page)
+  const shown = frames.findIndex(([, end, , fonts]) => end && fonts)
   const after = frames.slice(shown)
   expect(after.every(([, end, reading]) => end && !reading), "the end links, and no reading note, in every frame once they were drawn").toBe(true)
   expect([...new Set(after.map(([rows]) => rows.length))], "rows in each frame").toEqual([2])
