@@ -1266,6 +1266,7 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   lapse(reg)
   // only a commitment that lapsed unsigned is committed again; refused links fail at the lapse
   if (!lapsed(reg)) throw badRequest()
+  await unchangedSince(reg, reg.version)
   reg.phase = "queued"
   reg.commitTx = null
   reg.registerTx = null

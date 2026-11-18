@@ -350,8 +350,12 @@ test("find lists an owner's orders newest first, each with its label hash and se
     .toEqual({ status: 200, json: { registrations: [] } })
 })
 
-test("a held poll wakes on a new version, and of two retries at once one wins and the other is registration_changed with the view", async ({ request }) => {
-  const { id, view } = await failedOrder(request, uniqueLabel("cv"))
+test("a held poll wakes on a new version, and of two retries at once of a lapsed order one wins and the other is registration_changed with the view", async ({ request }) => {
+  const { id } = await codeOrder(request, uniqueLabel("cv"))
+  await untilPhase(id, ["committed"])
+  await control(request, `lapse/${id}`)
+  const view = await viewOf(id)
+  expect(api.committedOf(view)?.signature.type).toBe("lapsed")
   const held = viewOf(id, view.version)
   await control(request, "search", { writeDelayMs: 1500 })
   let answers: { status: number; json: Json }[]

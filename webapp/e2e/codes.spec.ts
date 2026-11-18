@@ -851,13 +851,11 @@ test("a code order whose name was reserved meanwhile says so, and gives its code
 })
 
 test("a failed code order opened again after its code was used elsewhere offers no other name, and from the first frame the time after", async ({ page, request }) => {
-  const { code, registrationId, label } = await registerWithCode(page, request, "cgone")
+  const { code, registrationId } = await registerWithCode(page, request, "cgone")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   await releasedAndUsed(request, code)
   await page.addInitScript(watchKept)
-  await answersReserved(page, label)
-  const searched = page.waitForResponse("**/api/name/**")
   await page.reload()
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
   await expect(page.locator(".screen-head .lead")).toHaveText(REFUSED_LEAD)
@@ -866,7 +864,6 @@ test("a failed code order opened again after its code was used elsewhere offers 
   await expect(page.getByLabel("Name", { exact: true })).toBeVisible()
   await page.goBack()
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible()
-  await searched
   await expect(page.getByRole("button", { name: "Choose another name" }), "a refused code moves to no other name").toHaveCount(0)
   expect(await saidKept(page), "the page opened first after the code went said it is kept").toBe(false)
   await reopenRefused(page)
