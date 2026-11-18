@@ -112,6 +112,22 @@ async function untilRevealable(id: string): Promise<api.RegistrationView> {
   return viewOf(id)
 }
 
+async function unacceptedReveal(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
+  const sending = globalThis.fetch
+  let body: Json = {}
+  globalThis.fetch = async (_, init) => {
+    body = JSON.parse(String(init?.body))
+    return new Response("{}", { status: 200 })
+  }
+  try {
+    await flow.revealOrder(view, record)
+  } finally {
+    globalThis.fetch = sending
+  }
+  delete body.acceptance
+  return body
+}
+
 // The order, as this worker's store keeps it, revealed with a register the service then fails: an order to try again or move.
 async function failAtRegister(request: APIRequestContext, id: string): Promise<api.RegistrationView> {
   const view = await untilRevealable(id)
@@ -1077,7 +1093,8 @@ test("a committed community name's view asks for the owner's acceptance of the c
     const view = await untilRevealable(id)
     expect(view.acceptance).toEqual({ kind: "community", policy: NAME_POLICY, termsHash: COMMUNITY_TERMS_HASH, nonce: 0 })
     const accept = view.acceptance!
-    for (const [what, acceptance] of [["none", null], ["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: `0x${"d8".repeat(32)}` }],
+    expect(await call("POST", `/api/registration/${id}/reveal`, await unacceptedReveal(view, record)), "none").toEqual({ status: 400, json: { error: "bad_request" } })
+    for (const [what, acceptance] of [["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: `0x${"d8".repeat(32)}` }],
       ["the other kind", { ...accept, kind: "general" }], ["another policy", { ...accept, policy: readSite().sponsor }]] as const) {
       await expect(flow.revealOrder({ ...view, acceptance }, record), what).rejects.toMatchObject({ code: "bad_request" })
     }
@@ -1094,9 +1111,8 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
   const view = await untilRevealable(id)
   expect(view.acceptance).toEqual({ kind: "general", policy: NAME_POLICY, termsHash: GENERAL_TERMS_HASH, nonce: 0 })
-  for (const [what, acceptance] of [["none", null], ["the other kind", { ...view.acceptance!, kind: "community" }]] as const) {
-    await expect(flow.revealOrder({ ...view, acceptance }, record), what).rejects.toMatchObject({ code: "bad_request" })
-  }
+  expect(await call("POST", `/api/registration/${id}/reveal`, await unacceptedReveal(view, record)), "none").toEqual({ status: 400, json: { error: "bad_request" } })
+  await expect(flow.revealOrder({ ...view, acceptance: { ...view.acceptance!, kind: "community" } }, record), "the other kind").rejects.toMatchObject({ code: "bad_request" })
   await flow.revealOrder(view, record)
   const done = await untilPhase(id, ["registered"])
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
