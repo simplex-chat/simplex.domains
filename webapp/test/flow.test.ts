@@ -112,12 +112,14 @@ describe("orderRequest", () => {
 })
 
 describe("revealOrder", () => {
+  const general = { kind: "general", policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: `0x${"c7".repeat(32)}`, nonce: 0 }
+
   it("sends the label, secret and links with a RegisterName signature from the code's key, a week ahead of the service's clock", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
-    await flow.revealOrder(view(built.request) as never, record)
+    await flow.revealOrder(view(built.request, { acceptance: general }) as never, record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
@@ -135,7 +137,7 @@ describe("revealOrder", () => {
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
     const revealBefore = Math.floor(Date.now() / 1000) + 30 * 86400
-    await flow.revealOrder(view(built.request, { revealBefore }) as never, record)
+    await flow.revealOrder(view(built.request, { revealBefore, acceptance: general }) as never, record)
     expect((calls[0].body as { deadline: number }).deadline).toBe(revealBefore)
   })
 
