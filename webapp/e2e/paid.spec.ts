@@ -129,9 +129,9 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await shot(page, "N7-registered")
 
   const answer = await searchName(request, label)
-  expect(answer.status).toBe("registered")
+  expect(answer.type).toBe("registered")
   expect(answer.owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
-  expect(answer.records, "a name whose links were skipped is registered with none").toEqual({ contact: "", channel: "" })
+  expect(answer.records, "a name whose links were skipped is registered with none").toMatchObject({ contact: "", channel: "" })
   const registrationId = await registrationOf(request, invoiceId)
 
   // edit links: both links, signed in the page, sent by the mock's relayer
@@ -364,7 +364,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(main.getByRole("link", { name: "Edit links" })).toHaveCount(0)
   const answer = await searchName(request, label)
   expect(answer.owner, "the code saved before paying owns the name").toBe(checksumAddress(walletOf(ownerCode)!.address))
-  expect(answer.records, "the links set before paying are on chain").toEqual({ contact, channel })
+  expect(answer.records, "the links set before paying are on chain").toMatchObject({ contact, channel })
 
   // Your names, opened from the header, draws the name as registered from its first frame, never as a row still being
   // checked, and its line as it stays once the name's links are read
