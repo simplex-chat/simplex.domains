@@ -415,8 +415,10 @@ test("a difference order whose balance has grown to cover the price offers to re
   await payButton(page).click()
   await page.waitForURL(/\?order=/)
   const first = new URL(page.url()).searchParams.get("order")!
+  const sourceRead = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname === `/api/registration/${balanceSource}`)
   await control(request, `expire/${first}`)
   await expect(onStep(page).getByRole("button", { name: "Get a new invoice" })).toBeVisible()
+  await sourceRead
   // the balance grows to the whole price while the page is open: a press of Get a new invoice only relabels it
   await control(request, `credit/${balanceSource}`, { cents: 10000 })
   await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
