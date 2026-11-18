@@ -142,9 +142,8 @@ describe("the page's builders reproduce Appendix C", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       sent.push(body)
       return new Response(JSON.stringify({
-        id: REGISTRATION_ID, version: 2, moves: 1, phase: "queued", label: null, owner: OWNER, years: YEARS, price: 10000, fromBalance: 0, balance: null, latePayment: null,
-        commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false,
-        community: null, ...body.fields as Record<string, unknown>, terms: null,
+        id: REGISTRATION_ID, version: 2, moves: 1, phase: { type: "queued" }, label: null, owner: OWNER, years: YEARS, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null,
+        latePayment: null, commitTx: null, registerTx: null, linksRefused: false, community: null, ...body.fields as Record<string, unknown>,
       }), { status: 200 })
     })
     vi.resetModules()

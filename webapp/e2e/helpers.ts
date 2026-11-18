@@ -570,17 +570,19 @@ export async function keepOrder(page: Page, registrationId: string, invoiceId: s
 
 // The service's view of a kept order's registration, as its API answers it.
 export const registrationView = (o: KeptOrder, change: Record<string, unknown> = {}) => ({
-  id: o.registrationId, version: 1, unread: [], moves: 0, phase: "unpaid", labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
-  years: 2, duration: 2 * YEAR_S, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, acceptance: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-  community: null, terms: PLAIN_TERMS, ...change,
+  id: o.registrationId, version: 1, moves: 0, phase: { type: "unpaid" }, labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
+  years: 2, duration: 2 * YEAR_S, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: false, latePayment: null,
+  community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, ...change,
 })
+
+export const registeredPhase = (expiresAt: number) => ({ type: "registered", expiresAt })
 
 // A registered name of this browser's code, as the service answers it, holding `links` until `records` answers otherwise.
 export async function fakeRegisteredName(page: Page, label: string, links: { contact: string; channel: string },
   records: () => { links: { contact: string; channel: string }; nonce: number } = () => ({ links, nonce: 0 })): Promise<KeptOrder> {
   const order = await keepOrder(page, `reg-${label.slice(0, 12)}`, null, label, links)
   const expiresAt = Math.floor(Date.now() / 1000) + YEAR_S
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route("**/api/name/**", (route) => {
     const now = records()
     return route.fulfill({ json: registeredAnswer(order.owner, expiresAt, now.links, [], now.nonce) })

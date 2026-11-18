@@ -5,7 +5,7 @@ import {
   encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
-import { communityAgreed, type FailReason, type Preview, termsLink } from "../../src/api.ts"
+import { communityAgreed, type FailReason, type Preview, signedHash, termsLink } from "../../src/api.ts"
 import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
@@ -140,6 +140,7 @@ interface Invoice {
   lateCents: number
   // what a credit of confirmed late money waits on, set by the tests: the service's next pass, or support
   lateWait: "crediting" | "support" | null
+  closedBy: "expired" | "cancelled" | null
 }
 
 // An order's balance, in cents; the holder is the order whose open invoice pays the rest of a dearer name.
@@ -442,34 +443,48 @@ async function checkTerms(o: Pick<OrderBody, "labelHash" | "terms">): Promise<vo
 // a failed chain read is the provider's, not the request's
 const unavailable = (): never => { throw new HttpError(503, "provider_unavailable") }
 
-// a chain read the view needs, or null when it fails: the view still answers, naming the field in unread
-async function viewRead<T>(field: string, unread: string[], f: () => Promise<T>): Promise<T | null> {
+// What the owner signs to accept the terms of the name's kind.
+async function acceptanceOf(reg: Registration): Promise<{ community: boolean; policy: Address; termsHash: Hex; nonce: number }> {
+  const { listed, terms } = await nameTerms(reg.labelHash)
+  // before the policy has these terms there are none to accept: the view reads unread, and a reveal waits
+  if (!terms) throw new Error("the name policy has not set these terms yet")
+  return { community: listed, policy: deployment.namePolicy, termsHash: terms.hash, nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])) }
+}
+
+// the chain reads the owner signs with, unread when either fails: the view still answers
+async function toSignOf(reg: Registration): Promise<Record<string, unknown>> {
   try {
     if (Date.now() < control.unreadUntil) throw new Error("the chain is not answering")
-    return await f()
+    const intentNonce = Number(await read<bigint>(sponsor, "nonces", [reg.owner]))
+    return { type: "read", intentNonce, acceptance: await acceptanceOf(reg) }
   } catch {
-    unread.push(field)
-    return null
+    return { type: "unread" }
   }
 }
 
-// What the owner signs to accept the terms of the name's kind.
-async function acceptanceOf(reg: Registration): Promise<{ kind: "general" | "community"; policy: Address; termsHash: Hex; nonce: number }> {
-  const { listed, terms } = await nameTerms(reg.labelHash)
-  // before the policy has these terms there are none to accept: the view leaves it unread, and a reveal waits
-  if (!terms) throw new Error("the name policy has not set these terms yet")
-  return { kind: listed ? "community" : "general", policy: deployment.namePolicy, termsHash: terms.hash, nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])) }
+async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
+  const closedBy = reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!.closedBy
+  switch (reg.phase) {
+    case "unpaid": return closedBy ? { type: "closed", closedBy } : { type: "unpaid" }
+    case "committed": return { type: "committed", revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
+      signature: reg.label === null ? { type: "awaiting", toSign: await toSignOf(reg) } : { type: "signed" } }
+    case "registered": return { type: "registered", expiresAt: reg.expiresAt }
+    case "failed": return { type: "failed", reason: reg.error }
+    default: return { type: reg.phase }
+  }
+}
+
+function paymentOf(reg: Registration): Record<string, unknown> {
+  if (reg.method === "code") return { type: "code" }
+  if (reg.method === "balance") return { type: "balance", fromBalance: reg.fromBalance }
+  return reg.fromBalance > 0 ? { type: "difference", method: reg.method, fromBalance: reg.fromBalance } : { type: "invoice", method: reg.method }
 }
 
 async function registrationView(reg: Registration): Promise<Record<string, unknown>> {
-  const unread: string[] = []
-  const intentNonce = reg.phase === "committed" ? await viewRead("intentNonce", unread, async () => Number(await read<bigint>(sponsor, "nonces", [reg.owner]))) : null
-  const acceptance = reg.phase === "committed" && reg.label === null ? await viewRead("acceptance", unread, () => acceptanceOf(reg)) : null
   return {
-    id: reg.id, version: reg.version, moves: reg.moves, phase: reg.phase, labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
-    years: reg.years, duration: reg.duration, price: reg.paid,
-    fromBalance: reg.fromBalance, balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx, revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
-    intentNonce, acceptance, unread, expiresAt: reg.expiresAt, error: reg.error, linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: reg.terms,
+    id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
+    years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
+    linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
   }
 }
 
@@ -494,16 +509,16 @@ function balanceView(registrationId: string): Record<string, unknown> | null {
   if (!b) return null
   const holder = heldBy(registrationId)
   const inv = holder === null ? null : invoices.get(registrations.get(holder)!.invoiceId!)!
-  return { amount: b.amount, held: inv !== null, heldUntil: inv !== null && inv.amountPaid === null ? inv.expiresAt : null, refunded: b.refunded }
+  return { amount: b.amount, hold: inv === null ? null : inv.amountPaid === null ? { type: "open", heldUntil: inv.expiresAt } : { type: "funded" }, refunded: b.refunded }
 }
 
 // What money on a closed unpaid order waits on before it is all in the order's balance: money received and not confirmed,
 // or a credit the tests hold back; null once all is credited, or when none came.
-function latePayment(reg: Registration): Record<string, unknown> | null {
+function latePayment(reg: Registration): "confirming" | "crediting" | "support" | null {
   const inv = reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!
   if (reg.phase !== "unpaid" || inv === null || inv.status === "open" || inv.amountPaid === null) return null
-  if (inv.lateWait !== null) return { waiting: inv.lateWait }
-  return inv.confirmed ? null : { waiting: "confirming" }
+  if (inv.lateWait !== null) return inv.lateWait
+  return inv.confirmed ? null : "confirming"
 }
 
 function credit(registrationId: string, cents: number): void {
@@ -514,8 +529,9 @@ function credit(registrationId: string, cents: number): void {
 }
 
 // Whatever closes an unpaid order's invoice releases the balance it held.
-function close(inv: Invoice): void {
+function close(inv: Invoice, by: "expired" | "cancelled" = "expired"): void {
   inv.status = "expired"
+  inv.closedBy = by
   const reg = registrations.get(inv.registrationId)!
   const b = reg.balanceSource === null ? undefined : balances.get(reg.balanceSource)
   if (b?.holder === reg.id) b.holder = null
@@ -720,7 +736,7 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
     expiresAt: iso(nowSeconds() + INVOICE_MINUTES * 60),
     cryptoAmount: method === "card" ? null : (amount / 100 / RATES[method]).toFixed(method === "btc" ? 5 : 3),
     amountPaid: null, cryptoAmountPaid: null, cryptoAmountDue: null, paidInFull: null, confirmed: false, settledAt: null,
-    clientSecret: method === "card" ? `pi_mock_secret_${randomBytes(12).toString("hex")}` : null, lateUnits: 0n, lateCents: 0, lateWait: null,
+    clientSecret: method === "card" ? `pi_mock_secret_${randomBytes(12).toString("hex")}` : null, lateUnits: 0n, lateCents: 0, lateWait: null, closedBy: null,
   }
   reg.invoiceId = inv.id
   invoices.set(inv.id, inv)
@@ -771,7 +787,7 @@ export async function cancelInvoice(invoiceId: string): Promise<Record<string, u
   expireIfDue(inv)
   if (inv.status !== "open") throw new HttpError(409, "not_open")
   if (inv.amountPaid) throw new HttpError(409, "funded")
-  close(inv)
+  close(inv, "cancelled")
   return invoiceView(inv)
 }
 
@@ -865,7 +881,7 @@ async function advance(reg: Registration): Promise<void> {
     if (e instanceof NotSent && reg.resends < RESENDS) {
       reg.resends += 1
       setTimeout(() => void advance(reg), RESEND_MS)
-    } else fail(reg, "not_registered")
+    } else fail(reg, "notRegistered")
   } finally {
     busy.delete(reg.id)
   }
@@ -873,7 +889,7 @@ async function advance(reg: Registration): Promise<void> {
 
 // A commitment not revealed before revealBefore can no longer register: the order fails, for Try again to commit afresh.
 function lapse(reg: Registration): void {
-  if (reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore) fail(reg, "not_signed_in_time")
+  if (reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore) fail(reg, "notSignedInTime")
 }
 
 function fail(reg: Registration, error: FailReason): void {
@@ -888,7 +904,7 @@ async function commit(reg: Registration): Promise<void> {
   changed(reg)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "not_registered")
+    return fail(reg, "notRegistered")
   }
   for (;;) {
     try {
@@ -936,7 +952,7 @@ async function register(reg: Registration): Promise<void> {
   await taking.get(reg.label!)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "not_registered")
+    return fail(reg, "notRegistered")
   }
   const { nonce, deadline, signature } = reg.intent!
   const { acceptance } = reg
@@ -961,7 +977,7 @@ async function register(reg: Registration): Promise<void> {
   } catch (e) {
     if (e instanceof NotSent) throw e
     // a register with no answer may still be mined, so the order waits for the chain; a relay with no answer fails the order
-    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, "not_registered")
+    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, "notRegistered")
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
     // another registration by the same owner spent this nonce first, or the terms changed: the owner signs again
     if (SIGN_AGAIN.includes(e.revert ?? "")) {
@@ -977,11 +993,11 @@ async function register(reg: Registration): Promise<void> {
       else credit(reg.id, reg.paid)
       return changed(reg)
     }
-    return fail(reg, "not_registered")
+    return fail(reg, "notRegistered")
   }
   // the transaction went through; the owner is checked as the chain answers it, and a read that fails leaves it at that
   const holder = await ownerOf(reg.labelHash).catch(() => reg.owner)
-  if (holder !== reg.owner) return fail(reg, "not_registered")
+  if (holder !== reg.owner) return fail(reg, "notRegistered")
   await registered(reg)
 }
 
@@ -991,7 +1007,7 @@ async function awaitRegistration(reg: Registration): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, PENDING_CHECK_MS))
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
   }
-  fail(reg, "not_registered")
+  fail(reg, "notRegistered")
 }
 
 // a few tries, as one failed read is the provider's moment, not the registration's
@@ -1056,7 +1072,7 @@ async function checkAcceptance(reg: Registration, accepted: unknown, deadline: n
   const { termsHash, nonce, signature: signed } = accepted as Record<string, unknown>
   if (termsHash !== asked.termsHash || nonce !== asked.nonce) throw badRequest()
   const signature = checkSignature(signed)
-  const primaryType = asked.kind === "community" ? "AcceptCommunityTerms" : "AcceptGeneralTerms"
+  const primaryType = asked.community ? "AcceptCommunityTerms" : "AcceptGeneralTerms"
   const acceptor = await recoverTypedDataAddress({
     domain: { name: "SimplexNamePolicy", version: "1", chainId: deployment.chainId, verifyingContract: deployment.namePolicy },
     types: { [primaryType]: [{ name: "commitment", type: "bytes32" }, { name: "termsHash", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
@@ -1065,7 +1081,7 @@ async function checkAcceptance(reg: Registration, accepted: unknown, deadline: n
     signature,
   })
   if (acceptor !== reg.owner) throw badRequest()
-  return { community: asked.kind === "community", termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
+  return { community: asked.community, termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
 }
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {

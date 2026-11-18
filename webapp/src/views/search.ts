@@ -127,7 +127,7 @@ async function pointAtOwnOrder(label: string, hash: string, page: number): Promi
     if (!onPage(page)) return null
     const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId).catch(() => null) : null
     const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId).catch(() => null))
-    return reg && { phase: reg.phase, invoice: invoice?.status ?? null }
+    return reg && { phase: reg.phase.type, invoice: invoice?.status ?? null }
   }
   const orders = ownOrders(store.orders().filter((r) => r.request.labelHash === hash), read)
   ownRead = { label, orders }
@@ -146,7 +146,7 @@ async function readOrder(record: store.OrderRecord): Promise<{ view: api.Registr
 
 // an order moves from a failed registration, or from links the service refused; a name taken first keeps its payment as a balance
 const movable = (view: api.RegistrationView, record: store.OrderRecord) =>
-  view.phase === "failed" || (view.phase === "committed" && (view.linksRefused || record.linksRefused === true))
+  view.phase.type === "failed" || (view.phase.type === "committed" && (view.linksRefused || record.linksRefused === true))
 
 function movedOf(view: api.RegistrationView, record: store.OrderRecord): Moved | null {
   if (movable(view, record)) return null

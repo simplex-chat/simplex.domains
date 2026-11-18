@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { Found, InvoiceView, Links, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
+import type { Found, InvoiceView, Links, Phase, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
   balanceRows, changesOf, CODE_CHIPS, holderOf, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
@@ -7,6 +7,7 @@ import {
   againLine, ranOut, registrableAgain, screenOfEdit, type Stored, waitsToSign,
 } from "../src/screens/names.ts"
 import type { CodeRecord, OrderRecord, PendingCode } from "../src/store.ts"
+import { type ShortView, viewOf } from "./registration-view.ts"
 
 const NOW = Date.parse("2026-10-17T12:00:00Z")
 const OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
@@ -15,15 +16,13 @@ const YEAR_S = 365 * 24 * 3600
 const CONTACT = "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7p"
 const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 
-function registration(change: Partial<RegistrationView> = {}): RegistrationView {
-  return {
-    id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
-    duration: 2 * YEAR_S, price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: "2026-10-23", ...change,
-  }
-}
+const registration = (change: ShortView = {}): RegistrationView => viewOf({
+  id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
+  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: false, latePayment: null,
+  community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` },
+}, change)
 
-const invoice = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView> = {}): InvoiceView => ({
+const invoice = (change: Partial<InvoiceView> = {}, reg: ShortView = {}): InvoiceView => ({
   invoiceId: "inv-1", status: "open", amount: 1500, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: registration(reg),
   address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", cryptoAmount: "0.00025", cryptoCurrency: "btc", cryptoAmountPaid: "0", cryptoAmountDue: "0.00025",
   paidInFull: false, requiredConfirmations: 1, ...change,
@@ -49,7 +48,7 @@ const registered = (records: Links | null = { contact: CONTACT, channel: "" }, c
 })
 const registering: SearchAnswer = { found: { type: "registering" }, community: null }
 const available: SearchAnswer = { found: { type: "available", price: 1500, years: 2, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` } }, community: null }
-const registeredView = (change: Partial<RegistrationView> = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
+const registeredView = (change: ShortView = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
 
 const stored = (change: Partial<Stored> = {}): Stored => ({ orders: [], pending: [], codes: [], canPersist: true, ...change })
 const WAIT = { until: NOW + 5000, lead: NO_LEAD }
@@ -94,8 +93,7 @@ describe("list helpers", () => {
     const view = registration({ phase: "committed", revealAfter: NOW / 1000 - 1 })
     expect(waitsToSign(view, NOW)).toBe(true)
     expect(waitsToSign(view, NOW - 2000)).toBe(false)
-    expect(waitsToSign({ ...view, label: "alice" }, NOW)).toBe(false)
-    expect(waitsToSign({ ...view, revealAfter: null }, NOW)).toBe(false)
+    expect(waitsToSign(registration({ phase: "committed", revealAfter: NOW / 1000 - 1, label: "alice" }), NOW)).toBe(false)
   })
   it("phaseChip words each phase of an order as its page does", () => {
     const cases: [string, RegistrationView, InvoiceView | null, OrderRecord, [string, string]][] = [
@@ -106,7 +104,7 @@ describe("list helpers", () => {
       ["a payment after the invoice closed", registration(), invoice({ status: "paid" }), record(), ["Paid late", "warn"]],
       ["a whole payment after the close, credited, kept expired", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }), record(), ["Paid late", "warn"]],
       ["a whole payment after a cancel, credited", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }), record({ cancelled: true }), ["Paid late", "warn"]],
-      ["a whole payment after the close, confirming", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }, { latePayment: { waiting: "confirming" } }), record(),
+      ["a whole payment after the close, confirming", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }, { latePayment: "confirming" }), record(),
         ["Invoice expired", "warn"]],
       ["a payment in full", registration(), invoice({ paidInFull: true }), record(), ["Confirming payment", "warn"]],
       ["a card submitted", registration(), invoice({ cryptoCurrency: "card" }), record({ cardSubmittedAt: "2026-10-17T11:59:30Z" }), ["Confirming payment", "warn"]],
@@ -193,19 +191,19 @@ describe("list helpers", () => {
 })
 
 describe("balances", () => {
-  const BALANCE = { amount: 10000, held: false, heldUntil: null, refunded: 0 }
+  const BALANCE = { amount: 10000, hold: null, refunded: 0 }
   const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }),
     record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
   // a registered name's row is complete with its name's answer
   const read = (s: ListState, id: string, view: RegistrationView, inv: InvoiceView | null = null) => {
     const r = reduceList(s, { type: "row-read", id, view, invoice: inv, now: NOW })
-    return view.phase === "registered" ? reduceList(r, { type: "row-answered", id, answer: registered() }) : r
+    return view.phase.type === "registered" ? reduceList(r, { type: "row-answered", id, answer: registered() }) : r
   }
   const all = () => {
     let s = list({ orders })
     s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: BALANCE }))
     s = read(s, "reg-late", registration({ id: "reg-late", balance: { ...BALANCE, amount: 2500, refunded: 7500 } }), invoice({ invoiceId: "inv-2", status: "paid" }))
-    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000, held: true, heldUntil: "2026-10-17T12:30:00Z" } }))
+    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000, hold: { type: "open", heldUntil: "2026-10-17T12:30:00Z" } } }))
     return read(s, "reg-plain", registration({ id: "reg-plain", phase: "registered" }))
   }
   it("lists each order's balance with what made it, what support refunded, and the open invoice that holds it", () => {
@@ -232,7 +230,7 @@ describe("balances", () => {
 describe("holderOf", () => {
   const orders = [record({ registrationId: "expired", invoiceId: "inv-e", balanceSource: "src" }), record({ registrationId: "paid", invoiceId: "inv-p", balanceSource: "src" }),
     record({ registrationId: "open", invoiceId: "inv-o", balanceSource: "src" }), record({ registrationId: "other", invoiceId: "inv-x", balanceSource: "src2" })]
-  const read = (s: ListState, id: string, status: InvoiceView["status"], phase: RegistrationView["phase"] = "unpaid") =>
+  const read = (s: ListState, id: string, status: InvoiceView["status"], phase: Phase = "unpaid") =>
     reduceList(s, { type: "row-read", id, view: registration({ id, phase }), invoice: invoice({ invoiceId: `inv-${id}`, status }), now: NOW })
   it("is the order whose invoice is open and holds the balance, never one that expired or was paid", () => {
     let s = read(read(list({ orders }), "expired", "expired"), "paid", "paid", "queued")
@@ -278,14 +276,14 @@ describe("lateLine", () => {
   })
   it("keeps it as the balance once it is confirmed or credited, while the credit waits on either", () => {
     const whole = { status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true } as const
-    expect(lateLine(invoice(whole, { latePayment: { waiting: "confirming" } }))).toBe("A payment did not complete before the invoice closed; kept as your balance once confirmed")
-    expect(lateLine(invoice(whole, { latePayment: { waiting: "crediting" } }))).toBe("A payment did not complete before the invoice closed; kept as your balance once credited")
-    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: { waiting: "confirming" } })))
+    expect(lateLine(invoice(whole, { latePayment: "confirming" }))).toBe("A payment did not complete before the invoice closed; kept as your balance once confirmed")
+    expect(lateLine(invoice(whole, { latePayment: "crediting" }))).toBe("A payment did not complete before the invoice closed; kept as your balance once credited")
+    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: "confirming" })))
       .toBe("Part of the payment arrived; kept as your balance once confirmed")
   })
   it("sends to support money the service cannot credit by itself", () => {
-    expect(lateLine(invoice({ status: "paid", paidInFull: true }, { latePayment: { waiting: "support" } }))).toBe("Paid after the invoice closed; write to support to have it credited")
-    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: { waiting: "support" } })))
+    expect(lateLine(invoice({ status: "paid", paidInFull: true }, { latePayment: "support" }))).toBe("Paid after the invoice closed; write to support to have it credited")
+    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: "support" })))
       .toBe("Part of the payment arrived; write to support to have it credited")
   })
   it("is null for an invoice that closed with nothing received, and for an open one", () => {
@@ -608,7 +606,7 @@ describe("a row shown", () => {
     expect(rowShown(seen, order)).toBe(true)
     const read = readAs(seen, registeredView())
     expect(rowShown(read, order)).toBe(true)
-    expect(read.seen["reg-1"].view.phase, "still drawn as last seen").toBe("registering")
+    expect(read.seen["reg-1"].view.phase.type, "still drawn as last seen").toBe("registering")
     const done = answered(read)
     expect(done.seen["reg-1"]).toEqual({ view: registeredView(), invoice: null, answer: registered() })
     expect(rowShown(done, order)).toBe(true)

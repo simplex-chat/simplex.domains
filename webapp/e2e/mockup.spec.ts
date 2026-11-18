@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  brokenNames, channelLink, codeField, contactLink, control, keepOrder, LINKS_HEADING, onStep, previewsShown, registeredAnswer, registrationView, search, test, toReview, uniqueLabel, useCode,
+  brokenNames, channelLink, codeField, contactLink, control, keepOrder, LINKS_HEADING, onStep, previewsShown, registeredAnswer, registeredPhase, registrationView, search, test, toReview, uniqueLabel, useCode,
 } from "./helpers.ts"
 
 const PHONE = { width: 390, height: 844 }
@@ -13,7 +13,7 @@ const EXPIRES_AT = 1861833600
 // A registered name this browser holds, with the links its records answer.
 async function registeredName(page: Page, id: string, label: string, links: { contact: string; channel: string }): Promise<void> {
   const order = await keepOrder(page, id, null, label, links)
-  await page.route(`**/api/registration/${id}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: EXPIRES_AT }) }))
+  await page.route(`**/api/registration/${id}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(EXPIRES_AT), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: registeredAnswer(order.owner, EXPIRES_AT, links) }))
 }
 
@@ -200,7 +200,7 @@ const HEADING_NAMES: [string, string[]][] = [["bakeryhouse", ["40px", "30px"]], 
 test("a heading's name too long for a line at the heading's size draws it smaller, across the column, its TLD on its last letters' line", async ({ page }) => {
   for (const [i, [label, sizes]] of HEADING_NAMES.entries()) {
     const order = await keepOrder(page, `reg-h${i}`, null, label)
-    await page.route(`**/api/registration/reg-h${i}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: EXPIRES_AT }) }))
+    await page.route(`**/api/registration/reg-h${i}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(EXPIRES_AT), commitTx: "0x02", registerTx: "0x03" }) }))
     await page.goto(`/?registration=reg-h${i}`)
     const heading = page.getByRole("heading", { name: `${label}.simplex is yours` })
     await expect(heading).toBeVisible()

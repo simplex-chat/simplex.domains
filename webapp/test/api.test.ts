@@ -267,9 +267,9 @@ describe("service errors", () => {
   })
 
   const REGISTRATION = {
-    id: "r1", version: 4, unread: [], moves: 0, phase: "unpaid", labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
-    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: "2026-10-23", acceptance: null,
+    id: "r1", version: 4, moves: 0, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
+    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: false, latePayment: null,
+    community: null, terms: { communityName: false, termsHash: TERMS.hash },
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -277,10 +277,9 @@ describe("service errors", () => {
     answerWith(200, JSON.stringify(INVOICE))
     expect(await readInvoice("inv1")).toMatchObject({ invoiceId: "inv1", registration: { id: "r1" } })
     for (const body of [
-      {}, { ...INVOICE, registration: undefined }, { ...INVOICE, registration: { ...REGISTRATION, phase: "lost" } }, { ...INVOICE, status: "weird" },
+      {}, { ...INVOICE, registration: undefined }, { ...INVOICE, registration: { ...REGISTRATION, phase: { type: "lost" } } }, { ...INVOICE, status: "weird" },
       { ...INVOICE, amount: "lots" }, { ...INVOICE, amount: -1 }, { ...INVOICE, cryptoAmount: "a lot" }, { ...INVOICE, registration: { ...REGISTRATION, years: 0 } },
-      { ...INVOICE, registration: { ...REGISTRATION, version: "4" } }, { ...INVOICE, registration: { ...REGISTRATION, unread: undefined } },
-      { ...INVOICE, registration: { ...REGISTRATION, unread: [4] } },
+      { ...INVOICE, registration: { ...REGISTRATION, version: "4" } }, { ...INVOICE, registration: { ...REGISTRATION, phase: "unpaid" } },
     ]) {
       answerWith(200, JSON.stringify(body))
       const e = await readInvoice("inv1").then(() => null, (e: unknown) => e)
@@ -304,12 +303,34 @@ describe("service errors", () => {
     }
   })
 
-  const BALANCE = { amount: 10000, held: true, heldUntil: "2026-10-16T12:00:00Z", refunded: 2500 }
+  const BALANCE = { amount: 10000, hold: { type: "open", heldUntil: "2026-10-16T12:00:00Z" }, refunded: 2500 }
 
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, latePayment: { waiting } }))
-      expect((await readRegistration("r1")).latePayment).toEqual({ waiting })
+      answerWith(200, JSON.stringify({ ...REGISTRATION, latePayment: waiting }))
+      expect((await readRegistration("r1")).latePayment).toEqual(waiting)
+    }
+  })
+
+  it("passes each phase with what it holds, and takes a phase that cannot be so as no answer", async () => {
+    const acceptance = { community: false, policy: "0x3", termsHash: TERMS.hash, nonce: 0 }
+    const committed = (signature: unknown) => ({ type: "committed", revealAfter: 1, revealBefore: 2, signature })
+    for (const phase of [
+      { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "queued" }, { type: "committing" },
+      committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
+      { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "taken" }, { type: "failed", reason: "notSignedInTime" }, { type: "failed", reason: "notRegistered" },
+    ]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
+      expect((await readRegistration("r1")).phase, JSON.stringify(phase)).toEqual(phase)
+    }
+    for (const phase of [
+      { type: "closed" }, { type: "closed", closedBy: "paid" }, { type: "committed", revealAfter: 1, revealBefore: 2 }, committed({ type: "awaiting" }),
+      committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4 } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: -1, acceptance } }),
+      { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "failed" }, { type: "failed", reason: "not_registered" },
+    ]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
+      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      expect((e as ApiError).code, JSON.stringify(phase)).toBe("network")
     }
   })
 
@@ -325,12 +346,17 @@ describe("service errors", () => {
   })
 
   it("passes an order's balance and what a balance paid of it, and takes either malformed as no answer", async () => {
-    answerWith(200, JSON.stringify({ ...REGISTRATION, fromBalance: 4000, balance: BALANCE }))
-    expect(await readRegistration("r1")).toMatchObject({ fromBalance: 4000, balance: BALANCE })
+    const difference = { type: "difference", method: "btc", fromBalance: 4000 }
+    for (const [payment, balance] of [[difference, BALANCE], [{ type: "balance", fromBalance: 10000 }, { ...BALANCE, hold: { type: "funded" } }], [{ type: "code" }, { ...BALANCE, hold: null }]]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, payment, balance }))
+      expect(await readRegistration("r1"), JSON.stringify(payment)).toMatchObject({ payment, balance })
+    }
     for (const change of [
-      { fromBalance: undefined }, { fromBalance: -1 }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
-      { balance: { ...BALANCE, held: "yes" } }, { balance: { ...BALANCE, heldUntil: 5 } }, { balance: { ...BALANCE, refunded: null } },
-      { linksRefused: undefined }, { linksRefused: "no" }, { latePayment: undefined }, { latePayment: {} }, { latePayment: { waiting: "later" } },
+      { payment: undefined }, { payment: { type: "invoice" } }, { payment: { type: "invoice", method: "eth" } }, { payment: { ...difference, fromBalance: -1 } },
+      { payment: { type: "balance" } }, { payment: { type: "gift" } }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
+      { balance: { ...BALANCE, hold: undefined } }, { balance: { ...BALANCE, hold: { type: "open" } } }, { balance: { ...BALANCE, hold: { type: "open", heldUntil: 5 } } },
+      { balance: { ...BALANCE, hold: { type: "overdue", heldUntil: "2026-10-16T12:00:00Z" } } }, { balance: { ...BALANCE, refunded: null } },
+      { linksRefused: undefined }, { linksRefused: "no" }, { latePayment: undefined }, { latePayment: {} }, { latePayment: "later" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
@@ -353,7 +379,7 @@ describe("service errors", () => {
     expect(await spend("r/1", SPEND, 31337)).toEqual({ registrationId: "r2" })
     const [path, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
     expect([path, init.method, JSON.parse(String(init.body))]).toEqual(["/api/registration/r%2F1/spend", "POST", SPEND_SENT])
-    const invoice = { ...INVOICE, amount: 10000, registration: { ...REGISTRATION, price: 20000, fromBalance: 10000 } }
+    const invoice = { ...INVOICE, amount: 10000, registration: { ...REGISTRATION, price: 20000, payment: { type: "difference", method: "btc", fromBalance: 10000 } } }
     answerWith(200, JSON.stringify(invoice))
     expect(await spend("r1", SPEND, 31337)).toEqual(invoice)
     for (const body of [{}, { registrationId: 5 }, { ...invoice, registration: undefined }, { registrationId: "r2", invoiceId: "inv1" }]) {
@@ -478,12 +504,14 @@ describe("service errors", () => {
       expect((await errorOf(1)).code, "terms on this machine, on another chain").toBe("network")
     })
 
-    it("passes an order's community entry and the terms it signed, also the version an older page signed, null for an order stored without them", async () => {
-      for (const change of [{ community: COMMUNITY, terms: SIGNED }, { community: COMMUNITY, terms: OLDER_SIGNED }, { community: null, terms: null }, { terms: "v1.2_3" }, { terms: "t".repeat(112) }]) {
+    it("passes an order's community entry and the terms it signed", async () => {
+      const agreed = { communityName: true, termsHash: COMMUNITY_TERMS.hash }
+      for (const change of [{ community: COMMUNITY, terms: agreed }, { community: null, terms: { communityName: false, termsHash: TERMS.hash } }]) {
         answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
         expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
       }
-      for (const change of [{ community: undefined }, { community: { ...COMMUNITY, for: 1 } }, { terms: undefined }, { terms: 5 }, { terms: "" }, { terms: "a b" }, { terms: "t".repeat(113) }]) {
+      for (const change of [{ community: undefined }, { community: { ...COMMUNITY, for: 1 } }, { terms: undefined }, { terms: null }, { terms: SIGNED }, { terms: { ...agreed, communityName: "yes" } },
+        { terms: { ...agreed, termsHash: COMMUNITY_TERMS.hash.slice(2) } }, { terms: { communityName: true } }]) {
         answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
         const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
@@ -491,16 +519,18 @@ describe("service errors", () => {
     })
 
     it("passes the acceptance a committed name's reveal signs, of either kind, and takes one it cannot sign as no answer", async () => {
-      const acceptance = { kind: "community", policy: "0x3", termsHash: COMMUNITY_TERMS.hash, nonce: 0 }
-      for (const change of [{ acceptance }, { acceptance: { ...acceptance, kind: "general", termsHash: TERMS.hash } }, { acceptance: null }]) {
-        answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
-        expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
+      const acceptance = { community: true, policy: "0x3", termsHash: COMMUNITY_TERMS.hash, nonce: 0 }
+      const withAcceptance = (accepted: unknown) => ({ ...REGISTRATION, phase: { type: "committed", revealAfter: 1, revealBefore: 2,
+        signature: { type: "awaiting", toSign: { type: "read", intentNonce: 0, acceptance: accepted } } } })
+      for (const accepted of [acceptance, { ...acceptance, community: false, termsHash: TERMS.hash }]) {
+        answerWith(200, JSON.stringify(withAcceptance(accepted)))
+        expect(await readRegistration("r1"), JSON.stringify(accepted)).toMatchObject(withAcceptance(accepted))
       }
-      for (const change of [{ acceptance: undefined }, { acceptance: { ...acceptance, termsHash: "0x1" } }, { acceptance: { ...acceptance, nonce: -1 } }, { acceptance: { ...acceptance, nonce: 1.5 } },
-        { acceptance: { ...acceptance, policy: 3 } }, { acceptance: { ...acceptance, kind: undefined } }, { acceptance: { ...acceptance, kind: "name" } }]) {
-        answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
+      for (const accepted of [undefined, null, { ...acceptance, termsHash: "0x1" }, { ...acceptance, nonce: -1 }, { ...acceptance, nonce: 1.5 },
+        { ...acceptance, policy: 3 }, { ...acceptance, community: undefined }, { ...acceptance, community: "community" }]) {
+        answerWith(200, JSON.stringify(withAcceptance(accepted)))
         const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
-        expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
+        expect((e as ApiError).code, JSON.stringify(accepted)).toBe("network")
       }
     })
 

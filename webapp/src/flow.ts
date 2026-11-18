@@ -86,20 +86,23 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
 // The owner signs the registration once the commit has aged, with a deadline a week ahead and never before the commitment
 // lapses, so the service can commit again after a lapse and register without the page.
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
+  const committed = api.committedOf(view)!
+  const toSign = api.toSignOf(view)
+  if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
   const wallet = walletOf(record.ownerCode)!
   const site = await namesSite()
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(view.duration))
-  const deadline = Math.max(view.revealBefore!, now() + REVEAL_DEADLINE_SECONDS)
-  const digest = registerIntentDigest(BigInt(site.chainId), fromHex(site.sponsor), r, BigInt(view.intentNonce!), BigInt(deadline))
-  const a = view.acceptance!
+  const deadline = Math.max(committed.revealBefore, now() + REVEAL_DEADLINE_SECONDS)
+  const digest = registerIntentDigest(BigInt(site.chainId), fromHex(site.sponsor), r, BigInt(toSign.intentNonce), BigInt(deadline))
+  const a = toSign.acceptance
   const acceptance = {
     termsHash: a.termsHash, nonce: a.nonce,
-    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.kind === "community", BigInt(site.chainId), fromHex(a.policy), fromHex(view.commitment), fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
+    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.community, BigInt(site.chainId), fromHex(a.policy), fromHex(view.commitment), fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
   }
   await api.reveal(view.id, {
     label: record.label, secret: hex(r.secret),
     records: { contact: r.contactLink, channel: r.channelLink },
-    nonce: view.intentNonce!, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
+    nonce: toSign.intentNonce, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   })
 }
 
@@ -194,14 +197,14 @@ async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pi
   const r = registrationOf(opened.label, wallet.address, commitmentSecret(wallet.seed, opened.label), opened, await namesSite(), BigInt(view.duration))
   if (hex(makeCommitment(r)) !== view.commitment) throw new Error("the order's commitment does not match the code")
   const request = { labelHash: view.labelHash, length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
-  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: view.terms ?? undefined }
+  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms) }
 }
 
 // An order moved to another name elsewhere (another browser, or a retarget whose answer was lost) is read back from the
 // service; a move with other terms alone keeps the commitment.
 export async function syncRecord(record: store.OrderRecord, view: api.RegistrationView): Promise<store.OrderRecord | null> {
   if (view.commitment === record.request.commitment) {
-    const terms = view.terms ?? undefined
+    const terms = api.signedTermsOf(view.terms)
     if (terms === record.terms) return record
     const synced = { ...record, terms }
     store.saveOrder(synced)
@@ -319,7 +322,7 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const known = store.orderByRegistration(view.id)
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
-    method: invoice ? invoice.cryptoCurrency ?? "card" : view.fromBalance > 0 ? "balance" : "code", paid: view.price, years: view.years,
+    method: view.payment.type === "invoice" || view.payment.type === "difference" ? view.payment.method : view.payment.type, paid: view.price, years: view.years,
     tld: readSite().tld, createdAt: chosen.createdAt, balanceSource: chosen.balanceSource ?? known?.balanceSource,
   }
   store.saveOrder(record)

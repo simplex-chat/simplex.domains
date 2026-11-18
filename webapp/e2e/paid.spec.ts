@@ -73,7 +73,7 @@ test("a stage with no timed wait, as the register transaction being mined, draws
   await page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
     const response = await route.fetch()
     const json = await response.json()
-    await route.fulfill({ response, json: { ...json, registration: { ...json.registration, phase: "registering" } } })
+    await route.fulfill({ response, json: { ...json, registration: { ...json.registration, phase: { type: "registering" } } } })
   })
   await page.reload()
   const mined = page.locator("body > main .stage.active")
@@ -1007,7 +1007,7 @@ test("a part payment on a closed invoice, once credited, says so and gets an inv
   const second = new URL(page.url()).searchParams.get("order")!
   const invoice = async (id: string) => (await request.get(`${MOCK}/api/invoice/${id}`)).json()
   const [closed, rest] = [await invoice(invoiceId), await invoice(second)]
-  expect([rest.amount, rest.registration.price, rest.registration.fromBalance, rest.registration.labelHash], "the difference, for the same name")
+  expect([rest.amount, rest.registration.price, rest.registration.payment.fromBalance, rest.registration.labelHash], "the difference, for the same name")
     .toEqual([5000, 10000, 5000, closed.registration.labelHash])
   await control(request, `settle/${second}`)
   await waitRegistered(page, label)

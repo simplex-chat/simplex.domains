@@ -293,7 +293,7 @@ test("Register without links that loses a race follows the order as it is now, s
 
   // the order lapsed first, failed with its links still refused, which keeps the same screen
   await page.unrouteAll({ behavior: "wait" })
-  const lapsed = { ...view, version: view.version + 1, phase: "failed", error: "not_signed_in_time" }
+  const lapsed = { ...view, version: view.version + 1, phase: { type: "failed", reason: "notSignedInTime" } }
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "registration_changed", registration: lapsed } }))
   await onStep(page).getByRole("button", { name: "Register without links" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Paid, not registered" })).toBeVisible()
@@ -301,7 +301,7 @@ test("Register without links that loses a race follows the order as it is now, s
   await expect(onStep(page).getByRole("button", { name: "Register without links" })).not.toHaveAttribute("aria-busy", "true")
 
   await page.unrouteAll({ behavior: "wait" })
-  const moved = { ...view, version: view.version + 1, moves: 1, phase: "queued", linksRefused: false, label: null, revealAfter: null, revealBefore: null, commitTx: null }
+  const moved = { ...view, version: view.version + 1, moves: 1, phase: { type: "queued" }, linksRefused: false, label: null, commitTx: null }
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "registration_changed", registration: moved } }))
   await onStep(page).getByRole("button", { name: "Register without links" }).click()
   await expect(onStep(page).getByRole("heading", { name: `Registering ${label}.simplex` })).toBeVisible()

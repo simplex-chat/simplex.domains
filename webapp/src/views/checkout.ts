@@ -193,7 +193,7 @@ function settled(waiting: WaitingOrder, signal: AbortSignal): false {
 }
 
 const OPEN_ORDER_LOOKBACK = 5
-const unpaid = (i: api.InvoiceView | null): i is api.InvoiceView => i?.status === "open" && i.registration.phase === "unpaid"
+const unpaid = (i: api.InvoiceView | null): i is api.InvoiceView => i?.status === "open" && i.registration.phase.type === "unpaid"
 
 // An unpaid invoice this browser made is pointed at, not blocking a new order, and followed until paid or closed; only the newest few are asked.
 async function showOpenOrder(signal: AbortSignal): Promise<void> {

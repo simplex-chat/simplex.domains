@@ -39,7 +39,7 @@ const ROW_GAP = 14
 // a page moved on to another invoice than `from`, rather than to a page of none
 const otherInvoice = (from: string) => (url: URL) => url.searchParams.get("order") !== null && url.searchParams.get("order") !== from
 
-interface MockInvoice { amount: number; status: string; registration: { id: string; price: number; fromBalance: number; phase: string; balance: unknown } }
+interface MockInvoice { amount: number; status: string; registration: { id: string; price: number; payment: unknown; phase: unknown; balance: unknown } }
 const invoiceOf = async (page: Page, invoiceId: string) => (await (await page.request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()) as MockInvoice
 
 test("a paid order taken first keeps its price as its balance, which a cheaper name spends keeping the rest, and a dearer one with the difference by card", async ({ page, request }) => {
@@ -108,7 +108,7 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   await expect(page.getByText("Waiting for Stripe to confirm")).toBeVisible()
   await control(request, `settle/${difference}`)
   await waitRegistered(page, dearer)
-  expect((await invoiceOf(page, difference)).registration).toMatchObject({ price: 20000, fromBalance: 10000 })
+  expect((await invoiceOf(page, difference)).registration).toMatchObject({ price: 20000, payment: { type: "difference", fromBalance: 10000 } })
 
   // the balance is spent, so the order taken first is listed as a name taken first
   await yourNames(page)
@@ -151,14 +151,15 @@ test("a difference invoice cancelled frees its balance, which Order the name aga
   await payButton(page).click()
   await page.waitForURL(otherInvoice(first))
   const second = new URL(page.url()).searchParams.get("order")!
-  expect((await invoiceOf(page, second)).registration).toMatchObject({ price: 20000, fromBalance: 10000 })
+  expect((await invoiceOf(page, second)).registration).toMatchObject({ price: 20000, payment: { type: "difference", fromBalance: 10000 } })
 
   // an expired difference invoice's new invoice is a new spend of the balance, for the rest only
   await control(request, `expire/${second}`)
   await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL(otherInvoice(second))
   const third = await invoiceOf(page, new URL(page.url()).searchParams.get("order")!)
-  expect([third.amount, third.registration.price, third.registration.fromBalance]).toEqual([10000, 20000, 10000])
+  expect([third.amount, third.registration.price]).toEqual([10000, 20000])
+  expect(third.registration.payment).toMatchObject({ type: "difference", fromBalance: 10000 })
 })
 
 test("the name code shows the balance in another browser, a spend meeting a refund asks the whole price, and a refund support records shows as refunded", async ({ page, browser, request }) => {
@@ -382,7 +383,8 @@ test("a difference order adopted by another browser gets its new invoice as a ne
   await away.waitForURL(otherInvoice(first))
   await expect(onStep(away).getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
   const next = await invoiceOf(away, new URL(away.url()).searchParams.get("order")!)
-  expect([next.amount, next.registration.price, next.registration.fromBalance]).toEqual([10000, 20000, 10000])
+  expect([next.amount, next.registration.price]).toEqual([10000, 20000])
+  expect(next.registration.payment).toMatchObject({ type: "difference", fromBalance: 10000 })
   await other.close()
 })
 
@@ -547,8 +549,8 @@ test.describe(() => {
   for (const held of [false, true]) {
     test(`a balance of a name of ${MAX_LABEL_LENGTH} wide letters keeps its words clear of its ${held ? "chip and the order holding it" : "Use and Refund"}, beside them or above, down to a 320 px phone`, async ({ page }) => {
       const order = await keepOrder(page, "reg-balrow", "inv-balrow", "w".repeat(MAX_LABEL_LENGTH))
-      const view = registrationView(order, { phase: "taken", commitTx: "0x02",
-        balance: { amount: 10000, held, heldUntil: held ? new Date(Date.now() + 900_000).toISOString() : null, refunded: 0 } })
+      const view = registrationView(order, { phase: { type: "taken" }, commitTx: "0x02",
+        balance: { amount: 10000, hold: held ? { type: "open", heldUntil: new Date(Date.now() + 900_000).toISOString() } : null, refunded: 0 } })
       await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
       await page.route("**/api/config", (route) => route.continue())
       await page.route("**/api/registration/reg-balrow*", (route) => route.fulfill({ json: view }))

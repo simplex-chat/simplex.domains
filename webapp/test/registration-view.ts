@@ -1,0 +1,25 @@
+import type { Acceptance, FailReason, Payment, Phase, PhaseView, RegistrationView, ToSign } from "../src/api.ts"
+
+export type ViewBase = Omit<RegistrationView, "phase" | "payment">
+
+export interface ShortView extends Partial<Omit<RegistrationView, "phase">> {
+  phase?: Phase
+  revealAfter?: number
+  revealBefore?: number
+  intentNonce?: number | null
+  acceptance?: Acceptance | null
+  unread?: boolean
+  expiresAt?: number
+  reason?: FailReason
+  fromBalance?: number
+}
+
+export function viewOf(base: ViewBase, change: ShortView): RegistrationView {
+  const { phase = "unpaid", revealAfter = 0, revealBefore = 0, intentNonce = null, acceptance = null, unread = false, expiresAt = 0, reason = "notRegistered", fromBalance = 0, ...rest } = change
+  const view = { ...base, ...rest }
+  const payment: Payment = fromBalance === 0 ? { type: "invoice", method: "btc" } : fromBalance >= view.price ? { type: "balance", fromBalance } : { type: "difference", method: "btc", fromBalance }
+  const toSign: ToSign = unread || intentNonce === null || acceptance === null ? { type: "unread" } : { type: "read", intentNonce, acceptance }
+  const phaseView: PhaseView = phase === "committed" ? { type: phase, revealAfter, revealBefore, signature: view.label === null ? { type: "awaiting", toSign } : { type: "signed" } }
+    : phase === "registered" ? { type: phase, expiresAt } : phase === "failed" ? { type: phase, reason } : phase === "closed" ? { type: phase, closedBy: "expired" } : { type: phase }
+  return { payment, ...view, phase: phaseView }
+}

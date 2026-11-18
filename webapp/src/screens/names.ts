@@ -1,4 +1,4 @@
-import { holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, type SearchAnswer } from "../api.ts"
+import { fromBalanceOf, holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, type SearchAnswer } from "../api.ts"
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
 import { type CodeRecord, type OrderRecord, orderUrl, type PendingCode } from "../store.ts"
@@ -51,7 +51,7 @@ export function initialList(stored: Stored, hold: Hold | null, seen: Record<stri
 // a row drawn stays as last seen until a whole new answer replaces it
 export function rowShown(s: ListState, o: OrderRecord): boolean {
   const seen = s.seen[o.registrationId]
-  return s.unread.includes(o.registrationId) || (seen !== undefined && (seen.view.phase !== "registered" || seen.answer !== undefined))
+  return s.unread.includes(o.registrationId) || (seen !== undefined && (seen.view.phase.type !== "registered" || seen.answer !== undefined))
 }
 
 export function rowsDrawn(s: ListState, drawn: Set<string>): { rows: OrderRecord[]; done: boolean } {
@@ -86,8 +86,8 @@ export function reduceList(s: ListState, e: ListEvent): ListState {
       const o = s.orders.find((r) => r.registrationId === e.id)
       if (!o || (o.replacedBy && !moneyReached(e.invoice))) return s
       const last = s.seen[e.id]
-      if (e.view.phase === "registered" && last?.view.phase !== "registered") return { ...s, now: e.now, next: { ...s.next, [e.id]: { view: e.view, invoice: e.invoice } } }
-      const kept = last?.view.phase === "registered" ? { answer: last.answer } : {}
+      if (e.view.phase.type === "registered" && last?.view.phase.type !== "registered") return { ...s, now: e.now, next: { ...s.next, [e.id]: { view: e.view, invoice: e.invoice } } }
+      const kept = last?.view.phase.type === "registered" ? { answer: last.answer } : {}
       return { ...s, now: e.now, seen: { ...s.seen, [e.id]: { view: e.view, invoice: e.invoice, ...kept } }, unread: s.unread.filter((id) => id !== e.id) }
     }
     case "row-answered": {
@@ -147,8 +147,8 @@ export function balanceRows(s: ListState): BalanceRow[] {
     const view = s.seen[o.registrationId]?.view
     const b = view?.balance
     if (!b || (b.amount === 0 && b.refunded === 0)) return []
-    const from = view.phase === "taken" ? "taken" : view.phase === "unpaid" ? "late" : "rest"
-    return [{ id: o.registrationId, amount: b.amount, refunded: b.refunded, held: b.held, heldUntil: b.held ? b.heldUntil : null, from }]
+    const from = view.phase.type === "taken" ? "taken" : view.phase.type === "unpaid" || view.phase.type === "closed" ? "late" : "rest"
+    return [{ id: o.registrationId, amount: b.amount, refunded: b.refunded, held: b.hold !== null, heldUntil: b.hold?.type === "open" ? b.hold.heldUntil : null, from }]
   })
 }
 
@@ -156,7 +156,7 @@ export function balanceRows(s: ListState): BalanceRow[] {
 // that expired, was cancelled or was paid since; undefined when this browser holds none such.
 export const holderOf = (s: ListState, source: string) => s.orders.find((o) => {
   const seen = s.seen[o.registrationId]
-  return o.balanceSource === source && seen?.invoice?.status === "open" && seen.view.phase === "unpaid"
+  return o.balanceSource === source && seen?.invoice?.status === "open" && seen.view.phase.type === "unpaid"
 })
 
 // the orders listed as names: a name registered by someone else first is listed by its balance alone
@@ -168,12 +168,12 @@ export function nameRows(s: ListState): OrderRecord[] {
 // A registered name past its expiry: there are no renewals, so the page takes it as over, though the chain keeps it its
 // holder's through the grace period, and whether or not someone has registered it again since.
 export const lapsed = ({ view, answer }: Pick<RowSeen, "view" | "answer">, now: number) =>
-  view.phase === "registered" && ((view.expiresAt !== null && view.expiresAt < now / 1000) || answer?.found.type === "available")
+  view.phase.type === "registered" && (view.phase.expiresAt < now / 1000 || answer?.found.type === "available")
 
 export const waitsToSign = (view: RegistrationView, now: number) =>
-  view.phase === "committed" && view.label === null && view.revealAfter !== null && now / 1000 >= view.revealAfter
+  view.phase.type === "committed" && view.label === null && now / 1000 >= view.phase.revealAfter
 
-const PHASE_CHIPS: Record<Phase, [string, string]> = {
+const PHASE_CHIPS: Record<Exclude<Phase, "closed">, [string, string]> = {
   unpaid: ["Waiting for payment", "warn"],
   queued: ["Registering", "brand"], committing: ["Registering", "brand"], committed: ["Registering", "brand"], registering: ["Registering", "brand"],
   registered: ["Registered", "ok"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
@@ -187,7 +187,7 @@ export const ORDER_CHIP_WORDS = [...new Set([...Object.values(ROW_CHIPS), ...Obj
 
 export function phaseChip(view: RegistrationView, invoice: InvoiceView | null, o: OrderRecord, now: number): [string, string] {
   if (waitsToSign(view, now)) return [CHIPS.sign, "warn"]
-  if (view.phase !== "unpaid") return PHASE_CHIPS[view.phase]
+  if (view.phase.type !== "unpaid" && view.phase.type !== "closed") return PHASE_CHIPS[view.phase.type]
   if (invoice && paidLate(invoice)) return [CHIPS.late, "warn"]
   if (invoice?.status === "expired") return o.cancelled && !holdsPayment(invoice) ? [CHIPS.cancelled, "bad"] : [CHIPS.expired, holdsPayment(invoice) ? "warn" : "bad"]
   if (invoice?.paidInFull || o.cardSubmittedAt) return [CHIPS.confirming, "warn"]
@@ -198,14 +198,14 @@ export function phaseChip(view: RegistrationView, invoice: InvoiceView | null, o
 // What paid the order: its invoice, with what another order's balance paid besides, a balance alone, or a free name's code. Before
 // the order is read, its record's method and worth.
 export function paidLine(o: OrderRecord, view: RegistrationView | null, invoice: InvoiceView | null): string {
-  const fromBalance = view?.fromBalance ?? 0
+  const fromBalance = view ? fromBalanceOf(view) : 0
   if (invoice) {
     const paid = `${dollars(invoice.amount)} ${methodName(invoice.cryptoCurrency ?? "card")}`
     return fromBalance ? `${paid} and ${dollars(fromBalance)} from your balance` : paid
   }
   if (fromBalance || o.method === "balance") return "Paid from your balance"
   // a code carries no money: it registers a free name, and a name taken first gives it back
-  if (o.method === "code") return view?.phase === "taken" ? "Free name with a code; the code was released for another name" : "Registered with a code"
+  if (o.method === "code") return view?.phase.type === "taken" ? "Free name with a code; the code was released for another name" : "Registered with a code"
   return `${dollars(o.paid)} ${methodName(o.method)}`
 }
 
@@ -216,7 +216,7 @@ const LATE_KEPT: Record<LateWait | "credited", string> = {
 // Money that reached an unpaid order's invoice once it had closed, or that it held as it closed, which is kept as the
 // order's balance; null when the invoice took none.
 export function lateLine(invoice: InvoiceView): string | null {
-  const kept = LATE_KEPT[invoice.registration.latePayment?.waiting ?? "credited"]
+  const kept = LATE_KEPT[invoice.registration.latePayment ?? "credited"]
   if (paidLate(invoice)) return `Paid after the invoice closed; ${kept}`
   if (invoice.status !== "expired") return null
   const part = Number(invoice.cryptoAmountPaid ?? "0") > 0 && !invoice.paidInFull
@@ -359,7 +359,7 @@ export function screenOfEdit(s: EditState): EditKind {
   if (lapsed({ view, answer }, now)) return "edit-expired"
   if (found.type === "registered" && !owns(found, s.record.owner)) return "edit-in-app"
   if (found.type === "registered" && found.records.type === "other") return "edit-elsewhere"
-  if (view.phase !== "registered" || found.type !== "registered") return "edit-not-registered"
+  if (view.phase.type !== "registered" || found.type !== "registered") return "edit-not-registered"
   return "edit"
 }
 

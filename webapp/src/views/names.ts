@@ -165,7 +165,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   if (api.closedEmpty(invoice) && await replaceWithNewer(synced, route)) return
   if (!isRoute(route)) return
   dispatchList({ type: "row-read", id, view, invoice, now: api.serviceNow() })
-  if (view.phase !== "registered") return
+  if (view.phase.type !== "registered") return
   const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length, readSite().chainId).catch(() => null)
   answerList(route, { type: "row-answered", id, answer })
 }
@@ -279,15 +279,17 @@ const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono
 function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): string | (Node | string)[] {
   // what was paid, from the invoice; the record's amount is the order's worth, lower after a move to a cheaper name
   const paid = paidLine(o, view, invoice)
-  if (lapsed({ view, answer }, now)) return `Expired ${view.expiresAt ? dateOf(view.expiresAt) : ""}`.trim()
-  if (view.phase === "registered") return view.expiresAt ? `Until ${dateOf(view.expiresAt)}` : paid
-  if (invoice && invoice.status !== "open" && view.phase === "unpaid") {
+  const expiresAt = api.expiresAtOf(view)
+  if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
+  if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
+  if (invoice && invoice.status !== "open" && (view.phase.type === "unpaid" || view.phase.type === "closed")) {
     const late = lateLine(invoice)
     return late ? [late, ...reference(invoice.invoiceId)] : `Nothing was charged${SEP}${dateOf(Date.parse(o.createdAt) / 1000)}`
   }
-  if (view.phase === "taken" && o.method === "code") return paid
+  if (view.phase.type === "taken" && o.method === "code") return paid
   if (waitsToSign(view, now)) return `Open the order so this browser can sign it${SEP}${continued(paid)}`
-  return PROGRESS[view.phase] ? `${PROGRESS[view.phase]}${SEP}${continued(paid)}` : paid
+  const progress = PROGRESS[view.phase.type]
+  return progress ? `${progress}${SEP}${continued(paid)}` : paid
 }
 
 function codeToggle(id: string, shown: boolean): HTMLElement {
@@ -307,7 +309,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const label = seen?.view.label ?? o.label
   const tld = seen ? readSite().tld : o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
-  const registered = seen?.view.phase === "registered"
+  const registered = seen?.view.phase.type === "registered"
   const code = registered ? o.ownerCode : null
   const shown = code !== null && s.shownCode === id
   const edits = registered && !lapsed(seen, s.now) && (!seen.answer || editable(seen.answer, o.owner))
@@ -339,7 +341,7 @@ function rowChip(s: ListState, o: store.OrderRecord, seen: RowSeen | undefined):
   if (s.unread.includes(o.registrationId) || !seen) return chip(ROW_CHIPS.unchecked, "warn")
   if (lapsed(seen, s.now)) return chip(ROW_CHIPS.lapsed, "bad")
   // a registered name says so by its date
-  if (seen.view.phase === "registered") return null
+  if (seen.view.phase.type === "registered") return null
   const [text, tone] = phaseChip(seen.view, seen.invoice, o, s.now)
   return chip(text, tone, tone !== "bad")
 }
@@ -528,7 +530,7 @@ async function readEdit(route: number): Promise<void> {
     return dispatchEdit({ type: "read-failed" })
   }
   if (!isRoute(route)) return
-  if (view.phase === "unpaid") {
+  if (view.phase.type === "unpaid" || view.phase.type === "closed") {
     // the name may have been registered through a newer invoice that another browser made, perhaps under another name
     const newer = await flow.newerOrder(record).catch(() => null)
     if (!isRoute(route)) return
@@ -553,8 +555,9 @@ const notice = (ic: IconName, title: string, text: string): Builder<EditState> =
 // The chain takes an expired name's link edits from its holder until someone registers it again; this page sends none.
 function buildExpired(s: EditState): HTMLElement {
   const { view, answer, now } = s.read!
+  const expiresAt = api.expiresAtOf(view)
   return editNotice(s, alertBox("info", "clock", "This name has expired",
-    `${ranOut(view.expiresAt)} Names are not renewed, so this page no longer edits its links. ${againLine(view.expiresAt, answer, now)}`))
+    `${ranOut(expiresAt)} Names are not renewed, so this page no longer edits its links. ${againLine(expiresAt, answer, now)}`))
 }
 
 function buildUnreadable(s: EditState, signal: AbortSignal): HTMLElement {

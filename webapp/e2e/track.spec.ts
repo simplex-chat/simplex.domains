@@ -370,7 +370,7 @@ interface CardOrder { label: string; price: number; fromBalance: number; taken?:
 async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<void>> {
   const order = await keepOrder(page, CARD_REGISTRATION, CARD_INVOICE, o.label)
   await page.evaluate((r) => localStorage.setItem(`simplex-names:order:${r.registrationId}`, JSON.stringify({ ...r, method: "card" })), order)
-  const registration = registrationView(order, { price: o.price, fromBalance: o.fromBalance })
+  const registration = registrationView(order, { price: o.price, payment: o.fromBalance ? { type: "difference", method: "card", fromBalance: o.fromBalance } : { type: "invoice", method: "card" } })
   const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: o.price - o.fromBalance, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
@@ -502,20 +502,20 @@ test.describe(() => {
     await shown("o1-partial-bitcoin", invoice, "Pay with Bitcoin")
     await shown("o2-closed-part-paid", invoiceOf(order, "expired", {}, PART), "Invoice closed")
     // as BTCPay keeps an invoice paid after it closed
-    await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } },
+    await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, hold: null, refunded: 0 } },
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: "failed", commitTx: "0x02", error: "not_registered" }), "Paid, not registered")
+    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "notRegistered" }, commitTx: "0x02" }), "Paid, not registered")
     await page.route("**/api/registration/reg-fitall/retry", (route) => route.fulfill({ status: 500, json: { error: "internal" } }))
     await onStep(page).getByRole("button", { name: "Try again" }).click()
     await expect(onStep(page).getByText("That did not go through")).toBeVisible()
     await fitsWindow(page, "o3b-not-registered-retry-refused", frames)
-    await shown("o4-taken", invoiceOf(order, "paid", { phase: "taken", commitTx: "0x02", balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } }), /was taken$/)
+    await shown("o4-taken", invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, hold: null, refunded: 0 } }), /was taken$/)
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     // a taken order seen in a browser without its code, which says where to add the code
     const elsewhere = await browser.newContext()
     const stranger = await elsewhere.newPage()
-    await stranger.route(`**/api/invoice/${FIT_INVOICE}*`, (route) => route.fulfill({ json: invoiceOf(order, "paid", { phase: "taken", commitTx: "0x02" }) }))
+    await stranger.route(`**/api/invoice/${FIT_INVOICE}*`, (route) => route.fulfill({ json: invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02" }) }))
     await stranger.goto(`/?order=${FIT_INVOICE}`)
     await expect(onStep(stranger).getByText("The name code is not in this browser")).toBeVisible()
     await fitsWindow(stranger, "o5-taken-without-code", frames)

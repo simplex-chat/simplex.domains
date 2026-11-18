@@ -4,7 +4,7 @@ import {
 } from "../src/screens/checkout.ts"
 import { timeOf } from "../src/format.ts"
 import { BALANCE_READ_MS, CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../src/screens/balance.ts"
-import type { InvoiceView } from "../src/api.ts"
+import type { Balance, InvoiceView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import type { Checkout } from "../src/session.ts"
 
@@ -316,7 +316,7 @@ describe("initialState", () => {
 
 describe("a balance", () => {
   const BALANCE = { source: "reg-taken", amount: 1000, held: false, heldUntil: null }
-  const read = (amount: number, held = false) => ({ amount, held, heldUntil: held ? "2026-10-17T12:30:00Z" : null, refunded: 0 })
+  const read = (amount: number, held = false): Balance => ({ amount, hold: held ? { type: "open", heldUntil: "2026-10-17T12:30:00Z" } : null, refunded: 0 })
   it("pays what it holds of the price, and the rest is left to pay", () => {
     expect(split(checkout({ balance: BALANCE }))).toEqual({ fromBalance: 1000, rest: 500 })
     expect(covered(checkout({ balance: BALANCE }))).toBe(false)

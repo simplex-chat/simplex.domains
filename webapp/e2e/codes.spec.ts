@@ -991,7 +991,8 @@ test("the registering page's clock tells the time left from the commit's wait", 
     const response = await route.fetch()
     const view = await response.json()
     const serviceNow = Date.parse(response.headers()["date"]!) / 1000
-    await route.fulfill({ response, json: { ...view, phase: "committed", label: null, commitTx: view.commitTx ?? `0x${"1".repeat(64)}`, revealAfter: serviceNow + WAIT_S } })
+    await route.fulfill({ response, json: { ...view, label: null, commitTx: view.commitTx ?? `0x${"1".repeat(64)}`,
+      phase: { type: "committed", revealAfter: serviceNow + WAIT_S, revealBefore: serviceNow + 86400, signature: { type: "awaiting", toSign: { type: "unread" } } } } })
   })
   await page.reload()
   await expect(page.locator(".countdown b")).toHaveText(/^3:[12]\d$/)
@@ -1159,12 +1160,12 @@ test("Check your code says nothing of a code being typed, and refuses one too sh
 test("a view whose sponsor nonce could not be read is read again after 5 then 15 seconds, without holding, and then signed", async ({ page, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   const label = uniqueLabel("unread")
-  const reads: { at: number; held: boolean; unread: string[] }[] = []
+  const reads: { at: number; held: boolean; unread: boolean }[] = []
   page.on("response", async (r) => {
     const url = new URL(r.url())
     if (!/^\/api\/registration\/[^/]+$/.test(url.pathname) || r.request().method() !== "GET") return
-    const view = await r.json().catch(() => null) as { unread: string[] } | null
-    if (view) reads.push({ at: Date.now(), held: url.searchParams.has("seenVersion"), unread: view.unread })
+    const view = await r.json().catch(() => null) as { phase: { signature?: { toSign?: { type: string } } } } | null
+    if (view) reads.push({ at: Date.now(), held: url.searchParams.has("seenVersion"), unread: view.phase.signature?.toSign?.type === "unread" })
   })
   // the service's reads of the sponsor's nonce fail for a while from the commit on
   await control(request, "search", { unreadSeconds: 12 })
@@ -1174,12 +1175,12 @@ test("a view whose sponsor nonce could not be read is read again after 5 then 15
   } finally {
     await control(request, "search", { unreadSeconds: 0 })
   }
-  const first = reads.findIndex((r) => r.unread.includes("intentNonce"))
+  const first = reads.findIndex((r) => r.unread)
   expect(first, "a view answered with the nonce unread").toBeGreaterThanOrEqual(0)
   const [again, third] = [reads[first + 1], reads[first + 2]]
   expect(again.held, "read again without holding on the version").toBe(false)
   expect(again.at - reads[first].at).toBeGreaterThanOrEqual(4500)
-  if (again.unread.length) expect(third.at - again.at).toBeGreaterThanOrEqual(14500)
+  if (again.unread) expect(third.at - again.at).toBeGreaterThanOrEqual(14500)
 })
 
 const CODE_QR = "QR code of the name code"

@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
   agreeToTerms, brokenNames, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, rowFit, savedToReview, search, shot,
-  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView, withStripeKey,
+  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registeredPhase, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 
@@ -656,13 +656,13 @@ test("Your names moves no row once drawn as its reads answer, on a browser's fir
     const context = await browser.newContext({ viewport: size })
     const page = await context.newPage()
     const now = Math.floor(Date.now() / 1000)
-    const registered = { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }
+    const registered = { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }
     const kept = [
       [await keepOrder(page, "reg-still0", null, "studio42", { contact: contactLink("R1"), channel: channelLink("R2") }), registered],
       [await keepOrder(page, "reg-still1", "inv-still1", "bakerypaidwithbitcoin"), registered],
       [await keepOrder(page, "reg-still4", "inv-still4", "bakerypaidbycard"), registered],
-      [await keepOrder(page, "reg-still2", null, "w".repeat(MAX_LABEL_LENGTH)), { phase: "committed", commitTx: "0x02" }],
-      [await keepOrder(page, "reg-still3", null, "bakerycodeorder"), { phase: "queued" }],
+      [await keepOrder(page, "reg-still2", null, "w".repeat(MAX_LABEL_LENGTH)), { phase: { type: "committed", revealAfter: now + 3600, revealBefore: now + 86400, signature: { type: "signed" } }, commitTx: "0x02" }],
+      [await keepOrder(page, "reg-still3", null, "bakerycodeorder"), { phase: { type: "queued" } }],
     ] as const
     let answered = 0
     const slowly = async <T>(json: T, route: Route) => {
@@ -766,9 +766,9 @@ test("a row drawn from the last reads stays drawn as it was, until its name regi
     await page.setViewportSize(size)
     const order = await keepOrder(page, "reg-stays", null, "staysregistering")
     const now = Math.floor(Date.now() / 1000)
-    const registering = registrationView(order, { phase: "registering", commitTx: "0x02", registerTx: "0x03" })
+    const registering = registrationView(order, { phase: { type: "registering" }, commitTx: "0x02", registerTx: "0x03" })
     await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registering] as const)
-    await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
+    await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }) }))
     await page.route("**/api/name/**", async (route) => {
       await new Promise((wait) => setTimeout(wait, ROW_READ_MS))
       await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
@@ -796,7 +796,7 @@ test("a row drawn not read after the bound keeps its height on a phone when its 
   await page.setViewportSize(SIZES[1])
   const order = await keepOrder(page, "reg-late", null, "lateanswername", { contact: contactLink("R1"), channel: "" })
   const now = Math.floor(Date.now() / 1000)
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route("**/api/name/**", async (route) => {
     await new Promise((wait) => setTimeout(wait, LATE_ANSWER_MS))
     await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })

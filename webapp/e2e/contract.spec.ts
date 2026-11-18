@@ -90,8 +90,8 @@ const viewOf = async (id: string, seenVersion?: number) =>
 async function untilPhase(id: string, phases: api.Phase[]): Promise<api.RegistrationView> {
   const end = Date.now() + PHASE_MS
   let view = await viewOf(id)
-  while (!phases.includes(view.phase)) {
-    expect(Date.now(), `${id} reaches ${phases.join(" or ")}, at ${view.phase}`).toBeLessThan(end)
+  while (!phases.includes(view.phase.type)) {
+    expect(Date.now(), `${id} reaches ${phases.join(" or ")}, at ${view.phase.type}`).toBeLessThan(end)
     view = await viewOf(id, view.version)
   }
   return view
@@ -109,8 +109,21 @@ async function codeOrder(request: APIRequestContext, label: string): Promise<{ d
 // a committed view once its wait is over, with the sponsor's nonce read, as the page reveals it
 async function untilRevealable(id: string): Promise<api.RegistrationView> {
   const view = await untilPhase(id, ["committed"])
-  await new Promise((r) => setTimeout(r, Math.max(0, (view.revealAfter ?? 0) * 1000 - Date.now())))
+  await new Promise((r) => setTimeout(r, Math.max(0, (api.committedOf(view)?.revealAfter ?? 0) * 1000 - Date.now())))
   return viewOf(id)
+}
+
+function acceptanceOf(view: api.RegistrationView): api.Acceptance {
+  const toSign = api.toSignOf(view)
+  if (toSign?.type !== "read") throw new Error(`${view.id} has nothing read to sign`)
+  return toSign.acceptance
+}
+
+function withAcceptance(view: api.RegistrationView, acceptance: api.Acceptance): api.RegistrationView {
+  const committed = api.committedOf(view)!
+  const toSign = api.toSignOf(view)
+  if (toSign?.type !== "read") throw new Error(`${view.id} has nothing read to sign`)
+  return { ...view, phase: { ...committed, signature: { type: "awaiting", toSign: { ...toSign, acceptance } } } }
 }
 
 async function unacceptedReveal(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
@@ -207,10 +220,10 @@ test("a cancelled or expired order gives way to a new one of the same wallet, an
   const second = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(draft)).request, "xmr", q.price))
   expect(second.status).toBe(200)
   await control(request, `expire/${second.json.invoiceId}`)
-  // a payment reaching the closed invoice is late: the order stays unpaid, and the invoice closed, as BTCPay keeps it
+  // a payment reaching the closed invoice is late: the order stays closed, and the invoice closed, as BTCPay keeps it
   await control(request, `settle/${second.json.invoiceId}`)
   const late = await call("GET", `/api/invoice/${second.json.invoiceId}`)
-  expect([late.json.status, late.json.paidInFull, (late.json.registration as Json).phase]).toEqual(["expired", true, "unpaid"])
+  expect([late.json.status, late.json.paidInFull, (late.json.registration as Json).phase]).toEqual(["expired", true, { type: "closed", closedBy: "expired" }])
   expect((await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(draft)).request, "card", q.price))).status).toBe(200)
 })
 
@@ -242,7 +255,7 @@ test("an order past its invoice's expiry is closed by the next order of its wall
   expect([read.json.status, read.json.cryptoAmountPaid], "a funded invoice past its expiry reads open").toEqual(["open", (Number(funded.json.cryptoAmount) / 2).toFixed(5)])
   expect(await call("POST", `/api/invoice/${funded.json.invoiceId}/cancel`)).toEqual({ status: 409, json: { error: "funded" } })
   await control(request, `settle/${funded.json.invoiceId}`)
-  expect((await viewOf((funded.json.registration as Json).id as string)).phase, "settled into a registration").not.toBe("unpaid")
+  expect((await viewOf((funded.json.registration as Json).id as string)).phase.type, "settled into a registration").not.toBe("unpaid")
 })
 
 test("a code order closes an overdue invoice of its wallet and name with nothing received", async ({ request }) => {
@@ -376,7 +389,7 @@ test("another name or links: refused from an order with nothing to fix, a repeat
   await expect(move(dearer), "a 6-letter name dearer than the order").rejects.toMatchObject({ code: "price_too_high", body: { price: 40000 } })
   // the same name without links, then other names from failed orders: three moves in all
   let view = await move(label)
-  expect([view.moves, view.phase, view.price]).toEqual([1, "queued", q.price])
+  expect([view.moves, view.phase, view.price]).toEqual([1, { type: "queued" }, q.price])
   for (let n = 2; n <= 3; n++) {
     await failAtRegister(request, id)
     view = await move(uniqueLabel(`cm${n}`))
@@ -385,11 +398,11 @@ test("another name or links: refused from an order with nothing to fix, a repeat
   const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(store.orderByRegistration(id)!, view))
   expect([repeat.status, (repeat.json as unknown as api.RegistrationView).moves], "a repeat of the current fields").toEqual([200, 3])
   await failAtRegister(request, id)
-  await expect(move(uniqueLabel("cm4"))).rejects.toMatchObject({ code: "move_limit", body: { registration: { id, moves: 3, phase: "failed" } } })
+  await expect(move(uniqueLabel("cm4"))).rejects.toMatchObject({ code: "move_limit", body: { registration: { id, moves: 3, phase: { type: "failed" } } } })
 })
 
 // the /name body of the registration's current fields, under its own terms or `terms`, signed anew
-async function nameBody(record: store.OrderRecord, view: api.RegistrationView, terms = view.terms!, timestamp = Math.floor(Date.now() / 1000)): Promise<Json> {
+async function nameBody(record: store.OrderRecord, view: api.RegistrationView, terms = api.signedTermsOf(view.terms), timestamp = Math.floor(Date.now() / 1000)): Promise<Json> {
   const sealedHash = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(view.sealed))))
   const length = record.label.length
   const message = `simplex.domains name ${view.id} ${view.labelHash} ${length} ${view.duration} ${view.commitment} ${sealedHash} ${terms} ${timestamp}`
@@ -556,7 +569,7 @@ const withSignedFields = (body: Json, change: Json): Json => {
 
 const spendCall = (id: string, body: Json) => call("POST", `/api/registration/${id}/spend`, body)
 const balanceOf = async (id: string) => (await viewOf(id)).balance
-const free = (amount: number, refunded = 0) => ({ amount, held: false, heldUntil: null, refunded })
+const free = (amount: number, refunded = 0) => ({ amount, hold: null, refunded })
 
 // A difference spend from the paying order, holding its whole balance; its invoice.
 async function holdBalance(src: Paying, balance: number): Promise<Json> {
@@ -578,8 +591,8 @@ test("a balance pays a cheaper name at once and keeps the rest, an exact price s
   const first = uniqueLabel("sa")
   const covered = await spendOn(src.record, first, PRICE.seven)
   const view = await viewOf(covered.registrationId)
-  expect([view.price, view.fromBalance, view.owner, view.balance]).toEqual([PRICE.long, PRICE.long, src.record.owner, null])
-  expect(view.phase, "queued at once, and on its way").not.toBe("unpaid")
+  expect([view.price, view.payment, view.owner, view.balance]).toEqual([PRICE.long, { type: "balance", fromBalance: PRICE.long }, src.record.owner, null])
+  expect(view.phase.type, "queued at once, and on its way").not.toBe("unpaid")
   expect(await balanceOf(src.id)).toEqual(free(PRICE.seven - PRICE.long))
   const second = uniqueLabel("sb")
   const exact = await spendOn(src.record, second, PRICE.seven - PRICE.long)
@@ -596,15 +609,15 @@ test("a dearer name holds the whole balance until its invoice for the difference
   const res = await spendCall(src.id, await spendBody(src, order, money))
   expect(res.status, JSON.stringify(res.json)).toBe(200)
   const registration = res.json.registration as api.RegistrationView
-  expect([res.json.amount, registration.phase, registration.price, registration.fromBalance]).toEqual([PRICE.seven - PRICE.long, "unpaid", PRICE.seven, PRICE.long])
-  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: res.json.expiresAt, refunded: 0 })
+  expect([res.json.amount, registration.phase, registration.price, registration.payment]).toEqual([PRICE.seven - PRICE.long, { type: "unpaid" }, PRICE.seven, { type: "difference", method: "btc", fromBalance: PRICE.long }])
+  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, hold: { type: "open", heldUntil: res.json.expiresAt }, refunded: 0 })
   // signed again long after, with the balance held since: the same order
   const again = await spendBody(src, order, money, order.timestamp + 2 * SIGNED_WINDOW_S)
   expect((await spendCall(src.id, again)).json.invoiceId).toBe(res.json.invoiceId)
   expect(await call("POST", "/api/invoice", invoiceBody(order, "btc", PRICE.seven)), "an invoice order of the same fields is another order").toEqual({ status: 409, json: { error: "order_exists" } })
   await control(request, `settle/${res.json.invoiceId}`)
   expect(await balanceOf(src.id), "spent by the settlement").toEqual(free(0))
-  expect((await viewOf(registration.id)).phase).not.toBe("unpaid")
+  expect((await viewOf(registration.id)).phase.type).not.toBe("unpaid")
   const resent = await spendCall(src.id, again)
   expect([resent.json.invoiceId, resent.json.status]).toEqual([res.json.invoiceId, "paid"])
 })
@@ -673,7 +686,7 @@ test("of two spends of one balance at once, one wins and the other is balance_ch
 test("a cancel or an expiry releases a held balance; an overdue holder reads free and the next spend closes it, while a refund waits for it", async ({ request }) => {
   const src = await lateBalance(request, uniqueLabel("lc"), "card")
   const cancelled = await holdBalance(src, PRICE.long)
-  expect((await balanceOf(src.id))!.held).toBe(true)
+  expect((await balanceOf(src.id))!.hold).not.toBeNull()
   expect((await call("POST", `/api/invoice/${cancelled.invoiceId}/cancel`)).status).toBe(200)
   expect(await balanceOf(src.id), "released by the cancel").toEqual(free(PRICE.long))
   const expired = await holdBalance(src, PRICE.long)
@@ -697,9 +710,9 @@ test("a holder that money reached keeps the hold past its expiry until it settle
   const funded = await holdBalance(src, PRICE.long)
   await control(request, `partial/${funded.invoiceId}`)
   await control(request, `overdue/${funded.invoiceId}`)
-  expect((await balanceOf(src.id))!.held, "money reached it, so it still holds").toBe(true)
+  expect((await balanceOf(src.id))!.hold, "money reached it, so it still holds").toEqual({ type: "funded" })
   const met = await spendCall(src.id, await spendBody(src, await orderOf(src, uniqueLabel("sf")), { price: PRICE.long, balance: PRICE.long }))
-  expect([met.status, (met.json.balance as Json).held]).toEqual([409, true])
+  expect([met.status, (met.json.balance as Json).hold]).toEqual([409, { type: "funded" }])
   await control(request, `settle/${funded.invoiceId}`)
   expect(await balanceOf(src.id)).toEqual(free(0))
 
@@ -751,7 +764,7 @@ test("a paid order taken first keeps its whole price as a balance of its own, al
   await control(request, "take", { label })
   await flow.revealOrder(await untilRevealable(next.registrationId), next)
   const view = await untilPhase(next.registrationId, ["taken"])
-  expect([view.fromBalance, view.balance]).toEqual([PRICE.long, free(PRICE.long)])
+  expect([api.fromBalanceOf(view), view.balance]).toEqual([PRICE.long, free(PRICE.long)])
   const other = uniqueLabel("st2")
   await expect(moveOf(next, other), "a taken order keeps its balance and moves no more").rejects.toMatchObject({ code: "bad_request" })
   expect(await balanceOf(src.id), "the paying order's balance untouched").toEqual(free(0))
@@ -815,7 +828,7 @@ test("a part payment confirmed on a closed invoice, also after a cancel, is cred
   await control(request, `partial/${invoiceId}`)
   expect(await call("POST", `/api/invoice/${invoiceId}/cancel`)).toEqual({ status: 409, json: { error: "funded" } })
   await control(request, `expire/${invoiceId}`)
-  expect([(await viewOf(id)).latePayment, await balanceOf(id)], "seen, not confirmed").toEqual([{ waiting: "confirming" }, null])
+  expect([(await viewOf(id)).latePayment, await balanceOf(id)], "seen, not confirmed").toEqual(["confirming", null])
   await control(request, `settle/${invoiceId}`, { paid: "0.00078" })
   const part = await call("GET", `/api/invoice/${invoiceId}`)
   expect([part.json.status, part.json.paidInFull, part.json.cryptoAmountPaid, part.json.cryptoAmountDue]).toEqual(["expired", false, "0.00078", "0.00078"])
@@ -847,7 +860,7 @@ test("an overpaid invoice registers its name, leaves nothing to pay, and credits
   const { invoiceId, id } = await overpaid("0.00234")
   const read = await call("GET", `/api/invoice/${invoiceId}`)
   expect([read.json.status, read.json.paidInFull, read.json.cryptoAmountPaid, read.json.cryptoAmountDue]).toEqual(["paid", true, "0.00234", "0"])
-  expect((await viewOf(id)).phase).not.toBe("unpaid")
+  expect((await viewOf(id)).phase.type).not.toBe("unpaid")
   expect(await balanceOf(id)).toEqual(free(PRICE.long / 2))
   await flow.revealOrder(await untilRevealable(id), store.orderByRegistration(id)!)
   expect((await untilPhase(id, ["registered"])).balance, "kept once registered").toEqual(free(PRICE.long / 2))
@@ -886,14 +899,14 @@ test("a hold by an invoice money reached has no end, find names each order's pay
   const src = await lateBalance(request)
   const holder = await holdBalance(src, PRICE.long)
   const holderId = (holder.registration as Json).id as string
-  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: holder.expiresAt, refunded: 0 })
+  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, hold: { type: "open", heldUntil: holder.expiresAt }, refunded: 0 })
   expect(await findOf(src.draft.ownerCode)).toMatchObject([
     { registrationId: holderId, balanceSource: src.id, heldBy: null }, { registrationId: src.id, balanceSource: null, heldBy: holderId },
   ])
   // money reached the holder's invoice and is confirming past its expiry: the hold has no end until it settles
   await control(request, `partial/${holder.invoiceId}`)
   await control(request, `overdue/${holder.invoiceId}`)
-  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: null, refunded: 0 })
+  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, hold: { type: "funded" }, refunded: 0 })
   expect((await findOf(src.draft.ownerCode))[1]).toMatchObject({ registrationId: src.id, heldBy: holderId })
 
   // an overdue holder that nothing reached holds nothing, and find names none
@@ -909,10 +922,10 @@ test("a hold by an invoice money reached has no end, find names each order's pay
   await control(request, `expire/${late.json.invoiceId}`)
   expect([(await viewOf(lateId)).latePayment, (await viewOf(lateId)).balance], "nothing received").toEqual([null, null])
   await control(request, `confirming/${late.json.invoiceId}`)
-  expect((await viewOf(lateId)).latePayment).toEqual({ waiting: "confirming" })
+  expect((await viewOf(lateId)).latePayment).toEqual("confirming")
   await control(request, `late/${late.json.invoiceId}`, { waiting: "support" })
   await control(request, `settle/${late.json.invoiceId}`)
-  expect([(await viewOf(lateId)).latePayment, (await viewOf(lateId)).balance]).toEqual([{ waiting: "support" }, null])
+  expect([(await viewOf(lateId)).latePayment, (await viewOf(lateId)).balance]).toEqual(["support", null])
   await control(request, `late/${late.json.invoiceId}`, { waiting: null })
   expect([(await viewOf(lateId)).latePayment, (await viewOf(lateId)).balance]).toEqual([null, free(PRICE.long)])
 })
@@ -1033,7 +1046,7 @@ test("an order signs the terms of its name's kind: the other kind or other terms
   })
   const ok = await call("POST", "/api/invoice", invoiceBody(signed, "btc", q.price))
   expect(ok.status, JSON.stringify(ok.json)).toBe(200)
-  expect((ok.json.registration as Json).terms).toBe(PLAIN_TERMS)
+  expect(api.signedTermsOf((ok.json.registration as unknown as api.RegistrationView).terms)).toBe(PLAIN_TERMS)
 })
 
 test("an exact resend is answered after the terms changed, and two orders differing only in terms are different orders", async ({ request }) => {
@@ -1061,19 +1074,19 @@ test("a code order meets changed terms before the code's state, and a spend befo
   expect([spent.status, spent.json]).toEqual([409, termsChanged(TERMS, null)])
   const covered = await spendCall(src.id, await spendBody(src, await orderOf(src, uniqueLabel("te")), { price: PRICE.long, balance: PRICE.long }))
   expect(covered.status, JSON.stringify(covered.json)).toBe(200)
-  expect((await viewOf(covered.json.registrationId as string)).terms).toBe(PLAIN_TERMS)
+  expect(api.signedTermsOf((await viewOf(covered.json.registrationId as string)).terms)).toBe(PLAIN_TERMS)
 })
 
 test("a move signs the new name's terms: a community name needs the community terms, which are stored; the same body again is a repeat, also after the terms changed, and one differing only in terms a move", async ({ request }) => {
   const label = uniqueLabel("tf")
   await listed(request, label, async () => {
     const { id, view } = await failedOrder(request, uniqueLabel("tg"))
-    expect([view.terms, view.community]).toEqual([PLAIN_TERMS, null])
+    expect([api.signedTermsOf(view.terms), view.community]).toEqual([PLAIN_TERMS, null])
     const q = await quote(label)
     expect(q.community).toEqual(communityEntry("test bakers"))
     await expect(flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, PLAIN_TERMS)).rejects.toMatchObject({ code: "terms_changed", terms: LISTED_TERMS, community: { for: "test bakers" } })
     const moved = await flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, COMMUNITY_TERMS)
-    expect([moved.moves, moved.terms, moved.community]).toEqual([1, COMMUNITY_TERMS, communityEntry("test bakers")])
+    expect([moved.moves, api.signedTermsOf(moved.terms), moved.community]).toEqual([1, COMMUNITY_TERMS, communityEntry("test bakers")])
     const record = store.orderByRegistration(id)!
     expect(record.terms).toBe(COMMUNITY_TERMS)
     const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, moved))
@@ -1082,9 +1095,9 @@ test("a move signs the new name's terms: a community name needs the community te
     await withTerms(request, "community-terms", `the community terms, changed for ${label}`, async (terms) => {
       // the current fields under the terms they were signed with are still a repeat, answered before the terms
       const again = await call("POST", `/api/registration/${id}/name`, await nameBody(record, failed))
-      expect([again.status, again.json.moves, again.json.phase]).toEqual([200, 1, "failed"])
+      expect([again.status, again.json.moves, (again.json.phase as Json).type]).toEqual([200, 1, "failed"])
       const bumped = await call("POST", `/api/registration/${id}/name`, await nameBody(record, failed, `community/${terms.hash.slice(2)}`))
-      expect([bumped.status, bumped.json.moves, bumped.json.terms, bumped.json.commitment]).toEqual([200, 2, `community/${terms.hash.slice(2)}`, failed.commitment])
+      expect([bumped.status, bumped.json.moves, bumped.json.terms, bumped.json.commitment]).toEqual([200, 2, { communityName: true, termsHash: terms.hash }, failed.commitment])
     })
   })
 })
@@ -1096,16 +1109,16 @@ test("a committed community name's view asks for the owner's acceptance of the c
     expect(draft.terms).toBe(COMMUNITY_TERMS)
     const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
     const view = await untilRevealable(id)
-    expect(view.acceptance).toEqual({ kind: "community", policy: NAME_POLICY, termsHash: COMMUNITY_TERMS_HASH, nonce: 0 })
-    const accept = view.acceptance!
+    const accept = acceptanceOf(view)
+    expect(accept).toEqual({ community: true, policy: NAME_POLICY, termsHash: COMMUNITY_TERMS_HASH, nonce: 0 })
     expect(await call("POST", `/api/registration/${id}/reveal`, await unacceptedReveal(view, record)), "none").toEqual({ status: 400, json: { error: "bad_request" } })
     for (const [what, acceptance] of [["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: `0x${"d8".repeat(32)}` }],
-      ["the other kind", { ...accept, kind: "general" }], ["another policy", { ...accept, policy: readSite().sponsor }]] as const) {
-      await expect(flow.revealOrder({ ...view, acceptance }, record), what).rejects.toMatchObject({ code: "bad_request" })
+      ["the other kind", { ...accept, community: false }], ["another policy", { ...accept, policy: readSite().sponsor }]] as const) {
+      await expect(flow.revealOrder(withAcceptance(view, acceptance), record), what).rejects.toMatchObject({ code: "bad_request" })
     }
     await flow.revealOrder(view, record)
     const done = await untilPhase(id, ["registered"])
-    expect(done.acceptance, "no acceptance asked once registered").toBeNull()
+    expect(api.toSignOf(done), "no acceptance asked once registered").toBeNull()
     expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "community", name: label, holder: record.owner, termsHash: COMMUNITY_TERMS_HASH })
   })
 })
@@ -1115,9 +1128,9 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   const { draft, built, id } = await codeOrder(request, label)
   const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
   const view = await untilRevealable(id)
-  expect(view.acceptance).toEqual({ kind: "general", policy: NAME_POLICY, termsHash: GENERAL_TERMS_HASH, nonce: 0 })
+  expect(acceptanceOf(view)).toEqual({ community: false, policy: NAME_POLICY, termsHash: GENERAL_TERMS_HASH, nonce: 0 })
   expect(await call("POST", `/api/registration/${id}/reveal`, await unacceptedReveal(view, record)), "none").toEqual({ status: 400, json: { error: "bad_request" } })
-  await expect(flow.revealOrder({ ...view, acceptance: { ...view.acceptance!, kind: "community" } }, record), "the other kind").rejects.toMatchObject({ code: "bad_request" })
+  await expect(flow.revealOrder(withAcceptance(view, { ...acceptanceOf(view), community: true }), record), "the other kind").rejects.toMatchObject({ code: "bad_request" })
   await flow.revealOrder(view, record)
   const done = await untilPhase(id, ["registered"])
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
@@ -1127,7 +1140,7 @@ test("a move repeat is answered however old its signature, while a move signed t
   const { id, view } = await failedOrder(request, uniqueLabel("th"))
   const record = store.orderByRegistration(id)!
   const old = Math.floor(Date.now() / 1000) - 2 * SIGNED_WINDOW_S
-  const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, view, view.terms!, old))
+  const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, view, api.signedTermsOf(view.terms), old))
   expect([repeat.status, repeat.json.moves, repeat.json.version]).toEqual([200, 0, view.version])
   const stale = await call("POST", `/api/registration/${id}/name`, await nameBody(record, view, COMMUNITY_TERMS, old))
   expect([stale.status, stale.json]).toEqual([400, { error: "bad_request" }])
