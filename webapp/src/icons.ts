@@ -56,15 +56,16 @@ const BITCOIN = "M23.638 14.904c-1.602 6.43-8.113 10.34-14.542 8.736C2.67 22.05-
 const MONERO_TOP = "M127.998 0C57.318 0 0 57.317 0 127.999c0 14.127 2.29 27.716 6.518 40.43H44.8V60.733l83.2 83.2 83.198-83.2v107.695h38.282c4.231-12.714 6.521-26.303 6.521-40.43C256 57.314 198.681 0 127.998 0"
 const MONERO_BASE = "M108.867 163.062l-36.31-36.311v67.765H18.623c22.47 36.863 63.051 61.48 109.373 61.48s86.907-24.617 109.374-61.48h-53.933V126.75l-36.31 36.31-19.13 19.129-19.128-19.128h-.002z"
 const MONERO_SCALE = "scale(0.09375)"
-const BOLT = "M13 2 4 14h7l-1 8 9-12h-7l1-8Z"
+const LIGHTNING = "M12 0a12 12 0 1 0 0 24a12 12 0 1 0 0-24zM13.6 3.8L6.9 13.3H11.3L10.4 20.2L17.1 10.7H12.7z"
+const BITCOIN_ORANGE = "#F7931A"
 
 export function methodMark(method: Method): SVGElement {
   const box = { class: "mark", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" }
   switch (method) {
     case "btc":
-      return svgNode("svg", box, svgNode("path", { fill: "#F7931A", d: BITCOIN }))
+      return svgNode("svg", box, svgNode("path", { fill: BITCOIN_ORANGE, d: BITCOIN }))
     case "ln":
-      return svgNode("svg", box, svgNode("path", { d: BOLT, fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linejoin": "round" }))
+      return svgNode("svg", box, svgNode("path", { fill: BITCOIN_ORANGE, "fill-rule": "evenodd", d: LIGHTNING }))
     case "xmr":
       return svgNode("svg", box, svgNode("g", { transform: MONERO_SCALE },
         svgNode("path", { fill: "#F60", d: MONERO_TOP }), svgNode("path", { class: "monero-base", d: MONERO_BASE })))
