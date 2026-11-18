@@ -26,7 +26,7 @@ export function walletOf(code: string): Wallet | null {
 function registrationOf(label: string, owner: Uint8Array, secret: Uint8Array, links: api.Links, chain: api.ChainInfo, duration: bigint): Registration {
   return {
     label, tld: chain.tld, owner, duration, secret, resolver: fromHex(chain.resolver),
-    contactLinks: links.contact ? [links.contact] : [], channelLinks: links.channel ? [links.channel] : [],
+    contactLink: links.contact || null, channelLink: links.channel || null,
   }
 }
 
@@ -98,7 +98,7 @@ export async function revealOrder(view: api.RegistrationView, record: store.Orde
   } : undefined
   await api.reveal(view.id, {
     label: record.label, secret: hex(r.secret),
-    records: { contact: r.contactLinks, channel: r.channelLinks },
+    records: { contact: r.contactLink, channel: r.channelLink },
     nonce: view.intentNonce!, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   })
 }

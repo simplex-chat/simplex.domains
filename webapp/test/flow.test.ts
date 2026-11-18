@@ -88,7 +88,7 @@ describe("orderRequest", () => {
     expect(Math.abs(free - (TERM_START - Date.now() / 1000))).toBeLessThan(2)
     const expected = makeCommitment({
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(request.duration), secret: commitmentSecret(WALLET.seed, "dynamis"),
-      resolver: fromHex(CHAIN.resolver), contactLinks: [LINKS.contact], channelLinks: [],
+      resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
     })
     expect(request.commitment).toBe(hex(expected))
     expect(await unseal(WALLET.seed, request.sealed)).toEqual({ label: "dynamis", ...LINKS })
@@ -119,11 +119,11 @@ describe("revealOrder", () => {
     answers["POST /api/registration/reg1/reveal"] = {}
     await flow.revealOrder(view(built.request) as never, record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
-    expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: [LINKS.contact], channel: [] }, nonce: 3 })
+    expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
     const r = {
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
-      resolver: fromHex(CHAIN.resolver), contactLinks: [LINKS.contact], channelLinks: [],
+      resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
     }
     const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 3n, BigInt(body.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: body.signature })).toBe(OWNER)

@@ -95,7 +95,7 @@ interface Registration {
   version: number
   label: string | null
   secret: Hex | null
-  records: { contact: string[]; channel: string[] } | null
+  records: RevealLinks | null
   intent: { nonce: bigint; deadline: bigint; signature: Hex } | null
   // the owner's signed acceptance of the terms of the name's kind, relayed before the register
   acceptance: { community: boolean; termsHash: Hex; nonce: bigint; signature: Hex } | null
@@ -906,9 +906,9 @@ function clearReveal(reg: Registration): void {
 
 function registrationTuple(reg: Registration) {
   const node = namehash(`${reg.label}.${deployment.tld}`)
-  const records: [string, string[]][] = [[CONTACT_KEY, reg.records!.contact], [CHANNEL_KEY, reg.records!.channel]]
-  const data = records.filter(([, links]) => links.length > 0)
-    .map(([key, links]) => encodeFunctionData({ abi: resolver.abi, functionName: "setText", args: [node, key, links.join(";")] }))
+  const records: [string, string | null][] = [[CONTACT_KEY, reg.records!.contact], [CHANNEL_KEY, reg.records!.channel]]
+  const data = records.filter((record): record is [string, string] => record[1] !== null)
+    .map(([key, link]) => encodeFunctionData({ abi: resolver.abi, functionName: "setText", args: [node, key, link] }))
   return {
     label: reg.label!, owner: reg.owner, duration: BigInt(reg.duration), secret: reg.secret!, resolver: deployment.resolver, data, reverseRecord: 0, referrer: zeroHash,
   }
@@ -1017,20 +1017,21 @@ function checkSignature(signature: unknown): Hex {
   return signature as Hex
 }
 
-// at most one link per key, each text; whether they are links the service takes is checked last
-function linksOf(records: unknown): { contact: string[]; channel: string[] } {
+interface RevealLinks { contact: string | null; channel: string | null }
+
+// one link per key or none, each text; whether they are links the service takes is checked last
+function linksOf(records: unknown): RevealLinks {
   if (typeof records !== "object" || records === null) throw badRequest()
-  const out = { contact: [] as string[], channel: [] as string[] }
-  for (const kind of ["contact", "channel"] as const) {
-    const links = (records as Record<string, unknown>)[kind]
-    if (!Array.isArray(links) || links.length > 1 || !links.every((l) => typeof l === "string")) throw badRequest()
-    out[kind].push(...links)
+  const linkOf = (link: unknown) => {
+    if (link !== undefined && link !== null && typeof link !== "string") throw badRequest()
+    return typeof link === "string" ? link : null
   }
-  return out
+  const { contact, channel } = records as Record<string, unknown>
+  return { contact: linkOf(contact), channel: linkOf(channel) }
 }
 
-const linksTaken = (records: { contact: string[]; channel: string[] }) =>
-  (["contact", "channel"] as const).every((kind) => records[kind].every((link) => linkProblem(kind, link) === null && deepLinkOf(link) !== null))
+const linksTaken = (records: RevealLinks) =>
+  (["contact", "channel"] as const).every((kind) => { const link = records[kind]; return link === null || (linkProblem(kind, link) === null && deepLinkOf(link) !== null) })
 
 // A reveal includes the owner's signature of the acceptance its view returns, of the terms of the name's kind on chain now.
 async function checkAcceptance(reg: Registration, accepted: unknown, deadline: number): Promise<Registration["acceptance"]> {

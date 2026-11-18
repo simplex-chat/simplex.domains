@@ -486,7 +486,7 @@ export function readRegistration(registrationId: string, seenVersion?: number, s
 
 export const changedView = (e: ApiError): RegistrationView | null => isRegistration(e.body.registration) ? e.body.registration as RegistrationView : null
 
-export const reveal = (registrationId: string, body: { label: string; secret: string; records: { contact: string[]; channel: string[] }; nonce: number; deadline: number; signature: string;
+export const reveal = (registrationId: string, body: { label: string; secret: string; records: { contact: string | null; channel: string | null }; nonce: number; deadline: number; signature: string;
   acceptance?: { termsHash: string; nonce: number; signature: string } }) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
 export const retarget = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>

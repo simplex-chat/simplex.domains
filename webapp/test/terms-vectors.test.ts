@@ -90,7 +90,7 @@ describe("Appendix C inputs", () => {
     expect(hex(labelHash(LABEL))).toBe(LABEL_HASH)
     const commitment = makeCommitment({
       label: LABEL, tld: "simplex", owner: WALLET.address, duration: BigInt(DURATION), secret: commitmentSecret(WALLET.seed, LABEL),
-      resolver: fromHex(RESOLVER), contactLinks: [], channelLinks: [],
+      resolver: fromHex(RESOLVER), contactLink: null, channelLink: null,
     })
     expect(hex(commitment)).toBe(COMMITMENT)
   })

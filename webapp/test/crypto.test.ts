@@ -25,8 +25,8 @@ const YEAR = 365n * 86400n
 const TERM_START = Date.UTC(2027, 0, 1) / 1000
 const BEFORE_START = Date.UTC(2026, 9, 21, 9, 15) / 1000
 
-function registration(owner: Uint8Array, contact: string[] = [], channel: string[] = []): Registration {
-  return { label: "dynamis", tld: "simplex", owner, duration: durationFor(2, TERM_START, BEFORE_START), secret: new Uint8Array(32).fill(0x11), resolver: RESOLVER, contactLinks: contact, channelLinks: channel }
+function registration(owner: Uint8Array, contactLink: string | null = null, channelLink: string | null = null): Registration {
+  return { label: "dynamis", tld: "simplex", owner, duration: durationFor(2, TERM_START, BEFORE_START), secret: new Uint8Array(32).fill(0x11), resolver: RESOLVER, contactLink, channelLink }
 }
 
 describe("owner code", () => {
@@ -132,7 +132,7 @@ describe("registration", () => {
   })
 
   it("encodes the records and the commitment as the contract's ABI does", () => {
-    const r = registration(owner, ["https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"], ["https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA"])
+    const r = registration(owner, "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA")
     const node = viemNamehash("dynamis.simplex")
     const data = [
       encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.contact", "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"] }),
@@ -152,7 +152,7 @@ describe("registration", () => {
 
   it("signs RegisterName as viem's typed data, recoverable to the owner", async () => {
     const wallet = walletFromEntropy(ENTROPY)
-    const r = registration(wallet.address, ["https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"])
+    const r = registration(wallet.address, "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA")
     const typed = {
       domain: { name: "SimplexSponsor", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(SPONSOR) },
       types: { RegisterName: [

@@ -17,8 +17,8 @@ export interface Registration {
   duration: bigint
   secret: Uint8Array
   resolver: Uint8Array
-  contactLinks: string[]
-  channelLinks: string[]
+  contactLink: string | null
+  channelLink: string | null
 }
 
 // The contract counts a duration from the block's time, so the free days until the term starts are added to the paid years.
@@ -46,13 +46,13 @@ export function makeCommitment(r: Registration): Uint8Array {
 
 export function recordCalls(r: Registration): Uint8Array[] {
   const node = namehash(r.tld, r.label)
-  const records: [string, string[]][] = [[CONTACT_KEY, r.contactLinks], [CHANNEL_KEY, r.channelLinks]]
+  const records: [string, string | null][] = [[CONTACT_KEY, r.contactLink], [CHANNEL_KEY, r.channelLink]]
   return records
-    .filter(([, links]) => links.length > 0)
-    .map(([key, links]) =>
+    .filter((record): record is [string, string] => record[1] !== null)
+    .map(([key, link]) =>
       concatBytes(
         selector("setText(bytes32,string,string)"),
-        abiTuple([fixed(node), dynamic(abiBytes(utf8ToBytes(key))), dynamic(abiBytes(utf8ToBytes(links.join(";"))))]),
+        abiTuple([fixed(node), dynamic(abiBytes(utf8ToBytes(key))), dynamic(abiBytes(utf8ToBytes(link)))]),
       ),
     )
 }
