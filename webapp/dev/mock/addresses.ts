@@ -92,14 +92,17 @@ const MULTIPLIERS: [string, bigint][] = [["m", 10n ** 9n], ["u", 10n ** 6n], ["n
 const PICO_DECIMALS = 12
 const TIMESTAMP_GROUPS = 7
 const LENGTH_GROUPS = 2
-const FEATURES = (1 << 8) | (1 << 14)
+const VAR_ONION_BIT = 8
+const PAYMENT_SECRET_BIT = 14
+const FEATURES = (1 << VAR_ONION_BIT) | (1 << PAYMENT_SECRET_BIT)
+const GROUP_VALUES = 32
 const DESCRIPTION = "SimpleX name"
 const HASH_BYTES = 32
 const TAG = { paymentHash: "p", paymentSecret: "s", description: "d", expiry: "x", features: "9" } as const
 
 function fiveBitsOf(n: number, groups = 1): number[] {
   const out: number[] = []
-  for (let rest = n; rest > 0 || out.length < groups; rest = Math.floor(rest / 32)) out.unshift(rest % 32)
+  for (let rest = n; rest > 0 || out.length < groups; rest = Math.floor(rest / GROUP_VALUES)) out.unshift(rest % GROUP_VALUES)
   return out
 }
 

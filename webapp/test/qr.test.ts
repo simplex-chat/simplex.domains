@@ -46,12 +46,11 @@ describe("a payment's wallet URI", () => {
     expect(paymentUri("xmr", "a?b&c#d", "1", true)).toBe("monero://a%3Fb%26c%23d?tx_amount=1")
     expect(paymentUri("xmr", "a?b&c#d", "1")).toBe("monero:a%3Fb%26c%23d?tx_amount=1")
   })
+  const BOLT11 = lightningInvoice("q7ZpL2dN9xWc4KfR8tYb1A", LN_AMOUNT, CREATED, EXPIRY_S)
   it("is null without an address or an amount", () => {
     expect([paymentUri("xmr", "", "1", true), paymentUri("xmr", XMR, "", true), paymentUri("btc", "", "1"), paymentUri("ln", "", LN_AMOUNT), paymentUri("ln", BOLT11, "")])
       .toEqual([null, null, null, null, null])
   })
-
-  const BOLT11 = lightningInvoice("q7ZpL2dN9xWc4KfR8tYb1A", LN_AMOUNT, CREATED, EXPIRY_S)
   it("is lightning:<invoice> on a laptop and a phone alike, without an amount parameter", () => {
     expect(paymentUri("ln", BOLT11, LN_AMOUNT, true)).toBe(`lightning:${BOLT11}`)
     expect(paymentUri("ln", BOLT11, LN_AMOUNT)).toBe(`lightning:${BOLT11}`)
