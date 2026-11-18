@@ -883,6 +883,7 @@ function buildCardUnconfirmed(s: OrderState, signal: AbortSignal): HTMLElement {
 function coinLinks(s: OrderState): HTMLElement {
   const coin = (method: api.Coin) => {
     const pay = link(`Pay with ${methodName(method)}`, () => void reorderAfterCancel(method))
+    pay.classList.add("nowrap")
     if (s.busy !== null || s.hold !== null || unagreed(s)) pay.setAttribute("aria-disabled", "true")
     return pay
   }
