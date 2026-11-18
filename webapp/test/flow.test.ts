@@ -114,7 +114,7 @@ describe("orderRequest", () => {
 describe("revealOrder", () => {
   const general = { community: false, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: `0x${"c7".repeat(32)}`, nonce: 0 }
 
-  it("sends the label, secret and links with a RegisterName signature from the code's key, whose deadline never passes", async () => {
+  it("sends the label, secret and links with a RegisterName signature from the code's key, a week ahead of the service's clock", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
@@ -122,7 +122,7 @@ describe("revealOrder", () => {
     await flow.revealOrder(view(built.request, { acceptance: general }), record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
-    expect(body.deadline).toBe(2 ** 53 - 1)
+    expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
     const r = {
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
       resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,

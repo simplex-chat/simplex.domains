@@ -11,7 +11,7 @@ import { checksumAddress, fromHex, hex, personalDigest, signDigest, walletFromEn
 import * as store from "./store.ts"
 
 const EDIT_DEADLINE_SECONDS = 3600
-const REVEAL_DEADLINE = Number.MAX_SAFE_INTEGER
+const REVEAL_DEADLINE_SECONDS = 7 * 86400
 
 // signed timestamps and deadlines are judged by the service's clock
 const now = api.serviceSeconds
@@ -83,16 +83,13 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
   }
 }
 
-// The owner signs the registration once the commit has aged, with the largest deadline the page, the service and the
-// contract all hold exactly, so the signature serves while the order holds its name, across commitments the service sends
-// again, until the owner's sponsor nonce moves.
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
   const toSign = api.toSignOf(view)
   if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
   const wallet = walletOf(record.ownerCode)!
   const site = await namesSite()
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(view.duration))
-  const deadline = REVEAL_DEADLINE
+  const deadline = now() + REVEAL_DEADLINE_SECONDS
   const digest = registerIntentDigest(BigInt(site.chainId), fromHex(site.sponsor), r, BigInt(toSign.intentNonce), BigInt(deadline))
   const a = toSign.acceptance
   const acceptance = {
