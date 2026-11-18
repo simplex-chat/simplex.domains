@@ -931,6 +931,7 @@ test("a failed code order whose code check meets the rate limit counts down its 
   const { registrationId } = await registerWithCode(page, request, "climit")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator(".screen-head .lead")).toHaveText("Your code is kept. Trying again spends nothing more.")
   const checks = await limitCodeChecks(page, 1, 3)
   await page.reload()
   const notice = onStep(page).locator(".notice", { hasText: "Too many checks just now" })
