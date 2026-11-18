@@ -278,6 +278,18 @@ const yoursLayout = (page: Page) => onStep(page).evaluate((step) => {
   return { above: above.map(box), edit: box(edit), clear: above.every((n) => n.getBoundingClientRect().bottom <= edit.getBoundingClientRect().top) }
 })
 
+async function settledLayout(page: Page): Promise<Awaited<ReturnType<typeof yoursLayout>>> {
+  await page.evaluate(() => document.fonts.ready)
+  const nextFrames = () => page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
+  let last = await yoursLayout(page)
+  for (;;) {
+    await nextFrames()
+    const now = await yoursLayout(page)
+    if (JSON.stringify(now) === JSON.stringify(last)) return now
+    last = now
+  }
+}
+
 test("the name-is-yours screen offers Edit links, a small secondary button under the name code that moves nothing above it", async ({ page, request }) => {
   const { registrationId, label } = await registerWithCode(page, request, "cyours", { contact: contactLink("CY"), channel: channelLink("CY") })
   await waitRegistered(page, label)
@@ -287,12 +299,12 @@ test("the name-is-yours screen offers Edit links, a small secondary button under
   await expect(onStep(page).locator(".actions-row .btn")).toHaveCount(0)
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
-    const shut = await yoursLayout(page)
+    const shut = await settledLayout(page)
     expect(shut.clear, `everything above it ends before it at ${size.width} px`).toBe(true)
     // the name code's QR goes under it, so showing the code moves nothing above it, nor it
     await onStep(page).getByRole("button", { name: "Show" }).click()
     await expect(onStep(page).locator(".code-qr svg")).toBeVisible()
-    expect(await yoursLayout(page), `${size.width} px`).toEqual(shut)
+    expect(await settledLayout(page), `${size.width} px`).toEqual(shut)
     await onStep(page).getByRole("button", { name: "Hide" }).click()
     await expect(onStep(page).locator(".code-qr svg")).toHaveCount(0)
   }

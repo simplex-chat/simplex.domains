@@ -258,7 +258,10 @@ const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
     } }
   } }),
 })`
-const loadCard = (page: Page) => page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+const loadCard = async (page: Page) => {
+  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: () => void }).__loadCard === "function")
+  await page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+}
 const cardSeen = (page: Page) => page.evaluate(() => {
   const w = window as unknown as { __logos?: string[]; __mounts?: number }
   return { logos: w.__logos ?? [], mounts: w.__mounts ?? 0 }

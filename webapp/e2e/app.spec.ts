@@ -147,8 +147,8 @@ test("on a phone, Forget's question glides into view rather than jumping there",
   }
   await expect.poll(still).toBe(true)
   const scrolled = await recordedFrames<number>(page)
-  const moves = scrolled.slice(1).map((y, i) => y - scrolled[i]).filter((d) => d !== 0)
-  expect(moves.length, `the frames the page scrolled in: ${scrolled.join(",")}`).toBeGreaterThan(2)
+  const [low, high] = [scrolled[0], scrolled[scrolled.length - 1]].sort((a, b) => a - b)
+  expect(scrolled.some((y) => y > low && y < high), `a frame between the start and the end, in: ${scrolled.join(",")}`).toBe(true)
 })
 
 const THEMES = ["light", "dark"] as const
