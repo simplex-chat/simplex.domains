@@ -505,11 +505,8 @@ test.describe(() => {
     await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, hold: null, refunded: 0 } },
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "notRegistered" }, commitTx: "0x02" }), "Paid, not registered")
-    await page.route("**/api/registration/reg-fitall/retry", (route) => route.fulfill({ status: 500, json: { error: "internal" } }))
-    await onStep(page).getByRole("button", { name: "Try again" }).click()
-    await expect(onStep(page).getByText("That did not go through")).toBeVisible()
-    await fitsWindow(page, "o3b-not-registered-retry-refused", frames)
+    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "registryRefused" }, commitTx: "0x02" }), "Paid, not registered")
+    await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toBeVisible()
     await shown("o4-taken", invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, hold: null, refunded: 0 } }), /was taken$/)
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     // a taken order seen in a browser without its code, which says where to add the code

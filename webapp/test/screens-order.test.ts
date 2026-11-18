@@ -4,7 +4,7 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, commitKey, nameUnavailable,
+  askAgainDue, commitKey, movable, nameUnavailable, retryDue,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -59,6 +59,7 @@ const committed: Short = { phase: "committed", commitTx: "0xc0", revealAfter: NO
 const reask = (hash = CHANGED) => askFor(record().label, termsOf(hash), communityEntry(), true)
 
 const SLOW = read(card(), undefined, { record: record({ method: "card" }), cardSubmittedAt: submittedAgo(CARD_SLOW_MS + 1000) })
+const LAPSED = read(null, registration({ ...committed, revealBefore: NOW / 1000 - 1, lapsed: true }))
 
 const STATES: Record<OrderKind, OrderState> = {
   "pay-crypto": read(crypto()),
@@ -68,7 +69,7 @@ const STATES: Record<OrderKind, OrderState> = {
   "links-refused": read(null, registration(committed), { record: record({ linksRefused: true }) }),
   registered: read(null, registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
-  failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", reason: "notRegistered" })),
+  failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", reason: "registryRefused" })),
   "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
   "status:closed": read(crypto({ status: "expired" })),
   "status:card-unconfirmed": read(card(), undefined, { record: record({ method: "card" }), cardFailed: true }),
@@ -237,22 +238,21 @@ describe("reduce", () => {
   })
 
   describe("actions", () => {
-    const failing = { ...STATES.failed, note: WARN }
     const cases: [OrderEvent["type"], OrderEvent["type"], OrderState, OrderState["busy"]][] = [
       ["cancel-started", "cancel-failed", { ...paying, note: WARN }, "cancel"],
       ["reorder-started", "reorder-failed", { ...STATES["status:closed"], note: WARN }, "reorder"],
-      ["retry-started", "retry-failed", failing, "retry"],
+      ["retry-started", "retry-ended", { ...LAPSED, note: WARN }, "retry"],
       ["move-started", "move-failed", { ...STATES["links-refused"], note: WARN }, "move"],
     ]
     it.each(cases)("%s marks the action at work and clears the note; %s ends it with its note", (started, failed, s, busy) => {
       const working = reduce(s, { type: started } as OrderEvent)
       expect(working).toEqual({ ...s, busy, note: null })
-      expect(reduce(working, { type: failed, note: WARN, codeRefused: false } as OrderEvent)).toEqual({ ...s, busy: null, note: WARN })
+      expect(reduce(working, { type: failed, note: WARN } as OrderEvent)).toEqual({ ...s, busy: null, note: WARN })
     })
-    it("retry-failed for a code refused for good says so, and only for the retry at work", () => {
-      const working = reduce(STATES.failed, { type: "retry-started" })
-      expect(reduce(working, { type: "retry-failed", note: WARN, codeRefused: true })).toEqual({ ...STATES.failed, note: WARN, codeRefused: true })
-      expect(reduce(STATES.failed, { type: "retry-failed", note: WARN, codeRefused: true })).toBe(STATES.failed)
+    it("retry-started holds the lapsed order's /retry until an answer shows the order moved on", () => {
+      const working = reduce(LAPSED, { type: "retry-started" })
+      expect(reduce(working, answered(working, { ...LAPSED, now: NOW + 1000 })).busy).toBe("retry")
+      expect(reduce(working, answered(working, read(null, registration({ phase: "queued" }), { now: NOW + 1000 }))).busy).toBeNull()
     })
     it("a refusal kept with the order shows with the failed page from its first answer, its Try again off", () => {
       const kept = record({ codeRefusal: "code_used" })
@@ -260,11 +260,11 @@ describe("reduce", () => {
       expect(opened).toMatchObject({ note: USED, codeRefused: true })
       expect(reduce(STATES.failed, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ note: USED, codeRefused: true })
     })
-    it("a kept refusal belongs to the failed page and waits out a retry at work", () => {
+    it("a kept refusal belongs to the failed page and waits out a move at work", () => {
       const kept = record({ codeRefusal: "code_used" })
       expect(reduce(STATES.registering, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ codeRefused: false, note: null })
-      const working = reduce(STATES.failed, { type: "retry-started" })
-      expect(reduce(working, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ busy: "retry", codeRefused: false })
+      const working = reduce(STATES.failed, { type: "move-started" })
+      expect(reduce(working, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ busy: "move", codeRefused: false })
       const refused = reduce(STATES.failed, { type: "record-changed", record: kept, cardSubmittedAt: null })
       expect(reduce(refused, { type: "tick", now: NOW + 1000 })).toMatchObject({ codeRefused: true, note: USED })
     })
@@ -302,7 +302,7 @@ describe("reduce", () => {
       const refused = { ...STATES.failed, codeRefused: true }
       expect(reduce(refused, answered(refused, STATES.registering)).codeRefused).toBe(false)
     })
-    it.each([["cancel-failed"], ["reorder-failed"], ["retry-failed"], ["move-failed"]])("%s of an action no longer at work changes nothing", (failed) => {
+    it.each([["cancel-failed"], ["reorder-failed"], ["retry-ended"], ["move-failed"]])("%s of an action no longer at work changes nothing", (failed) => {
       expect(reduce(paying, { type: failed, note: WARN } as OrderEvent)).toBe(paying)
     })
     it("cancel-answered ends the cancel and leaves no note", () => {
@@ -465,35 +465,55 @@ describe("failedLead", () => {
   const coded = record({ method: "code", invoiceId: null, prepaidCode: "SN6-AAAA" })
   const failed = (invoice: InvoiceView | null, change: Partial<OrderState> = {}) =>
     read(invoice, registration({ phase: "failed" }), { record: invoice ? record() : coded, ...change })
-  it("an invoice's payment is kept", () => {
-    expect(failedLead(failed(crypto({ status: "paid", paidInFull: true })))).toBe("Your payment is kept. Trying again charges nothing.")
+  it("an invoice's payment is kept, for another name or a refund", () => {
+    expect(failedLead(failed(crypto({ status: "paid", paidInFull: true })))).toBe("Your payment is kept. Choose another name for it, or write to support.")
   })
-  it("links the service refused send a browser without the code to enter it, as trying again cannot register them", () => {
+  it("an order that sent the most an order may is left to support", () => {
+    const usedUp = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", reason: "sendsUsedUp" }), { record: record() })
+    expect(failedLead(usedUp)).toBe("Your payment is kept. Write to support.")
+  })
+  it("links the service refused send a browser without the code to enter it, as another commitment holds them too", () => {
     const refused = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", linksRefused: true }), { record: null })
     expect(failedLead(refused)).toBe("The service refused its links. Enter its name code to register it without them, or another name.")
   })
   it("a refused code says it can no longer pay", () => {
-    expect(failedLead(failed(null, { codeRefused: true }))).toBe("Your code can no longer be used for it, so trying again cannot register it.")
+    expect(failedLead(failed(null, { codeRefused: true }))).toBe("Your code can no longer be used for it. Write to support.")
   })
   it("a code is said to be kept only once the service says so", () => {
-    expect(failedLead(failed(null, { codeKept: true }))).toBe("Your code is kept. Trying again spends nothing more.")
-    expect(failedLead(failed(null)), "the check has not answered, or failed").toBe("Trying again spends nothing more.")
+    expect(failedLead(failed(null, { codeKept: true }))).toBe("Your code is kept. Choose another name for it, or write to support.")
+    expect(failedLead(failed(null)), "the check has not answered, or failed").toBe("Choose another name for it, or write to support.")
   })
   it("a browser without the order's code is promised nothing of it, even once the service says it is unspent", () => {
-    expect(failedLead(failed(null, { record: null, codeKept: true }))).toBe("Trying again spends nothing more.")
+    expect(failedLead(failed(null, { record: null, codeKept: true }))).toBe("Choose another name for it, or write to support.")
   })
 })
 
 describe("failedAlert", () => {
   const failed = (change: Short = {}, state: Partial<OrderState> = {}) => read(null, registration({ phase: "failed", ...change }), state)
   it("words the service's reason for the buyer", () => {
-    expect(failedAlert(failed({ reason: "notSignedInTime" })).title).toBe("The name was not signed in time")
-    expect(failedAlert(failed({ reason: "notRegistered" })).title).toBe("The name could not be registered")
+    expect(failedAlert(failed({ reason: "sendsUsedUp" }))).toBe("The name could not be registered")
+    expect(failedAlert(failed({ reason: "linksRefused" }))).toBe("The service refused this order's links")
+    expect(failedAlert(failed({ reason: "registryRefused" }))).toBe("The registry refused the name")
   })
-  it("offers Try again unless the order's links or its code were refused, which trying again cannot fix", () => {
-    expect(failedAlert(failed()).retry).toBe(true)
-    expect(failedAlert(failed({ linksRefused: true })).retry).toBe(false)
-    expect(failedAlert(failed({}, { codeRefused: true })).retry).toBe(false)
+  it("moves an order to another name unless it sent the most an order may or its code was refused", () => {
+    expect(movable(failed())).toBe(true)
+    expect(movable(failed({ reason: "linksRefused" }))).toBe(true)
+    expect(movable(failed({ reason: "sendsUsedUp" }))).toBe(false)
+    expect(movable(failed({}, { codeRefused: true }))).toBe(false)
+    expect(movable(STATES.registering)).toBe(false)
+  })
+})
+
+describe("retryDue", () => {
+  it("asks for a new commitment of an order whose commitment lapsed unsigned, from the browser with the name code", () => {
+    expect(retryDue(LAPSED)).toBe(true)
+    expect(retryDue({ ...LAPSED, record: null }), "no name code here").toBe(false)
+    expect(retryDue({ ...LAPSED, record: record({ linksRefused: true }) }), "links refused").toBe(false)
+    expect(retryDue({ ...LAPSED, nameStatus: "registered" }), "the name registered meanwhile").toBe(false)
+    expect(retryDue({ ...LAPSED, nameStatus: "reserved" }), "the name reserved meanwhile").toBe(false)
+    expect(retryDue({ ...LAPSED, busy: "retry" }), "one on its way").toBe(false)
+    expect(retryDue({ ...LAPSED, hold: { until: NOW + 1000, lead: NO_LEAD } }), "a rate limit").toBe(false)
+    expect(retryDue(read(null, registration(committed))), "still in its window").toBe(false)
   })
 })
 

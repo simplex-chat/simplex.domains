@@ -114,17 +114,17 @@ test("a wait on moving the payment that ends while Back checks the name again se
   expect(searches, "searches sent since Back").toBe(1)
 })
 
-test("a failed registration is retried without paying again, and another tab follows the retry", async ({ page, request }) => {
+test("a failed registration keeps its payment for another name, also in another tab", async ({ page, request }) => {
   const label = uniqueLabel("fl")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `fail/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: 60_000 })
   // the page's sentence for the service's reason, then what the buyer can do, with support's address for the reference below
-  const alert = onStep(page).locator(".notice", { hasText: "The name could not be registered" })
-  // the lead above already says the payment is kept and that trying again charges nothing
-  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Trying again charges nothing.")
-  await expect(alert).toHaveText("The name could not be registeredIf Try again still fails, write to chat@simplex.chat with its reference.")
+  const alert = onStep(page).locator(".notice", { hasText: "The registry refused the name" })
+  // the lead above already says the payment is kept for another name
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Choose another name for it, or write to support.")
+  await expect(alert).toHaveText("The registry refused the nameWrite to chat@simplex.chat with its reference.")
   await expect(alert.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
   // the order's line centred under the heading and its lead, as it is when it is the lead
   for (const size of FIT_SIZES) {
@@ -136,22 +136,22 @@ test("a failed registration is retried without paying again, and another tab fol
   const other = await page.context().newPage()
   await other.goto(`/?order=${invoiceId}`)
   await expect(other.getByRole("heading", { name: "Paid, not registered" })).toBeVisible()
-  // a rate-limited retry holds its button for the wait
-  await page.route("**/retry", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
-  await page.getByRole("button", { name: "Try again" }).focus()
-  await page.keyboard.press("Enter")
-  await expect(page.getByText("Too many attempts")).toBeVisible()
-  await expect(page.getByRole("button", { name: "Try again" })).toBeDisabled()
-  await page.unroute("**/retry")
-  await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled({ timeout: 10_000 })
-  // a keyboard user is back on the button once the wait is over
-  await expect(page.getByRole("button", { name: "Try again" })).toBeFocused()
-  await page.getByRole("button", { name: "Try again" }).click()
-  // the button is gone from the redrawn page, so focus goes to its heading at once
-  await expect(page.locator("main h1")).toBeFocused({ timeout: 2_000 })
-  await expect(other.getByRole("heading", { name: "Paid, not registered" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)
+  await page.getByRole("button", { name: "Choose another name" }).click()
+  await page.waitForURL(/retarget=/)
+})
+
+test("an order whose commitment lapses before its page signs is committed again by that page, which signs it then", async ({ page, request }) => {
+  const label = uniqueLabel("lps")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  await page.route("**/api/registration/*/reveal", (route) => route.abort())
+  await control(request, `settle/${invoiceId}`)
+  await expect.poll(async () => (await mockRegistration(request, invoiceId)).phase, { timeout: REGISTRATION_MS }).toBe("committed")
+  const retried = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/retry"))
+  await control(request, `lapse/${await registrationOf(request, invoiceId)}`)
+  await retried
+  await page.unrouteAll({ behavior: "wait" })
   await waitRegistered(page, label)
-  await waitRegistered(other, label)
 })
 
 // a chain that fails each transaction before it goes out, as an RPC provider down for a while, and a look half way through
@@ -173,7 +173,7 @@ test("a chain that sends nothing for a moment keeps the order where it was, then
   await waitRegistered(page, label)
 })
 
-test("a chain that sends nothing for longer than its resends fails the order in plain words, and Try again sends it", async ({ page, request }) => {
+test("a chain that sends nothing for longer than its resends fails the order in plain words, leaving it to support", async ({ page, request }) => {
   test.setTimeout(240_000)
   const label = uniqueLabel("nd")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
@@ -185,8 +185,8 @@ test("a chain that sends nothing for longer than its resends fails the order in 
   } finally {
     await control(request, "search", { unsentSeconds: 0 })
   }
-  await page.getByRole("button", { name: "Try again" }).click()
-  await waitRegistered(page, label)
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
+  await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
 })
 
 test("a late payment to a replaced invoice is kept by a restored browser after the order's balance paid for another name", async ({ page, browser, request }) => {
@@ -293,7 +293,7 @@ test("Register without links that loses a race follows the order as it is now, s
 
   // the order lapsed first, failed with its links still refused, which keeps the same screen
   await page.unrouteAll({ behavior: "wait" })
-  const lapsed = { ...view, version: view.version + 1, phase: { type: "failed", reason: "notSignedInTime" } }
+  const lapsed = { ...view, version: view.version + 1, phase: { type: "failed", reason: "linksRefused" } }
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "registration_changed", registration: lapsed } }))
   await onStep(page).getByRole("button", { name: "Register without links" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Paid, not registered" })).toBeVisible()

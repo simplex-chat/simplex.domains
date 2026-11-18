@@ -25,17 +25,20 @@ const watchKept = () => {
 const saidKept = (page: Page) => page.evaluate(() => (window as unknown as { __kept: boolean }).__kept)
 
 const USED_WHY = "A code registers one name only."
-// A code refused for good leaves nothing to try again: the page says why and offers another search instead.
+// A code refused for good leaves no other name to move to: the page says why and offers another search instead.
 async function offersSearchInstead(page: Page): Promise<void> {
   await expect(page.getByText(USED_WHY)).toBeVisible()
-  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Search a name" })).toBeVisible()
 }
+
+const REFUSED_LEAD = "Your code can no longer be used for it. Write to support."
+const MOVE_LEAD = "Choose another name for it, or write to support."
 
 async function reopenRefused(page: Page): Promise<void> {
   await page.addInitScript(watchKept)
   await page.reload()
-  await expect(page.locator(".screen-head .lead")).toHaveText("Your code can no longer be used for it, so trying again cannot register it.")
+  await expect(page.locator(".screen-head .lead")).toHaveText(REFUSED_LEAD)
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
   await offersSearchInstead(page)
   expect(await saidKept(page), "the page said the code is kept before it said it is refused").toBe(false)
@@ -847,24 +850,7 @@ test("a code order whose name was reserved meanwhile says so, and gives its code
   await expect(page.locator(".outcome .code-text")).toHaveText(code)
 })
 
-test("a retry refused for a code used elsewhere says the code is gone and offers no Try again, also once reopened", async ({ page, request }) => {
-  const { registrationId } = await registerWithCode(page, request, "cgone")
-  await control(request, `fail/${registrationId}`)
-  await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator(".screen-head .lead")).toHaveText("Your code is kept. Trying again spends nothing more.")
-  await page.route("**/retry", (route) => route.fulfill({ status: 409, json: { error: "code_used" } }))
-  await page.getByRole("button", { name: "Try again" }).click()
-  await expect(page.getByText("Your code was used for another name")).toBeVisible()
-  await expect(page.locator(".screen-head .lead")).toHaveText("Your code can no longer be used for it, so trying again cannot register it.")
-  await offersSearchInstead(page)
-  await page.getByRole("button", { name: "Search a name" }).click()
-  await expect(page.getByLabel("Name", { exact: true })).toBeVisible()
-  await page.goBack()
-  await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible()
-  await reopenRefused(page)
-})
-
-test("a failed code order opened again after its code was used elsewhere offers no Try again nor another name, and from the first frame the time after", async ({ page, request }) => {
+test("a failed code order opened again after its code was used elsewhere offers no other name, and from the first frame the time after", async ({ page, request }) => {
   const { code, registrationId, label } = await registerWithCode(page, request, "cgone")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
@@ -874,8 +860,12 @@ test("a failed code order opened again after its code was used elsewhere offers 
   const searched = page.waitForResponse("**/api/name/**")
   await page.reload()
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
-  await expect(page.locator(".screen-head .lead")).toHaveText("Your code can no longer be used for it, so trying again cannot register it.")
+  await expect(page.locator(".screen-head .lead")).toHaveText(REFUSED_LEAD)
   await offersSearchInstead(page)
+  await page.getByRole("button", { name: "Search a name" }).click()
+  await expect(page.getByLabel("Name", { exact: true })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible()
   await searched
   await expect(page.getByRole("button", { name: "Choose another name" }), "a refused code moves to no other name").toHaveCount(0)
   expect(await saidKept(page), "the page opened first after the code went said it is kept").toBe(false)
@@ -895,8 +885,8 @@ test("a failed code order is drawn before its code is checked, and says the code
     await page.reload()
     await asked
     await expect(page.getByRole("heading", { name: "Not registered" }), unanswered).toBeVisible()
-    await expect(lead, unanswered).toHaveText("Trying again spends nothing more.")
-    await expect(page.getByRole("button", { name: "Try again" }), unanswered).toBeEnabled()
+    await expect(lead, unanswered).toHaveText(MOVE_LEAD)
+    await expect(page.getByRole("button", { name: "Choose another name" }), unanswered).toBeEnabled()
     expect(await saidKept(page), `${unanswered}: the page said the code is kept without an answer`).toBe(false)
     await page.unrouteAll({ behavior: "wait" })
   }
@@ -908,9 +898,9 @@ test("a failed code order is drawn before its code is checked, and says the code
   })
   await page.reload()
   await expect(page.getByRole("heading", { name: "Not registered" }), "the order is drawn while its code is checked").toBeVisible()
-  await expect(lead).toHaveText("Trying again spends nothing more.")
+  await expect(lead).toHaveText(MOVE_LEAD)
   answer()
-  await expect(lead, "the lead says the code is kept once the check answers").toHaveText("Your code is kept. Trying again spends nothing more.")
+  await expect(lead, "the lead says the code is kept once the check answers").toHaveText(`Your code is kept. ${MOVE_LEAD}`)
   await page.unrouteAll({ behavior: "wait" })
 })
 
@@ -918,15 +908,15 @@ test("a failed code order whose code check meets the rate limit counts down its 
   const { registrationId } = await registerWithCode(page, request, "climit")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator(".screen-head .lead")).toHaveText("Your code is kept. Trying again spends nothing more.")
+  await expect(page.locator(".screen-head .lead")).toHaveText(`Your code is kept. ${MOVE_LEAD}`)
   const checks = await limitCodeChecks(page, 1, 3)
   await page.reload()
   const notice = onStep(page).locator(".notice", { hasText: "Too many checks just now" })
   await expect(notice.locator("span[aria-hidden=true]")).toHaveText(/^Your code may be fine\. Checking again in [1-3] seconds?\.$/)
-  await expect(page.locator(".screen-head .lead")).toHaveText("Trying again spends nothing more.")
-  await expect(page.locator(".screen-head .lead")).toHaveText("Your code is kept. Trying again spends nothing more.", { timeout: 15_000 })
+  await expect(page.locator(".screen-head .lead")).toHaveText(MOVE_LEAD)
+  await expect(page.locator(".screen-head .lead")).toHaveText(`Your code is kept. ${MOVE_LEAD}`, { timeout: 15_000 })
   await expect(notice).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Choose another name" })).toBeEnabled()
   expect(checks(), "the refused check and the one after its wait").toBe(2)
 })
 
@@ -947,22 +937,22 @@ test("a code held by this browser's failed order says it is in use and links to 
   await expect(verdict).toHaveText("This code is not valid: SimpleX withdrew it.")
 })
 
-test("a failed code order whose code is revoked or past its date while still held by it offers Try again, which registers it", async ({ page, request }) => {
+test("a failed code order whose code is revoked or past its date while still held by it offers another name", async ({ page, request }) => {
   const { code, registrationId } = await registerWithCode(page, request, "cheld")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   for (const state of ["expired", "revoked"]) {
     await control(request, "code/state", { code, state })
     await page.reload()
-    await expect(page.locator(".screen-head .lead"), state).toHaveText("Your code is kept. Trying again spends nothing more.")
-    await expect(page.getByRole("button", { name: "Try again" }), state).toBeEnabled()
+    await expect(page.locator(".screen-head .lead"), state).toHaveText(`Your code is kept. ${MOVE_LEAD}`)
+    await expect(page.getByRole("button", { name: "Choose another name" }), state).toBeEnabled()
     expect(await keptRefusal(page, registrationId), state).toBeNull()
   }
-  await page.getByRole("button", { name: "Try again" }).click()
-  await expect(page.getByRole("heading", { name: /^Registering / })).toBeVisible()
+  await page.getByRole("button", { name: "Choose another name" }).click()
+  await page.waitForURL(/retarget=/)
 })
 
-test("an order restored in a browser without its code promises nothing of the code, and keeps the service's refusal of Try again", async ({ page, request, browser, baseURL }) => {
+test("an order restored in a browser without its code promises nothing of the code", async ({ page, request, browser, baseURL }) => {
   const { code, registrationId, label } = await registerWithCode(page, request, "crest")
   const ownerCode = await page.evaluate((id) => JSON.parse(localStorage.getItem(`simplex-names:order:${id}`)!).ownerCode as string, registrationId)
   await control(request, `fail/${registrationId}`)
@@ -974,12 +964,9 @@ test("an order restored in a browser without its code promises nothing of the co
     await restored.addInitScript(watchKept)
     await restoreOrder(restored, ownerCode, label)
     await expect(restored.getByRole("heading", { name: "Not registered" })).toBeVisible()
-    await expect(restored.locator(".screen-head .lead")).toHaveText("Trying again spends nothing more.")
+    await expect(restored.locator(".screen-head .lead")).toHaveText(MOVE_LEAD)
     expect(await saidKept(restored), "the restored order said its code is kept").toBe(false)
-    await restored.getByRole("button", { name: "Try again" }).click()
-    await expect(restored.getByText("Your code was used for another name")).toBeVisible()
-    await offersSearchInstead(restored)
-    expect(await keptRefusal(restored, registrationId)).toBe("code_used")
+    expect(await keptRefusal(restored, registrationId)).toBeNull()
   } finally {
     await other.close()
   }

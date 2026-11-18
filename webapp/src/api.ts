@@ -206,7 +206,7 @@ export interface Acceptance { community: boolean; policy: string; termsHash: str
 // the chain reads the owner signs with, unread when the service could not read them; reading the view again may read them
 export type ToSign = { type: "unread" } | { type: "read"; intentNonce: number; acceptance: Acceptance }
 
-export type Signing = { type: "awaiting"; toSign: ToSign } | { type: "signed" }
+export type Signing = { type: "awaiting"; toSign: ToSign } | { type: "signed" } | { type: "lapsed" }
 
 export type PhaseView =
   | { type: "unpaid" }
@@ -250,7 +250,7 @@ export interface RegistrationView {
   terms: AgreedTerms
 }
 
-export const FAIL_REASONS = ["notSignedInTime", "notRegistered"] as const
+export const FAIL_REASONS = ["sendsUsedUp", "linksRefused", "registryRefused"] as const
 export type FailReason = (typeof FAIL_REASONS)[number]
 
 export const committedOf = (view: RegistrationView) => view.phase.type === "committed" ? view.phase : null
@@ -258,6 +258,7 @@ export const toSignOf = (view: RegistrationView): ToSign | null => {
   const committed = committedOf(view)
   return committed?.signature.type === "awaiting" ? committed.signature.toSign : null
 }
+export const lapsedOf = (view: RegistrationView) => committedOf(view)?.signature.type === "lapsed"
 export const expiresAtOf = (view: RegistrationView) => view.phase.type === "registered" ? view.phase.expiresAt : null
 export const signedTermsOf = (terms: AgreedTerms) => `${terms.communityName ? COMMUNITY_TERMS : ""}${terms.termsHash.slice(2)}`
 export const fromBalanceOf = (view: RegistrationView) => view.payment.type === "difference" || view.payment.type === "balance" ? view.payment.fromBalance : 0
@@ -439,7 +440,7 @@ const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) &
 const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
 const isAcceptance = (v: unknown) => isObject(v) && typeof v.community === "boolean" && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const isToSign = (v: unknown) => isObject(v) && (v.type === "unread" || (v.type === "read" && isAmount(v.intentNonce) && isAcceptance(v.acceptance)))
-const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isToSign(v.toSign)) || v.type === "signed")
+const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isToSign(v.toSign)) || v.type === "signed" || v.type === "lapsed")
 const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled")
   && (v.type !== "committed" || (isAmount(v.revealAfter) && isAmount(v.revealBefore) && isSigning(v.signature)))
   && (v.type !== "registered" || isAmount(v.expiresAt)) && (v.type !== "failed" || FAIL_REASONS.includes(v.reason as FailReason))

@@ -1,4 +1,4 @@
-import { type Balance, committedOf, type Community, type FailReason, type Found, fromBalanceOf, holdsPayment, type InvoiceView, paidLate, type RegistrationView, type Terms, toSignOf } from "../api.ts"
+import { type Balance, committedOf, type Community, type FailReason, type Found, fromBalanceOf, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, type Terms, toSignOf } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -84,7 +84,7 @@ export type OrderEvent =
   | { type: "move-started" }
   | { type: "move-failed"; note: Note | null }
   | { type: "retry-started" }
-  | { type: "retry-failed"; note: Note; codeRefused: boolean }
+  | { type: "retry-ended"; note: Note | null }
   | { type: "code-checked" }
   | { type: "code-check-due"; at: number | null }
   | { type: "source-read"; balance: Balance | null }
@@ -112,7 +112,8 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
       if (e.seq <= s.seq) return s
       // a reveal the view shows as stored is no longer sending, so one the service clears is signed again under the same key
       return { ...s, seq: e.seq, now: e.now, invoice: e.invoice, view: e.view, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? e.view.label),
-        nameStatus: e.nameStatus, since: sinceOf(s.since, e.view, e.now), reveal: e.view.label !== null && s.reveal ? { ...s.reveal, sending: false } : s.reveal }
+        nameStatus: e.nameStatus, since: sinceOf(s.since, e.view, e.now), reveal: e.view.label !== null && s.reveal ? { ...s.reveal, sending: false } : s.reveal,
+        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy }
     case "record-changed": return { ...s, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? null) }
     case "read-failed": return s
     case "not-found": return { ...s, gone: true }
@@ -135,7 +136,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "move-started": return start(s, "move")
     case "move-failed": return end(s, "move", { note: e.note })
     case "retry-started": return start(s, "retry")
-    case "retry-failed": return end(s, "retry", { note: e.note, codeRefused: e.codeRefused })
+    case "retry-ended": return end(s, "retry", { note: e.note })
     case "code-checked": return { ...s, codeKept: true, codeCheckAt: null }
     case "code-check-due": return { ...s, codeCheckAt: e.at }
     case "source-read": return s.busy === "reorder" ? end(s, "reorder", { sourceBalance: e.balance }) : { ...s, sourceBalance: e.balance }
@@ -178,19 +179,25 @@ export function reduce(state: OrderState, event: OrderEvent): OrderState {
 }
 
 // The code is said to be kept only once the service says so; a browser that restored the order has not got its code.
-export const failedLead = ({ view, invoice, codeRefused, codeKept, record }: OrderState) => view?.linksRefused ? "The service refused its links. Enter its name code to register it without them, or another name."
-  : invoice ? "Your payment is kept. Trying again charges nothing."
-  : codeRefused ? "Your code can no longer be used for it, so trying again cannot register it."
-  : record?.prepaidCode && codeKept ? "Your code is kept. Trying again spends nothing more." : "Trying again spends nothing more."
-
-const NOT_REGISTERED_YET = "The name could not be registered yet"
-
-const FAILED_TITLES: Record<FailReason, string> = {
-  notSignedInTime: "The name was not signed in time",
-  notRegistered: "The name could not be registered",
+export function failedLead({ view, invoice, codeRefused, codeKept, record }: OrderState): string {
+  if (view?.linksRefused) return "The service refused its links. Enter its name code to register it without them, or another name."
+  const kept = invoice ? "Your payment is kept. " : codeRefused ? "Your code can no longer be used for it. " : record?.prepaidCode && codeKept ? "Your code is kept. " : ""
+  return `${kept}${movable({ view, codeRefused }) ? "Choose another name for it, or write to support." : "Write to support."}`
 }
 
-export const failedAlert = ({ view, codeRefused }: OrderState) => ({ title: view!.phase.type === "failed" ? FAILED_TITLES[view!.phase.reason] : NOT_REGISTERED_YET, retry: !view!.linksRefused && !codeRefused })
+const FAILED_TITLES: Record<FailReason, string> = {
+  sendsUsedUp: "The name could not be registered",
+  linksRefused: "The service refused this order's links",
+  registryRefused: "The registry refused the name",
+}
+
+export const failedAlert = ({ view }: Pick<OrderState, "view">) => view!.phase.type === "failed" ? FAILED_TITLES[view!.phase.reason] : FAILED_TITLES.registryRefused
+
+export const movable = ({ view, codeRefused }: Pick<OrderState, "view" | "codeRefused">) => !codeRefused && view?.phase.type === "failed" && view.phase.reason !== "sendsUsedUp"
+
+export const nameGone = (s: Pick<OrderState, "nameStatus">) => s.nameStatus === "registered" || s.nameStatus === "registering" || s.nameStatus === "reserved"
+
+export const retryDue = (s: OrderState) => s.view !== null && lapsedOf(s.view) && s.record !== null && !linksRefused(s) && !nameGone(s) && s.busy === null && s.hold === null
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase.type === b.phase.type && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves
 

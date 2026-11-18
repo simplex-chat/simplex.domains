@@ -318,7 +318,8 @@ describe("service errors", () => {
     for (const phase of [
       { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "queued" }, { type: "committing" },
       committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
-      { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "taken" }, { type: "failed", reason: "notSignedInTime" }, { type: "failed", reason: "notRegistered" },
+      committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "taken" },
+      { type: "failed", reason: "sendsUsedUp" }, { type: "failed", reason: "linksRefused" }, { type: "failed", reason: "registryRefused" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
       expect((await readRegistration("r1")).phase, JSON.stringify(phase)).toEqual(phase)

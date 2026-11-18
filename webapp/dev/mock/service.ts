@@ -467,7 +467,7 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
   switch (reg.phase) {
     case "unpaid": return closedBy ? { type: "closed", closedBy } : { type: "unpaid" }
     case "committed": return { type: "committed", revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
-      signature: reg.label === null ? { type: "awaiting", toSign: await toSignOf(reg) } : { type: "signed" } }
+      signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
     case "registered": return { type: "registered", expiresAt: reg.expiresAt }
     case "failed": return { type: "failed", reason: reg.error }
     default: return { type: reg.phase }
@@ -881,19 +881,22 @@ async function advance(reg: Registration): Promise<void> {
     if (e instanceof NotSent && reg.resends < RESENDS) {
       reg.resends += 1
       setTimeout(() => void advance(reg), RESEND_MS)
-    } else fail(reg, "notRegistered")
+    } else fail(reg, "sendsUsedUp")
   } finally {
     busy.delete(reg.id)
   }
 }
 
-// A commitment not revealed before revealBefore can no longer register: the order fails, for Try again to commit afresh.
+const lapsed = (reg: Registration) => reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore
+
+// A commitment not revealed before revealBefore can no longer register: the order waits for its page's /retry, unless its
+// links were refused, which a new commitment holds too.
 function lapse(reg: Registration): void {
-  if (reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore) fail(reg, "notSignedInTime")
+  if (lapsed(reg) && reg.linksRefused) fail(reg, "linksRefused")
 }
 
 function fail(reg: Registration, error: FailReason): void {
-  // a failed registration keeps its prepaid code reserved for Try again
+  // a failed registration keeps its prepaid code reserved for a move
   reg.phase = "failed"
   reg.error = error
   changed(reg)
@@ -904,7 +907,7 @@ async function commit(reg: Registration): Promise<void> {
   changed(reg)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "notRegistered")
+    return fail(reg, "registryRefused")
   }
   for (;;) {
     try {
@@ -952,7 +955,7 @@ async function register(reg: Registration): Promise<void> {
   await taking.get(reg.label!)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "notRegistered")
+    return fail(reg, "registryRefused")
   }
   const { nonce, deadline, signature } = reg.intent!
   const { acceptance } = reg
@@ -977,7 +980,7 @@ async function register(reg: Registration): Promise<void> {
   } catch (e) {
     if (e instanceof NotSent) throw e
     // a register with no answer may still be mined, so the order waits for the chain; a relay with no answer fails the order
-    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, "notRegistered")
+    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, "registryRefused")
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
     // another registration by the same owner spent this nonce first, or the terms changed: the owner signs again
     if (SIGN_AGAIN.includes(e.revert ?? "")) {
@@ -993,11 +996,11 @@ async function register(reg: Registration): Promise<void> {
       else credit(reg.id, reg.paid)
       return changed(reg)
     }
-    return fail(reg, "notRegistered")
+    return fail(reg, "registryRefused")
   }
   // the transaction went through; the owner is checked as the chain answers it, and a read that fails leaves it at that
   const holder = await ownerOf(reg.labelHash).catch(() => reg.owner)
-  if (holder !== reg.owner) return fail(reg, "notRegistered")
+  if (holder !== reg.owner) return fail(reg, "registryRefused")
   await registered(reg)
 }
 
@@ -1007,7 +1010,7 @@ async function awaitRegistration(reg: Registration): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, PENDING_CHECK_MS))
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
   }
-  fail(reg, "notRegistered")
+  fail(reg, "registryRefused")
 }
 
 // a few tries, as one failed read is the provider's moment, not the registration's
@@ -1093,7 +1096,7 @@ export async function reveal(registrationId: string, body: Record<string, unknow
     if (reg.label === body.label && reg.intent?.signature === signature) return {}
     throw badRequest()
   }
-  if (reg.phase !== "committed") throw badRequest()
+  if (reg.phase !== "committed" || lapsed(reg)) throw badRequest()
   const version = reg.version
   const { label, secret, nonce, deadline } = body
   if (typeof label !== "string" || labelProblem(label) !== null) throw badRequest()
@@ -1261,24 +1264,10 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   lapse(reg)
-  // its commitment holds the refused links, so a new commit could never register: only a move fixes them
-  if (reg.phase !== "failed" || reg.linksRefused) throw badRequest()
-  const version = reg.version
-  if ((await ownerOf(reg.labelHash).catch(unavailable)) === reg.owner) {
-    await unchangedSince(reg, version)
-    await registered(reg).catch(unavailable)
-    return registrationView(reg)
-  }
-  const nonce = reg.intent ? await read<bigint>(sponsor, "nonces", [reg.owner]).catch(unavailable) : null
-  await unchangedSince(reg, version)
-  const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
-  if (row) {
-    codeStillPays(row, reg, reg.length)
-    Object.assign(row, { state: "reserved", registrationId: reg.id })
-  }
-  if (reg.intent && reg.intent.nonce !== nonce) clearReveal(reg)
+  // only a commitment that lapsed unsigned is committed again; refused links fail at the lapse
+  if (!lapsed(reg)) throw badRequest()
   reg.phase = "queued"
-  reg.error = null
+  reg.commitTx = null
   reg.registerTx = null
   reg.resends = 0
   changed(reg)
@@ -1527,7 +1516,8 @@ export function controlRegistration(action: string, registrationId: string): Rec
   if (action === "fail") reg.failNext = true
   else if (action === "lapse" && reg.phase === "committed") {
     reg.revealBefore = nowSeconds() - 1
-    lapse(reg)
+    if (reg.linksRefused) lapse(reg)
+    else changed(reg)
   } else throw badRequest()
   return { ok: true }
 }
