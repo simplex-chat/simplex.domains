@@ -393,9 +393,9 @@ describe("holdWait", () => {
   it("reads at a pause while the holder's payment is being confirmed, which has no end", () => {
     expect(holdWait(null, false, AT, AT)).toBe(CONFIRMING_READ_MS)
   })
-  it("says until when a hold lasts, or that the holder's payment is being confirmed", () => {
+  it("says until when a hold lasts, or that the holder's payment is being completed", () => {
     expect(heldWords("2026-10-17T12:10:00Z")).toBe(`until ${timeOf(Date.parse("2026-10-17T12:10:00Z"))}`)
-    expect(heldWords(null)).toBe("while its payment is being confirmed")
+    expect(heldWords(null)).toBe("while its payment is being completed")
   })
 })
 

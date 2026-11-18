@@ -119,7 +119,7 @@ test("the line on another order follows it, saying when it is confirming and goi
   const line = onStep(page).locator(".pay-with > .note")
   await expect(line).toHaveText("Another order is waiting for its payment. Open that order")
   await control(request, `confirming/${invoiceId}`)
-  await expect(line).toHaveText("Another order is confirming its payment. Open that order")
+  await expect(line).toHaveText("Another order is completing its payment. Open that order")
   await control(request, `settle/${invoiceId}`)
   await expect(line).toHaveCount(0)
   await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeFocused()

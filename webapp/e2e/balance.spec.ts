@@ -300,7 +300,7 @@ test("a balance held by another browser's invoice whose payment is confirming pa
   page.on("request", (r) => { if (r.method() === "GET" && /\/api\/registration\/[^/?]+$/.test(new URL(r.url()).pathname)) reads.push(Date.now()) })
   await onStep(page).getByRole("button", { name: "Register with your balance" }).click()
   const held = onStep(page).locator(".line", { hasText: "Your balance is in use by" })
-  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being confirmed.`)
+  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being completed.`)
   await expect(onStep(page).getByRole("button", { name: "Register with your balance" })).toBeDisabled()
   await page.waitForTimeout(8_000)
   expect(reads.length, `reads of the balance in ${reads.length ? reads[reads.length - 1] - reads[0] : 0} ms`).toBeLessThanOrEqual(3)
@@ -452,7 +452,7 @@ test("a review following the order that holds its balance says the hold has no t
   const held = onStep(page).locator(".line", { hasText: "Your balance is in use by" })
   await expect(held).toHaveText(new RegExp(`^Your balance is in use by ${dearer}\\.simplex until \\d\\d:\\d\\d\\.$`))
   await control(request, `partial/${holder}`)
-  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being confirmed.`, { timeout: 10_000 })
+  await expect(held).toHaveText(`Your balance is in use by ${dearer}.simplex while its payment is being completed.`, { timeout: 10_000 })
 })
 
 test("a held balance is waited for on the service's clock, however far the device's runs ahead, and find refused for its limit is asked again only after the wait it names", async ({ page, request }) => {
