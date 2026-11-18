@@ -350,7 +350,7 @@ describe("spendBalance", () => {
     })
     answers[`POST /api/registration/${SPEND.registrationId}/spend`] = () => answer((calls[0].body as { signed: { fields: never } }).signed.fields)
     const next = await flow.spendBalance(record, "another", NO_LINKS, quote(40000), 10000, "xmr", SPEND.terms)
-    expect(calls[0].body).toMatchObject({ price: 40000, balance: 10000, method: { type: "crypto", currency: "xmr" } })
+    expect(calls[0].body).toMatchObject({ price: 40000, balance: 10000, method: "xmr" })
     expect(next).toMatchObject({ registrationId: "reg2", invoiceId: "inv2", method: "xmr", paid: 40000, balanceSource: SPEND.registrationId })
     expect(store.orderUrl(next)).toBe("/?order=inv2")
   })

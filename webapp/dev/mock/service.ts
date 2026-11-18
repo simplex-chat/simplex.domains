@@ -621,14 +621,6 @@ function flatSigned(v: unknown): Record<string, unknown> {
 
 const flatOrder = (v: unknown): Record<string, unknown> => ({ ...flatSigned(v), owner: objectOf(v).owner })
 
-function methodOf(v: unknown): Method | undefined {
-  if (v === undefined) return undefined
-  const m = objectOf(v)
-  if (m.type === "card" && m.provider === "stripe") return "card"
-  if (m.type === "crypto" && (m.currency === "btc" || m.currency === "xmr")) return m.currency
-  throw badRequest()
-}
-
 // the paid years and the free days until the term starts, as the page counts them by the service's clock
 function checkDuration(duration: number, years: number): void {
   const free = duration - years * YEAR_S
@@ -708,7 +700,7 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   refuseWhenCodesOnly()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
-  const method = methodOf(body.method)
+  const method = body.method
   if (!isMethod(method)) throw badRequest()
   if (!Number.isInteger(body.price)) throw badRequest()
   await injectedRefusal(order.length)
@@ -1206,9 +1198,8 @@ function spendable(source: Registration, seen: number): Invoice | null {
 // else all of it, held until an invoice for the difference is paid.
 export async function spend(sourceId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   refuseWhenCodesOnly()
-  const { price, balance } = body
+  const { price, balance, method } = body
   const sent = flatSigned(body.signed)
-  const method = methodOf(body.method)
   if (!Number.isInteger(price) || !Number.isInteger(balance) || (price as number) <= 0 || (balance as number) <= 0 || !Number.isInteger(sent.timestamp)) throw badRequest()
   const difference = (price as number) > (balance as number)
   if (difference ? !isMethod(method) : method !== undefined) throw badRequest()

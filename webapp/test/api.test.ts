@@ -344,7 +344,7 @@ describe("service errors", () => {
       fields: { labelHash: SPEND.labelHash, length: 8, duration: SPEND.duration, commitment: SPEND.commitment, sealed: "sealed", terms: { communityName: false, termsHash: TERMS.hash } },
       timestamp: 1, signature: "0x",
     },
-    price: 20000, balance: 10000, method: { type: "crypto", currency: "btc" },
+    price: 20000, balance: 10000, method: "btc",
   }
 
   it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
