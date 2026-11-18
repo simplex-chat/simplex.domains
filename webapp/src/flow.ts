@@ -281,29 +281,12 @@ export async function ownOrderFor(ownerCode: string, nameHash: string): Promise<
   return chosen ? (await reopen(wallet, ownerCode, chosen)).record : null
 }
 
-// orders this tab found nothing newer for; find has its own rate limit, so each is asked once
-const nothingNewer = new Set<string>()
-
-// An order this browser holds may have a newer invoice that another browser made; the code finds it, and the old
-// record then leads there. Null when there is none; a failure to ask throws, so the caller can ask again.
-export async function newerOrder(record: store.OrderRecord): Promise<store.OrderRecord | null> {
-  const wallet = walletOf(record.ownerCode)
-  if (!wallet || nothingNewer.has(record.registrationId)) return null
-  const none = () => {
-    nothingNewer.add(record.registrationId)
-    return null
-  }
-  const found = await findOrders(wallet)
-  // Orders listed before this one are newer; one the service has forgotten is not listed, so then only orders made after
-  // it count, by the service's clock. Never the one this record replaced, which would lead straight back here.
-  const at = found.findIndex((r) => r.registrationId === record.registrationId)
-  const self = store.orderUrl(record)
-  const newer = (at >= 0 ? found.slice(0, at) : found.filter((r) => Date.parse(r.createdAt) > Date.parse(record.createdAt)))
-    .filter((r) => store.orderByRegistration(r.registrationId)?.replacedBy !== self)
-  if (newer.length === 0) return none()
-  const { record: next } = await reopen(wallet, record.ownerCode, chooseOrder(newer))
-  store.updateOrder(record.registrationId, { replacedBy: store.orderUrl(next) })
-  return next
+export async function successorOf(record: store.OrderRecord, registrationId: string): Promise<store.OrderRecord | null> {
+  const known = store.orderByRegistration(registrationId)
+  if (known) return known
+  const wallet = walletOf(record.ownerCode)!
+  const entry = (await findOrders(wallet)).find((r) => r.registrationId === registrationId)
+  return entry ? (await reopen(wallet, record.ownerCode, entry)).record : null
 }
 
 // When the service made one of the code's orders, which an adopted order's invoice does not say; null when the service does not list it.

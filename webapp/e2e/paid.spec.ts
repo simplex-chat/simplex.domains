@@ -914,12 +914,6 @@ test("a replaced invoice leads to its new order until a late payment reaches it"
   await restored.goto(`/?order=${invoiceId}`)
   await restored.waitForURL((url) => url.searchParams.get("order") === second)
 
-  // the service has forgotten the old invoice; this browser still knows what replaced it
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
-  await page.goto(`/?order=${invoiceId}`)
-  await page.waitForURL((url) => url.searchParams.get("order") === second)
-  await page.unroute(`**/api/invoice/${invoiceId}*`)
-
   await control(request, `settle/${invoiceId}`)
   for (const p of [page, restored]) {
     await p.goto(`/?order=${invoiceId}`)
@@ -1122,7 +1116,7 @@ test("a browser restored before another browser made a new invoice carries on wi
 
   await restored.goto(`/?order=${second}`)
   await expect(restored.getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
-  // the adopted order carries the service's time of making it, which later searches for a newer order compare against
+  // the adopted order carries the service's time of making it, by which Your names orders its rows
   const made = (await mockRegistration(request, second)).createdAt
   const adopted = await restored.evaluate((id) => Object.keys(localStorage).filter((k) => k.startsWith("simplex-names:order:"))
     .map((k) => JSON.parse(localStorage.getItem(k)!)).find((o: { invoiceId: string }) => o.invoiceId === id), second)
@@ -1188,7 +1182,7 @@ test("a cancel refused for a rate limit keeps the invoice payable and says so un
   await expect(page.getByText("This invoice was cancelled and nothing was received.")).toBeVisible()
 })
 
-test("a restored browser that never opened another browser's newer invoice finds it through the code", async ({ page, browser, request }) => {
+test("a restored browser that never opened another browser's newer invoice is led to it by the old invoice", async ({ page, browser, request }) => {
   const label = uniqueLabel("newer")
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "btc" })
   const other = await browser.newContext()
@@ -1203,11 +1197,8 @@ test("a restored browser that never opened another browser's newer invoice finds
   await control(request, `settle/${second}`)
   await waitRegistered(page, label)
 
-  // the service has forgotten the old invoice by now; the code still finds the order that replaced it
-  await restored.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
   await restored.goto(`/?order=${invoiceId}`)
   await restored.waitForURL((url) => url.searchParams.get("order") === second)
-  await restored.unroute(`**/api/invoice/${invoiceId}*`)
   await restored.goto("/#/names")
   const row = restored.locator(".list-row:visible", { hasText: `${label}.simplex` })
   await expect(row.locator(".chip"), "a registered name says so by its date").toHaveCount(0)
@@ -1215,45 +1206,14 @@ test("a restored browser that never opened another browser's newer invoice finds
   await other.close()
 })
 
-test("a forgotten empty invoice never leads back to the older invoice it replaced", async ({ page, request }) => {
-  const label = uniqueLabel("loopb")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  await control(request, `expire/${invoiceId}`)
-  await page.getByRole("button", { name: "Get a new invoice" }).click()
-  await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
-  const second = new URL(page.url()).searchParams.get("order")!
-  const secondRegistration = await registrationOf(request, second)
-  await control(request, `expire/${second}`)
-  await control(request, `settle/${invoiceId}`)
-  // the service forgets the empty invoice and keeps the late-paid one
-  await page.route(`**/api/invoice/${second}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
-  await page.route("**/api/registration/find", async (route) => {
-    const res = await route.fetch()
-    const body = await res.json()
-    await route.fulfill({ response: res, json: { registrations: body.registrations.filter((r: { registrationId: string }) => r.registrationId !== secondRegistration) } })
-  })
-  await page.goto(`/?order=${second}`)
-  await expect(page.getByRole("heading", { name: "This link does not work" })).toBeVisible()
-  expect(new URL(page.url()).searchParams.get("order")).toBe(second)
-})
-
-test("a forgotten order whose code's lookup is refused says the link does not work", async ({ page }) => {
-  const { invoiceId } = await startOrder(page, uniqueLabel("refuse"), { method: "btc" })
+test("a forgotten order says the link does not work, without asking for the code's orders", async ({ page }) => {
+  const { invoiceId } = await startOrder(page, uniqueLabel("forgot"), { method: "btc" })
   await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
-  await page.route("**/api/registration/find", (route) => route.fulfill({ status: 400, json: { error: "bad_request" } }))
+  const finds: string[] = []
+  page.on("request", (r) => { if (r.url().includes("/api/registration/find")) finds.push(r.url()) })
   await page.goto(`/?order=${invoiceId}`)
   await expect(page.getByRole("heading", { name: "This link does not work" })).toBeVisible()
-})
-
-test("a forgotten order whose code's lookup is rate limited waits as asked, then answers", async ({ page, request }) => {
-  const { invoiceId } = await startOrder(page, uniqueLabel("limit"), { method: "btc" })
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
-  await control(request, "search", { findLimitSeconds: 2 })
-  await page.goto(`/?order=${invoiceId}`)
-  await expect(page.getByRole("heading", { name: "This order could not be loaded" })).toBeVisible()
-  // with nothing newer than this order, the lookup ends at the dead link once the limit is over
-  await expect(page.getByRole("heading", { name: "This link does not work" })).toBeVisible({ timeout: 10_000 })
-  await control(request, "search", { findLimitSeconds: 0 })
+  expect(finds).toEqual([])
 })
 
 test("an unknown order link says so", async ({ page }) => {

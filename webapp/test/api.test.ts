@@ -269,7 +269,7 @@ describe("service errors", () => {
   const REGISTRATION = {
     id: "r1", version: 4, moves: 0, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: false, latePayment: null,
-    community: null, terms: { communityName: false, termsHash: TERMS.hash },
+    community: null, terms: { communityName: false, termsHash: TERMS.hash }, replacedBy: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -304,6 +304,18 @@ describe("service errors", () => {
   })
 
   const BALANCE = { amount: 10000, hold: { type: "open", heldUntil: "2026-10-16T12:00:00Z" }, refunded: 2500 }
+
+  it("passes the order that replaced a closed one, and takes one it cannot follow as no answer", async () => {
+    for (const replacedBy of [{ registrationId: "r2", invoiceId: "inv2" }, { registrationId: "r2", invoiceId: null }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, replacedBy }))
+      expect((await readRegistration("r1")).replacedBy).toEqual(replacedBy)
+    }
+    for (const replacedBy of [undefined, "r2", {}, { registrationId: 2, invoiceId: null }, { registrationId: "r2", invoiceId: 5 }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, replacedBy }))
+      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      expect((e as ApiError).code, JSON.stringify(replacedBy)).toBe("network")
+    }
+  })
 
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {

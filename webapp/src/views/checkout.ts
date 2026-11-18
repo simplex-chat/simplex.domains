@@ -197,7 +197,7 @@ const unpaid = (i: api.InvoiceView | null): i is api.InvoiceView => i?.status ==
 
 // An unpaid invoice this browser made is pointed at, not blocking a new order, and followed until paid or closed; only the newest few are asked.
 async function showOpenOrder(signal: AbortSignal): Promise<void> {
-  const recent = store.orders().filter((o) => o.invoiceId && !o.cancelled && !o.replacedBy).slice(0, OPEN_ORDER_LOOKBACK)
+  const recent = store.orders().filter((o) => o.invoiceId && !o.cancelled).slice(0, OPEN_ORDER_LOOKBACK)
   const invoices = await Promise.all(recent.map((o) => api.readInvoice(o.invoiceId!).catch(() => null)))
   const open = invoices.find(unpaid)
   if (!open || signal.aborted) return

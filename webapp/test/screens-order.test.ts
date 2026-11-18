@@ -398,7 +398,7 @@ describe("closedBalance", () => {
     expect(closedBalance(read(crypto(LATE_FULL, { balance: BALANCE }))), "kept expired").toBe("offer")
   })
   it("leads a replaced invoice's balance to its new invoice, which can be cancelled for it", () => {
-    const replaced = read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { balance: BALANCE }), undefined, { record: record({ replacedBy: "/?order=inv-2" }) })
+    const replaced = read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { balance: BALANCE, replacedBy: { registrationId: "reg-2", invoiceId: "inv-2" } }))
     expect(closedBalance(replaced)).toBe("replaced")
   })
   it("offers nothing before the credit, after it is spent, without the code, or for an invoice nothing reached", () => {

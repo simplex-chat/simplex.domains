@@ -259,7 +259,7 @@ export function screenOf(s: OrderState): OrderKind {
 export function closedBalance(s: OrderState): "offer" | "replaced" | null {
   const closed = closedCase(s)
   if ((closed !== "paid-late" && closed !== "received") || !s.record || !s.view?.balance?.amount) return null
-  return s.record.replacedBy ? "replaced" : "offer"
+  return s.view.replacedBy ? "replaced" : "offer"
 }
 
 // An expired invoice is still followed: a payment can arrive after it closed, and then nothing must be ordered again.

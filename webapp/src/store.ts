@@ -26,8 +26,6 @@ export interface OrderRecord {
   prepaidCode?: string
   // the service's error for that code once it can no longer pay for a failed registration
   codeRefusal?: CodeRefusal
-  // the link of the order that replaced this one with a new invoice; its old link leads there
-  replacedBy?: string
   // the service refused the order's links at its reveal, which only a move to other links can fix
   linksRefused?: boolean
   // the order whose balance paid this one, which the service's views do not name

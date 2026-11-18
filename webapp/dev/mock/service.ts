@@ -116,6 +116,7 @@ interface Registration {
   balanceSource: string | null
   // the terms the order signed when it was made or last moved
   terms: string
+  replaces: string | null
 }
 
 interface Invoice {
@@ -485,6 +486,7 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
     id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
     linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
+    replacedBy: successorOf(reg),
   }
 }
 
@@ -749,9 +751,22 @@ function newRegistration(order: OrderBody, extra: NewRegistration): Registration
   const reg: Registration = {
     id: id(), invoiceId: null, fromBalance: 0, balanceSource: null, ...order, ...extra, label: null, secret: null, records: null, intent: null, acceptance: null, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, moves: 0, linksRefused: false, resends: 0, version: 1,
+    replaces: replacedOrder(order),
   }
   registrations.set(reg.id, reg)
   return reg
+}
+
+function replacedOrder(order: OrderBody): string | null {
+  const all = [...registrations.values()]
+  const closed = all.filter((r) => r.owner.toLowerCase() === order.owner.toLowerCase() && r.labelHash === order.labelHash && r.phase === "unpaid"
+    && r.invoiceId !== null && invoices.get(r.invoiceId)!.closedBy !== null && !all.some((n) => n.replaces === r.id))
+  return closed.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? null
+}
+
+function successorOf(reg: Registration): Record<string, unknown> | null {
+  const next = [...registrations.values()].find((n) => n.replaces === reg.id)
+  return next ? { registrationId: next.id, invoiceId: next.invoiceId } : null
 }
 
 export async function readInvoice(invoiceId: string, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {

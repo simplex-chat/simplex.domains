@@ -248,6 +248,7 @@ export interface RegistrationView {
   linksRefused: boolean
   community: Community | null
   terms: AgreedTerms
+  replacedBy: { registrationId: string; invoiceId: string | null } | null
 }
 
 export const FAIL_REASONS = ["sendsUsedUp", "linksRefused", "registryRefused"] as const
@@ -448,6 +449,7 @@ const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isI
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && typeof v.linksRefused === "boolean" && isCommunity(v.community) && isAgreedTerms(v.terms)
+  && nullable(v.replacedBy, (r) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText))
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)

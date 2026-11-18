@@ -1,7 +1,7 @@
 import { fromBalanceOf, holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, type SearchAnswer } from "../api.ts"
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
-import { type CodeRecord, type OrderRecord, orderUrl, type PendingCode } from "../store.ts"
+import type { CodeRecord, OrderRecord, PendingCode } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
 
 export interface RowSeen { view: RegistrationView; invoice: InvoiceView | null; answer?: SearchAnswer | null }
@@ -41,11 +41,11 @@ export type ListEvent =
 
 const keep = <T>(map: Record<string, T>, keys: string[]): Record<string, T> => Object.fromEntries(keys.filter((k) => k in map).map((k) => [k, map[k]]))
 const idsOf = (s: Stored) => s.orders.map((o) => o.registrationId)
+const successorOf = (s: ListState, o: OrderRecord) => s.seen[o.registrationId]?.view.replacedBy?.registrationId
 
 export function initialList(stored: Stored, hold: Hold | null, seen: Record<string, RowSeen>, checked: Record<string, CodeCheck>, now: number): ListState {
   const known = stored.codes.map((c) => c.code).filter((c) => checked[c] !== "unchecked")
-  const unreplaced = stored.orders.filter((o) => !o.replacedBy).map((o) => o.registrationId)
-  return { ...stored, hold, now, seen: keep(seen, unreplaced), next: {}, unread: [], checked: keep(checked, known), checkAgainAt: {}, finding: {}, asking: false, shownCode: null }
+  return { ...stored, hold, now, seen: keep(seen, idsOf(stored)), next: {}, unread: [], checked: keep(checked, known), checkAgainAt: {}, finding: {}, asking: false, shownCode: null }
 }
 
 // a row drawn stays as last seen until a whole new answer replaces it
@@ -58,7 +58,7 @@ export function rowsDrawn(s: ListState, drawn: Set<string>): { rows: OrderRecord
   const rows: OrderRecord[] = []
   let blocked = false
   for (const o of nameRows(s)) {
-    const before = rowShown(s, o) ? null : s.orders.find((p) => p.replacedBy === orderUrl(o) && drawn.has(p.registrationId))
+    const before = rowShown(s, o) ? null : s.orders.find((p) => successorOf(s, p) === o.registrationId && drawn.has(p.registrationId))
     if (before) rows.push(before)
     else if (!rowShown(s, o)) blocked = true
     else if (!blocked || drawn.has(o.registrationId)) rows.push(o)
@@ -76,15 +76,13 @@ export function reduceList(s: ListState, e: ListEvent): ListState {
   switch (e.type) {
     case "stored": {
       const { type: _, ...stored } = e
-      const unreplaced = new Set(s.orders.filter((o) => !o.replacedBy).map((o) => o.registrationId))
-      const ids = idsOf(stored).filter((id) => !(unreplaced.has(id) && stored.orders.find((o) => o.registrationId === id)?.replacedBy))
+      const ids = idsOf(stored)
       return { ...s, ...stored, seen: keep(s.seen, ids), next: keep(s.next, ids), unread: s.unread.filter((id) => ids.includes(id)),
         checked: keep(s.checked, stored.codes.map((c) => c.code)), checkAgainAt: keep(s.checkAgainAt, stored.codes.map((c) => c.code)), finding: keep(s.finding, stored.pending.map((p) => p.ownerCode)), asking: s.asking && hasRecords(stored),
         shownCode: s.shownCode !== null && ids.includes(s.shownCode) ? s.shownCode : null }
     }
     case "row-read": {
-      const o = s.orders.find((r) => r.registrationId === e.id)
-      if (!o || (o.replacedBy && !moneyReached(e.invoice))) return s
+      if (!s.orders.some((r) => r.registrationId === e.id)) return s
       const last = s.seen[e.id]
       if (e.view.phase.type === "registered" && last?.view.phase.type !== "registered") return { ...s, now: e.now, next: { ...s.next, [e.id]: { view: e.view, invoice: e.invoice } } }
       const kept = last?.view.phase.type === "registered" ? { answer: last.answer } : {}
@@ -119,12 +117,13 @@ export function reduceList(s: ListState, e: ListEvent): ListState {
 export const moneyReached = (invoice: InvoiceView | null) => invoice !== null && (invoice.status === "paid" || holdsPayment(invoice))
 
 export function listedOrders(s: ListState): OrderRecord[] {
-  const shown = (o: OrderRecord) => !o.replacedBy || (s.seen[o.registrationId] !== undefined && moneyReached(s.seen[o.registrationId].invoice))
+  const shown = (o: OrderRecord) => successorOf(s, o) === undefined || moneyReached(s.seen[o.registrationId].invoice)
   const index = new Map(s.orders.map((o, i) => [o.registrationId, i]))
-  const byUrl = new Map(s.orders.map((o) => [orderUrl(o), o]))
+  const byId = new Map(s.orders.map((o) => [o.registrationId, o]))
   const predecessor = new Map<string, OrderRecord>()
   for (const o of s.orders) {
-    const next = !shown(o) && o.replacedBy ? byUrl.get(o.replacedBy) : undefined
+    const id = successorOf(s, o)
+    const next = id !== undefined && !shown(o) ? byId.get(id) : undefined
     if (next && !predecessor.has(next.registrationId)) predecessor.set(next.registrationId, o)
   }
   const slotOf = (o: OrderRecord, passed = new Set<string>()): number => {
