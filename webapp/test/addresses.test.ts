@@ -42,18 +42,23 @@ function fromFiveBits(values: number[], pad = false): number[] {
 
 const numberOf = (groups: number[]) => groups.reduce((n, g) => n * 32 + g, 0)
 
+const SIGNATURE_GROUPS = 104
+const SIGNATURE_BYTES = 64
+const TIMESTAMP_GROUPS = 7
+const TAG_HEADER_GROUPS = 3
+
 function bolt11Decode(invoice: string) {
   const { hrp, data } = bech32Decode(invoice)
-  const body = data.slice(0, -104)
+  const body = data.slice(0, -SIGNATURE_GROUPS)
   const fields = new Map<string, number[]>()
-  for (let at = 7; at < body.length;) {
-    const length = numberOf(body.slice(at + 1, at + 3))
-    fields.set(BECH32[body[at]], body.slice(at + 3, at + 3 + length))
-    at += 3 + length
+  for (let at = TIMESTAMP_GROUPS; at < body.length;) {
+    const length = numberOf(body.slice(at + 1, at + TAG_HEADER_GROUPS))
+    fields.set(BECH32[body[at]], body.slice(at + TAG_HEADER_GROUPS, at + TAG_HEADER_GROUPS + length))
+    at += TAG_HEADER_GROUPS + length
   }
-  const signature = fromFiveBits(data.slice(-104))
+  const signature = fromFiveBits(data.slice(-SIGNATURE_GROUPS))
   const signed = createHash("sha256").update(Buffer.concat([Buffer.from(hrp), Buffer.from(fromFiveBits(body, true))])).digest()
-  return { hrp, timestamp: numberOf(body.slice(0, 7)), fields, signature: new Uint8Array(signature.slice(0, 64)), recovery: signature[64], signed: new Uint8Array(signed) }
+  return { hrp, timestamp: numberOf(body.slice(0, TIMESTAMP_GROUPS)), fields, signature: new Uint8Array(signature.slice(0, SIGNATURE_BYTES)), recovery: signature[SIGNATURE_BYTES], signed: new Uint8Array(signed) }
 }
 
 // Monero's base58: 11 characters a full block of 8 bytes, fewer for the last
@@ -110,7 +115,7 @@ describe("the mock's invoice addresses", () => {
     return secp256k1.Signature.fromBytes(signature, "compact").addRecoveryBit(recovery).recoverPublicKey(signed).toHex()
   }
   const EXPIRY_S = 3600
-  it.each([["0.00049999944", "499999440p"], ["0.0015625", "1562500n"], ["0.001", "1m"], ["0.000002", "2u"], ["0.00000002", "20n"]])("gives a regtest BOLT11 invoice of %s BTC whose prefix holds it as %s, signed over its fields", (btc, amount) => {
+  it.each([["0.00049999944", "499999440p"], ["0.0015625", "1562500n"], ["0.001", "1m"], ["0.000002", "2u"], ["0.00000002", "20n"]])("gives a regtest BOLT11 invoice of %s BTC with the amount in its prefix as %s, signed over its fields", (btc, amount) => {
     const invoice = lightningInvoice(ids[0], btc, CREATED, EXPIRY_S)
     const { hrp, timestamp, fields } = bolt11Decode(invoice)
     expect(hrp).toBe(`lnbcrt${amount}`)

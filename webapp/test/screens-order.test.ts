@@ -31,6 +31,7 @@ const crypto = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView
 })
 
 const LN_AMOUNT = "0.00050000"
+const BOLT11_MIDDLE = 300
 const lightning = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView> = {}): InvoiceView => ({
   invoiceId: "inv-1", status: "open", amount: 1500, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: registration(reg),
   address: "lnbcrt499999440p1p4d7qjqpp5d8nyztumz5dy704dce52gks3yfmgxan4kdaq2msqfrfk4q9zmttssp57g2sz7f8sxpg", cryptoAmount: LN_AMOUNT, cryptoCurrency: "ln",
@@ -746,16 +747,16 @@ describe("sameStep", () => {
 })
 
 describe("a Lightning invoice", () => {
-  it("is paid on the coin's pay page while open, and leaves it once paid, as a coin on chain does", () => {
+  it("is shown on the coin's pay page while open, and on the registering screen once paid, as an on-chain invoice is", () => {
     expect(screenOf(read(lightning()))).toBe("pay-crypto")
     expect(screenOf(read(lightning({ status: "paid", paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" }), registration({ phase: "queued" })))).toBe("registering")
     expect(screenOf(read(lightning({ status: "expired" })))).toBe("status:closed")
     expect(closedCase(read(lightning({ status: "expired" })))).toBe("expired")
   })
-  it("paid in full after a cancel closed it reads paid late, the money kept as balance", () => {
+  it("paid in full after its cancellation is shown as paid late, the money kept as balance", () => {
     expect(closedCase(read(lightning({ status: "expired", paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" })))).toBe("paid-late")
   })
-  it("seen paid says it arrived and registration starts, and never that it waits for a confirmation", () => {
+  it("seen paid is worded as arrived with registration starting, never as waiting for a confirmation", () => {
     const seen = seenWords(lightning({ paidInFull: true, cryptoAmountPaid: LN_AMOUNT, cryptoAmountDue: "0" }), "ln")
     expect(seen).toEqual({ title: "Payment received", alert: "Starting registration",
       text: `${LN_AMOUNT} BTC arrived by Lightning. Registration starts in a moment; this page moves on by itself.` })
@@ -769,11 +770,13 @@ describe("a Lightning invoice", () => {
     expect(seenWords(crypto({ requiredConfirmations: undefined, cryptoCurrency: "xmr", cryptoAmount: "0.45" }), "xmr")).toMatchObject({ alert: "Waiting for 1\u00a0confirmation", text: expect.stringMatching(/^0\.45 XMR arrived\./) })
   })
   it("is shown as its first 14 and last 8 characters under its own label, while an address is shown whole", () => {
-    const bolt11 = `lnbcrt500u1p${"q".repeat(300)}xyz12345`
-    expect(destinationOf("ln", bolt11)).toEqual({ label: "Lightning invoice", shown: `${bolt11.slice(0, 14)}\u2026xyz12345` })
+    const head = "lnbcrt500u1pqq"
+    const tail = "xyz12345"
+    const bolt11 = `${head}${"q".repeat(BOLT11_MIDDLE)}${tail}`
+    expect(destinationOf("ln", bolt11)).toEqual({ label: "Lightning invoice", shown: `${head}\u2026${tail}` })
     expect(destinationOf("btc", "bcrt1qaddress")).toEqual({ label: "Bitcoin address", shown: "bcrt1qaddress" })
   })
-  it("stays payable after a close until its expiry, and an invoice of another coin is never said to be", () => {
+  it("stays payable after its closing until its expiry, and an invoice of another coin is never reported so", () => {
     const expiresAt = Date.parse(lightning().expiresAt)
     expect(lightningPayableUntil(lightning({ status: "expired" }), expiresAt - 1)).toBe(expiresAt)
     expect(lightningPayableUntil(lightning({ status: "expired" }), expiresAt)).toBeNull()

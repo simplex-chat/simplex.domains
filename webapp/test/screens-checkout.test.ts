@@ -431,7 +431,7 @@ describe("methods for a small difference", () => {
     const small = checkout({ balance: BALANCE, method: "card" })
     expect([methodsFor(small), methodOf(small)]).toEqual([["btc", "ln", "xmr"], "btc"])
     expect(methodOf(checkout({ balance: BALANCE, method: "xmr" }))).toBe("xmr")
-    expect(methodOf(checkout({ balance: BALANCE, method: "ln" })), "Lightning takes a few cents").toBe("ln")
+    expect(methodOf(checkout({ balance: BALANCE, method: "ln" })), "a few cents can be paid by Lightning").toBe("ln")
   })
   it("offers every method for a difference of the least charge or more, and for an order no balance pays", () => {
     expect(methodsFor(checkout({ balance: { ...BALANCE, amount: 1450 }, method: "card" }))).toEqual(["card", "btc", "ln", "xmr"])

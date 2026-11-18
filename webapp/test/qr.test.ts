@@ -8,6 +8,9 @@ import { qrPixels, withQuietZone } from "./qr-image.ts"
 
 // a reader needs four modules of white around the code
 const QUIET = 4
+const LN_AMOUNT = "0.00050000"
+const CREATED = 1793000000
+const EXPIRY_S = 3600
 
 const readBack = async (payload: string) => {
   const symbol = encodeQr(payload)
@@ -44,22 +47,23 @@ describe("a payment's wallet URI", () => {
     expect(paymentUri("xmr", "a?b&c#d", "1")).toBe("monero:a%3Fb%26c%23d?tx_amount=1")
   })
   it("is null without an address or an amount", () => {
-    expect([paymentUri("xmr", "", "1", true), paymentUri("xmr", XMR, "", true), paymentUri("btc", "", "1"), paymentUri("ln", "", "0.00050000"), paymentUri("ln", BOLT11, "")])
+    expect([paymentUri("xmr", "", "1", true), paymentUri("xmr", XMR, "", true), paymentUri("btc", "", "1"), paymentUri("ln", "", LN_AMOUNT), paymentUri("ln", BOLT11, "")])
       .toEqual([null, null, null, null, null])
   })
 
-  const BOLT11 = lightningInvoice("q7ZpL2dN9xWc4KfR8tYb1A", "0.00050000", 1793000000, 3600)
-  it("opens a Lightning wallet by lightning: on a laptop and a phone alike, with no amount beside the one the invoice holds", () => {
-    expect(paymentUri("ln", BOLT11, "0.00050000", true)).toBe(`lightning:${BOLT11}`)
-    expect(paymentUri("ln", BOLT11, "0.00050000")).toBe(`lightning:${BOLT11}`)
+  const BOLT11 = lightningInvoice("q7ZpL2dN9xWc4KfR8tYb1A", LN_AMOUNT, CREATED, EXPIRY_S)
+  it("is lightning:<invoice> on a laptop and a phone alike, without an amount parameter", () => {
+    expect(paymentUri("ln", BOLT11, LN_AMOUNT, true)).toBe(`lightning:${BOLT11}`)
+    expect(paymentUri("ln", BOLT11, LN_AMOUNT)).toBe(`lightning:${BOLT11}`)
   })
 })
 
 describe("a Lightning invoice's QR code", () => {
   const LONGEST_BOLT11 = 400
+  const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
   it(`contains the wallet link, which a phone camera opens in a wallet, read back whole for a request of ${LONGEST_BOLT11} characters`, async () => {
-    const request = `lnbc500u1${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(13)}`.slice(0, LONGEST_BOLT11)
-    const link = paymentUri("ln", request, "0.00050000")!
+    const request = "lnbc500u1".padEnd(LONGEST_BOLT11, BECH32_CHARSET)
+    const link = paymentUri("ln", request, LN_AMOUNT)!
     expect(await readBack(link)).toBe(`lightning:${request}`)
   })
 })

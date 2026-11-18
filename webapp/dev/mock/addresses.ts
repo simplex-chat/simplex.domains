@@ -94,6 +94,8 @@ const TIMESTAMP_GROUPS = 7
 const LENGTH_GROUPS = 2
 const FEATURES = (1 << 8) | (1 << 14)
 const DESCRIPTION = "SimpleX name"
+const HASH_BYTES = 32
+const TAG = { paymentHash: "p", paymentSecret: "s", description: "d", expiry: "x", features: "9" } as const
 
 function fiveBitsOf(n: number, groups = 1): number[] {
   const out: number[] = []
@@ -131,11 +133,11 @@ export function lightningInvoice(invoiceId: string, btc: string, createdAt: numb
   const hrp = `${LIGHTNING_HRP}${lightningAmount(btc)}`
   const data = [
     ...fiveBitsOf(createdAt, TIMESTAMP_GROUPS),
-    ...tagged("p", toFiveBits(createHash("sha256").update(seed.subarray(0, 32)).digest())),
-    ...tagged("s", toFiveBits(seed.subarray(32, 64))),
-    ...tagged("d", toFiveBits(new TextEncoder().encode(DESCRIPTION))),
-    ...tagged("x", fiveBitsOf(expirySeconds)),
-    ...tagged("9", fiveBitsOf(FEATURES)),
+    ...tagged(TAG.paymentHash, toFiveBits(createHash("sha256").update(seed.subarray(0, HASH_BYTES)).digest())),
+    ...tagged(TAG.paymentSecret, toFiveBits(seed.subarray(HASH_BYTES, 2 * HASH_BYTES))),
+    ...tagged(TAG.description, toFiveBits(new TextEncoder().encode(DESCRIPTION))),
+    ...tagged(TAG.expiry, fiveBitsOf(expirySeconds)),
+    ...tagged(TAG.features, fiveBitsOf(FEATURES)),
   ]
   const signed = createHash("sha256").update(Buffer.concat([Buffer.from(hrp), fromFiveBits(data)])).digest()
   const signature = secp256k1.sign(signed, createHash("sha256").update(seed).digest())

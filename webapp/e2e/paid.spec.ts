@@ -709,12 +709,12 @@ test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and
   await expect(wallet).toHaveAttribute("href", `monero:${address}?tx_amount=${cryptoAmount}`)
 })
 
-test("a Lightning invoice shows its BOLT11 as an invoice, scans and links it as lightning:, and settles to a registration", async ({ page, request }) => {
+test("the BOLT11 of a Lightning invoice is shown as an invoice, scanned and linked as lightning:, and its settlement starts the registration", async ({ page, request }) => {
   const label = uniqueLabel("lnpay")
   const { invoiceId } = await startOrder(page, label, { method: "ln" })
   await expect(page.getByRole("heading", { name: "Pay with Lightning" })).toBeVisible()
   const view = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; requiredConfirmations?: number }
-  expect(view.requiredConfirmations, "a Lightning payment waits for no confirmation").toBeUndefined()
+  expect(view.requiredConfirmations, "no confirmation is required for a Lightning payment").toBeUndefined()
   await expect(onStep(page).getByRole("link", { name: "Open in wallet" })).toHaveAttribute("href", `lightning:${view.address}`)
   expect(await qrText(onStep(page).locator(".card.pay .qr svg")), "the QR").toBe(`lightning:${view.address}`)
   await expect(onStep(page).locator(".copy-field .label", { hasText: "Lightning invoice" })).toBeVisible()
@@ -723,7 +723,7 @@ test("a Lightning invoice shows its BOLT11 as an invoice, scans and links it as 
   await waitRegistered(page, label)
 })
 
-test("a cancelled Lightning invoice warns that it can still be paid until it expires", async ({ page }) => {
+test("for a cancelled Lightning invoice, the buyer is warned that it can still be paid until it expires", async ({ page }) => {
   await startOrder(page, uniqueLabel("lncx"), { method: "ln" })
   await page.getByRole("button", { name: "Cancel this invoice" }).click()
   await expect(page.getByText(/^This invoice was cancelled and nothing was received\. Its Lightning invoice can still be paid until \d\d:\d\d: don't pay it\.$/)).toBeVisible()
@@ -1299,6 +1299,7 @@ test("a card form that does not load says so and offers a new invoice", async ({
   await expect(page.getByText("Stripe's form was blocked or failed to load. Nothing was charged.")).toBeVisible()
   // or the coins: the card invoice is cancelled and the name ordered again, paid with the coin chosen
   const card = new URL(page.url()).searchParams.get("order")!
+  await expect(page.getByRole("button", { name: "Pay with Lightning" })).toBeVisible()
   await page.getByRole("button", { name: "Pay with Monero" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== card)
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
