@@ -238,7 +238,7 @@ test("Edit links on a name registered with a code adds both its links on chain i
   const answered = page.waitForResponse((res) => res.request().method() === "POST" && new URL(res.url()).pathname === "/api/name/records")
   await save.click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect(sends.map((body) => body.edits.map((e) => [e.key, e.value])), "one request with both links").toEqual([[["simplex.contact", contact], ["simplex.channel", channel]]])
+  expect(sends.map((body) => body.edits.map((e) => [e.key, e.value])), "one request with both links").toEqual([[["contact", contact], ["channel", channel]]])
   const { tx } = await (await answered).json() as { tx: string }
   expect(await textChangesOf(tx), "one multicall that set both records").toEqual({ multicall: true, changes: [["simplex.contact", contact], ["simplex.channel", channel]] })
   expect((await searchName(request, label)).records).toMatchObject({ contact, channel })
@@ -443,7 +443,7 @@ test("Edit links counts the name's edits left this year under Save, one per Save
   await saveLinks(page).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
   await expect(editCount(page)).toHaveText("2 edits left this year.")
-  expect(sends.map((body) => body.edits.map((e) => e.key)), "one request").toEqual([["simplex.contact", "simplex.channel"]])
+  expect(sends.map((body) => body.edits.map((e) => e.key)), "one request").toEqual([["contact", "channel"]])
   const { nonce } = sends[0].edits[0]
   expect(sends[0].edits.map((e) => e.nonce), "consecutive nonces").toEqual([nonce, nonce + 1])
   expect(await saveRow(page), "Save and the count keep their place").toEqual(before)

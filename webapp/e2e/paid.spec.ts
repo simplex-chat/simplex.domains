@@ -195,7 +195,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The links were not saved\. Try again in/ })).toBeVisible({ timeout: 30_000 })
-  expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["simplex.contact", "simplex.channel"]])
+  expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["contact", "channel"]])
   expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
   await page.unroute("**/api/name/records")
   await expect(page.getByRole("button", { name: "Save links" })).toBeEnabled({ timeout: 10_000 })
