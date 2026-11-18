@@ -128,6 +128,7 @@ function oneFrame(frames: Record<string, Frame[]>): void {
 }
 
 test("every purchase step fits a laptop's and a phone's window, its heading and main button at one place on every step", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   await page.goto("/")
   await fitsWindow(page, "1-home")
   // a taken name with both its links
@@ -168,7 +169,6 @@ test("every purchase step fits a laptop's and a phone's window, its heading and 
   await fitsWindow(page, "7-registered", frames)
   await page.goto("/#/code")
   await fitsWindow(page, "8-check-code", frames)
-  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(FORMS_PX[0]) }))
   await startOrder(page, uniqueLabel("fitcard"), { method: "card" })
   await expect(page.getByRole("heading", { name: "Pay by card" })).toBeVisible()
   await expect(page.locator(".name-check:not(.unchecked)")).toBeVisible()
@@ -178,6 +178,7 @@ test("every purchase step fits a laptop's and a phone's window, its heading and 
 })
 
 test("the balance's steps fit both windows, their heading, main button and link where every step's are", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   const frames: Record<string, Frame[]> = {}
   await takenOrder(page, request, uniqueLabel("fitbal"))
   await fitsWindow(page, "b1-taken", frames)
@@ -216,7 +217,6 @@ test("the balance's steps fit both windows, their heading, main button and link 
   await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
   await page.getByRole("radio", { name: "Card" }).click()
   await agreeToTerms(page)
-  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(FORMS_PX[0]) }))
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "Pay by card" })).toBeVisible()
   await expect(onStep(page).locator(".screen-head .lead")).toContainText("$100 from your balance")
