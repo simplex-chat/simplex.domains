@@ -3,8 +3,8 @@ import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, destinationOf, lightningPayableUntil, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, seenWords, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS,
-  unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable,
+  type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, seenWords, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
+  askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -776,7 +776,7 @@ describe("a Lightning invoice", () => {
     expect(destinationOf("ln", bolt11)).toEqual({ label: "Lightning invoice", shown: `${head}\u2026${tail}` })
     expect(destinationOf("btc", "bcrt1qaddress")).toEqual({ label: "Bitcoin address", shown: "bcrt1qaddress" })
   })
-  it("stays payable after its closing until its expiry, and an invoice of another coin is never reported so", () => {
+  it("can be paid after it is closed, until its expiry, and an invoice of another coin is never reported so", () => {
     const expiresAt = Date.parse(lightning().expiresAt)
     expect(lightningPayableUntil(lightning({ status: "expired" }), expiresAt - 1)).toBe(expiresAt)
     expect(lightningPayableUntil(lightning({ status: "expired" }), expiresAt)).toBeNull()
