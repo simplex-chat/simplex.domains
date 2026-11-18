@@ -121,7 +121,8 @@ test("Add to Your names keeps its place while it reads the code's orders, saying
   expect([...new Set(busy.map(([, words]) => words))]).toEqual(["Finding the code's orders…"])
 })
 
-test("on a phone, Forget's question glides into view rather than jumping there", async ({ page }) => {
+test("on a phone, Forget's question glides into view rather than jumping there", async ({ page, browserName }) => {
+  test.skip(browserName === "webkit", "WebKit draws its frames on the CPU, too few of them to sample a glide")
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/#/trademarks")
@@ -147,8 +148,8 @@ test("on a phone, Forget's question glides into view rather than jumping there",
   }
   await expect.poll(still).toBe(true)
   const scrolled = await recordedFrames<number>(page)
-  const [low, high] = [scrolled[0], scrolled[scrolled.length - 1]].sort((a, b) => a - b)
-  expect(scrolled.some((y) => y > low && y < high), `a frame between the start and the end, in: ${scrolled.join(",")}`).toBe(true)
+  const moves = scrolled.slice(1).map((y, i) => y - scrolled[i]).filter((d) => d !== 0)
+  expect(moves.length, `the frames the page scrolled in: ${scrolled.join(",")}`).toBeGreaterThan(2)
 })
 
 const THEMES = ["light", "dark"] as const
