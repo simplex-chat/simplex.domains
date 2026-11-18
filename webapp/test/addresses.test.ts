@@ -24,7 +24,7 @@ function bech32Decode(address: string): { hrp: string; data: number[] } {
   return { hrp, data: data.slice(0, -6) }
 }
 
-function fromFiveBits(values: number[], pad = false): number[] {
+function fromFiveBits(values: number[]): number[] {
   const out: number[] = []
   let acc = 0
   let bits = 0
@@ -36,8 +36,16 @@ function fromFiveBits(values: number[], pad = false): number[] {
       out.push((acc >>> bits) & 255)
     }
   }
-  if (pad && bits > 0) out.push((acc << (8 - bits)) & 255)
   return out
+}
+
+const GROUP_BITS = 5
+const BYTE_BITS = 8
+
+function paddedBytes(groups: number[]): number[] {
+  const rest = (groups.length * GROUP_BITS) % BYTE_BITS
+  const zeros = rest === 0 ? 0 : Math.ceil((BYTE_BITS - rest) / GROUP_BITS)
+  return fromFiveBits([...groups, ...new Array<number>(zeros).fill(0)])
 }
 
 const numberOf = (groups: number[]) => groups.reduce((n, g) => n * 32 + g, 0)
@@ -57,7 +65,7 @@ function bolt11Decode(invoice: string) {
     at += TAG_HEADER_GROUPS + length
   }
   const signature = fromFiveBits(data.slice(-SIGNATURE_GROUPS))
-  const signed = createHash("sha256").update(Buffer.concat([Buffer.from(hrp), Buffer.from(fromFiveBits(body, true))])).digest()
+  const signed = createHash("sha256").update(Buffer.concat([Buffer.from(hrp), Buffer.from(paddedBytes(body))])).digest()
   return { hrp, timestamp: numberOf(body.slice(0, TIMESTAMP_GROUPS)), fields, signature: new Uint8Array(signature.slice(0, SIGNATURE_BYTES)), recovery: signature[SIGNATURE_BYTES], signed: new Uint8Array(signed) }
 }
 
@@ -124,7 +132,7 @@ describe("the mock's invoice addresses", () => {
     expect(fromFiveBits(fields.get("p")!), "a 32-byte payment hash").toHaveLength(32)
     expect(fromFiveBits(fields.get("s")!), "a 32-byte payment secret").toHaveLength(32)
     expect(numberOf(fields.get("x")!)).toBe(EXPIRY_S)
-    expect(nodeKey(invoice), "the node key that signed the prefix and fields").toBe(nodeKey(lightningInvoice(ids[0], "0.5", CREATED + 1, EXPIRY_S)))
+    expect(nodeKey(invoice), "the node key with which the prefix and fields were signed").toBe(nodeKey(lightningInvoice(ids[0], "0.5", CREATED + 1, EXPIRY_S)))
   })
 
   it("gives each Lightning invoice its own request, the same each time it is asked", () => {
