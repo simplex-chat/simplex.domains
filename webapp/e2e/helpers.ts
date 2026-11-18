@@ -382,12 +382,8 @@ export async function agreeToTerms(page: Page): Promise<void> {
 // A terms box ticked, pressed on its square, as its words hold links; a box gone back to keeps its tick.
 async function tick(page: Page, name: RegExp): Promise<void> {
   const box = onStep(page).getByRole("checkbox", { name })
-  if (!await box.isChecked()) await pressTermsBox(page, name)
-  await expect(box).toBeChecked()
-}
-
-export async function pressTermsBox(page: Page, name: RegExp): Promise<void> {
-  await onStep(page).locator(".check.terms", { has: page.getByRole("checkbox", { name }) }).locator(".box").click()
+  if (!await box.isChecked()) await onStep(page).locator(".check.terms", { has: page.getByRole("checkbox", { name }) }).locator(".box").click()
+  await expect(onStep(page).getByRole("checkbox", { name, checked: false })).toHaveCount(0)
 }
 
 // An available name's Register, through the links skipped and the name code saved, to Check your order.
