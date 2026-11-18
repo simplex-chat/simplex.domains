@@ -239,14 +239,17 @@ async function findOrders(wallet: Wallet): Promise<Found[]> {
 export interface CodeOrder { code: string; name: string; order: Found }
 
 // The order a name code restores, as chooseOrder picks it among the orders find lists whose sealed name opens with the
-// code and hashes to the order's label hash, with its name; null when find lists only orders of another code.
-export async function codeOrderOf(text: string): Promise<CodeOrder | null> {
+// code and hashes to the order's label hash, with its name; "none" when find lists no order, "other" when it lists only
+// orders of another code.
+export async function codeOrderOf(text: string): Promise<CodeOrder | "none" | "other"> {
   const parsed = parseNameCode(text)
   if (parsed?.kind !== "owner") throw new Error("not an owner code")
   const wallet = walletFromEntropy(parsed.entropy)
-  const opened = await Promise.all((await findOrders(wallet)).map(async (found) => ({ found, sealed: await unseal(wallet.seed, found.sealed) })))
+  const listed = await findOrders(wallet)
+  if (listed.length === 0) return "none"
+  const opened = await Promise.all(listed.map(async (found) => ({ found, sealed: await unseal(wallet.seed, found.sealed) })))
   const open = opened.filter(({ found, sealed }) => sealed !== null && hex(labelHash(sealed.label)) === found.labelHash)
-  if (open.length === 0) return null
+  if (open.length === 0) return "other"
   const order = chooseOrder(open.map(({ found }) => found))
   return { code: formatOwnerCode(parsed.entropy), name: open.find(({ found }) => found === order)!.sealed!.label, order }
 }
@@ -256,13 +259,15 @@ export const addOrder = async ({ code, order }: CodeOrder) => (await reopen(wall
 // one paid into a registration is the order; otherwise the newest
 const chooseOrder = (found: Found[]) => found.find((r) => r.phase !== "unpaid") ?? found[0]
 
-// The owner code alone finds its orders and reopens the newest, checking that the code really owns it.
-export async function restore(text: string): Promise<RestoreResult> {
+// The owner code alone finds its orders and reopens the newest, checking that the code really owns it; null when find
+// lists no order.
+export async function restore(text: string): Promise<RestoreResult | null> {
   const parsed = parseNameCode(text)
   if (parsed?.kind !== "owner") throw new Error("not an owner code")
   const code = formatOwnerCode(parsed.entropy)
   const wallet = walletFromEntropy(parsed.entropy)
-  return reopen(wallet, code, chooseOrder(await findOrders(wallet)))
+  const found = await findOrders(wallet)
+  return found.length === 0 ? null : reopen(wallet, code, chooseOrder(found))
 }
 
 // The order of this code for a name that a new order met, which find lists: one on its way, else the newest unpaid one.
@@ -285,13 +290,7 @@ export async function newerOrder(record: store.OrderRecord): Promise<store.Order
     nothingNewer.add(record.registrationId)
     return null
   }
-  let found: Found[]
-  try {
-    found = await findOrders(wallet)
-  } catch (e) {
-    if (e instanceof api.ApiError && e.code === "not_found") return none()
-    throw e
-  }
+  const found = await findOrders(wallet)
   // Orders listed before this one are newer; one the service has forgotten is not listed, so then only orders made after
   // it count, by the service's clock. Never the one this record replaced, which would lead straight back here.
   const at = found.findIndex((r) => r.registrationId === record.registrationId)

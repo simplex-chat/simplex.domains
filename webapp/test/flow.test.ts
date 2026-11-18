@@ -1,5 +1,6 @@
 import { hashMessage, recoverAddress, recoverMessageAddress, type Hex } from "viem"
 import type { Phase } from "../src/api.ts"
+import type { CodeOrder } from "../src/flow.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { formatOwnerCode } from "../src/crypto/code.ts"
 import { acceptTermsDigest, commitmentSecret, labelHash, makeCommitment, namehash, registerIntentDigest, setTextDigest, YEAR_S } from "../src/crypto/registration.ts"
@@ -206,7 +207,7 @@ describe("restore", () => {
     answers["GET /api/invoice/inv1"] = {
       invoiceId: "inv1", status: "open", amount: 20000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name", cryptoCurrency: "xmr", registration: view(built.request),
     }
-    const { record } = await flow.restore(OWNER_CODE.toLowerCase().replaceAll("-", " "))
+    const { record } = (await flow.restore(OWNER_CODE.toLowerCase().replaceAll("-", " ")))!
     expect(record).toMatchObject({ registrationId: "reg1", invoiceId: "inv1", label: "dynamis", ownerCode: OWNER_CODE, owner: OWNER, ...LINKS, paid: 20000, method: "xmr", terms: SIGNED })
     const find = calls[0].body as { owner: string; timestamp: number; signature: Hex }
     expect(await recoverMessageAddress({ message: `simplex.domains find ${OWNER.toLowerCase()} ${find.timestamp}`, signature: find.signature })).toBe(OWNER)
@@ -218,7 +219,7 @@ describe("restore", () => {
     const built = await flow.orderRequest(draft())
     answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg2", invoiceId: null, phase: "queued", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed, balanceSource: "reg1", heldBy: null }] }
     answers["GET /api/registration/reg2"] = view(built.request, { id: "reg2", phase: "queued", fromBalance: 20000 })
-    const { record } = await flow.restore(OWNER_CODE)
+    const { record } = (await flow.restore(OWNER_CODE))!
     expect(record).toMatchObject({ registrationId: "reg2", invoiceId: null, method: "balance", paid: 20000, balanceSource: "reg1" })
   })
 
@@ -227,9 +228,16 @@ describe("restore", () => {
     const built = await flow.orderRequest(draft())
     answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "queued", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed, balanceSource: null, heldBy: null }] }
     answers["GET /api/registration/reg1"] = view(built.request, { phase: "queued", terms: COMMUNITY_SIGNED })
-    expect((await flow.restore(OWNER_CODE)).record.terms).toBe(COMMUNITY_SIGNED)
+    expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(COMMUNITY_SIGNED)
     answers["GET /api/registration/reg1"] = view(built.request, { phase: "queued", terms: null })
-    expect((await flow.restore(OWNER_CODE)).record.terms).toBeUndefined()
+    expect((await flow.restore(OWNER_CODE))!.record.terms).toBeUndefined()
+  })
+
+  it("restores nothing for a code find lists no order of", async () => {
+    const { flow, store } = await modules()
+    answers["POST /api/registration/find"] = { registrations: [] }
+    expect(await flow.restore(OWNER_CODE)).toBeNull()
+    expect(store.orders()).toEqual([])
   })
 
   it("refuses an order whose commitment the code does not open", async () => {
@@ -438,18 +446,20 @@ describe("codeOrderOf and addOrder", () => {
       found("reg4", "unpaid", other), found("reg3", "committed", { labelHash: mine.labelHash, sealed: other.sealed }),
       found("reg2", "queued", { labelHash: mine.labelHash, sealed: "not-sealed" }), found("reg1", "taken", mine), found("reg0", "unpaid", mine),
     ] }
-    const opened = await flow.codeOrderOf(OWNER_CODE.toLowerCase())
-    expect([opened?.code, opened?.name, opened?.order.registrationId]).toEqual([OWNER_CODE, "dynamis", "reg1"])
+    const opened = await flow.codeOrderOf(OWNER_CODE.toLowerCase()) as CodeOrder
+    expect([opened.code, opened.name, opened.order.registrationId]).toEqual([OWNER_CODE, "dynamis", "reg1"])
     answers["GET /api/registration/reg1"] = view(mine, { id: "reg1", phase: "taken" })
-    expect(await flow.addOrder(opened!)).toMatchObject({ registrationId: "reg1", label: "dynamis", ownerCode: OWNER_CODE })
+    expect(await flow.addOrder(opened)).toMatchObject({ registrationId: "reg1", label: "dynamis", ownerCode: OWNER_CODE })
     expect(store.orders().map((o) => o.registrationId)).toEqual(["reg1"])
   })
 
-  it("finds no order when find lists only orders the code does not open", async () => {
+  it("tells a code find lists no order of from one find lists only orders the code does not open", async () => {
     const { flow } = await modules()
+    answers["POST /api/registration/find"] = { registrations: [] }
+    expect(await flow.codeOrderOf(OWNER_CODE)).toBe("none")
     const other = (await flow.orderRequest({ ...draft(), ownerCode: formatOwnerCode(new Uint8Array(16).fill(7)) })).request
     answers["POST /api/registration/find"] = { registrations: [found("reg3", "committed", other)] }
-    expect(await flow.codeOrderOf(OWNER_CODE)).toBeNull()
+    expect(await flow.codeOrderOf(OWNER_CODE)).toBe("other")
   })
 })
 

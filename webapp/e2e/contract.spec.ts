@@ -314,6 +314,10 @@ test("find lists an owner's orders newest first, each with its label hash and se
   ])
   const stale = await call("POST", "/api/registration/find", { owner, timestamp: timestamp - 2 * SIGNED_WINDOW_S, signature: hex(signDigest(wallet.privateKey, personalDigest(`simplex.domains find ${owner} ${timestamp - 2 * SIGNED_WINDOW_S}`))) })
   expect(stale.status).toBe(400)
+  const nobody = flow.walletOf(flow.newOwnerCode())!
+  const none = checksumAddress(nobody.address).toLowerCase()
+  expect(await call("POST", "/api/registration/find", { owner: none, timestamp, signature: hex(signDigest(nobody.privateKey, personalDigest(`simplex.domains find ${none} ${timestamp}`))) }), "an owner of no order")
+    .toEqual({ status: 200, json: { registrations: [] } })
 })
 
 test("a held poll wakes on a new version, and of two retries at once one wins and the other is registration_changed with the view", async ({ request }) => {

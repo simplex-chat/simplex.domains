@@ -1264,7 +1264,6 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
   const all = [...registrations.values()].filter((r) => r.owner === address).reverse()
   // a balance never expires, so an older order holding one is listed after the newest
   const found = [...all.slice(0, FOUND_MAX), ...all.slice(FOUND_MAX).filter((r) => (balances.get(r.id)?.amount ?? 0) > 0)]
-  if (found.length === 0) throw new HttpError(404, "not_found")
   return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed,
     balanceSource: r.balanceSource, heldBy: heldBy(r.id) })) }
 }

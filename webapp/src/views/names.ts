@@ -184,11 +184,12 @@ async function findOrder(p: store.PendingCode): Promise<void> {
   if (holding()) return dispatchList({ type: "find-held", ownerCode, until: holdEnd() })
   dispatchList({ type: "find-started", ownerCode })
   try {
-    const { record } = await flow.restore(ownerCode)
-    if (isRoute(route)) go(store.orderUrl(record))
+    const restored = await flow.restore(ownerCode)
+    if (!restored) return answerList(route, { type: "find-ended", ownerCode, outcome: "none" })
+    if (isRoute(route)) go(store.orderUrl(restored.record))
   } catch (e) {
     if (holdFrom(e)) return answerList(route, { type: "find-held", ownerCode, until: holdEnd() })
-    answerList(route, { type: "find-ended", ownerCode, outcome: e instanceof api.ApiError && e.code === "not_found" ? "none" : "unchecked" })
+    answerList(route, { type: "find-ended", ownerCode, outcome: "unchecked" })
   }
 }
 
