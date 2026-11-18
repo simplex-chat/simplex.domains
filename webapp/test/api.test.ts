@@ -263,7 +263,7 @@ describe("service errors", () => {
     expect((await readInvoice("inv1")).address).toBe(mainnet)
   })
 
-  it("takes an invoice whose address is not of its method's kind as no answer, so no wallet is handed it", async () => {
+  it("takes an invoice whose address is not of its method's kind as no answer, so it is never shown to a wallet", async () => {
     for (const body of [
       { ...LIGHTNING, address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" }, { ...LIGHTNING, address: BOLT11.toUpperCase() }, { ...LIGHTNING, address: `lightning:${BOLT11}` },
       { ...LIGHTNING, address: `${BOLT11}b` }, { ...LIGHTNING, address: "lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcenxc6r2c35xvukxefcv5mkvv34x5ekzd3ev56nyd3hxqurzepexejxxepnxscrvwfnv9nxzcn9xq6xyefhvgcxxcmyxymnserxfq5fns" },

@@ -56,8 +56,9 @@ describe("a payment's wallet URI", () => {
 })
 
 describe("a Lightning invoice's QR code", () => {
-  it("holds the wallet link, which a camera hands to a wallet, and reads back whole for a request of 400 characters", async () => {
-    const request = `lnbc500u1${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(13)}`.slice(0, 400)
+  const LONGEST_BOLT11 = 400
+  it(`contains the wallet link, which a phone camera opens in a wallet, read back whole for a request of ${LONGEST_BOLT11} characters`, async () => {
+    const request = `lnbc500u1${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(13)}`.slice(0, LONGEST_BOLT11)
     const link = paymentUri("ln", request, "0.00050000")!
     expect(await readBack(link)).toBe(`lightning:${request}`)
   })
