@@ -4,12 +4,21 @@ import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
 import { MAX_LABEL_LENGTH } from "./names.ts"
 
+const REFUSALS = [
+  "bad_request", "invalid_name", "invalid_link", "not_found", "method_not_allowed", "internal", "rate_limited", "provider_unavailable", "terms_unavailable",
+  "name_check_unavailable", "code_invalid", "code_used", "code_reserved", "code_expired", "code_not_covering", "payment_pending", "codes_only", "order_exists",
+  "name_taken", "catalog_changed", "price_too_high", "balance_changed", "terms_changed", "move_limit", "registration_changed", "not_open", "funded",
+  "stale_nonce", "record_reverted", "edit_pending", "edit_limit",
+] as const
+type Refusal = typeof REFUSALS[number]
+export type ErrorCode = Refusal | "network"
+
 export class ApiError extends Error {
-  readonly code: string
+  readonly code: ErrorCode
   readonly status: number
   readonly retryAfter: number | null
   readonly body: Record<string, unknown>
-  constructor(code: string, status: number, retryAfter: number | null, body: Record<string, unknown>) {
+  constructor(code: ErrorCode, status: number, retryAfter: number | null, body: Record<string, unknown>) {
     super(code)
     this.code = code
     this.status = status
@@ -277,8 +286,6 @@ const EDIT_TIMEOUT_MS = 10 * 60_000
 // a wait asked for longer than this is taken as this long, as the badge web client does
 const MAX_RETRY_AFTER_S = 300
 const TOO_MANY_REQUESTS = 429
-// the one refusal under 429 that is the service's own, not a rate limit
-const EDIT_LIMIT = "edit_limit"
 // a proxy's answer when the service is down or slow: the request may never have reached the service
 const GATEWAY_FAILURES = [502, 503, 504]
 // a rate limit that names no wait is waited out for this long
@@ -344,8 +351,9 @@ function answer<T>(res: Response, json: Record<string, unknown>): T {
   if (!res.ok) {
     const retry = retryAfter(res.headers.get("retry-after"))
     // a rate limit or a gateway failure a proxy answers carries no error code of the service's
-    const code = res.status === TOO_MANY_REQUESTS ? (json.error === EDIT_LIMIT ? EDIT_LIMIT : "rate_limited")
-      : typeof json.error === "string" ? json.error
+    const refusal = typeof json.type === "string" ? json.type : json.error
+    const code = res.status === TOO_MANY_REQUESTS ? "rate_limited"
+      : REFUSALS.includes(refusal as Refusal) ? refusal as Refusal
       : GATEWAY_FAILURES.includes(res.status) ? "network" : "internal"
     throw new ApiError(code, res.status, retry, json)
   }
@@ -509,9 +517,9 @@ export const findRegistrations = (owner: string, timestamp: number, signature: s
 export interface SignedEdit { key: string; value: string; nonce: number; deadline: number; signature: string }
 export const editRecords = (body: { labelHash: string; edits: SignedEdit[] }) => {
   const sent = call("POST", "/api/name/records", body, undefined, EDIT_TIMEOUT_MS).catch((e: unknown) => {
-    if (!(e instanceof ApiError && e.code === EDIT_LIMIT)) throw e
-    if (!isAmount(e.body.nextAt)) throw noAnswer()
-    throw new EditLimited(e, e.body.nextAt as number)
+    if (!(e instanceof ApiError && e.code === "edit_limit")) throw e
+    if (!isTime(e.body.nextAt)) throw noAnswer()
+    throw new EditLimited(e, Date.parse(e.body.nextAt as string) / 1000)
   })
   return checked<{ tx: string | null }>(sent, (a) => nullable(a.tx, isText))
 }

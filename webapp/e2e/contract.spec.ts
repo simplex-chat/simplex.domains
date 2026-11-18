@@ -257,13 +257,13 @@ test("a code check answers every state, revoked included, and an unknown code is
     expect((await call("POST", "/api/code/check", { code })).json, state).toEqual({ minLength: 7, years: 3, state })
   }
   for (const code of ["SN7-BJTBP-29596-R3HJ8-25YM7", "SN-8M7X0-8Z533-AG8DP-RBN5T-BPQ6D-YH09G", "nonsense"]) {
-    expect(await call("POST", "/api/code/check", { code }), code).toEqual({ status: 400, json: { error: "code_invalid" } })
+    expect(await call("POST", "/api/code/check", { code }), code).toEqual({ status: 400, json: { type: "code_invalid" } })
   }
 })
 
 test("a code check whose body has no text code is bad_request", async () => {
   for (const body of [{}, { code: null }, { code: 6 }, { code: ["SN7-BJTBP-29596-R3HJ8-25YM7"] }]) {
-    expect(await call("POST", "/api/code/check", body), JSON.stringify(body)).toEqual({ status: 400, json: { error: "bad_request" } })
+    expect(await call("POST", "/api/code/check", body), JSON.stringify(body)).toEqual({ status: 400, json: { type: "bad_request" } })
   }
 })
 
@@ -291,8 +291,9 @@ test("a client's code checks and code orders past the code limit in a minute are
   }
   for (const path of ["/api/code/check", "/api/name/register"]) {
     const res = await send("POST", path, { code: "SN7-BJTBP-29596-R3HJ8-25YM7" })
-    expect({ status: res.status, json: await res.json() }, path).toEqual({ status: 429, json: { error: "rate_limited" } })
-    expect(Number(res.headers.get("retry-after")), `${path}: the seconds left of the minute`).toBeGreaterThan(50)
+    const wait = Number(res.headers.get("retry-after"))
+    expect({ status: res.status, json: await res.json() }, path).toEqual({ status: 429, json: { type: "rate_limited", retryAfter: wait } })
+    expect(wait, `${path}: the seconds left of the minute`).toBeGreaterThan(50)
   }
   client = newClient()
   expect((await call("POST", "/api/code/check", {})).status, "another client").toBe(400)
@@ -410,7 +411,7 @@ test("a link edit repeated after it was mined is answered from the edit, not che
   expect(await call("POST", "/api/name/records", edit)).toEqual(first)
   // the same nonce with another value is checked anew, and its nonce has moved
   const other = await contactEdit(name, contactLink("Cf"), edit.edits[0].nonce)
-  expect(await call("POST", "/api/name/records", other)).toEqual({ status: 409, json: { error: "stale_nonce" } })
+  expect(await call("POST", "/api/name/records", other)).toEqual({ status: 409, json: { type: "stale_nonce" } })
 })
 
 test("a Save's two link edits are one request and one multicall transaction, counted as one edit, and its exact resend answers it again", async ({ request }) => {
@@ -427,7 +428,7 @@ test("a Save's two link edits are one request and one multicall transaction, cou
   expect(await call("POST", "/api/name/records", save)).toEqual(sent)
   expect((await recordsOf(name)).edits.left, "the resend counts nothing").toBe(after.edits.left)
   // the second edit alone is another request, checked anew against the nonce both spent
-  expect(await call("POST", "/api/name/records", { labelHash: name.labelHash, edits: [save.edits[1]] })).toEqual({ status: 409, json: { error: "stale_nonce" } })
+  expect(await call("POST", "/api/name/records", { labelHash: name.labelHash, edits: [save.edits[1]] })).toEqual({ status: 409, json: { type: "stale_nonce" } })
 })
 
 test("a relayed link edit that reverts on chain still counts toward the name's yearly edits, as the service counts every relayed edit", async ({ request }) => {
@@ -436,7 +437,7 @@ test("a relayed link edit that reverts on chain still counts toward the name's y
   const value = contactLink("Cv")
   const edit = await contactEdit(name, value)
   const answer = await relayedAhead(name.label, edit.edits[0], () => call("POST", "/api/name/records", edit))
-  expect(answer).toEqual({ status: 409, json: { error: "record_reverted", revert: null } })
+  expect(answer).toEqual({ status: 409, json: { type: "record_reverted" } })
   const after = await recordsOf(name)
   expect(after.contact, "the other relayer's copy landed").toBe(value)
   expect(after.edits.left, "the reverted relay is counted").toBe(before.edits.left - 1)
@@ -450,7 +451,7 @@ test("a records request of no edit, three, one key twice, a clear beside a set, 
   const labelHash = `0x${"ab".repeat(32)}`
   for (const edits of [[], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 2), set(CONTACT_KEY, 3)], [set(CHANNEL_KEY, 1), set(CHANNEL_KEY, 2)],
     [{ clear: true, nonce: 1, deadline, signature }, set(CONTACT_KEY, 2)], [set(CONTACT_KEY, 1), set(CHANNEL_KEY, 3)], [set(CONTACT_KEY, 2), set(CHANNEL_KEY, 1)]]) {
-    expect(await call("POST", "/api/name/records", { labelHash, edits }), JSON.stringify(edits)).toEqual({ status: 400, json: { error: "bad_request" } })
+    expect(await call("POST", "/api/name/records", { labelHash, edits }), JSON.stringify(edits)).toEqual({ status: 400, json: { type: "bad_request" } })
   }
 })
 
@@ -458,7 +459,7 @@ test("a link edit of a name pointed at another resolver is bad_request, and goes
   const name = await registeredName(request, "cg")
   const edit = await contactEdit(name, contactLink("Cg"))
   await ownerSetsResolver(name.draft.ownerCode, name.label, ELSEWHERE)
-  expect(await call("POST", "/api/name/records", edit)).toEqual({ status: 400, json: { error: "bad_request" } })
+  expect(await call("POST", "/api/name/records", edit)).toEqual({ status: 400, json: { type: "bad_request" } })
   await ownerSetsResolver(name.draft.ownerCode, name.label, name.draft.chain.resolver as Hex)
   const sent = await call("POST", "/api/name/records", edit)
   expect(sent.status, JSON.stringify(sent.json)).toBe(200)
@@ -487,7 +488,7 @@ test("search answers a link whose data was not read now as unread with its deep 
     { preview: { kind: "contact", profile: { type: "unread" } }, link: unread, deepLink: `simplex:/a#${unread.split("#")[1]}?h=smp8.simplex.im` },
   ])
   expect((await call("POST", "/api/link/preview", { link: unread })).json, "a preview").toEqual({ kind: "contact", profile: { type: "unread" } })
-  expect(await call("POST", "/api/link/preview", { link: unparsed }), "a link the chat core cannot parse").toEqual({ status: 400, json: { error: "invalid_link" } })
+  expect(await call("POST", "/api/link/preview", { link: unparsed }), "a link the chat core cannot parse").toEqual({ status: 400, json: { type: "invalid_link" } })
 })
 
 // --- balances

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
-  cancelInvoice, checkCode, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlTake, createInvoice, currentTerms, dump, editRecords, find,
+  cancelInvoice, checkCode, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlTake, createInvoice, currentTerms, dump, editRecords, find, findLimited,
   HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retry, reveal, search, siteConfig, spend,
 } from "./mock/service.ts"
 
@@ -30,18 +30,19 @@ function codeLimited(client: string): void {
 type Handler = (match: RegExpMatchArray, body: Record<string, unknown>, query: URLSearchParams) => Promise<unknown> | unknown
 // a route's limit is taken once its method and path match, before its body is read
 type Limit = (client: string) => void
+type Envelope = "type" | "error"
 
-const routes: [string, RegExp, Handler, Limit?][] = [
-  ["GET", /^\/api\/name\/([^/]+)$/, (m, _, q) => search(m[1], q.get("length"))],
-  ["POST", /^\/api\/link\/preview$/, (_, b) => previewLink(b)],
-  ["GET", /^\/api\/terms\/([^/]+)$/, (m) => currentTerms(m[1])],
-  ["POST", /^\/api\/code\/check$/, (_, b) => checkCode(b), codeLimited],
+const routes: [string, RegExp, Handler, Limit?, Envelope?][] = [
+  ["GET", /^\/api\/name\/([^/]+)$/, (m, _, q) => search(m[1], q.get("length")), undefined, "type"],
+  ["POST", /^\/api\/link\/preview$/, (_, b) => previewLink(b), undefined, "type"],
+  ["GET", /^\/api\/terms\/([^/]+)$/, (m) => currentTerms(m[1]), undefined, "type"],
+  ["POST", /^\/api\/code\/check$/, (_, b) => checkCode(b), codeLimited, "type"],
   ["POST", /^\/api\/invoice$/, (_, b) => oneOrderAtATime(() => createInvoice(b))],
   ["GET", /^\/api\/invoice\/([^/]+)$/, (m, _, q) => readInvoice(m[1], q.get("wait"), versionOf(q), q.get("seenPaid"), q.get("seenFull") === "1")],
   ["POST", /^\/api\/invoice\/([^/]+)\/cancel$/, (m) => cancelInvoice(m[1])],
   ["POST", /^\/api\/name\/register$/, (_, b) => oneOrderAtATime(() => registerWithCode(b)), codeLimited],
-  ["POST", /^\/api\/name\/records$/, (_, b) => editRecords(b)],
-  ["POST", /^\/api\/registration\/find$/, (_, b) => find(b)],
+  ["POST", /^\/api\/name\/records$/, (_, b) => editRecords(b), undefined, "type"],
+  ["POST", /^\/api\/registration\/find$/, (_, b) => find(b), findLimited],
   ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], versionOf(q))],
   ["POST", /^\/api\/registration\/([^/]+)\/reveal$/, (m, b) => reveal(m[1], b)],
   ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => retarget(m[1], b))],
@@ -89,16 +90,26 @@ function reply(res: ServerResponse, status: number, body: unknown, retryAfter: n
   res.end(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? v.toString() : v)))
 }
 
+function refused(res: ServerResponse, e: HttpError, envelope: Envelope): void {
+  const { error, ...extra } = e.body
+  reply(res, e.status, envelope === "type" ? { type: error, ...extra, ...e.retryAfter ? { retryAfter: e.retryAfter } : {} } : e.body, e.retryAfter)
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://mock")
   const route = routes.find(([method, path]) => method === req.method && path.test(url.pathname))
   if (!route) return reply(res, 404, { error: "not_found" })
   try {
     route[3]?.(clientOf(req))
+  } catch (e) {
+    if (e instanceof HttpError) return refused(res, e, "type")
+    throw e
+  }
+  try {
     const body = req.method === "POST" ? await readBody(req) : {}
     reply(res, 200, await route[2](url.pathname.match(route[1])!, body, url.searchParams))
   } catch (e) {
-    if (e instanceof HttpError) return reply(res, e.status, e.body, e.retryAfter)
+    if (e instanceof HttpError) return refused(res, e, route[4] ?? "error")
     console.error(e)
     reply(res, 500, { error: "internal" })
   }

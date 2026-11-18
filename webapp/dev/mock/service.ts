@@ -388,7 +388,7 @@ async function answerFor(hash: Hex, length: number, terms: Terms | null, listed:
   }
   const entities = [...await entitiesOf("contact", contact), ...await entitiesOf("channel", channel)]
   const { left, nextAt } = editsLeft(hash)
-  const edits = { left, ...nextAt === null ? {} : { nextAt: new Date(nextAt * 1000).toISOString() } }
+  const edits = { left, ...nextAt === null ? {} : { nextAt: iso(nextAt) } }
   return { ...registered, entities, records: { type: "own", contact, channel, nonce: Number(nonce), edits } }
 }
 
@@ -1252,8 +1252,11 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   return view
 }
 
-export async function find(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export function findLimited(): void {
   if (control.findLimitedUntil > Date.now()) throw new HttpError(429, "rate_limited", {}, Math.ceil((control.findLimitedUntil - Date.now()) / 1000))
+}
+
+export async function find(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const owner = body.owner
   if (typeof owner !== "string" || !isAddress(owner)) throw badRequest()
   const address = getAddress(owner)
@@ -1373,7 +1376,7 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   if (earlier) return repeatedEdit(earlier)
   // as the service, after the signatures and before any chain read
   const { left, nextAt } = editsLeft(labelHash)
-  if (left === 0) throw new HttpError(429, "edit_limit", { nextAt })
+  if (left === 0) throw new HttpError(409, "edit_limit", { nextAt: iso(nextAt ?? nowSeconds()) })
   if (Math.min(...edits.map((e) => e.deadline)) < nowSeconds()) throw badRequest()
   // a failed chain read is the provider's, not the request's
   let owner: Address, nameResolver: Address, current: bigint
@@ -1403,7 +1406,7 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
     if (e instanceof NotSent) throw new HttpError(503, "provider_unavailable")
     // a dry run that reverts sends nothing; a transaction that reverts is the edit's answer
     if (e instanceof Reverted) {
-      const reverted = new HttpError(409, "record_reverted", { revert: e.revert })
+      const reverted = new HttpError(409, "record_reverted")
       if (edit.sent) edit.sent.outcome = reverted
       throw reverted
     }

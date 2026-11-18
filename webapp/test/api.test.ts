@@ -108,15 +108,24 @@ describe("retryDelay", () => {
   })
   it("gives up on a refusal that asking again cannot change", () => {
     expect(retryDelay(new ApiError("not_found", 404, null, {}), USUAL)).toBeNull()
-    expect(retryDelay(new ApiError("bad_signature", 400, null, {}), USUAL)).toBeNull()
+    expect(retryDelay(new ApiError("bad_request", 400, null, {}), USUAL)).toBeNull()
   })
 })
 
 describe("service errors", () => {
-  it("reads the service's own error code, whatever the status", async () => {
-    answerWith(503, JSON.stringify({ error: "provider_unavailable" }))
+  it("reads the service's own refusal, tagged by type on the names endpoints and by error on the others, whatever the status", async () => {
+    answerWith(503, JSON.stringify({ type: "provider_unavailable" }))
     const e = await errorOf()
     expect([e.code, e.status]).toEqual(["provider_unavailable", 503])
+    answerWith(409, JSON.stringify({ error: "order_exists" }))
+    expect((await errorOf()).code).toBe("order_exists")
+  })
+
+  it("takes a refusal the page does not know as the service's own failure, or the network's under a gateway status", async () => {
+    answerWith(409, JSON.stringify({ type: "weird" }))
+    expect((await errorOf()).code).toBe("internal")
+    answerWith(503, JSON.stringify({ error: "weird" }))
+    expect((await errorOf()).code).toBe("network")
   })
 
   it("takes a proxy's gateway failure, with no code of the service's, as the network failing", async () => {
@@ -137,20 +146,20 @@ describe("service errors", () => {
     expect([e.code, e.retryAfter]).toEqual(["rate_limited", 12])
   })
 
-  it("reads the service's edit_limit under 429 as its own refusal, with when the next edit fits, and no wait to hold", async () => {
+  it("reads the service's edit_limit as its own refusal, with when the next edit fits in seconds, and no wait to hold", async () => {
     const edit = { labelHash: `0x${HASH}`, edits: [{ key: "simplex.channel", value: "", nonce: 3, deadline: 1, signature: "0x" }] }
-    answerWith(429, JSON.stringify({ error: "edit_limit", nextAt: 1824249600 }))
+    answerWith(409, JSON.stringify({ type: "edit_limit", nextAt: "2027-10-23T00:00:00Z" }))
     const e = await editRecords(edit).then(() => null, (e: unknown) => e)
     expect(e).toBeInstanceOf(EditLimited)
-    expect([(e as EditLimited).code, (e as EditLimited).status, (e as EditLimited).nextAt]).toEqual(["edit_limit", 429, 1824249600])
+    expect([(e as EditLimited).code, (e as EditLimited).status, (e as EditLimited).nextAt]).toEqual(["edit_limit", 409, 1824249600])
     expect(retryDelay(e, 5000), "asking again cannot change it").toBeNull()
-    for (const body of [{ error: "edit_limit" }, { error: "edit_limit", nextAt: "soon" }, { error: "edit_limit", nextAt: -1 }]) {
-      answerWith(429, JSON.stringify(body))
+    for (const body of [{ type: "edit_limit" }, { type: "edit_limit", nextAt: "soon" }, { type: "edit_limit", nextAt: 1824249600 }]) {
+      answerWith(409, JSON.stringify(body))
       const bad = await editRecords(edit).then(() => null, (e: unknown) => e)
       expect((bad as ApiError).code, JSON.stringify(body)).toBe("network")
     }
-    // any other 429 stays a rate limit, whatever its body says
-    answerWith(429, JSON.stringify({ error: "move_limit" }), { "retry-after": "4" })
+    // a 429 is a rate limit, whatever its body says
+    answerWith(429, JSON.stringify({ type: "edit_limit", nextAt: "2027-10-23T00:00:00Z" }), { "retry-after": "4" })
     const limited = await editRecords(edit).then(() => null, (e: unknown) => e)
     expect([(limited as ApiError).code, (limited as ApiError).retryAfter, limited instanceof EditLimited]).toEqual(["rate_limited", 4, false])
   })
