@@ -590,7 +590,10 @@ async function backInView(page: Page, name: string): Promise<void> {
 }
 
 // the tops of the home's headline and search
-const homeTops = (page: Page) => page.evaluate(() => ["h1", ".search-field"].map((s) => Math.round(document.querySelector(`.home ${s}`)!.getBoundingClientRect().top)))
+const homeTops = async (page: Page) => {
+  await expect(page.locator(".home .search-field")).toBeVisible()
+  return page.evaluate(() => ["h1", ".search-field"].map((s) => Math.round(document.querySelector(`.home ${s}`)!.getBoundingClientRect().top)))
+}
 
 test("a step's lead breaks where the mockup does on a laptop: in two even lines, or at its line break", async ({ page }) => {
   await search(page, uniqueLabel("lead"))

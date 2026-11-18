@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto"
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test"
 import {
-  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, contactLink, control, failedOrder, MOCK, onStep, payButton, previewsShown, REGISTRATION_MS, registrationOf, restoreOrder, savedToReview, search, sevenLetters,
+  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, contactLink, control, failedOrder, MOCK, onStep, payButton, pressTermsBox, previewsShown, REGISTRATION_MS, registrationOf, restoreOrder, savedToReview, search, sevenLetters,
   SAVED, startOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, waitRegistered, withStripeKey, acceptedOnChain, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, PLAIN_TERMS,
 } from "./helpers.ts"
 import { keccak256, toHex } from "viem"
@@ -450,7 +450,7 @@ test("community terms changed on chain between the order and its reveal are agre
     await page.waitForTimeout(Math.max(0, revealAfter * 1000 - Date.now()) + 3000)
     expect([(await invoiceViewOf(request, invoiceId)).label, reveals]).toEqual([null, 0])
     await expect(onStep(page).getByText("The registration is not signed yet.")).toBeVisible()
-    await agreeToTerms(page)
+    await pressTermsBox(page, ACCEPT)
     await waitRegistered(page, label)
     const view = await invoiceViewOf(request, invoiceId)
     expect(view.terms, "the order keeps the terms it signed").toBe(COMMUNITY_TERMS)
@@ -530,7 +530,8 @@ test("community terms changed after the reveal, before its relay, are agreed to 
       await withCommunityTerms(request, `the community terms, changed after the reveal of ${label}`, async (hash) => {
         await control(request, "search", { unsentSeconds: 0 })
         await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
-        await agreeToTerms(page)
+        await expect(onStep(page).getByRole("checkbox", { name: ACCEPT })).not.toBeChecked()
+        await pressTermsBox(page, ACCEPT)
         await waitRegistered(page, label)
         expect((await acceptedOnChain((await invoiceViewOf(request, invoiceId)).registerTx as string))?.termsHash).toBe(hash)
       })
