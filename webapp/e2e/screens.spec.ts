@@ -125,6 +125,7 @@ async function cameraPage({ baseURL, id, now }: Reach, grant: boolean): Promise<
   return context.newPage()
 }
 
+const clockAt = (r: Reach, seconds: number) => control(r.request, "clock", { now: r.now + seconds })
 const label = (id: string) => id
 const shown = (page: Page, text: string | RegExp) => expect(onStep(page).getByText(text).first()).toBeVisible({ timeout: REGISTRATION_MS })
 const heading = (page: Page, name: string | RegExp) => expect(onStep(page).getByRole("heading", { name })).toBeVisible({ timeout: REGISTRATION_MS })
@@ -436,6 +437,7 @@ const balanceHeld = async (r: Reach, taken: string): Promise<string> => {
   await other.locator(".list-row", { hasText: taken }).getByRole("button", { name: "Use" }).click()
   await searchHere(other, seven(r.id))
   await toReview(other)
+  await clockAt(r, 120)
   await payButton(other).click()
   await other.waitForURL(/\?order=/)
   const invoiceId = new URL(other.url()).searchParams.get("order")!
@@ -830,6 +832,7 @@ screen(1064, "checkout-review-balance-held-this-name", async (r) => {
     await route.fetch()
     await route.abort()
   })
+  await clockAt(r, 120)
   await payButton(r.page).click()
   await r.page.waitForTimeout(1500)
   await r.page.goBack()
@@ -1245,6 +1248,7 @@ const reviewHeld = async (r: Reach): Promise<string> => {
   await other.locator(".list-row", { hasText: taken }).getByRole("button", { name: "Use" }).click()
   await searchHere(other, seven(r.id))
   await toReview(other)
+  await clockAt(r, 120)
   await payButton(other).click()
   await other.waitForURL(/\?order=/)
   const invoiceId = new URL(other.url()).searchParams.get("order")!
@@ -2418,15 +2422,14 @@ screen(3048, "names-rows-balances", async (r) => {
     await tab.close()
     return invoiceId
   }
-  const at =(seconds: number) => control(r.request, "clock", { now: r.now + seconds })
   await takenOrder(r.page, r.request, "rows-held-here")
-  await at(150)
+  await clockAt(r, 150)
   await spend("rows-held-here", seven(`${r.id}-here`))
   await takenOrder(r.page, r.request, "rows-held-funded")
-  await at(270)
+  await clockAt(r, 270)
   await control(r.request, `partial/${await spend("rows-held-funded", seven(`${r.id}-funded`))}`)
   const away = await takenOrder(r.page, r.request, "rows-held-elsewhere")
-  await at(390)
+  await clockAt(r, 390)
   const other = await elsewhere(r, "/#/trademarks")
   await addNameCode(other, away.ownerCode)
   await listRow(other, "rows-held-elsewhere").getByRole("button", { name: "Use" }).click()
