@@ -2,9 +2,9 @@ const RealDate = Date
 let offsetMs = 0
 
 class MockDate extends RealDate {
-  constructor(...args: [] | [string | number | Date]) {
+  constructor(...args: unknown[]) {
     if (args.length === 0) super(RealDate.now() + offsetMs)
-    else super(args[0])
+    else super(...(args as [number]))
   }
 
   static now(): number {

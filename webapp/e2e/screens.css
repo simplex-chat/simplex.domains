@@ -1,0 +1,2 @@
+body::before, body::after { background: var(--page-color) !important; }
+.stage.active[style*="--done"] { --done: 0.5 !important; }
