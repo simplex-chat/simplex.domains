@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
-  BaseError, ContractFunctionRevertedError, createPublicClient, createWalletClient, decodeErrorResult, encodeFunctionData, getAddress, http, keccak256,
+  BaseError, ContractFunctionRevertedError, createPublicClient, createTestClient, createWalletClient, decodeErrorResult, encodeFunctionData, getAddress, http, keccak256,
   type Abi, type Address, type Hex,
 } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
@@ -166,4 +166,11 @@ export async function ownerOf(labelHash: Hex): Promise<Address | null> {
 
 export async function chainNow(): Promise<number> {
   return Number((await publicClient.getBlock()).timestamp)
+}
+
+const anvil = createTestClient({ chain, mode: "anvil", transport: readTransport })
+
+export async function moveChainTo(seconds: number): Promise<void> {
+  await anvil.increaseTime({ seconds: seconds - await chainNow() })
+  await anvil.mine({ blocks: 1 })
 }
