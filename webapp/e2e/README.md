@@ -28,7 +28,7 @@ Fonts differ between machines, so the baselines are recorded and compared in Pla
 
 After a change of the page, record the baselines again and commit the changed files in `screens/`:
 
-- from CI: a run that meets a changed or missing screenshot fails and uploads the artifact `screens`, which holds `e2e/screens/` with each missing baseline recorded, and the artifact `e2e-chromium`, which holds each changed state's `<state>-<size>-actual.png`; copy them into `e2e/screens/` as `<state>-<size>.png`;
+- from CI: a run that meets a changed or missing screenshot fails and uploads the artifact `screens`, which holds `e2e/screens/` with each missing baseline recorded, and the artifact `e2e-chromium`, which holds each changed state's `<state>-<size>-actual.png` under `screens/`; copy them into `e2e/screens/` as `<state>-<size>.png`;
 - locally, with Docker: start a fresh backend, then run the spec in the image.
 
 ```
