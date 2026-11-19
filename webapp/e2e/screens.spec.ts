@@ -1072,7 +1072,7 @@ const communityStep = async (page: Page, name: string) => {
   await toCodeStep(page)
   await onStep(page).getByText(SAVED).click()
   await press(page, "Continue")
-  await heading(page, COMMUNITY_HEADING)
+  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
 }
 screen(1140, "checkout-community-loading", async ({ page }) => {
   await page.route("**/api/terms/*", held)
