@@ -8,7 +8,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, movable, supportCase, type SupportCase, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, hoursToSign, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
+  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -1047,9 +1047,7 @@ function headingOf({ view, record }: OrderState): Kid {
 
 function leadOf(s: OrderState): Kid {
   if (!s.record) return "The browser with its name code signed it."
-  const hours = hoursToSign(s)
-  return hours === null ? "Keep this page open until the name is yours."
-    : ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${hours === 1 ? "an hour" : `${hours} hours`}.`)]
+  return "Keep this page open until the name is registered."
 }
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."

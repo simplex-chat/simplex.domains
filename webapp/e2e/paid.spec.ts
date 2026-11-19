@@ -315,7 +315,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   // the ETH link ends the note under the methods, and nothing sits under Pay
   const dapp = step.locator(".notes").getByRole("link", { name: "Pay with ETH" })
   await expect(dapp).toHaveAttribute("href", "https://app.simplex.domains")
-  await expect(step.locator(".notes")).toHaveText("After paying, keep this page open, or reopen its link later. Pay with ETH")
+  await expect(step.locator(".notes")).toHaveText("After paying, keep this page open until the name is registered. Pay with ETH")
   await expect(step.locator(".actions-row .alt")).toHaveCount(0)
   // the one box to tick, the terms, holds Pay until it is ticked; its link opens the terms beside the order
   await expect(step.getByRole("checkbox")).toHaveCount(1)

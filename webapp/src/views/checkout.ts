@@ -471,7 +471,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
-      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, "After paying, keep this page open, or reopen its link later. ", eth))),
+      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, "After paying, keep this page open until the name is registered. ", eth))),
     payNote(s, blocked !== null, signal),
     agreement(s))
 }

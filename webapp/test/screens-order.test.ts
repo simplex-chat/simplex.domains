@@ -4,7 +4,7 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, hoursToSign, movable, retryDue, supportCase,
+  askAgainDue, movable, retryDue, supportCase,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -516,16 +516,6 @@ describe("failedAlert", () => {
     expect(supportCase(failed({ reason: "monthEnded" }))).toBe("monthEnded")
     expect(supportCase(failed({ reason: "unread" }))).toBe("unread")
     expect(supportCase(failed({ reason: "sendsUsedUp" }))).toBeNull()
-  })
-})
-
-describe("hoursToSign", () => {
-  it("counts the hours left to sign up to the order's revealBefore, an hour at least, and none outside the wait for a signature", () => {
-    expect(hoursToSign(read(null, registration({ ...committed, revealBefore: NOW / 1000 + 5 * 3600 - 60 })))).toBe(5)
-    expect(hoursToSign(read(null, registration({ ...committed, revealBefore: NOW / 1000 + 60 })))).toBe(1)
-    expect(hoursToSign(read(null, registration({ ...committed, revealBefore: NOW / 1000 + 60, label: "alice" }))), "signed").toBeNull()
-    expect(hoursToSign(LAPSED), "lapsed").toBeNull()
-    expect(hoursToSign(STATES.registering), "committing").toBeNull()
   })
 })
 

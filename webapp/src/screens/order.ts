@@ -199,12 +199,6 @@ const SUPPORT_CASES: FailReason[] = ["signatureRefused", "monthEnded", "unread"]
 export const supportCase = ({ view }: Pick<OrderState, "view">): SupportCase | null =>
   view?.phase.type === "failed" && SUPPORT_CASES.includes(view.phase.reason) ? view.phase.reason as SupportCase : null
 
-export function hoursToSign({ view, now }: Pick<OrderState, "view" | "now">): number | null {
-  const committed = view && committedOf(view)
-  if (committed?.signature.type !== "awaiting") return null
-  return Math.max(1, Math.ceil((committed.revealBefore * 1000 - now) / 3_600_000))
-}
-
 export const retryDue =(s: OrderState) => s.view !== null && lapsedOf(s.view) && s.record !== null && !linksRefused(s) && s.busy === null && s.hold === null
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase.type === b.phase.type && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves

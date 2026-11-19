@@ -980,7 +980,7 @@ test("the registering page's clock tells the time left from the commit's wait", 
   })
   await page.reload()
   await expect(page.locator(".countdown b")).toHaveText(/^3:[12]\d$/)
-  await expect(page.locator(".screen-head .lead"), "the hours left to sign, from the order's revealBefore").toHaveText("Keep this page open until the name is yours, or come back within 5 hours.")
+  await expect(page.locator(".screen-head .lead")).toHaveText("Keep this page open until the name is registered.")
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
