@@ -520,11 +520,11 @@ export async function takenOrder(page: Page, request: APIRequestContext, label: 
   return order
 }
 
-// An order paid in Bitcoin whose registration fails, up to its page.
+// An order paid in Bitcoin whose registration the registry refuses for its name, up to its page.
 export async function failedOrder(page: Page, request: APIRequestContext, label: string): Promise<{ invoiceId: string; registrationId: string; ownerCode: string }> {
   const order = await startOrder(page, label, { method: "btc" })
   const registrationId = await registrationOf(request, order.invoiceId)
-  await control(request, `fail/${registrationId}`)
+  await control(request, `fail-name/${registrationId}`)
   await control(request, `settle/${order.invoiceId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
   return { ...order, registrationId }
@@ -543,12 +543,12 @@ export const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", s
 export const registeredAnswer = (owner: string, expiresAt: number, links: { contact: string; channel: string }, entities: unknown[] = [], nonce = 0, gracePeriod = 90 * 86400) =>
   ({ found: { type: "registered", owner, resolver: CHAIN.resolver, expiresAt, gracePeriod, entities, records: { type: "own", ...links, nonce, edits: { left: 3 } } } })
 
-export function okPreview(kind: "contact" | "channel", displayName: string, change: { fullName?: string; image?: string; peerType?: string; business?: boolean; publicMemberCount?: number } = {}) {
-  const { fullName = "", image, peerType, business = false, publicMemberCount = 12 } = change
+export function okPreview(kind: "contact" | "channel", displayName: string, change: { fullName?: string; image?: string; chat?: "contact" | "business" | "bot"; publicMemberCount?: number } = {}) {
+  const { fullName = "", image, chat = "contact", publicMemberCount = 12 } = change
   const names = { displayName, fullName, ...image === undefined ? {} : { image } }
   return kind === "channel"
-    ? { kind, profile: { type: "ok", linkData: { type: "channel", channel: { groupProfile: { ...names, publicGroup: { groupType: "channel" } }, publicGroupData: { publicMemberCount } } } } }
-    : { kind, profile: { type: "ok", linkData: { type: "contact", contact: { profile: { ...names, ...peerType === undefined ? {} : { peerType } }, business } } } }
+    ? { kind, profile: { type: "ok", linkProfile: { kind: "channel", ...names, subscribers: publicMemberCount } } }
+    : { kind, profile: { type: "ok", linkProfile: { kind: chat, ...names } } }
 }
 // the terms an available name's answer asks the buyer to agree to, as dev/deploy.ts links them
 export const TERMS = { hash: GENERAL_TERMS_HASH, link: deployment.generalTermsLink }
@@ -572,7 +572,7 @@ export async function keepOrder(page: Page, registrationId: string, invoiceId: s
 export const registrationView = (o: KeptOrder, change: Record<string, unknown> = {}) => ({
   id: o.registrationId, version: 1, moves: 0, phase: { type: "unpaid" }, labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
   years: 2, duration: 2 * YEAR_S, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: null, latePayment: null,
-  community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, replacedBy: null, ...change,
+  community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, ...change,
 })
 
 export const registeredPhase = (expiresAt: number) => ({ type: "registered", expiresAt })

@@ -117,6 +117,8 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
   let view: api.RegistrationView | null = null
   let drawn = ""
   let drawnRecord = ""
+  // siblings that could not be read are asked again even when the order's own answer has not changed
+  let again = false
   let codeChecked = false
   let sourceRead = false
   let unreadReads = 0
@@ -139,7 +141,26 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       }
     } catch (e) {
       if (!isRoute(mine)) return
-      if (e instanceof api.ApiError && e.code === "not_found") return dispatch({ type: "not-found" })
+      if (e instanceof api.ApiError && e.code === "not_found") {
+        // The service forgets an unpaid order some time after it closes; this browser may know what replaced it, or its
+        // code may find it.
+        const known = registrationId ? store.orderByRegistration(registrationId) : invoiceId ? store.orderByInvoice(invoiceId) : undefined
+        if (known?.replacedBy) return redirect(known.replacedBy)
+        let newer: store.OrderRecord | null
+        try {
+          newer = known ? await flow.newerOrder(known) : null
+        } catch (e) {
+          // the code's orders could not be asked for now; the link may still work, so the page asks again
+          if (!isRoute(mine)) return
+          const wait = api.retryDelay(e, RETRY_MS)
+          if (wait === null) return dispatch({ type: "not-found" })
+          dispatch({ type: "read-failed" })
+          await sleep(wait)
+          continue
+        }
+        if (!isRoute(mine)) return
+        return newer ? redirect(store.orderUrl(newer)) : dispatch({ type: "not-found" })
+      }
       dispatch({ type: "read-failed" })
       await sleep(e instanceof api.ApiError && e.retryAfter ? e.retryAfter * 1000 : RETRY_MS)
       continue
@@ -154,20 +175,38 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       return true
     }
     const answered = JSON.stringify(invoice ?? view)
-    if (answered === drawn) {
+    if (answered === drawn && !again) {
       // one answered unchanged at once would otherwise poll in a tight loop
       if (!await paced() && Date.now() - asked < RETRY_MS) await sleep(RETRY_MS)
       continue
     }
+    again = false
     let record = store.orderByRegistration(view.id) ?? (invoiceId ? store.orderByInvoice(invoiceId) : undefined)
     if (record) {
       const synced = await flow.syncRecord(record, view)
       if (!isRoute(mine)) return
       record = synced ?? undefined
     }
-    // A late payment to a replaced invoice keeps its page, which says that it is kept as the order's balance.
-    if (invoice !== null && api.closedEmpty(invoice) && view.replacedBy) return redirect(store.orderUrl(view.replacedBy))
-    if (!record && invoice) record = await adoptSibling(view, invoice)
+    // A late payment to a replaced invoice keeps its page, which says that it is kept as the order's balance. Only a browser without this
+    // order's record looks for its successor among its records, so two empty invoices never lead to each other.
+    let unread: number | null = null
+    try {
+      const closedEmpty = invoice !== null && api.closedEmpty(invoice)
+      const successor = closedEmpty && !record ? await nextOrder(view, invoice!) : undefined
+      let replacement = successor && store.orderUrl(successor)
+      if (!replacement && !record && invoice) record = await adoptSibling(view, invoice)
+      if (!replacement && closedEmpty) replacement = record?.replacedBy
+      // another browser may have made a newer invoice that this one never opened
+      if (!replacement && closedEmpty && record) {
+        const newer = await flow.newerOrder(record)
+        replacement = newer ? store.orderUrl(newer) : undefined
+      }
+      if (!isRoute(mine)) return
+      if (replacement) return redirect(replacement)
+    } catch (e) {
+      // a sibling's invoice could not be read; the page shows the order as this browser knows it and reads it again
+      unread = api.retryDelay(e, RETRY_MS)
+    }
     if (!isRoute(mine)) return
     if (view.phase.type !== "failed") codeChecked = false
     if (view.phase.type !== "taken") status = undefined
@@ -221,8 +260,14 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
         dispatch({ type: "record-changed", record, cardSubmittedAt: cardSubmittedAt(invoice, record) })
       } else if (spent === false) dispatch({ type: "code-checked" })
     }
-    if (finished(invoice, view)) return
-    await paced()
+    // a finished order whose siblings could not be read is read once more before the page stops following it
+    if (finished(invoice, view) && unread === null) return
+    if (await paced()) continue
+    if (unread !== null && invoice?.status !== "open") {
+      await sleep(unread)
+      forget()
+      again = true
+    }
   }
 }
 
@@ -237,19 +282,45 @@ async function statusNow(view: api.RegistrationView, record: store.OrderRecord |
 const siblingOf = (view: api.RegistrationView) => (o: store.OrderRecord) => o.registrationId !== view.id &&
   (o.request.commitment === view.commitment || o.owner.toLowerCase() === view.owner.toLowerCase())
 
+// The same order with a later invoice. Only an invoice that closes later can have replaced this one; expiry times are
+// whole seconds, so a tie counts.
+async function nextOrder(view: api.RegistrationView, invoice: api.InvoiceView): Promise<store.OrderRecord | undefined> {
+  const candidates = store.orders().filter((o) => o.invoiceId && !o.replacedBy && siblingOf(view)(o))
+  for (const o of candidates) {
+    // a sibling the service has forgotten replaced nothing; any other failure leaves the answer unknown
+    const other = await api.readInvoice(o.invoiceId!).catch((e) => { if (e instanceof api.ApiError && e.code === "not_found") return null; throw e })
+    if (other && Date.parse(other.expiresAt) >= Date.parse(invoice.expiresAt)) return o
+  }
+  return undefined
+}
+
 // A browser holding the code of another invoice of this order holds this one too: another browser may have made a newer
 // invoice, or money may have reached an older one late. The code reopens the name when the order has moved to another one.
 async function adoptSibling(view: api.RegistrationView, invoice: api.InvoiceView): Promise<store.OrderRecord | undefined> {
   const sibling = store.orders().find(siblingOf(view))
   if (!sibling) return undefined
+  const closed = invoice.status !== "open" && unpaidOrClosed(view)
+  const next = closed ? await nextOrder(view, invoice) : undefined
   const record: store.OrderRecord = { ...sibling, registrationId: view.id, invoiceId: invoice.invoiceId,
     method: invoice.cryptoCurrency ?? "card", paid: view.price,
-    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: undefined,
-    // the code asks the service when the order was made, by which Your names orders its rows
-    createdAt: await flow.createdAtOf(sibling, view.id).catch(() => null) ?? new Date(api.serviceNow()).toISOString() }
+    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: undefined, replacedBy: next && store.orderUrl(next),
+    // a replaced invoice came just before its replacement; otherwise the code asks the service when the order was made,
+    // which a later search for a newer order compares against
+    createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : await flow.createdAtOf(sibling, view.id).catch(() => null) ?? new Date(api.serviceNow()).toISOString() }
   const adopted = await flow.syncRecord(record, view)
   if (adopted === record) store.saveOrder(record)
+  if (adopted && !adopted.replacedBy) await replaceOlder(view, invoice)
   return adopted ?? undefined
+}
+
+// The older invoices of an order adopted here were replaced by it, as if this browser had asked for the new invoice.
+async function replaceOlder(view: api.RegistrationView, invoice: api.InvoiceView): Promise<void> {
+  for (const o of store.orders().filter((r) => r.invoiceId && !r.replacedBy && siblingOf(view)(r))) {
+    const old = await api.readInvoice(o.invoiceId!).catch(() => null)
+    if (old && old.status !== "open" && unpaidOrClosed(old.registration) && Date.parse(old.expiresAt) <= Date.parse(invoice.expiresAt)) {
+      store.updateOrder(o.registrationId, { replacedBy: store.orderUrl({ invoiceId: invoice.invoiceId, registrationId: view.id }) })
+    }
+  }
 }
 
 function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
@@ -405,7 +476,7 @@ function validLine(invoice: api.InvoiceView, signal: AbortSignal): HTMLElement {
 // every few minutes. A browser without the order's record does not know the name's length, which the search needs.
 const NAME_CHECK_MS = 5 * 60_000
 const NAME_NOTE = "name-note"
-let nameCheck: { invoiceId: string; taken: boolean; at: number } | null = null
+let nameCheck: { invoiceId: string; taken: boolean; held: boolean; at: number } | null = null
 let nameWatch: { invoiceId: string; timer?: ReturnType<typeof setTimeout> } | null = null
 // the payment's details on the pay page in view, which a name taken meanwhile turns off
 let payDetails: HTMLElement | null = null
@@ -426,7 +497,7 @@ function watchName(s: OrderState): void {
     try {
       const answer = await api.searchName(labelHash, length, readSite().chainId)
       if (nameWatch !== watch) return
-      nameCheck = { invoiceId, taken: answer.found.type === "registered", at: Date.now() }
+      nameCheck = { invoiceId, taken: answer.found.type === "registered" || answer.found.type === "taken", held: answer.found.type === "taken", at: Date.now() }
       showNameCheck()
     } catch (e) {
       next = api.retryDelay(e, RETRY_MS) ?? NAME_CHECK_MS
@@ -478,7 +549,7 @@ function fillNameNote(note: HTMLElement, s: OrderState): void {
   const free: Kid[] = card ? [el("b", {}, "Available"), ` at ${time}. If someone registers it first, you keep the payment as balance.`]
     : [el("b", {}, "The name is available"), ` (checked at ${time}). `,
       "If someone registers it before you pay and the registration succeeds, what you paid is kept as your balance for another name, or refunded on request."]
-  const gone: Kid[] = card ? [el("b", {}, "Taken"), ` at ${time}. ${dontPay}`] : [el("b", {}, "Someone has registered this name"), ` (checked at ${time}). `, dontPay]
+  const gone: Kid[] = card || nameCheck?.held ? [el("b", {}, "Taken"), ` at ${time}. ${dontPay}`] : [el("b", {}, "Someone has registered this name"), ` (checked at ${time}). `, dontPay]
   const said = taken ? gone : other?.words ?? free
   note.replaceChildren(...[free, gone, ...others.map((o) => o.words)].map((words) => {
     const sentence = el("span", {}, ...words)
@@ -668,11 +739,12 @@ const partlyPaid = (invoice: api.InvoiceView) => Number(invoice.cryptoAmountPaid
 function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const closed = closedCase(s)!
-  if (closed === "reversed") return outcome({ tone: "info", icon: "alert", title: CLOSED_TITLE, text: null })
+  if (closed === "reversed") return outcome({ tone: "info", icon: "alert", title: CLOSED_TITLE, text: "The payment for this order was reversed, so the order is cancelled.", reference: inv.invoiceId,
+    action: btn("Search a name", "quiet", () => go(searchLink(""))) })
   const [tone, text] = closedWords(closed, inv, s.view!)
   const kept = closedBalance(s)
   // only a new invoice is held for the tab's wait; the balance kept pays for one of the same name
-  const reorders = !codesOnly() && (kept === "offer" || ((closed === "received" || closed === "expired") && s.record !== null && !s.view!.replacedBy))
+  const reorders = !codesOnly() && (kept === "offer" || ((closed === "received" || closed === "expired") && s.record !== null && !s.record.replacedBy))
   holdEnds(signal)(s.hold !== null)
   const replaced = kept === "replaced" ? el("p", { class: "note" }, "What reached this invoice is kept as your balance: you can cancel the new invoice and use the balance instead.") : null
   return outcome({ tone, icon: "alert", title: CLOSED_TITLE, text, reference: inv.invoiceId,
@@ -754,8 +826,7 @@ function closedWords(closed: Exclude<ClosedCase, "reversed">, inv: api.InvoiceVi
 // a new invoice is a new order of this order's name code, which only the browser holding it can make
 function closedAction(s: OrderState, closed: ClosedCase): HTMLButtonElement {
   const { record } = s
-  const next = s.view!.replacedBy
-  if (next) return btn("Open the new invoice", "quiet", () => go(store.orderUrl(next)))
+  if (record?.replacedBy) return btn("Open the new invoice", "quiet", () => go(record.replacedBy!))
   if (codesOnly()) return codeAction()
   if (closed === "paid-late") return btn("Search a name", "quiet", () => go(searchLink("")))
   if (!record) return withoutRecord("quiet")
@@ -961,7 +1032,9 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const res = await api.createOrder(built.request, method, invoice.amount, readSite().chainId)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
-    store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, ...flow.paidWith(res), cancelled: false, cardSubmittedAt: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
+    store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, ...flow.paidWith(res), cancelled: false, cardSubmittedAt: undefined, replacedBy: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
+    // Your names lists the old order only while money it received needs its reference; its page leads to the new one
+    if (res.registration.id !== record.registrationId) store.updateOrder(record.registrationId, { replacedBy: next })
     if (isOpen(gen)) go(next)
   } catch (e) {
     if (!isOpen(gen)) {
@@ -1005,14 +1078,20 @@ async function spendAgain(record: store.OrderRecord, source: string, quote: flow
     // an earlier press whose answer was lost made the order that holds it, which is this name's new invoice
     const holder = await flow.balanceHolder(paying).catch(() => null)
     if (!isOpen(gen)) return
-    if (holder && holder.registrationId !== record.registrationId && holder.label === record.label) return go(store.orderUrl(holder))
+    if (holder && holder.registrationId !== record.registrationId && holder.label === record.label) return replacedWith(record, store.orderUrl(holder), gen)
     const by = holder ? `${holder.label}.${holder.tld}` : "another order"
     return dispatch({ type: "reorder-failed", note: warning(`Your balance is in use by ${by} ${heldWords(balance.heldUntil)}. Nothing was charged.`) })
   }
   const terms = termsOrAsk(gen, record, signed, quote)
   if (terms === null) return
   const next = await flow.spendBalance(paying, record.label, { contact: record.contact, channel: record.channel }, { ...quote, ...readSite() }, balance.amount, method, terms)
-  if (isOpen(gen)) go(store.orderUrl(next))
+  replacedWith(record, store.orderUrl(next), gen)
+}
+
+// the old record leads to the order that replaced it, which opens
+function replacedWith(record: store.OrderRecord, url: string, gen: number): void {
+  store.updateOrder(record.registrationId, { replacedBy: url })
+  if (isOpen(gen)) go(url)
 }
 
 type StageState = "done" | "active" | "failed" | ""
@@ -1052,7 +1131,7 @@ function leadOf(s: OrderState): Kid {
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
-const LAPSED_NOTE = "The time to sign ran out. Placing your order again."
+const LAPSED_NOTE = "The name was not signed in time"
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
 const STALL_NOTE = "This is taking longer than usual. It continues by itself."
 
@@ -1233,7 +1312,7 @@ function buildTaken(s: OrderState): HTMLElement {
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been spent or refunded since; Your names shows it.")
   const reserved = s.nameStatus === "reserved"
   const title = label ? [gradName(label, readSite().tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
-  return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : "Someone registered it before your order could.",
+  return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : api.takenByOrder(view) ? "Another buyer paid for it first." : "Someone registered it before your order could.",
     ...balanceActions(s) },
     stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,

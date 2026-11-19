@@ -48,7 +48,6 @@ const registered = (records: Links | null = { contact: CONTACT, channel: "" }, c
 })
 const held: SearchAnswer = { found: { type: "taken" }, community: null }
 const available: SearchAnswer = { found: { type: "available", price: 1500, years: 2, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` } }, community: null }
-const NEXT = { registrationId: "reg-2", invoiceId: "inv-2" }
 const registeredView = (change: ShortView = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
 
 const stored = (change: Partial<Stored> = {}): Stored => ({ orders: [], pending: [], codes: [], canPersist: true, ...change })
@@ -146,48 +145,56 @@ describe("list helpers", () => {
     expect(hasLinks(record(), null), "not read yet, ordered without links").toBe(false)
     expect(hasLinks(record({ contact: CONTACT }), available), "an answer of no name").toBe(true)
   })
-  it("listedOrders leaves out an order whose read names the order that replaced it, unless money reached its invoice", () => {
-    const s = list({ orders: [record({ registrationId: "reg-2", invoiceId: "inv-2" }), record()] })
-    const read = (inv: InvoiceView) => reduceList(s, { type: "row-read", id: "reg-1", view: registration({ replacedBy: NEXT }), invoice: inv, now: NOW })
-    expect(listedOrders(s).map((o) => o.registrationId)).toEqual(["reg-2", "reg-1"])
-    expect(listedOrders(read(invoice({ status: "paid" }))).map((o) => o.registrationId)).toEqual(["reg-2", "reg-1"])
-    expect(listedOrders(read(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }))).map((o) => o.registrationId)).toEqual(["reg-2", "reg-1"])
-    expect(listedOrders(read(invoice({ status: "expired" }))).map((o) => o.registrationId)).toEqual(["reg-2"])
+  it("listedOrders leaves out a replaced invoice until its read says money reached it", () => {
+    const replaced = record({ registrationId: "reg-old", replacedBy: "/?order=inv-2" })
+    const s = list({ orders: [record(), replaced] })
+    expect(listedOrders(s).map((o) => o.registrationId)).toEqual(["reg-1"])
+    const late = reduceList(s, { type: "row-read", id: "reg-old", view: registration({ id: "reg-old" }), invoice: invoice({ status: "paid" }), now: NOW })
+    expect(listedOrders(late).map((o) => o.registrationId)).toEqual(["reg-1", "reg-old"])
+    const empty = reduceList(s, { type: "row-read", id: "reg-old", view: registration({ id: "reg-old" }), invoice: invoice({ status: "expired" }), now: NOW })
+    expect(listedOrders(empty).map((o) => o.registrationId)).toEqual(["reg-1"])
   })
   it("listedOrders puts the order that replaced another in the replaced one's place", () => {
     const newer = record({ registrationId: "reg-2", invoiceId: "inv-2", createdAt: "2026-10-17T11:59:30Z" })
     const other = record({ registrationId: "reg-b", invoiceId: "inv-b", createdAt: "2026-10-17T11:59:10Z" })
-    const old = record()
-    const replacedBy = (id: string, next: string, inv = invoice({ status: "expired" })) =>
-      ({ [id]: { view: registration({ id, replacedBy: { registrationId: next, invoiceId: `inv-${next}` } }), invoice: inv } })
-    expect(listedOrders(list({ orders: [newer, other, old] }, { seen: replacedBy("reg-1", "reg-2") })).map((o) => o.registrationId)).toEqual(["reg-b", "reg-2"])
+    const replaced = record({ registrationId: "reg-1", replacedBy: "/?order=inv-2" })
+    expect(listedOrders(list({ orders: [newer, other, replaced] })).map((o) => o.registrationId)).toEqual(["reg-b", "reg-2"])
     const newest = record({ registrationId: "reg-3", invoiceId: "inv-3", createdAt: "2026-10-17T11:59:50Z" })
-    const chain = list({ orders: [newest, newer, other, old] }, { seen: { ...replacedBy("reg-2", "reg-3"), ...replacedBy("reg-1", "reg-2") } })
-    expect(listedOrders(chain).map((o) => o.registrationId)).toEqual(["reg-b", "reg-3"])
-    const late = list({ orders: [newer, other, old] }, { seen: replacedBy("reg-1", "reg-2", invoice({ status: "paid" })) })
+    const chain = [newest, { ...newer, replacedBy: "/?order=inv-3" }, other, replaced]
+    expect(listedOrders(list({ orders: chain })).map((o) => o.registrationId)).toEqual(["reg-b", "reg-3"])
+    const late = reduceList(list({ orders: [newer, other, replaced] }), { type: "row-read", id: "reg-1", view: registration(), invoice: invoice({ status: "paid" }), now: NOW })
     expect(listedOrders(late).map((o) => o.registrationId)).toEqual(["reg-2", "reg-b", "reg-1"])
   })
-  it("a listed order whose fresh read names its replacement leaves the list, and comes back once money reaches it", () => {
+  it("a listed order that becomes replaced leaves the list until a fresh read says money reached it", () => {
     const open = reduceList(list({ orders: [record()] }), { type: "row-read", id: "reg-1", view: registration(), invoice: invoice(), now: NOW })
     expect(listedOrders(open).map((o) => o.registrationId)).toEqual(["reg-1"])
-    const replaced = reduceList(open, { type: "row-read", id: "reg-1", view: registration({ replacedBy: NEXT }), invoice: invoice({ status: "expired" }), now: NOW })
+    const replaced = reduceList(open, storedEvent({ orders: [record({ replacedBy: "/?order=inv-2" })] }))
+    expect(replaced.seen).toEqual({})
     expect(listedOrders(replaced)).toEqual([])
-    expect(listedOrders(reduceList(replaced, storedEvent({ orders: replaced.orders }))), "another tab's write keeps what the read said").toEqual([])
-    const late = reduceList(replaced, { type: "row-read", id: "reg-1", view: registration({ replacedBy: NEXT }), invoice: invoice({ status: "paid" }), now: NOW })
-    expect(listedOrders(late).map((o) => o.registrationId)).toEqual(["reg-1"])
+    const late = reduceList(replaced, { type: "row-read", id: "reg-1", view: registration(), invoice: invoice({ status: "paid" }), now: NOW })
+    expect(listedOrders(reduceList(late, storedEvent({ orders: late.orders }))).map((o) => o.registrationId)).toEqual(["reg-1"])
+  })
+  it("a read begun before another tab replaced the order lists it again only for money that reached it, whichever lands first", () => {
+    const open = reduceList(list({ orders: [record()] }), { type: "row-read", id: "reg-1", view: registration(), invoice: invoice(), now: NOW })
+    const replacedNow = storedEvent({ orders: [record({ replacedBy: "/?order=inv-2" })] })
+    const staleRead = { type: "row-read", id: "reg-1", view: registration(), invoice: invoice(), now: NOW + 1000 } as const
+    expect(listedOrders(reduceList(reduceList(open, replacedNow), staleRead))).toEqual([])
+    expect(listedOrders(reduceList(reduceList(open, staleRead), replacedNow))).toEqual([])
+    const paidRead = { ...staleRead, invoice: invoice({ status: "expired", cryptoAmountPaid: "0.0001" }) }
+    expect(listedOrders(reduceList(reduceList(open, replacedNow), paidRead)).map((o) => o.registrationId)).toEqual(["reg-1"])
   })
   it("hasRecords: any order, pending code or code", () => {
     expect(hasRecords(list())).toBe(false)
     expect(hasRecords(list({ pending: [pending("SN-P")] }))).toBe(true)
     expect(hasRecords(list({ codes: [code("SN6-A")] }))).toBe(true)
-    expect(hasRecords(list({ orders: [record()] }, { seen: { "reg-1": { view: registration({ replacedBy: NEXT }), invoice: invoice({ status: "expired" }) } } }))).toBe(true)
+    expect(hasRecords(list({ orders: [record({ replacedBy: "/?order=inv-2" })] }))).toBe(true)
   })
 })
 
 describe("balances", () => {
   const BALANCE = { amount: 10000, hold: null, refunded: 0 }
-  const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }),
-    record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
+  const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-outpaid", invoiceId: "inv-5" }), record({ registrationId: "reg-ended", invoiceId: "inv-6" }),
+    record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }), record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
   // a registered name's row is complete with its name's answer
   const read = (s: ListState, id: string, view: RegistrationView, inv: InvoiceView | null = null) => {
     const r = reduceList(s, { type: "row-read", id, view, invoice: inv, now: NOW })
@@ -195,7 +202,9 @@ describe("balances", () => {
   }
   const all = () => {
     let s = list({ orders })
-    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: BALANCE }))
+    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", commitTx: "0xc0", balance: BALANCE }))
+    s = read(s, "reg-outpaid", registration({ id: "reg-outpaid", phase: "taken", balance: BALANCE }))
+    s = read(s, "reg-ended", registration({ id: "reg-ended", phase: "failed", reason: "monthEnded", commitTx: "0xc0", balance: BALANCE }))
     s = read(s, "reg-late", registration({ id: "reg-late", balance: { ...BALANCE, amount: 2500, refunded: 7500 } }), invoice({ invoiceId: "inv-2", status: "paid" }))
     s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000, hold: { type: "open", heldUntil: "2026-10-17T12:30:00Z" } } }))
     return read(s, "reg-plain", registration({ id: "reg-plain", phase: "registered" }))
@@ -203,18 +212,20 @@ describe("balances", () => {
   it("lists each order's balance with what made it, what support refunded, and the open invoice that holds it", () => {
     expect(balanceRows(all())).toEqual([
       { id: "reg-taken", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "taken" },
+      { id: "reg-outpaid", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "outpaid" },
+      { id: "reg-ended", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "ended" },
       { id: "reg-late", amount: 2500, refunded: 7500, held: false, heldUntil: null, from: "late" },
       { id: "reg-moved", amount: 5000, refunded: 0, held: true, heldUntil: "2026-10-17T12:30:00Z", from: "rest" },
     ])
   })
   it("lists a balance support refunded whole, with nothing left, and no balance spent whole or not read yet", () => {
     let s = list({ orders })
-    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: { ...BALANCE, amount: 0, refunded: 10000 } }))
+    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", commitTx: "0xc0", balance: { ...BALANCE, amount: 0, refunded: 10000 } }))
     s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 0 } }))
     expect(balanceRows(s)).toEqual([{ id: "reg-taken", amount: 0, refunded: 10000, held: false, heldUntil: null, from: "taken" }])
   })
-  it("lists a name registered by someone else first by its balance alone, and every other order as a name", () => {
-    expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-late", "reg-moved", "reg-plain"])
+  it("lists a name taken first by its balance alone, a month-ended order as a name beside its balance, and every other order as a name", () => {
+    expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-ended", "reg-late", "reg-moved", "reg-plain"])
     let spent = list({ orders })
     spent = read(spent, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: { ...BALANCE, amount: 0 } }))
     expect(nameRows(spent).map((o) => o.registrationId), "a taken order whose balance is spent stays a name").toContain("reg-taken")
@@ -294,9 +305,8 @@ describe("list", () => {
     const seen = { "reg-1": { view, invoice: null }, "reg-gone": { view, invoice: null } }
     const s = initialList(stored({ orders: [record()], codes: [code("SN6-A"), code("SN6-B")] }), null, seen, { "SN6-A": "used", "SN6-B": "unchecked", "SN6-gone": "unused" }, NOW)
     expect(s.seen).toEqual({ "reg-1": { view, invoice: null } })
-    const replacedSeen = { "reg-1": { view: registration({ replacedBy: NEXT }), invoice: invoice({ status: "expired" }) } }
-    const replaced = initialList(stored({ orders: [record()] }), null, replacedSeen, {}, NOW)
-    expect(replaced.seen).toEqual(replacedSeen)
+    const replaced = initialList(stored({ orders: [record({ replacedBy: "/?order=inv-2" })] }), null, { "reg-1": { view, invoice: invoice() } }, {}, NOW)
+    expect(replaced.seen).toEqual({})
     expect(listedOrders(replaced)).toEqual([])
     expect(s.checked).toEqual({ "SN6-A": "used" })
     expect(s).toMatchObject({ now: NOW, asking: false, hold: null, finding: {}, unread: [] })
@@ -638,10 +648,9 @@ describe("rows drawn and unanswered", () => {
     expect(done).toBe(false)
   })
   it("keeps a drawn order's row in its place while the newer order that replaced it is read, then draws the newer one there", () => {
-    const older = record({ registrationId: "reg-a", invoiceId: "inv-a", createdAt: "2026-10-17T11:05:00Z" })
+    const older = record({ registrationId: "reg-a", invoiceId: "inv-a", replacedBy: "/?order=inv-new", createdAt: "2026-10-17T11:05:00Z" })
     const newer = record({ registrationId: "reg-new", invoiceId: "inv-new", createdAt: "2026-10-17T11:07:00Z" })
-    const replacedSeen = { view: registration({ id: "reg-a", replacedBy: { registrationId: "reg-new", invoiceId: "inv-new" } }), invoice: invoice({ invoiceId: "inv-a", status: "expired" }) }
-    const s = initialList(stored({ orders: [newer, older, b] }), null, { "reg-a": replacedSeen, "reg-b": { view: progress, invoice: null } }, {}, NOW)
+    const s = initialList(stored({ orders: [newer, older, b] }), null, { "reg-b": { view: progress, invoice: null } }, {}, NOW)
     const drawn = new Set(["reg-a", "reg-b"])
     expect(rowsDrawn(s, drawn)).toEqual({ rows: [older, b], done: true })
     const read = reduceList(s, { type: "row-read", id: "reg-new", view: progress, invoice: null, now: NOW })

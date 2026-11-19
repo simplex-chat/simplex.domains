@@ -234,9 +234,10 @@ test("an order includes its owner's signed registration: a link of the other kin
   const paid = await call("POST", "/api/invoice", invoiceBody(built.request, "btc", q.price))
   expect(paid.status, JSON.stringify(paid.json)).toBe(200)
   const id = (paid.json.registration as Json).id as string
-  expect((await viewOf(id)).label, "the stored reveal's name").toBe(label)
+  expect((await viewOf(id)).label, "no name before payment").toBeNull()
   await control(request, `settle/${paid.json.invoiceId}`)
-  expect((await untilPhase(id, ["registered"])).registerTx).not.toBeNull()
+  const done = await untilPhase(id, ["registered"])
+  expect([done.label, done.registerTx === null], "the stored reveal's name, once paid").toEqual([label, false])
 })
 
 test("a cancelled or expired order gives way to a new one of the same wallet, and its exact resend answers it as it is now", async ({ request }) => {

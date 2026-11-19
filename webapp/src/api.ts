@@ -163,23 +163,15 @@ export interface Entity extends Profile {
   deepLink: string
 }
 
-interface ContactData { profile: { displayName: string; fullName: string; image?: string; peerType?: string }; business: boolean }
-interface ChannelData { groupProfile: { displayName: string; fullName: string; image?: string; publicGroup?: { groupType: string } }; publicGroupData?: { publicMemberCount: number } }
-export type LinkData = { type: "contact"; contact: ContactData } | { type: "channel"; channel: ChannelData }
-export interface Preview { kind: typeof LINK_KINDS[number]; profile: { type: "ok"; linkData: LinkData } | { type: "unread" | "unavailable" } }
+interface LinkProfile { kind: ChatKind; displayName: string; fullName: string; image?: string; subscribers?: number }
+export interface Preview { kind: typeof LINK_KINDS[number]; profile: { type: "ok"; linkProfile: LinkProfile } | { type: "unread" | "unavailable" } }
 type LinkEntity = { preview: Preview; link: string; deepLink: string }
 
 function profileOf({ kind, profile: read }: Preview): Profile {
   const type = kind === "channel" ? "channel" : "address"
   if (read.type !== "ok") return { type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile: read.type }
-  const d = read.linkData
-  if (d.type === "channel") {
-    const { displayName, fullName, image } = d.channel.groupProfile
-    return { type, kind: "channel", displayName, fullName, image: image || null, subscribers: d.channel.publicGroupData?.publicMemberCount ?? null, profile: "ok" }
-  }
-  const { profile: { displayName, fullName, image, peerType }, business } = d.contact
-  const chat = business || peerType === "business" ? "business" : peerType === "bot" ? "bot" : "contact"
-  return { type, kind: chat, displayName, fullName, image: image || null, subscribers: null, profile: "ok" }
+  const { kind: chat, displayName, fullName, image, subscribers } = read.linkProfile
+  return { type, kind: chat, displayName, fullName, image: image ?? null, subscribers: subscribers ?? null, profile: "ok" }
 }
 const entityOf = (e: LinkEntity): Entity => ({ ...profileOf(e.preview), link: e.link, deepLink: e.deepLink })
 
@@ -248,7 +240,7 @@ export interface RegistrationView {
   linksRefused: LinkKind | null
   community: Community | null
   terms: AgreedTerms
-  replacedBy: { registrationId: string; invoiceId: string | null } | null
+  lastAttempt?: { transaction: string; stage: string; reason: string; at: string } | null
 }
 
 export const FAIL_REASONS = ["sendsUsedUp", "registryRefused", "signatureRefused", "monthEnded", "unread"] as const
@@ -288,6 +280,8 @@ export interface InvoiceView {
 }
 
 export const reversedOrder = ({ phase }: RegistrationView) => phase.type === "closed" && phase.closedBy === "reversed"
+
+export const takenByOrder = ({ phase, commitTx }: RegistrationView) => phase.type === "taken" && commitTx === null
 
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
@@ -430,14 +424,11 @@ const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined 
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)
 // an image the page holds itself, as the service sends it: the page's CSP loads images from nowhere else
 const isImage = (v: unknown) => typeof v === "string" && (v === "" || v.startsWith("data:image/"))
-// the names and picture only of a profile read, with an address's peer type and business flag, or a channel's group type and member count
-const isContactData = (c: unknown) => isObject(c) && isObject(c.profile) && isText(c.profile.displayName) && isText(c.profile.fullName) && optional(c.profile.image, isImage)
-  && optional(c.profile.peerType, isText) && typeof c.business === "boolean"
-const isChannelData = (c: unknown) => isObject(c) && isObject(c.groupProfile) && isText(c.groupProfile.displayName) && isText(c.groupProfile.fullName) && optional(c.groupProfile.image, isImage)
-  && optional(c.groupProfile.publicGroup, (g) => isObject(g) && isText(g.groupType)) && optional(c.publicGroupData, (p) => isObject(p) && isAmount(p.publicMemberCount))
-const isLinkData = (d: unknown, kind: unknown) => isObject(d) && d.type === kind && (kind === "contact" ? isContactData(d.contact) : isChannelData(d.channel))
+const CHAT_KINDS: ChatKind[] = ["contact", "channel", "business", "bot"]
+const isLinkProfile = (p: unknown) => isObject(p) && CHAT_KINDS.includes(p.kind as ChatKind) && isText(p.displayName) && isText(p.fullName) && optional(p.image, isImage)
+  && optional(p.subscribers, isAmount)
 const isPreview = (p: unknown) => isObject(p) && LINK_KINDS.includes(p.kind as Preview["kind"]) && isObject(p.profile)
-  && (p.profile.type === "ok" ? isLinkData(p.profile.linkData, p.kind) : PROFILE_STATES.includes(p.profile.type as Profile["profile"]))
+  && (p.profile.type === "ok" ? isLinkProfile(p.profile.linkProfile) : PROFILE_STATES.includes(p.profile.type as Profile["profile"]))
 const isEntity = (e: unknown) => isObject(e) && isPreview(e.preview) && isText(e.link) && isText(e.deepLink)
 const PHASES: Phase[] = ["unpaid", "closed", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
 const METHODS: Method[] = ["card", "btc", "xmr"]
@@ -459,7 +450,7 @@ const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isI
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.linksRefused, (k) => LINK_KINDS.includes(k as LinkKind)) && isCommunity(v.community) && isAgreedTerms(v.terms)
-  && nullable(v.replacedBy, (r) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText))
+  && optional(v.lastAttempt, (a) => nullable(a, (t) => isObject(t) && isText(t.transaction) && isText(t.stage) && isText(t.reason) && isText(t.at)))
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)

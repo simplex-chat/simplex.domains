@@ -118,8 +118,8 @@ interface Registration {
   balanceSource: string | null
   // the terms the order signed when it was made or last moved
   terms: string
-  replaces: string | null
   paidAt: number | null
+  lastAttempt: { transaction: string; stage: string; reason: string; at: string } | null
 }
 
 interface Invoice {
@@ -316,10 +316,10 @@ function linkProfile(link: string): Preview | null {
   // a channel's count, the same for the same link
   if (kind === "channel") {
     const publicMemberCount = [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000
-    return { kind, profile: { type: "ok", linkData: { type: "channel", channel: { groupProfile: { ...names, publicGroup: { groupType: "channel" } }, publicGroupData: { publicMemberCount } } } } }
+    return { kind, profile: { type: "ok", linkProfile: { kind: "channel", ...names, subscribers: publicMemberCount } } }
   }
-  const peerType = fragment.startsWith(BOT_TAG) ? { peerType: "bot" } : {}
-  return { kind, profile: { type: "ok", linkData: { type: "contact", contact: { profile: { ...names, ...peerType }, business: fragment.startsWith(BUSINESS_TAG) } } } }
+  const chat = fragment.startsWith(BUSINESS_TAG) ? "business" : fragment.startsWith(BOT_TAG) ? "bot" : "contact"
+  return { kind, profile: { type: "ok", linkProfile: { kind: chat, ...names } } }
 }
 
 // A profile that was read is kept this long, as the service caches it; one not read now is fetched again.
@@ -505,10 +505,10 @@ function paymentOf(reg: Registration): Record<string, unknown> {
 
 async function registrationView(reg: Registration): Promise<Record<string, unknown>> {
   return {
-    id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
+    id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
     linksRefused: reg.linksRefused ? "contact" : null, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
-    replacedBy: successorOf(reg),
+    lastAttempt: reg.lastAttempt,
   }
 }
 
@@ -775,22 +775,10 @@ function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): 
   const reg: Registration = {
     id: id(), invoiceId: null, fromBalance: 0, balanceSource: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, moves: 0, linksRefused: false, resends: 0, version: 1,
-    replaces: replacedOrder(order), paidAt: extra.phase === "queued" ? nowSeconds() : null,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, lastAttempt: null,
   }
   registrations.set(reg.id, reg)
   return reg
-}
-
-function replacedOrder(order: OrderBody): string | null {
-  const all = [...registrations.values()]
-  const closed = all.filter((r) => r.owner.toLowerCase() === order.owner.toLowerCase() && r.labelHash === order.labelHash && r.phase === "unpaid"
-    && r.invoiceId !== null && invoices.get(r.invoiceId)!.closedBy !== null && !all.some((n) => n.replaces === r.id))
-  return closed.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? null
-}
-
-function successorOf(reg: Registration): Record<string, unknown> | null {
-  const next = [...registrations.values()].find((n) => n.replaces === reg.id)
-  return next ? { registrationId: next.id, invoiceId: next.invoiceId } : null
 }
 
 export async function readInvoice(invoiceId: string, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
@@ -1564,7 +1552,10 @@ export function controlRegistration(action: string, registrationId: string): Rec
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   if (action === "fail") reg.failNext = true
-  else if (action === "stale") reg.staleNext = true
+  else if (action === "fail-name") {
+    reg.failNext = true
+    reg.lastAttempt = { transaction: "register", stage: "dryRun", reason: "NameTooShort", at: iso(nowSeconds()) }
+  } else if (action === "stale") reg.staleNext = true
   else if (action === "unread" && reg.phase === "committed" && reg.intent === null) fail(reg, "unread")
   else if (action === "lapse" && reg.phase === "committed") {
     reg.revealBefore = nowSeconds() - 1

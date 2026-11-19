@@ -197,11 +197,10 @@ describe("service errors", () => {
   })
 
   const TERMS = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
-  const GROUP = { displayName: "Alice", fullName: "Alice's news", publicGroup: { groupType: "channel" } }
-  const channelPreview = (group: Record<string, unknown> = GROUP, data: Record<string, unknown> = { publicGroupData: { publicMemberCount: 12 } }) =>
-    ({ kind: "channel", profile: { type: "ok", linkData: { type: "channel", channel: { groupProfile: group, ...data } } } })
+  const GROUP = { kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
+  const channelPreview = (profile: Record<string, unknown> = GROUP) => ({ kind: "channel", profile: { type: "ok", linkProfile: profile } })
   const PREVIEW = channelPreview()
-  // the profile as the page draws it, its kind and subscribers told from the link data
+  // the profile as the page draws it
   const DRAWN = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
   const LINK = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
   const registeredWith = (...entities: unknown[]) => JSON.stringify({ found: { ...REGISTERED, entities } })
@@ -222,9 +221,9 @@ describe("service errors", () => {
 
   it("takes a linked chat without its names, a type the app has not, a member count that cannot be, or a link not as text, as no answer", async () => {
     const previews = [
-      { ...PREVIEW, kind: "group" }, { ...PREVIEW, kind: undefined }, { ...PREVIEW, kind: "contact" }, { ...PREVIEW, profile: undefined }, { ...PREVIEW, profile: { type: "lost" } },
-      { ...PREVIEW, profile: { type: "ok" } }, channelPreview({ ...GROUP, displayName: undefined }), channelPreview({ ...GROUP, fullName: undefined }), channelPreview({ ...GROUP, publicGroup: { groupType: 5 } }),
-      channelPreview(GROUP, { publicGroupData: { publicMemberCount: -1 } }), channelPreview(GROUP, { publicGroupData: { publicMemberCount: "many" } }),
+      { ...PREVIEW, kind: "group" }, { ...PREVIEW, kind: undefined }, { ...PREVIEW, profile: undefined }, { ...PREVIEW, profile: { type: "lost" } },
+      { ...PREVIEW, profile: { type: "ok" } }, channelPreview({ ...GROUP, displayName: undefined }), channelPreview({ ...GROUP, fullName: undefined }), channelPreview({ ...GROUP, kind: "group" }),
+      channelPreview({ ...GROUP, kind: undefined }), channelPreview({ ...GROUP, subscribers: -1 }), channelPreview({ ...GROUP, subscribers: "many" }),
     ]
     for (const preview of previews) {
       answerWith(200, registeredWith({ preview, ...LINK }))
@@ -241,17 +240,15 @@ describe("service errors", () => {
         expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
       }
     }
-    // an address is a business by its flag or its peer type, a bot by its peer type, and a contact by any other
-    const contactPreview = (profile: Record<string, unknown>, business: unknown) =>
-      ({ kind: "contact", profile: { type: "ok", linkData: { type: "contact", contact: { profile: { displayName: "Alice", fullName: "", ...profile }, business } } } })
-    for (const [profile, business, kind] of [[{}, false, "contact"], [{ peerType: "human" }, false, "contact"], [{ peerType: "agent" }, false, "contact"], [{ peerType: "robot" }, false, "contact"],
-      [{}, true, "business"], [{ peerType: "business" }, false, "business"], [{ peerType: "bot" }, false, "bot"], [{ peerType: "bot" }, true, "business"]] as const) {
-      answerWith(200, registeredWith({ preview: contactPreview(profile, business), ...LINK }))
-      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), JSON.stringify([profile, business])).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
+    // an address opens a contact, a business or a bot, as the service tells them apart
+    const contactPreview = (kind: unknown) => ({ kind: "contact", profile: { type: "ok", linkProfile: { kind, displayName: "Alice", fullName: "" } } })
+    for (const kind of ["contact", "business", "bot"]) {
+      answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
+      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), kind).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
     }
-    for (const [profile, business] of [[{}, undefined], [{}, "yes"], [{ peerType: 5 }, false]] as const) {
-      answerWith(200, registeredWith({ preview: contactPreview(profile, business), ...LINK }))
-      expect((await errorOf()).code, JSON.stringify([profile, business])).toBe("network")
+    for (const kind of [undefined, "robot", 5]) {
+      answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
+      expect((await errorOf()).code, JSON.stringify(kind)).toBe("network")
     }
   })
 
@@ -273,7 +270,7 @@ describe("service errors", () => {
   const REGISTRATION = {
     id: "r1", version: 4, moves: 0, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: null, latePayment: null,
-    community: null, terms: { communityName: false, termsHash: TERMS.hash }, replacedBy: null,
+    community: null, terms: { communityName: false, termsHash: TERMS.hash }, lastAttempt: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -309,15 +306,16 @@ describe("service errors", () => {
 
   const BALANCE = { amount: 10000, hold: { type: "open", heldUntil: "2026-10-16T12:00:00Z" }, refunded: 2500 }
 
-  it("passes the order that replaced a closed one, and takes one it cannot follow as no answer", async () => {
-    for (const replacedBy of [{ registrationId: "r2", invoiceId: "inv2" }, { registrationId: "r2", invoiceId: null }]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, replacedBy }))
-      expect((await readRegistration("r1")).replacedBy).toEqual(replacedBy)
+  it("passes an order's last failed attempt, and takes one it cannot read as no answer", async () => {
+    const attempt = { transaction: "register", stage: "dryRun", reason: "NameTooShort", at: "2026-10-16T12:00:00Z" }
+    for (const lastAttempt of [attempt, null, undefined]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, lastAttempt }))
+      expect((await readRegistration("r1")).lastAttempt, JSON.stringify(lastAttempt)).toEqual(lastAttempt)
     }
-    for (const replacedBy of [undefined, "r2", {}, { registrationId: 2, invoiceId: null }, { registrationId: "r2", invoiceId: 5 }]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, replacedBy }))
+    for (const lastAttempt of ["NameTooShort", {}, { ...attempt, reason: 5 }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, lastAttempt }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(replacedBy)).toBe("network")
+      expect((e as ApiError).code, JSON.stringify(lastAttempt)).toBe("network")
     }
   })
 
@@ -437,10 +435,10 @@ describe("service errors", () => {
     expect(urls).toEqual(["/api/invoice/inv1", "/api/invoice/inv1?wait=open&seenVersion=4&seenPaid=0.5&seenFull=1", "/api/registration/r1?seenVersion=4", "/api/registration/r1?seenVersion=0"])
   })
 
-  it("takes a link preview whose image is no image the page can show as no answer, and an image the chat core dropped as none", async () => {
+  it("takes a link preview whose image is no image the page can show as no answer, and an image the service dropped as none", async () => {
     answerWith(200, JSON.stringify(channelPreview({ ...GROUP, image: "data:image/png;base64,iVBORw0KGgo=" })))
     expect(await previewLink("x")).toMatchObject({ displayName: "Alice", kind: "channel", subscribers: 12, image: "data:image/png;base64,iVBORw0KGgo=" })
-    answerWith(200, JSON.stringify(channelPreview({ ...GROUP, image: "" })))
+    answerWith(200, JSON.stringify(channelPreview(GROUP)))
     expect(await previewLink("x")).toMatchObject({ displayName: "Alice", image: null })
     for (const image of ["javascript:alert(1)", "http://example.com/a.png", "https://example.com/a.png", 5, null]) {
       answerWith(200, JSON.stringify(channelPreview({ ...GROUP, image })))

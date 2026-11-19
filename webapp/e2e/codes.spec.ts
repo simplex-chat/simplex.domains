@@ -871,7 +871,7 @@ test("a failed code order opened again after its code was used elsewhere offers 
 
 test("a failed code order is drawn before its code is checked, and says the code is kept only once the check answers", async ({ page, request }) => {
   const { registrationId } = await registerWithCode(page, request, "ccheck")
-  await control(request, `fail/${registrationId}`)
+  await control(request, `fail-name/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   const lead = page.locator(".screen-head .lead")
   await page.addInitScript(watchKept)
@@ -903,7 +903,7 @@ test("a failed code order is drawn before its code is checked, and says the code
 
 test("a failed code order whose code check meets the rate limit counts down its wait, then says the code is kept", async ({ page, request }) => {
   const { registrationId } = await registerWithCode(page, request, "climit")
-  await control(request, `fail/${registrationId}`)
+  await control(request, `fail-name/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   await expect(page.locator(".screen-head .lead")).toHaveText(`Your code is kept. ${MOVE_LEAD}`)
   const checks = await limitCodeChecks(page, 1, 3)
@@ -936,7 +936,7 @@ test("a code held by this browser's failed order says it is in use and links to 
 
 test("a failed code order whose code is revoked or past its date while still held by it offers another name", async ({ page, request }) => {
   const { code, registrationId } = await registerWithCode(page, request, "cheld")
-  await control(request, `fail/${registrationId}`)
+  await control(request, `fail-name/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   for (const state of ["expired", "revoked"]) {
     await control(request, "code/state", { code, state })
@@ -952,7 +952,7 @@ test("a failed code order whose code is revoked or past its date while still hel
 test("an order restored in a browser without its code promises nothing of the code", async ({ page, request, browser, baseURL }) => {
   const { code, registrationId, label } = await registerWithCode(page, request, "crest")
   const ownerCode = await page.evaluate((id) => JSON.parse(localStorage.getItem(`simplex-names:order:${id}`)!).ownerCode as string, registrationId)
-  await control(request, `fail/${registrationId}`)
+  await control(request, `fail-name/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   await releasedAndUsed(request, code)
   const other = await browser.newContext({ baseURL, reducedMotion: "reduce" })

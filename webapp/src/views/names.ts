@@ -7,7 +7,7 @@ import { dateOf, dollars, SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import {
   balanceRows, type BalanceRow, CODE_CHIPS, holderOf, EDIT_RETRY_MS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
-  againLine, initialRestore, lapsed, lateLine, ranOut, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
+  againLine, initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
   reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
 } from "../screens/names.ts"
 import { codesOnly } from "../mode.ts"
@@ -153,21 +153,28 @@ async function readOrder(id: string, route: number): Promise<void> {
       view = invoice.registration
     } else view = await api.readRegistration(o.registrationId)
   } catch (e) {
+    // the service forgets an unpaid order some time after it closes
+    if (e instanceof api.ApiError && e.code === "not_found" && await replaceWithNewer(o, route)) return
     answerList(route, { type: "row-unread", id })
     return retryOnce(e, id, route, () => void readOrder(id, route))
   }
   const synced = await flow.syncRecord(o, view) ?? o
   if (!isRoute(route)) return
   if (synced !== o) dispatchList(storedEvent())
-  if (view.replacedBy && !store.orderByRegistration(view.replacedBy.registrationId)) {
-    const next = await flow.successorOf(synced, view.replacedBy.registrationId).catch(() => null)
-    if (!isRoute(route)) return
-    if (next) dispatchList(storedEvent())
-  }
+  if (synced.replacedBy && !moneyReached(invoice)) return
+  if (api.closedEmpty(invoice) && await replaceWithNewer(synced, route)) return
+  if (!isRoute(route)) return
   dispatchList({ type: "row-read", id, view, invoice, now: api.serviceNow() })
   if (view.phase.type !== "registered") return
   const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length, readSite().chainId).catch(() => null)
   answerList(route, { type: "row-answered", id, answer })
+}
+
+async function replaceWithNewer(o: store.OrderRecord, route: number): Promise<boolean> {
+  const next = !o.replacedBy ? await flow.newerOrder(o).catch(() => null) : null
+  if (!next || !isRoute(route)) return false
+  dispatchList(storedEvent())
+  return true
 }
 
 async function findOrder(p: store.PendingCode): Promise<void> {
@@ -359,8 +366,8 @@ function pendingRow(p: store.PendingCode, s: ListState, open: session.Checkout |
   return node
 }
 
-const BALANCE_FROM: Record<BalanceRow["from"], string> = {
-  taken: "registered by someone else first", late: "paid after its invoice closed", rest: "left after a cheaper name",
+const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
+  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "left after a cheaper name",
 }
 
 // A balance pays for another name, or support refunds it; while an open invoice holds it, neither, and the order that
@@ -372,7 +379,8 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
     : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
-  const sub = ["From ", nameText(view.label ?? o.label, readSite().tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
+  const from = BALANCE_FROM[b.from]
+  const sub = ["From ", nameText(view.label ?? o.label, readSite().tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
     b.held ? `${SEP}in use by another order ${heldWords(b.heldUntil)}` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, b.held ? chip("In use", "brand", true) : null, acts)
@@ -516,15 +524,19 @@ async function readEdit(route: number): Promise<void> {
     view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId)).registration : await api.readRegistration(stored.registrationId)
     record = await flow.syncRecord(stored, view) ?? stored
     answer = await api.searchName(record.request.labelHash, record.label.length, (await namesSite()).chainId)
-  } catch {
+  } catch (e) {
+    // a forgotten unpaid order may have a newer one, found with the code
+    const newer = e instanceof api.ApiError && e.code === "not_found" ? await flow.newerOrder(stored).catch(() => null) : null
+    if (!isRoute(route)) return
+    if (newer) return redirect(editUrl(newer.registrationId))
     return answerEdit(route, { type: "read-failed" })
   }
   if (!isRoute(route)) return
-  if (view.replacedBy) {
+  if (view.phase.type === "unpaid" || view.phase.type === "closed") {
     // the name may have been registered through a newer invoice that another browser made, perhaps under another name
-    const next = await flow.successorOf(record, view.replacedBy.registrationId).catch(() => null)
+    const newer = await flow.newerOrder(record).catch(() => null)
     if (!isRoute(route)) return
-    if (next) return redirect(editUrl(next.registrationId))
+    if (newer) return redirect(editUrl(newer.registrationId))
   }
   dispatchEdit({ type: "answered", view, answer, record, now: api.serviceNow(), hold: tabHold() })
 }

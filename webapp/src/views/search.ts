@@ -3,7 +3,7 @@ import * as api from "../api.ts"
 import { loadedSite, namesSite, readSite } from "../config.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
-import { alertBox, btn, el, icon, type Kid, line, link, nameText, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
+import { alertBox, btn, el, icon, type Kid, line, link, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { dollars, letters } from "../format.ts"
 import { codesOnly } from "../mode.ts"
@@ -12,10 +12,10 @@ import type { Hold } from "../screens/hold.ts"
 import { againLine, ranOut } from "../screens/names.ts"
 import { checkoutUrl, CODE_URL } from "../screens/routes.ts"
 import {
-  type Answer, balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Moved, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
+  type Answer, balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
   orderCode, type OrderRead, ownOrders, type OwnOrders, type SearchKind, searchLocked, type SearchState, type CodeLoss,
 } from "../screens/search.ts"
-import type { Note } from "../screens/order.ts"
+import { nameCause, type Note } from "../screens/order.ts"
 import { ticked } from "../screens/terms.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
@@ -146,17 +146,14 @@ async function readOrder(record: store.OrderRecord): Promise<{ view: api.Registr
 
 // an order moves from a failed registration, or from links the service refused; a name taken first keeps its payment as a balance
 const movable = (view: api.RegistrationView, record: store.OrderRecord) =>
-  (view.phase.type === "failed" && view.phase.reason !== "signatureRefused" && view.phase.reason !== "monthEnded") || (view.phase.type === "committed" && (view.linksRefused || record.linksRefused === true))
-
-function movedOf(view: api.RegistrationView, record: store.OrderRecord): Moved | null {
-  if (movable(view, record)) return null
-  return { url: store.orderUrl(record), label: record.label, tld: record.tld }
-}
+  nameCause(view) || ((view.phase.type === "failed" || view.phase.type === "committed") && (view.linksRefused !== null || record.linksRefused === true))
 
 async function checkRetarget(record: store.OrderRecord): Promise<void> {
   const page = opens
   const read = await readOrder(record)
-  if (read && onPage(page)) dispatch({ type: "retarget-read", record: read.synced, moved: movedOf(read.view, read.synced) })
+  if (!read || !onPage(page)) return
+  if (!movable(read.view, read.synced)) return go(store.orderUrl(read.synced))
+  dispatch({ type: "retarget-read", record: read.synced })
 }
 
 // The tab's balance as its order reads now; one spent or refunded meanwhile, or whose order this browser no longer
@@ -241,7 +238,7 @@ async function retarget(record: store.OrderRecord, label: string, quote: flow.Qu
     const limited = holdFrom(e)
     if (!onPage(page)) return
     if (read?.synced.label === label) return go(store.orderUrl(record))
-    if (read && !movable(read.view, read.synced)) return dispatch({ type: "retarget-read", record: read.synced, moved: movedOf(read.view, read.synced) })
+    if (read && !movable(read.view, read.synced)) return go(store.orderUrl(read.synced))
     if (limited) return dispatch({ type: "register-held", until: holdEnd() })
     if (e instanceof api.TermsChanged) return dispatch({ type: "terms-changed", label, terms: e.terms, community: e.community })
     const code = e instanceof api.ApiError ? e.code : null
@@ -324,7 +321,6 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
 }
 
 function openingLine(s: SearchState): HTMLElement | null {
-  if (s.moved) return alertBox("info", "info", "Your order already went to another name.", el("a", { href: s.moved.url }, "Open ", nameText(s.moved.label, s.moved.tld)))
   if (!s.retarget) return null
   const [kept, choose] = keptWords(s.retarget)
   return alertBox("info", codeCover(s.retarget) ? "key" : "wallet", kept, choose)

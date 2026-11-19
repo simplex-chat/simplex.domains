@@ -182,16 +182,18 @@ export function failedLead({ view, invoice, codeRefused, codeKept, record }: Ord
 const FAILED_TITLES: Record<FailReason, string> = {
   sendsUsedUp: "The name could not be registered",
   registryRefused: "The name could not be registered",
-  signatureRefused: "The service could not register the name",
+  signatureRefused: "The name could not be registered",
   monthEnded: "The name was not registered within a month",
   unread: "The order was not opened for 3 days",
 }
 
 export const failedAlert = ({ view }: Pick<OrderState, "view">) => view!.phase.type === "failed" ? FAILED_TITLES[view!.phase.reason] : FAILED_TITLES.registryRefused
 
-const UNMOVABLE: FailReason[] = ["sendsUsedUp", "signatureRefused", "monthEnded", "unread"]
+const NAME_CAUSES = ["NameTooShort", "LabelTooLong"]
 
-export const movable = ({ view, codeRefused }: Pick<OrderState, "view" | "codeRefused">) => !codeRefused && view?.phase.type === "failed" && !UNMOVABLE.includes(view.phase.reason)
+export const nameCause = (view: RegistrationView) => view.phase.type === "failed" && view.phase.reason === "registryRefused" && NAME_CAUSES.includes(view.lastAttempt?.reason ?? "")
+
+export const movable = ({ view, codeRefused }: Pick<OrderState, "view" | "codeRefused">) => !codeRefused && view !== null && nameCause(view)
 
 export type SupportCase = "signatureRefused" | "monthEnded" | "unread"
 const SUPPORT_CASES: FailReason[] = ["signatureRefused", "monthEnded", "unread"]
@@ -257,7 +259,7 @@ export function screenOf(s: OrderState): OrderKind {
 export function closedBalance(s: OrderState): "offer" | "replaced" | null {
   const closed = closedCase(s)
   if ((closed !== "paid-late" && closed !== "received") || !s.record || !s.view?.balance?.amount) return null
-  return s.view.replacedBy ? "replaced" : "offer"
+  return s.record.replacedBy ? "replaced" : "offer"
 }
 
 // An expired invoice is still followed: a payment can arrive after it closed, and then nothing must be ordered again.

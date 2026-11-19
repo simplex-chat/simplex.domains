@@ -124,7 +124,7 @@ test("a name an order holds is searched as that order in its browser, and as tak
 test("a failed registration keeps its payment for another name, also in another tab", async ({ page, request }) => {
   const label = uniqueLabel("fl")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  await control(request, `fail/${await registrationOf(request, invoiceId)}`)
+  await control(request, `fail-name/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: 60_000 })
   // the page's sentence for the service's reason, then what the buyer can do, with support's address for the reference below

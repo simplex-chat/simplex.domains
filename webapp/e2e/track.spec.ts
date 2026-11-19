@@ -505,7 +505,8 @@ test.describe(() => {
     await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, hold: null, refunded: 0 } },
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "registryRefused" }, commitTx: "0x02" }), "Paid, not registered")
+    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "registryRefused" }, commitTx: "0x02",
+      lastAttempt: { transaction: "register", stage: "dryRun", reason: "NameTooShort", at: new Date().toISOString() } }), "Paid, not registered")
     await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toBeVisible()
     await shown("o4-taken", invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, hold: null, refunded: 0 } }), /was taken$/)
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()

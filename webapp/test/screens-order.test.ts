@@ -403,7 +403,7 @@ describe("closedBalance", () => {
     expect(closedBalance(read(crypto(LATE_FULL, { balance: BALANCE }))), "kept expired").toBe("offer")
   })
   it("leads a replaced invoice's balance to its new invoice, which can be cancelled for it", () => {
-    const replaced = read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { balance: BALANCE, replacedBy: { registrationId: "reg-2", invoiceId: "inv-2" } }))
+    const replaced = read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { balance: BALANCE }), undefined, { record: record({ replacedBy: "/?order=inv-2" }) })
     expect(closedBalance(replaced)).toBe("replaced")
   })
   it("offers nothing before the credit, after it is spent, without the code, or for an invoice nothing reached", () => {
@@ -468,10 +468,13 @@ describe("newInvoiceBy", () => {
 
 describe("failedLead", () => {
   const coded = record({ method: "code", invoiceId: null, prepaidCode: "SN6-AAAA" })
-  const failed = (invoice: InvoiceView | null, change: Partial<OrderState> = {}) =>
-    read(invoice, registration({ phase: "failed" }), { record: invoice ? record() : coded, ...change })
-  it("an invoice's payment is kept, for another name or a refund", () => {
+  const failed = (invoice: InvoiceView | null, change: Partial<OrderState> = {}, reason = "NameTooShort") =>
+    read(invoice, registration({ phase: "failed", lastAttempt: { transaction: "register", stage: "dryRun", reason, at: "2026-10-17T11:00:00Z" } }), { record: invoice ? record() : coded, ...change })
+  it("an invoice's payment is kept, for another name only when the name is the cause, else for support", () => {
     expect(failedLead(failed(crypto({ status: "paid", paidInFull: true })))).toBe("Your payment is kept. Choose another name for it, or write to support.")
+    expect(failedLead(failed(crypto({ status: "paid", paidInFull: true }), {}, "LabelTooLong"))).toBe("Your payment is kept. Choose another name for it, or write to support.")
+    expect(failedLead(failed(crypto({ status: "paid", paidInFull: true }), {}, "InvalidSignature"))).toBe("Your payment is kept. Write to support.")
+    expect(failedLead(read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed" }), { record: record() })), "no attempt read").toBe("Your payment is kept. Write to support.")
   })
   it("an order that sent the most an order may is left to support", () => {
     const usedUp = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", reason: "sendsUsedUp" }), { record: record() })
@@ -486,6 +489,7 @@ describe("failedLead", () => {
   })
   it("a code is said to be kept only once the service says so", () => {
     expect(failedLead(failed(null, { codeKept: true }))).toBe("Your code is kept. Choose another name for it, or write to support.")
+    expect(failedLead(failed(null, { codeKept: true }, "ReentrantCall"))).toBe("Your code is kept. Write to support.")
     expect(failedLead(failed(null)), "the check has not answered, or failed").toBe("Choose another name for it, or write to support.")
   })
   it("a browser without the order's code is promised nothing of it, even once the service says it is unspent", () => {
@@ -498,12 +502,18 @@ describe("failedAlert", () => {
   it("words the service's reason for the buyer", () => {
     expect(failedAlert(failed({ reason: "sendsUsedUp" }))).toBe("The name could not be registered")
     expect(failedAlert(failed({ reason: "registryRefused" }))).toBe("The name could not be registered")
-    expect(failedAlert(failed({ reason: "signatureRefused" }))).toBe("The service could not register the name")
+    expect(failedAlert(failed({ reason: "signatureRefused" }))).toBe("The name could not be registered")
     expect(failedAlert(failed({ reason: "monthEnded" }))).toBe("The name was not registered within a month")
     expect(failedAlert(failed({ reason: "unread" }))).toBe("The order was not opened for 3 days")
   })
-  it("moves an order to another name unless support settles it, it continues by its owner's signature, or its code was refused", () => {
-    expect(movable(failed())).toBe(true)
+  it("moves an order to another name only when the name was too short or too long for the contract, and its code was not refused", () => {
+    const attempt = (reason: string) => ({ lastAttempt: { transaction: "register", stage: "dryRun", reason, at: "2026-10-17T11:00:00Z" } })
+    expect(movable(failed(attempt("NameTooShort")))).toBe(true)
+    expect(movable(failed(attempt("LabelTooLong")))).toBe(true)
+    expect(movable(failed(attempt("DurationTooLong")))).toBe(false)
+    expect(movable(failed())).toBe(false)
+    expect(movable(failed({ reason: "unread", ...attempt("NameTooShort") }))).toBe(false)
+    expect(movable(failed(attempt("NameTooShort"), { codeRefused: true }))).toBe(false)
     expect(movable(failed({ reason: "unread" }))).toBe(false)
     expect(movable(failed({ reason: "sendsUsedUp" }))).toBe(false)
     expect(movable(failed({ reason: "signatureRefused" }))).toBe(false)

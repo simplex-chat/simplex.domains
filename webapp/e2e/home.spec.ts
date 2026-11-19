@@ -9,7 +9,7 @@ const PICTURE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vc
 const chat = (kind: string, displayName: string, change: { fullName?: string; image?: string; publicMemberCount?: number; link?: string; deepLink?: string } = {}) => {
   const { link, deepLink, ...profile } = change
   return {
-    preview: okPreview(kind === "channel" ? "channel" : "contact", displayName, { peerType: kind === "bot" ? "bot" : undefined, business: kind === "business", publicMemberCount: 1, ...profile }),
+    preview: okPreview(kind === "channel" ? "channel" : "contact", displayName, { chat: kind === "bot" ? "bot" : kind === "business" ? "business" : "contact", publicMemberCount: 1, ...profile }),
     link: link ?? `https://smp8.simplex.im/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}`, deepLink: deepLink ?? `simplex:/${kind === "channel" ? "c" : "a"}#${kind.padEnd(8, "A")}?h=smp8.simplex.im`,
   }
 }
