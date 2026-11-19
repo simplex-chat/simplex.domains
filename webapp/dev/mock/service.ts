@@ -1330,7 +1330,7 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
 }
 
 export async function previewLink(body: Record<string, unknown>): Promise<Preview> {
-  if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link")
+  if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link", { kind: null })
   return (await fetchedProfile(body.link))!
 }
 

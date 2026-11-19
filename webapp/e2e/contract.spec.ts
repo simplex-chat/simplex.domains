@@ -559,7 +559,7 @@ test("search answers a link whose data was not read now as unread with its deep 
     { preview: { kind: "contact", profile: { type: "unread" } }, link: unread, deepLink: `simplex:/a#${unread.split("#")[1]}?h=smp8.simplex.im` },
   ])
   expect((await call("POST", "/api/link/preview", { link: unread })).json, "a preview").toEqual({ kind: "contact", profile: { type: "unread" } })
-  expect(await call("POST", "/api/link/preview", { link: unparsed }), "a link the chat core cannot parse").toEqual({ status: 400, json: { type: "invalid_link" } })
+  expect(await call("POST", "/api/link/preview", { link: unparsed }), "a link the chat core cannot parse").toEqual({ status: 400, json: { type: "invalid_link", kind: null } })
 })
 
 // --- balances
