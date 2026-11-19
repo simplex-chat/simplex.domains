@@ -598,6 +598,7 @@ function creditLate(inv: Invoice): void {
   inv.lateUnits = confirmed
   inv.lateCents += Number(cents)
   credit(inv.registrationId, Number(cents))
+  changed(registrations.get(inv.registrationId)!)
 }
 
 async function invoiceView(inv: Invoice): Promise<Record<string, unknown>> {
