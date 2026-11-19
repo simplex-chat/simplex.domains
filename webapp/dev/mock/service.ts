@@ -1357,8 +1357,19 @@ function editsLeft(labelHash: Hex): { left: number; nextAt: number | null } {
 
 // Each sent request, by its signed edits: a repeat is answered from it rather than checked anew. A refused request is
 // never sent, so it is not kept, and its repeat is checked again.
-interface SentEdit { hash: Hex; outcome: Record<string, unknown> | HttpError | null }
+interface SentEdit { hash: Hex; outcome: Record<string, unknown> | HttpError | null; reverted: () => Promise<Record<string, unknown> | HttpError> }
 const sentEdits = new Map<string, SentEdit>()
+
+async function revertedOutcome(node: Hex, owner: Address, edits: SignedEdit[]): Promise<Record<string, unknown> | HttpError> {
+  let nonce: bigint, values: string[]
+  try {
+    [nonce, ...values] = await Promise.all([read<bigint>(resolver, "nonces", [owner]), ...edits.map((e) => read<string>(resolver, "text", [node, recordKey(e.key)]))]) as [bigint, ...string[]]
+  } catch {
+    throw new HttpError(504, "edit_pending")
+  }
+  const held = nonce > BigInt(edits[edits.length - 1].nonce) && edits.every((e, i) => values[i] === e.value)
+  return held ? { tx: null } : new HttpError(409, "record_reverted")
+}
 
 async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
   if (sent.outcome instanceof HttpError) throw sent.outcome
@@ -1370,7 +1381,7 @@ async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
   } catch {
     throw new HttpError(504, "edit_pending")
   }
-  sent.outcome = ok ? { tx: sent.hash } : new HttpError(409, "record_reverted", { revert: null })
+  sent.outcome = ok ? { tx: sent.hash } : await sent.reverted()
   return repeatedEdit(sent)
 }
 
@@ -1452,7 +1463,7 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   const edit: { sent: SentEdit | null } = { sent: null }
   const goingOut = (hash: Hex) => {
     nameEdits.set(labelHash, [...nameEdits.get(labelHash) ?? [], nowSeconds()])
-    edit.sent = { hash, outcome: null }
+    edit.sent = { hash, outcome: null, reverted: () => revertedOutcome(node, owner, edits) }
     sentEdits.set(editKey, edit.sent)
   }
   try {
@@ -1463,9 +1474,9 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
     if (e instanceof NotSent) throw new HttpError(503, "provider_unavailable")
     // a dry run that reverts sends nothing; a transaction that reverts is the edit's answer
     if (e instanceof Reverted) {
-      const reverted = new HttpError(409, "record_reverted")
-      if (edit.sent) edit.sent.outcome = reverted
-      throw reverted
+      if (!edit.sent) throw new HttpError(409, "record_reverted")
+      edit.sent.outcome = await edit.sent.reverted()
+      return repeatedEdit(edit.sent)
     }
     // no answer from the chain is not a refusal: the edit may still be mined, which the page says
     throw new HttpError(504, "edit_pending")

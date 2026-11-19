@@ -508,7 +508,7 @@ test("a relayed link edit that reverts on chain still counts toward the name's y
   const value = contactLink("Cv")
   const edit = await contactEdit(name, value)
   const answer = await relayedAhead(name.label, edit.edits[0], () => call("POST", "/api/name/records", edit))
-  expect(answer).toEqual({ status: 409, json: { type: "record_reverted" } })
+  expect(answer).toEqual({ status: 200, json: { tx: null } })
   const after = await recordsOf(name)
   expect(after.contact, "the other relayer's copy landed").toBe(value)
   expect(after.edits.left, "the reverted relay is counted").toBe(before.edits.left - 1)
