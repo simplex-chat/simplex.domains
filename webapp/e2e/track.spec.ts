@@ -1057,6 +1057,20 @@ test("the payment's line keeps its separator dot at the end of a line, never sta
   }
 })
 
+test("a month-ended order's balance row keeps its name on one line on a phone", async ({ page }) => {
+  await page.setViewportSize(FIT_SIZES[1])
+  const order = await keepOrder(page, "reg-ended", "inv-ended", "alicebakery")
+  const view = registrationView(order, { phase: { type: "failed", reason: "monthEnded" }, commitTx: "0x02", balance: { amount: 10000, hold: null, refunded: 0 } })
+  await page.route("**/api/invoice/inv-ended*", (route) => route.fulfill({ json: {
+    invoiceId: "inv-ended", status: "paid", amount: 10000, currency: "usd", expiresAt: new Date().toISOString(), kind: "name", registration: view, cryptoCurrency: "btc",
+    cryptoAmount: "0.00156", cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true, address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s",
+  } }))
+  await page.goto("/#/names")
+  const name = page.locator('.list-row[data-key="balance-reg-ended"] .sub .nt')
+  await expect(name).toHaveText("alicebakery.simplex")
+  expect(await name.evaluate((n) => new Set([...n.getClientRects()].map((r) => Math.round(r.top))).size), "the lines the name is drawn on").toBe(1)
+})
+
 // the share of its field a focused link's text has, all but the field's icon and padding
 const FOCUSED_INPUT_SHARE = 0.7
 

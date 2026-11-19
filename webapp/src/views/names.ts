@@ -384,7 +384,7 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
     b.held ? `${SEP}in use by another order ${heldWords(b.heldUntil)}` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, b.held ? chip("In use", "brand", true) : null, acts)
-  node.classList.add("balance-row")
+  if (from) node.classList.add("balance-row")
   return node
 }
 
