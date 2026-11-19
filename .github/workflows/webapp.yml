@@ -12,11 +12,6 @@ on:
   pull_request:
     paths: *paths
   workflow_dispatch:
-    inputs:
-      update_screens:
-        description: Record the screens' baselines anew and upload them as the artifact "screens"
-        type: boolean
-        default: false
 
 defaults:
   run:
@@ -107,9 +102,9 @@ jobs:
           done
           docker run --rm --network host --ipc host -v "$GITHUB_WORKSPACE:/work" -w /work/webapp -e SLOTS -e SCREENS=1 \
             mcr.microsoft.com/playwright:v$(node -p 'require("@playwright/test/package.json").version')-noble \
-            npx playwright test --project=screens ${{ inputs.update_screens && '--update-snapshots' || '' }}
+            npx playwright test --project=screens
       - uses: actions/upload-artifact@v7
-        if: matrix.browser == 'chromium' && inputs.update_screens
+        if: failure() && matrix.browser == 'chromium'
         with:
           name: screens
           path: webapp/e2e/screens
