@@ -207,12 +207,12 @@ test("a heading's name too long for a line at the heading's size draws it smalle
     await expect(heading).toBeVisible()
     for (const [j, size] of [LAPTOP, PHONE].entries()) {
       await page.setViewportSize(size)
-      const drawn = () => heading.evaluate((h) => {
+      const drawn = await heading.evaluate((h) => {
         const tail = h.querySelector(".nowrap")!
         return { size: getComputedStyle(h).fontSize, across: Math.round(h.getBoundingClientRect().width) === Math.round(h.parentElement!.getBoundingClientRect().width),
           tailLines: new Set([...tail.getClientRects()].map((r) => Math.round(r.top))).size }
       })
-      await expect.poll(drawn, `${label} at ${size.width}`).toEqual({ size: sizes[j], across: true, tailLines: 1 })
+      expect(drawn, `${label} at ${size.width}`).toEqual({ size: sizes[j], across: true, tailLines: 1 })
       expect(await brokenNames(page), `${label} at ${size.width}: broken though it fits its line`).toEqual([])
     }
     await page.setViewportSize(LAPTOP)

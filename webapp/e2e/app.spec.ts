@@ -121,8 +121,7 @@ test("Add to Your names keeps its place while it reads the code's orders, saying
   expect([...new Set(busy.map(([, words]) => words))]).toEqual(["Finding the code's orders…"])
 })
 
-test("on a phone, Forget's question glides into view rather than jumping there", async ({ page, browserName }) => {
-  test.skip(browserName === "webkit", "WebKit draws its frames on the CPU, too few of them to sample a glide")
+test("on a phone, Forget's question glides into view rather than jumping there", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/#/trademarks")
