@@ -95,6 +95,8 @@ Tests and manual checks move orders along with `POST` requests to the mock:
 | `/control/code` `{"minLength", "years", "state"}` | issues a prepaid code |
 | `/control/code/state` `{"code", "state"}` | sets a prepaid code's state, as an order elsewhere taking it or letting it go |
 | `/control/mode` `{"mode"}` | `codes` refuses every name invoice and every balance spend with `403 {"error": "codes_only"}`, as the service with `[names] codes_only` on; `open`, the mock's mode at its start, takes them again. `GET /control/mode` answers it, and `GET /api/config` carries it to the page, as the service's does |
+| `/control/clock` `{"now"}` | the mock's clock is set to `now` (unix seconds), from where it runs on, and the chain is moved forward to it; a chain already past it is refused with `409 {"error": "chain_ahead"}`. The mock's answers carry its clock in their `Date` header |
+| `/control/seed` `{"seed"}` | the mock's ids, references, addresses and codes are drawn from this text from now on, the same each time, or at random again with `null` |
 
 `GET /control/state` dumps the mock's registrations, invoices and balances.
 
@@ -119,6 +121,8 @@ FIREFOX_158=<Firefox 158 executable> SLOTS=3 npx playwright test --project=firef
 `npx playwright test` runs the `chromium`, `firefox` and `webkit` projects in one pool; `--project=chromium` (or `firefox`, `webkit`) runs one browser. Where memory is short, run the three one after another.
 
 The tests run with reduced motion, so screens swap at once, except one test in `e2e/track.spec.ts`, which checks that each purchase step rises in, `e2e/frames.spec.ts`, which samples each frame of the swaps and fails on a near-empty one, and the tests in `e2e/motion.spec.ts` that check the motion itself: that it runs only for a reader who has not asked for less, that a swap never shows two screens at once, that a redraw replays nothing already shown, and that controls follow a switch of theme. `e2e/frames.spec.ts` runs in Chromium and, with `FIREFOX_158`, in Firefox 158: the `firefox158` project runs only this spec and exists only when `FIREFOX_158` names a Firefox 158 or later executable, launched through Playwright's `moz-firefox` channel with its own libraries. While `FIREFOX_158` is set, a plain `npx playwright test` runs `firefox158` too. The `firefox` and `webkit` projects skip it.
+
+`e2e/screens.spec.ts` compares the page in each of its states with committed screenshots; it runs only in the `screens` project, which exists with `SCREENS=1`, in Playwright's Docker image, as `e2e/README.md` says.
 
 With `SHOTS=1` the tests write every screen they reach to `screenshots/` (or `SCREENSHOTS_DIR`), on a desktop and a phone, light and dark; Firefox's and WebKit's go to `screenshots/firefox/` and `screenshots/webkit/`, WebKit's in light only.
 

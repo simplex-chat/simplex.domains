@@ -11,12 +11,16 @@ const FIREFOX = { ...devices["Desktop Firefox"], viewport: { width: 1280, height
 const SAFARI = { ...devices["Desktop Safari"], viewport: { width: 1280, height: 900 } }
 
 const FRAMES = /frames\.spec\.ts$/
+const SCREENS = /screens\.spec\.ts$/
 const WEBKIT_WORKERS = 2
 // A Firefox 158 or later, named by FIREFOX_158. It reports its own version rather than the one Playwright's device names,
 // and finds its own libraries, which the library path set for Playwright's bundled browsers would replace.
 const FIREFOX_158 = process.env.FIREFOX_158
 const FIREFOX_158_PROJECT = FIREFOX_158
   ? [{ name: "firefox158", testMatch: FRAMES, use: { ...FIREFOX, userAgent: undefined, launchOptions: { channel: "moz-firefox", executablePath: FIREFOX_158, env: { ...process.env, LD_LIBRARY_PATH: "" } } } }]
+  : []
+const SCREENS_PROJECT = process.env.SCREENS
+  ? [{ name: "screens", testMatch: SCREENS, snapshotPathTemplate: "{testDir}/screens/{arg}{ext}", use: { ...devices["Desktop Chrome"], timezoneId: "UTC", locale: "en-US" } }]
   : []
 
 // The dev backend (dev/start.sh with as many SLOTS: anvil, contracts, mock) must already run; each worker uses its own.
@@ -30,11 +34,12 @@ export default defineConfig({
   use: { baseURL: BASE_URL, reducedMotion: "reduce" },
   // Firefox grants clipboard writes from a click without a permission, and has no permission to grant
   projects: [
-    { name: "chromium", use: CHROME },
-    { name: "firefox", testIgnore: FRAMES, use: FIREFOX },
+    { name: "chromium", testIgnore: SCREENS, use: CHROME },
+    { name: "firefox", testIgnore: [FRAMES, SCREENS], use: FIREFOX },
     // WebKit draws its frames on the CPU, and three or more workers at once starve the frames its motion checks count
-    { name: "webkit", testIgnore: FRAMES, workers: WEBKIT_WORKERS, use: SAFARI },
+    { name: "webkit", testIgnore: [FRAMES, SCREENS], workers: WEBKIT_WORKERS, use: SAFARI },
     ...FIREFOX_158_PROJECT,
+    ...SCREENS_PROJECT,
   ],
   webServer: BASE_URL ? undefined : Array.from({ length: SLOTS }, (_, slot) => ({
     command: `npx vite --host 127.0.0.1 --port ${pagePort(slot)}`,
