@@ -52,7 +52,8 @@ async function serviceFailureTexts(target: Page | BrowserContext): Promise<void>
 }
 
 const countdowns = (page: Page): Locator[] =>
-  [page.locator("body > main .time"), page.locator("body > main .countdown b"), page.locator('body > main .sr-only + [aria-hidden="true"] > span'), page.locator("video")]
+  [page.locator("body > main .time"), page.locator("body > main .countdown b"), page.locator('body > main .sr-only + [aria-hidden="true"] > span'),
+    page.locator("body > main .pay-status .sized > span > span"), page.locator("video")]
 
 type Size = typeof SIZES[number][0]
 
