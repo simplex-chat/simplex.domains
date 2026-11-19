@@ -94,7 +94,7 @@ jobs:
         run: |
           docker rm -f backend
           docker run -d --name backend --network host --ulimit core=0 \
-            -e SLOTS -e CHAIN_START -e MIN_COMMITMENT_AGE=5 -e MOCK_RESEND_MS=1000 -e MOCK_RESENDS=600 -e MOCK_RETRY_AFTER_SECONDS=2 \
+            -e SLOTS -e CHAIN_START -e MIN_COMMITMENT_AGE=5 -e MOCK_RESEND_MS=1000 -e MOCK_RESENDS=600 \
             -v "$PWD/dev:/repo/webapp/dev" \
             simplex-names-webapp dev/start.sh
           for ((i = 0; i < SLOTS; i++)); do

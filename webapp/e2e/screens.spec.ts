@@ -75,11 +75,14 @@ function screen(slot: number, id: string, reach: (r: Reach) => Promise<Page | vo
     await serviceFailureTexts(page)
     if (before) await page.setViewportSize(SIZES.find(([size]) => size === before)![1])
     const shown = await reach({ page, request, browser, baseURL: baseURL!, id, now }) ?? page
-    await shown.evaluate(() => Promise.all([...document.fonts].map((f) => f.load().catch(() => undefined))))
+    await expect.poll(() => shown.evaluate(async () => {
+      await Promise.all([...document.fonts].map((f) => f.load().catch(() => undefined)))
+      return [...document.fonts].filter((f) => !f.family.includes("fallback") && f.status !== "loaded").map((f) => `${f.family} ${f.weight}`)
+    }), { message: "the page's fonts" }).toEqual([])
     await shown.mouse.move(0, 0)
     for (const [size, viewport] of SIZES.filter(([size]) => sizes.includes(size))) {
       await shown.setViewportSize(viewport)
-      await expect(shown).toHaveScreenshot(`${id}-${size}.png`, { fullPage: true, mask: countdowns(shown), stylePath: FLAT_BACKGROUND })
+      await expect.soft(shown).toHaveScreenshot(`${id}-${size}.png`, { fullPage: true, mask: countdowns(shown), stylePath: FLAT_BACKGROUND })
     }
   })
 }
@@ -2846,7 +2849,7 @@ screen(3184, "names-edit-field-refused", async (r) => {
 })
 screen(3186, "names-edit-field-unanswered", async (r) => {
   await editOf(r)
-  await r.page.route("**/api/link/preview", (route) => answer(route, 503, "provider_unavailable"))
+  await r.page.route("**/api/link/preview", (route) => answer(route, 503, "provider_unavailable", 30))
   await linkField(r.page).fill(contactLink("X4"))
   await r.page.waitForTimeout(1500)
 })

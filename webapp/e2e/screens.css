@@ -1,2 +1,3 @@
 body::before, body::after { background: var(--page-color) !important; }
 .stage.active[style*="--done"] { --done: 0.5 !important; }
+body > main :is(.time, .countdown b, .sr-only + [aria-hidden="true"] > span) { font-variant-numeric: tabular-nums; }
