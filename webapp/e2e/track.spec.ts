@@ -128,6 +128,7 @@ function oneFrame(frames: Record<string, Frame[]>): void {
 }
 
 test("every purchase step fits a laptop's and a phone's window, its heading and main button at one place on every step", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   await page.goto("/")
   await fitsWindow(page, "1-home")
   // a taken name with both its links
@@ -177,6 +178,7 @@ test("every purchase step fits a laptop's and a phone's window, its heading and 
 })
 
 test("the balance's steps fit both windows, their heading, main button and link where every step's are", async ({ page, request }) => {
+  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
   const frames: Record<string, Frame[]> = {}
   await takenOrder(page, request, uniqueLabel("fitbal"))
   await fitsWindow(page, "b1-taken", frames)
@@ -258,7 +260,10 @@ const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
     } }
   } }),
 })`
-const loadCard = (page: Page) => page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+const loadCard = async (page: Page) => {
+  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: unknown }).__loadCard === "function")
+  await page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+}
 const cardSeen = (page: Page) => page.evaluate(() => {
   const w = window as unknown as { __logos?: string[]; __mounts?: number }
   return { logos: w.__logos ?? [], mounts: w.__mounts ?? 0 }
