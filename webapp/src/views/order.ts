@@ -668,6 +668,7 @@ const partlyPaid = (invoice: api.InvoiceView) => Number(invoice.cryptoAmountPaid
 function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const closed = closedCase(s)!
+  if (closed === "reversed") return outcome({ tone: "info", icon: "alert", title: CLOSED_TITLE, text: null })
   const [tone, text] = closedWords(closed, inv, s.view!)
   const kept = closedBalance(s)
   // only a new invoice is held for the tab's wait; the balance kept pays for one of the same name
@@ -736,7 +737,7 @@ const creditBySupport: Kid[] = [" It is not credited to your balance by itself: 
 
 const KEPT_ONCE: Record<Exclude<api.LateWait, "support">, string> = { confirming: "Once confirmed, it is", crediting: "Once credited, it is" }
 
-function closedWords(closed: ClosedCase, inv: api.InvoiceView, view: api.RegistrationView): [Tone, Kid] {
+function closedWords(closed: Exclude<ClosedCase, "reversed">, inv: api.InvoiceView, view: api.RegistrationView): [Tone, Kid] {
   const waiting = view.latePayment
   const kept = (lead: string): Kid => waiting === "support" ? [lead, creditBySupport] : `${lead} ${waiting ? KEPT_ONCE[waiting] : "It is"} ${KEPT_LATE}`
   switch (closed) {

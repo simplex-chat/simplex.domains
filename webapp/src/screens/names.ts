@@ -1,4 +1,4 @@
-import { fromBalanceOf, holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, type SearchAnswer } from "../api.ts"
+import { fromBalanceOf, holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, reversedOrder, type SearchAnswer } from "../api.ts"
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
 import type { CodeRecord, OrderRecord, PendingCode } from "../store.ts"
@@ -179,7 +179,7 @@ const PHASE_CHIPS: Record<Exclude<Phase, "closed">, [string, string]> = {
 }
 
 const CHIPS = {
-  sign: "Open to finish", cancelled: "Invoice cancelled", expired: "Invoice expired", late: "Paid late", confirming: "Confirming payment", rest: "Waiting for the rest",
+  sign: "Open to finish", cancelled: "Invoice cancelled", expired: "Invoice expired", closed: "Invoice closed", late: "Paid late", confirming: "Confirming payment", rest: "Waiting for the rest",
 } as const
 export const ROW_CHIPS = { unchecked: "Not checked", lapsed: "Expired" } as const
 export const ORDER_CHIP_WORDS = [...new Set([...Object.values(ROW_CHIPS), ...Object.values(PHASE_CHIPS).map(([words]) => words), ...Object.values(CHIPS)])]
@@ -187,6 +187,7 @@ export const ORDER_CHIP_WORDS = [...new Set([...Object.values(ROW_CHIPS), ...Obj
 export function phaseChip(view: RegistrationView, invoice: InvoiceView | null, o: OrderRecord, now: number): [string, string] {
   if (waitsToSign(view, now)) return [CHIPS.sign, "warn"]
   if (view.phase.type !== "unpaid" && view.phase.type !== "closed") return PHASE_CHIPS[view.phase.type]
+  if (reversedOrder(view)) return [CHIPS.closed, "bad"]
   if (invoice && paidLate(invoice)) return [CHIPS.late, "warn"]
   if (invoice?.status === "expired") return o.cancelled && !holdsPayment(invoice) ? [CHIPS.cancelled, "bad"] : [CHIPS.expired, holdsPayment(invoice) ? "warn" : "bad"]
   if (invoice?.paidInFull || o.cardSubmittedAt) return [CHIPS.confirming, "warn"]

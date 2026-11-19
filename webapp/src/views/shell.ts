@@ -270,7 +270,7 @@ export function asStep(screen: HTMLElement): HTMLElement {
 
 export function outcome(o: Outcome): HTMLElement {
   return el("section", { class: "screen outcome" }, screenHead(o.title, o.back),
-    el("div", { class: "screen-body" }, alertBox(o.tone, o.icon, null, o.text), o.extra ?? null, o.reference ? referenceLine(o.reference) : null, o.agreement ?? null),
+    el("div", { class: "screen-body" }, o.text === null ? null : alertBox(o.tone, o.icon, null, o.text), o.extra ?? null, o.reference ? referenceLine(o.reference) : null, o.agreement ?? null),
     actionsOf(o))
 }
 

@@ -130,6 +130,7 @@ describe("closedCase", () => {
     ["a cancelled invoice that money reached", "received", read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }), undefined, { record: record({ cancelled: true }) })],
     ["an expired card invoice with nothing paid", "expired", read(card({ status: "expired" }))],
     ["an expired invoice with nothing received", "expired", read(crypto({ status: "expired" }))],
+    ["an order whose payment was reversed", "reversed", read(card({ status: "paid", amountPaid: 1500 }, { phase: "closed", closedBy: "reversed" }))],
   ]
   it.each(cases)("%s is %s, on the one closed screen", (_, expected, s) => {
     expect(closedCase(s)).toBe(expected)
@@ -380,6 +381,10 @@ describe("finished", () => {
     expect(finished(crypto(LATE_FULL), registration()), "not credited yet").toBe(false)
     const part = crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, credited)
     expect(finished(part, part.registration)).toBe(false)
+  })
+  it("stops at an order whose payment was reversed, which nothing changes after", () => {
+    const reversed: Short = { phase: "closed", closedBy: "reversed" }
+    expect(finished(card({ status: "paid", amountPaid: 1500 }, reversed), registration(reversed))).toBe(true)
   })
   it("stops at a registered name, and follows an open invoice and a taken or failed order", () => {
     expect(finished(null, registration({ phase: "registered" }))).toBe(true)

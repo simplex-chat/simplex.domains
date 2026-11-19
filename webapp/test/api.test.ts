@@ -332,7 +332,7 @@ describe("service errors", () => {
     const acceptance = { community: false, policy: "0x3", termsHash: TERMS.hash, nonce: 0 }
     const committed = (signature: unknown) => ({ type: "committed", revealAfter: 1, revealBefore: 2, signature })
     for (const phase of [
-      { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "queued" }, { type: "committing" },
+      { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "closed", closedBy: "reversed" }, { type: "queued" }, { type: "committing" },
       committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
       committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "taken" },
       { type: "failed", reason: "sendsUsedUp" }, { type: "failed", reason: "registryRefused" }, { type: "failed", reason: "signatureRefused" },

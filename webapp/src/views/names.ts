@@ -275,6 +275,7 @@ function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: 
   const expiresAt = api.expiresAtOf(view)
   if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
   if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
+  if (api.reversedOrder(view)) return ""
   if (invoice && invoice.status !== "open" && (view.phase.type === "unpaid" || view.phase.type === "closed")) {
     const late = lateLine(invoice)
     return late ? [late, ...reference(invoice.invoiceId)] : `Nothing was charged${SEP}${dateOf(Date.parse(o.createdAt) / 1000)}`

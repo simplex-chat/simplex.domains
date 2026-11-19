@@ -210,7 +210,7 @@ export type Signing = { type: "awaiting"; toSign: ToSign } | { type: "signed" } 
 
 export type PhaseView =
   | { type: "unpaid" }
-  | { type: "closed"; closedBy: "expired" | "cancelled" }
+  | { type: "closed"; closedBy: "expired" | "cancelled" | "reversed" }
   | { type: "queued" }
   | { type: "committing" }
   | { type: "committed"; revealAfter: number; revealBefore: number; signature: Signing }
@@ -286,6 +286,8 @@ export interface InvoiceView {
   cryptoCurrency?: Method
   requiredConfirmations?: number
 }
+
+export const reversedOrder = ({ phase }: RegistrationView) => phase.type === "closed" && phase.closedBy === "reversed"
 
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
@@ -450,7 +452,7 @@ const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for
 const isAcceptance = (v: unknown) => isObject(v) && typeof v.community === "boolean" && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const isToSign = (v: unknown) => isObject(v) && (v.type === "unread" || (v.type === "read" && isAmount(v.intentNonce) && isAcceptance(v.acceptance)))
 const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isToSign(v.toSign)) || v.type === "signed" || v.type === "lapsed")
-const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled")
+const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled" || v.closedBy === "reversed")
   && (v.type !== "committed" || (isAmount(v.revealAfter) && isAmount(v.revealBefore) && isSigning(v.signature)))
   && (v.type !== "registered" || isAmount(v.expiresAt)) && (v.type !== "failed" || (FAIL_REASONS.includes(v.reason as FailReason) && optional(v.heldUntil, isTime)))
 const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && isPhase(v.phase) && isText(v.labelHash)
