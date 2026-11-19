@@ -180,7 +180,6 @@ export function failedLead({ view, invoice, codeRefused, codeKept, record }: Ord
 }
 
 const FAILED_TITLES: Record<FailReason, string> = {
-  sendsUsedUp: "The name could not be registered",
   registryRefused: "The name could not be registered",
   signatureRefused: "The name could not be registered",
   monthEnded: "The name was not registered within a month",

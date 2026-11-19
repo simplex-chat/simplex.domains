@@ -907,7 +907,7 @@ async function advance(reg: Registration): Promise<void> {
     if (e instanceof NotSent && reg.resends < RESENDS) {
       reg.resends += 1
       setTimeout(() => void advance(reg), RESEND_MS)
-    } else fail(reg, "sendsUsedUp")
+    } else fail(reg, "registryRefused")
   } finally {
     busy.delete(reg.id)
   }

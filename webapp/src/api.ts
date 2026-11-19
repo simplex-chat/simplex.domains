@@ -243,7 +243,7 @@ export interface RegistrationView {
   lastAttempt?: { transaction: string; stage: string; reason: string; at: string } | null
 }
 
-export const FAIL_REASONS = ["sendsUsedUp", "registryRefused", "signatureRefused", "monthEnded", "unread"] as const
+export const FAIL_REASONS = ["registryRefused", "signatureRefused", "monthEnded", "unread"] as const
 export type FailReason = (typeof FAIL_REASONS)[number]
 
 export const committedOf = (view: RegistrationView) => view.phase.type === "committed" ? view.phase : null

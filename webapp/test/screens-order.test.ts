@@ -476,10 +476,6 @@ describe("failedLead", () => {
     expect(failedLead(failed(crypto({ status: "paid", paidInFull: true }), {}, "InvalidSignature"))).toBe("Your payment is kept. Write to support.")
     expect(failedLead(read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed" }), { record: record() })), "no attempt read").toBe("Your payment is kept. Write to support.")
   })
-  it("an order that sent the most an order may is left to support", () => {
-    const usedUp = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", reason: "sendsUsedUp" }), { record: record() })
-    expect(failedLead(usedUp)).toBe("Your payment is kept. Write to support.")
-  })
   it("links the service refused send a browser without the code to enter it, as another commitment holds them too", () => {
     const refused = read(crypto({ status: "paid", paidInFull: true }), registration({ phase: "failed", linksRefused: "contact" }), { record: null })
     expect(failedLead(refused)).toBe("The service refused its links. Enter its name code to register it without them, or another name.")
@@ -500,7 +496,6 @@ describe("failedLead", () => {
 describe("failedAlert", () => {
   const failed = (change: Short = {}, state: Partial<OrderState> = {}) => read(null, registration({ phase: "failed", ...change }), state)
   it("words the service's reason for the buyer", () => {
-    expect(failedAlert(failed({ reason: "sendsUsedUp" }))).toBe("The name could not be registered")
     expect(failedAlert(failed({ reason: "registryRefused" }))).toBe("The name could not be registered")
     expect(failedAlert(failed({ reason: "signatureRefused" }))).toBe("The name could not be registered")
     expect(failedAlert(failed({ reason: "monthEnded" }))).toBe("The name was not registered within a month")
@@ -515,7 +510,6 @@ describe("failedAlert", () => {
     expect(movable(failed({ reason: "unread", ...attempt("NameTooShort") }))).toBe(false)
     expect(movable(failed(attempt("NameTooShort"), { codeRefused: true }))).toBe(false)
     expect(movable(failed({ reason: "unread" }))).toBe(false)
-    expect(movable(failed({ reason: "sendsUsedUp" }))).toBe(false)
     expect(movable(failed({ reason: "signatureRefused" }))).toBe(false)
     expect(movable(failed({ reason: "monthEnded" }))).toBe(false)
     expect(movable(failed({}, { codeRefused: true }))).toBe(false)
@@ -525,7 +519,7 @@ describe("failedAlert", () => {
     expect(supportCase(failed({ reason: "signatureRefused" }))).toBe("signatureRefused")
     expect(supportCase(failed({ reason: "monthEnded" }))).toBe("monthEnded")
     expect(supportCase(failed({ reason: "unread" }))).toBe("unread")
-    expect(supportCase(failed({ reason: "sendsUsedUp" }))).toBeNull()
+    expect(supportCase(failed({ reason: "registryRefused" }))).toBeNull()
   })
 })
 
