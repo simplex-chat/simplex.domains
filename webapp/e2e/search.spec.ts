@@ -124,6 +124,8 @@ test("the checkout explains every refusal and keeps the order", async ({ page, r
   await control(request, "search", { invoiceError: "internal" })
   await pay()
   await expect(page.getByRole("heading", { name: "That did not go through" })).toBeVisible()
+  await expect(page.getByText("Nothing was charged. If this happens again, contact support via chat@simplex.chat or SimpleX.")).toBeVisible()
+  await expect(page.locator(".notice", { hasText: "Nothing was charged" }).getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", /^https:\/\/smp6\.simplex\.im\/a#/)
   await shot(page, "N3d-failed")
   // Try again sends the same order again, which meets the next refusal
   await control(request, "search", { invoiceError: "catalog_changed" })

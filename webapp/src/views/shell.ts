@@ -10,6 +10,11 @@ import { reloadedForRoute } from "./served-mode.ts"
 export const CONTACT_EMAIL = "chat@simplex.chat"
 export const SIMPLEX_SUPPORT = "https://smp6.simplex.im/a#lrdvu2d8A1GumSmoKb2krQmtKhWXq-tyGpHuM7aMwsw"
 
+export const supportVia = (verb: "Contact" | "contact"): Kid[] =>
+  [`${verb} support via `, el("a", { class: "nowrap", href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX")]
+
+export const contactSupport = (verb: "Contact" | "contact", reference: Kid): Kid[] => [...supportVia(verb), ", and include order reference ", reference]
+
 let rerender: () => void = () => undefined
 
 export const setRenderer = (render: () => void) => { rerender = render }
@@ -316,8 +321,7 @@ export function showRefund(reference: string, key: string): void {
   const copy = copyButton(reference, "field-copy", "Copy reference")
   showPopup(key, [
     el("h2", { id: POPUP_TITLE }, "Refund"),
-    el("p", {}, "Write to ", el("a", { class: "nowrap", href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL),
-      " with your order reference. Support refunds what is left of your balance."),
+    el("p", {}, ...contactSupport("Contact", reference), ". Support refunds what is left of your balance."),
     el("div", { class: "code-display" }, el("span", { class: "code-text" }, reference), el("span", { class: "code-buttons" }, copy)),
   ], copy)
 }

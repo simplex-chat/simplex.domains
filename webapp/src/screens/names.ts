@@ -212,19 +212,20 @@ export function paidLine(o: OrderRecord, view: RegistrationView | null, invoice:
   return `${dollars(o.paid)} ${methodName(o.method)}`
 }
 
-const LATE_KEPT: Record<LateWait | "credited", string> = {
-  credited: "kept as your balance", confirming: "kept as your balance once confirmed", crediting: "kept as your balance once credited", support: "write to support to have it credited",
+const LATE_KEPT: Record<Exclude<LateWait, "support"> | "credited", string> = {
+  credited: "kept as your balance", confirming: "kept as your balance once confirmed", crediting: "kept as your balance once credited",
 }
 
 // Money that reached an unpaid order's invoice once it had closed, or that it held as it closed, which is kept as the
-// order's balance; null when the invoice took none.
-export function lateLine(invoice: InvoiceView): string | null {
-  const kept = LATE_KEPT[invoice.registration.latePayment ?? "credited"]
-  if (paidLate(invoice)) return `Paid after the invoice closed; ${kept}`
+// order's balance, with how it is kept, or null when only support credits it; null when the invoice took none.
+export function lateLine(invoice: InvoiceView): [string, string | null] | null {
+  const waiting = invoice.registration.latePayment ?? "credited"
+  const kept = waiting === "support" ? null : LATE_KEPT[waiting]
+  if (paidLate(invoice)) return ["Paid after the invoice closed", kept]
   if (invoice.status !== "expired") return null
   const part = Number(invoice.cryptoAmountPaid ?? "0") > 0 && !invoice.paidInFull
   const arrived = part ? "Part of the payment arrived" : holdsPayment(invoice) ? "A payment did not complete before the invoice closed" : null
-  return arrived && `${arrived}; ${kept}`
+  return arrived && [arrived, kept]
 }
 
 export const CODE_CHIPS: Record<CodeState, [string, string]> = {

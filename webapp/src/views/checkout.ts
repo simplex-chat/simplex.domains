@@ -19,7 +19,7 @@ import * as store from "../store.ts"
 import { CODE_ERRORS, codeField, CODES_ONLY_TITLE, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, linkChat, linkFieldsFor, linksSettled } from "./links.ts"
 import {
-  asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, whenLeaving,
+  asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, supportVia, whenLeaving,
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
@@ -496,7 +496,7 @@ function buildFailed(s: CheckoutState): HTMLElement {
   const c = s.checkout
   // the same order is sent again from here; Back leaves it for the search
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
-  return outcome({ tone: "danger", icon: "alert", title: "That did not go through", text: "Nothing was charged. If this happens again, get in touch.",
+  return outcome({ tone: "danger", icon: "alert", title: "That did not go through", text: ["Nothing was charged. If this happens again, ", ...supportVia("contact"), "."],
     action: retry, alt: link("Back", () => go(searchLink(c.label))) })
 }
 

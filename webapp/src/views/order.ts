@@ -25,7 +25,7 @@ import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
 import { loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
-  asStep, type Builder, CONTACT_EMAIL, SIMPLEX_SUPPORT, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
+  asStep, type Builder, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
   searchLink, showRefund, useBalance, whenDropped, whenLeaving,
 } from "./shell.ts"
 
@@ -394,7 +394,8 @@ function releasedCode(view: api.RegistrationView, record: store.OrderRecord | nu
 }
 
 // holdsFor is the screen's signal where the screen holds an action for the tab's wait
-const noteText = (note: Note): Kid => note.link ? [note.text, el("a", { href: note.link.href }, note.link.text), note.link.after] : note.text
+const noteLink = (link: NonNullable<Note["link"]>): Kid => "support" in link ? [...contactSupport("Contact", link.support), "."] : [el("a", { href: link.href }, link.text), link.after]
+const noteText = (note: Note): Kid => note.link ? [note.text, noteLink(note.link)] : note.text
 export const noteBox = (note: Note) => alertBox(note.tone, note.icon, note.title, noteText(note))
 
 function noteOf({ hold, note, codeCheckAt }: OrderState, holdsFor: AbortSignal | null): HTMLElement | null {
@@ -805,13 +806,13 @@ async function agreedFirst(gen: number, record: store.OrderRecord, invoice: api.
 }
 
 // a late credit the service cannot make by itself, which support makes by hand
-const creditBySupport: Kid[] = [" It is not credited to your balance by itself: write to ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]
+const creditBySupport = (reference: string): Kid[] => [" It is not credited to your balance by itself: ", ...contactSupport("contact", reference), "."]
 
 const KEPT_ONCE: Record<Exclude<api.LateWait, "support">, string> = { confirming: "Once confirmed, it is", crediting: "Once credited, it is" }
 
 function closedWords(closed: Exclude<ClosedCase, "reversed">, inv: api.InvoiceView, view: api.RegistrationView): [Tone, Kid] {
   const waiting = view.latePayment
-  const kept = (lead: string): Kid => waiting === "support" ? [lead, creditBySupport] : `${lead} ${waiting ? KEPT_ONCE[waiting] : "It is"} ${KEPT_LATE}`
+  const kept = (lead: string): Kid => waiting === "support" ? [lead, creditBySupport(inv.invoiceId)] : `${lead} ${waiting ? KEPT_ONCE[waiting] : "It is"} ${KEPT_LATE}`
   switch (closed) {
     case "paid-late": return ["warn", kept("The payment arrived after this invoice had closed, so nothing was registered.")]
     case "cancelled": return ["info", "This invoice was cancelled and nothing was received."]
@@ -1227,7 +1228,7 @@ export const REPLACE_LINK = "Replace or remove it to register the name."
 
 // what a move refused for good says: the service bounds how often an order moves, and support settles it from there
 export const moveLimitNote = (reference: string): Note => ({ tone: "warn", icon: "alert", title: "This order cannot move again",
-  text: "Write to SimpleX support with its reference, ", link: { text: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}`, after: `: ${reference}.` } })
+  text: "", link: { support: reference } })
 
 async function moveWithoutLinks(): Promise<void> {
   if (unagreed(state)) return
@@ -1351,19 +1352,18 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
     : view.linksRefused || (movable(s) && !s.record) ? withoutRecord("") : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : movable(s) ? another : null
   holdEnds(signal)(s.hold !== null)
   const failedAt: StageState[] = view.commitTx === null ? ["failed", "", ""] : ["done", "done", "failed"]
-  const support = [el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with its reference."]
   const reference = invoice?.invoiceId ?? view.id
   return screen({ title: invoice ? "Paid, not registered" : "Not registered", lead: settled ? undefined : failedLead(s), action },
     el("p", { class: "note center" }, ...orderLine(s)),
     stages(failedAt),
-    alertBox("danger", "alert", failedAlert(s), settled ? supportText(settled, view, reference) : ["Write to ", ...support]),
+    alertBox("danger", "alert", failedAlert(s), settled ? supportText(settled, view, reference) : [...contactSupport("Contact", reference), "."]),
     actionNote(s, signal),
     referenceLine(reference))
 }
 
 function supportText(settled: SupportCase, view: api.RegistrationView, reference: string): Kid[] {
   const code = view.payment.type === "code"
-  const contact = ["contact support via ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX"), ", and include order reference ", reference]
+  const contact = contactSupport("contact", reference)
   const received = code ? "Your code is received" : "Your payment is received"
   if (settled === "signatureRefused") return [`${received}, please `, ...contact, "."]
   if (settled === "unread") {

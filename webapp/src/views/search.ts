@@ -416,8 +416,7 @@ function registerNote({ hold, register: { refusal } }: SearchState, signal: Abor
 
 function codeLossNote(state: CodeLoss, reference: string): Note {
   const [title, line] = STATE_LINES[state]
-  return { tone: "danger", icon: "key", title, text: `${line ? `${line} ` : ""}Write to SimpleX support with this order's reference, `,
-    link: { text: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}`, after: `: ${reference}.` } }
+  return { tone: "danger", icon: "key", title, text: line ? `${line} ` : "", link: { support: reference } }
 }
 
 // One row as the app lists a chat: the name, the chats it opens as the app's own pictures, and whose it is.

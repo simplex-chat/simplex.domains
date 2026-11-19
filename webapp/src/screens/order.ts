@@ -24,7 +24,7 @@ export type ClosedCase = "paid-late" | "cancelled" | "received" | "expired" | "r
 
 type Action = "card" | "cancel" | "reorder" | "retry" | "move"
 
-export interface Note { tone: "warn" | "danger"; icon: IconName; title: string | null; text: string; link?: { text: string; href: string; after: string } }
+export interface Note { tone: "warn" | "danger"; icon: IconName; title: string | null; text: string; link?: { text: string; href: string; after: string } | { support: string } }
 
 interface Reveal { key: string; sending: boolean; refusals: number }
 

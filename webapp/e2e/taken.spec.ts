@@ -153,8 +153,9 @@ test("a failed registration keeps its payment for another name, also in another 
   const alert = onStep(page).locator(".notice", { hasText: "The name could not be registered" })
   // the lead above already says the payment is kept for another name
   await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Choose another name for it, or write to support.")
-  await expect(alert).toHaveText("The name could not be registeredWrite to chat@simplex.chat with its reference.")
+  await expect(alert).toHaveText(`The name could not be registeredContact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)
   await expect(alert.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
+  await expect(alert.getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", /^https:\/\/smp6\.simplex\.im\/a#/)
   // the order's line centred under the heading and its lead, as it is when it is the lead
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
@@ -310,7 +311,7 @@ test("an order whose links the service refuses at its reveal registers without t
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { type: "move_limit" } }))
   await move.click()
   await expect(page.getByText("This order cannot move again")).toBeVisible()
-  await expect(page.locator(".notice", { hasText: "cannot move again" })).toContainText(`: ${invoiceId}.`)
+  await expect(page.locator(".notice", { hasText: "cannot move again" })).toContainText(`Contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)
   await page.unrouteAll({ behavior: "wait" })
   await move.click()
   await waitRegistered(page, label)

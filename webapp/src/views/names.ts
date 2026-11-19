@@ -20,7 +20,7 @@ import { chatButton } from "./chats.ts"
 import { codeField, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, type LinkFields, linkFieldsFor, linksSettled } from "./links.ts"
 import {
-  asStep, type Builder, CONTACT_EMAIL, currentRoute, draw, drawLoading, focusHeading, focusOn, go, isRedraw, isRoute, kept, keptLive, redirect, screen, showRefund,
+  asStep, type Builder, CONTACT_EMAIL, contactSupport, currentRoute, draw, drawLoading, focusHeading, focusOn, go, isRedraw, isRoute, kept, keptLive, redirect, screen, showRefund,
   useBalance, whenLeaving,
 } from "./shell.ts"
 import { after } from "./effects.ts"
@@ -276,7 +276,7 @@ const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() +
 // the reference support asks for, in a face where l and I differ
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
-function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): string | (Node | string)[] {
+function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
   // what was paid, from the invoice; the record's amount is the order's worth, lower after a move to a cheaper name
   const paid = paidLine(o, view, invoice)
   const expiresAt = api.expiresAtOf(view)
@@ -285,7 +285,10 @@ function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: 
   if (api.reversedOrder(view)) return ""
   if (invoice && invoice.status !== "open" && (view.phase.type === "unpaid" || view.phase.type === "closed")) {
     const late = lateLine(invoice)
-    return late ? [late, ...reference(invoice.invoiceId)] : `Nothing was charged${SEP}${dateOf(Date.parse(o.createdAt) / 1000)}`
+    if (!late) return `Nothing was charged${SEP}${dateOf(Date.parse(o.createdAt) / 1000)}`
+    const [arrived, kept] = late
+    return kept ? [`${arrived}; ${kept}`, ...reference(invoice.invoiceId)]
+      : [`${arrived}; `, ...contactSupport("contact", el("span", { class: "mono" }, invoice.invoiceId)), ", to have it credited"]
   }
   if (view.phase.type === "taken" && o.method === "code") return paid
   if (waitsToSign(view, now)) return `Open the order so this browser can sign it${SEP}${continued(paid)}`

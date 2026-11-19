@@ -223,7 +223,7 @@ test("a move refused for its code says what happened to the code and where to wr
     await agreeToTerms(page)
     await page.getByRole("button", { name: "Register with your payment" }).click()
     const note = page.locator(".answer .notice", { hasText: title })
-    await expect(note, error).toContainText(`Write to SimpleX support with this order's reference, chat@simplex.chat: `)
+    await expect(note, error).toContainText(`Contact support via chat@simplex.chat or SimpleX, and include order reference `)
     await expect(note.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
     await expect(page.getByText("Try again in a moment"), error).toHaveCount(0)
   }
@@ -318,14 +318,14 @@ test("money paid after the close that the service cannot credit by itself sends 
   await control(request, `expire/${invoiceId}`)
   await control(request, `late/${invoiceId}`, { waiting: "support" })
   await control(request, `settle/${invoiceId}`)
-  await expect(onStep(page).getByText("It is not credited to your balance by itself: write to chat@simplex.chat with the reference below.")).toBeVisible()
+  await expect(onStep(page).getByText(`It is not credited to your balance by itself: contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toHaveCount(0)
   const reads: string[] = []
   page.on("request", (r) => { if (r.url().includes(`/api/invoice/${invoiceId}`)) reads.push(r.url()) })
   await page.waitForTimeout(7_000)
   expect(reads, "no reads once only support can credit it").toEqual([])
   await page.goto("/#/names")
-  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText("Paid after the invoice closed; write to support to have it credited")
+  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText(`Paid after the invoice closed; contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}, to have it credited`)
 })
 
 test("an order left before its wait ends asks for this browser in Your names", async ({ page, request }) => {
