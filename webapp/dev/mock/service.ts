@@ -108,7 +108,7 @@ interface Registration {
   // successful moves to another name or other links, at most MAX_ORDER_MOVES
   moves: number
   // a reveal refused for its links, which only a move to other links can fix
-  linksRefused: boolean
+  linksRefused: LinkKind | null
   // what an exact resend of the order that made it must repeat: its fields, never its timestamp or signature
   orderHash: string
   // tries of a transaction that did not go out, since the last that did
@@ -507,7 +507,7 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
   return {
     id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
-    linksRefused: reg.linksRefused ? "contact" : null, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
+    linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
     lastAttempt: reg.lastAttempt,
   }
 }
@@ -774,7 +774,7 @@ type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaid
 function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): Registration {
   const reg: Registration = {
     id: id(), invoiceId: null, fromBalance: 0, balanceSource: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
-    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, moves: 0, linksRefused: false, resends: 0, version: 1,
+    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, moves: 0, linksRefused: null, resends: 0, version: 1,
     paidAt: extra.phase === "queued" ? nowSeconds() : null, lastAttempt: null,
   }
   registrations.set(reg.id, reg)
@@ -1163,14 +1163,15 @@ export async function reveal(registrationId: string, body: Record<string, unknow
   const version = reg.version
   const rv = await checkReveal(reg, body, nowSeconds(), unavailable)
   // Refused links are the committed ones, as the commitment and the owner's signature passed: only a move fixes them.
-  if (reg.linksRefused) throw new HttpError(400, "invalid_link")
+  if (reg.linksRefused) throw new HttpError(400, "invalid_link", { kind: reg.linksRefused })
   const refuse = control.refuseLinks
   control.refuseLinks = false
-  if (refuse || refusedLink(rv.records) !== null) {
+  const kind = refusedLink(rv.records) ?? (refuse ? (rv.records.contact !== null ? "contact" : "channel") : null)
+  if (kind) {
     await unchangedSince(reg, version)
-    reg.linksRefused = true
+    reg.linksRefused = kind
     changed(reg)
-    throw new HttpError(400, "invalid_link")
+    throw new HttpError(400, "invalid_link", { kind })
   }
   await unchangedSince(reg, version)
   Object.assign(reg, rv, unread ? { phase: "queued", error: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null } : {})
@@ -1207,7 +1208,7 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   if (current) return registrationView(reg)
   freshTimestamp(sent.timestamp)
   // a failed order, or one whose reveal was refused for its links; a paid order taken first keeps its price as its balance
-  const movable = reg.phase === "failed" || (reg.phase === "committed" && reg.linksRefused)
+  const movable = reg.phase === "failed" || (reg.phase === "committed" && reg.linksRefused !== null)
   if (!movable) throw badRequest()
   if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
   const version = reg.version
@@ -1227,7 +1228,7 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   // the order now has the new name's price, which caps any later move
   Object.assign(reg, {
     labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms, paid: price,
-    moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, linksRefused: false, ...rv,
+    moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, linksRefused: null, ...rv,
   })
   changed(reg)
   const view = await registrationView(reg)
@@ -1301,7 +1302,7 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   // only a commitment that lapsed unsigned is committed again; refused links stay in its commitment
-  if (!lapsed(reg) || reg.linksRefused) throw badRequest()
+  if (!lapsed(reg) || reg.linksRefused !== null) throw badRequest()
   await unchangedSince(reg, reg.version)
   reg.phase = "queued"
   reg.commitTx = null
@@ -1406,7 +1407,7 @@ function signedEdits(edits: unknown): SignedEdit[] {
   if (new Set(keys).size !== keys.length) throw badRequest()
   if (parsed.some((e, i) => i > 0 && e.nonce !== parsed[i - 1].nonce + 1)) throw badRequest()
   for (const { key, value } of parsed) {
-    if (value !== "" && (linkProblem(key, value) !== null || deepLinkOf(value) === null)) throw new HttpError(400, "invalid_link")
+    if (value !== "" && (linkProblem(key, value) !== null || deepLinkOf(value) === null)) throw new HttpError(400, "invalid_link", { kind: null })
   }
   return parsed.map((e) => ({ ...e, signature: checkSignature(e.signature) }))
 }
