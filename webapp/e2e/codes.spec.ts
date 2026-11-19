@@ -827,6 +827,17 @@ test("an order refused at checkout for a name taken meanwhile leaves no unfinish
   await expect(page.locator(".list-row", { hasText: `${label}.simplex` })).toHaveCount(0)
 })
 
+test("an order refused at checkout for a link names the refused link's kind and goes back to the links step", async ({ page }) => {
+  await search(page, uniqueLabel("plr"))
+  await toReview(page)
+  await page.route("**/api/invoice", (route) => route.fulfill({ status: 400, json: { type: "invalid_link", kind: "channel" } }))
+  await payButton(page).click()
+  await expect(onStep(page).getByRole("heading", { name: "The channel link is not a SimpleX short link to a channel." })).toBeVisible()
+  await expect(onStep(page).getByText("Replace or remove it to register the name.")).toBeVisible()
+  await onStep(page).getByRole("button", { name: "Back" }).click()
+  await expect(onStep(page).getByRole("heading", { name: LINKS_HEADING })).toBeVisible()
+})
+
 test("a code order taken first gives its code back, ready for another name", async ({ page, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   const label = uniqueLabel("ctk")

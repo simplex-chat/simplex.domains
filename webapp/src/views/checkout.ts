@@ -23,7 +23,7 @@ import {
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
-import { openedInstead } from "./order.ts"
+import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
@@ -500,6 +500,9 @@ function buildFailed(s: CheckoutState): HTMLElement {
     action: retry, alt: link("Back", () => go(searchLink(c.label))) })
 }
 
+const buildRefusedLink = (kind: LinkKind) => (): HTMLElement =>
+  outcome({ tone: "warn", icon: "alert", title: REFUSED_LINK[kind], text: REPLACE_LINK, action: btn("Back", "", () => go(checkoutUrl("links"))) })
+
 function buildUnavailable(s: CheckoutState): HTMLElement {
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
   return outcome({ tone: "warn", icon: "alert", title: NO_ORDERS, text: "Its terms can't be read now. Nothing was charged. Try again later.",
@@ -524,6 +527,8 @@ const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
   "status:taken": buildTaken,
   "status:unavailable": buildUnavailable,
   "status:codes-only": buildCodesOnly,
+  "status:link-contact": buildRefusedLink("contact"),
+  "status:link-channel": buildRefusedLink("channel"),
 }
 
 async function submitOrder(): Promise<void> {
@@ -651,6 +656,7 @@ function orderError(e: unknown, c: session.Checkout): void {
     if (c.code) session.dropActiveCode(c.code.display)
     return void act({ type: "order-refused", reason: "code", error: CODE_ERRORS[code] })
   }
+  if (code === "invalid_link" && e instanceof api.ApiError && (e.body.kind === "contact" || e.body.kind === "channel")) return void act({ type: "order-refused", reason: `link-${e.body.kind}` })
   if (code === "provider_unavailable") return void act({ type: "order-refused", reason: "method" })
   if (code === "terms_unavailable") return void act({ type: "order-refused", reason: "unavailable" })
   if (code === CODES_ONLY) {

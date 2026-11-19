@@ -1212,16 +1212,18 @@ function buildLinksRefused(s: OrderState, signal: AbortSignal): HTMLElement {
   holdEnds(signal)(s.hold !== null)
   const title = view.phase.type === "failed" ? s.invoice ? "Paid, not registered" : "Not registered" : headingOf(s)
   return screen({ title, lead: orderLine(s), action: move, alt: link("Choose another name", () => go(`/#/?retarget=${view.id}`)) },
-    alertBox("warn", "alert", REFUSED_LINK[view.linksRefused ?? "contact"], "Replace or remove it to register the name."),
+    alertBox("warn", "alert", REFUSED_LINK[view.linksRefused ?? "contact"], REPLACE_LINK),
     actionNote(s, signal),
     referenceLine(s.invoice?.invoiceId ?? view.id),
     agreement(s, "move"))
 }
 
-const REFUSED_LINK: Record<LinkKind, string> = {
+export const REFUSED_LINK: Record<LinkKind, string> = {
   contact: "The contact link is not a SimpleX short link to a contact.",
   channel: "The channel link is not a SimpleX short link to a channel.",
 }
+
+export const REPLACE_LINK = "Replace or remove it to register the name."
 
 // what a move refused for good says: the service bounds how often an order moves, and support settles it from there
 export const moveLimitNote = (reference: string): Note => ({ tone: "warn", icon: "alert", title: "This order cannot move again",

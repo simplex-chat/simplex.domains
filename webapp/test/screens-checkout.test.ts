@@ -41,6 +41,8 @@ const STATES: Record<CheckoutKind, CheckoutState> = {
   "status:taken": open({ refusal: "taken" }),
   "status:unavailable": open({ refusal: "unavailable" }),
   "status:codes-only": open({ refusal: "codes-only" }),
+  "status:link-contact": open({ refusal: "link-contact" }),
+  "status:link-channel": open({ refusal: "link-channel" }),
 }
 
 describe("screenOf", () => {
@@ -58,6 +60,8 @@ describe("screenOf", () => {
     ["an order for a name registered meanwhile", STATES["status:taken"], "status:taken"],
     ["an order refused while its terms can't be read", STATES["status:unavailable"], "status:unavailable"],
     ["an order the service takes only with a code for now", STATES["status:codes-only"], "status:codes-only"],
+    ["an order whose contact link the service refused", STATES["status:link-contact"], "status:link-contact"],
+    ["an order whose channel link the service refused", STATES["status:link-channel"], "status:link-channel"],
   ]
   it.each(cases)("%s", (_, state, kind) => {
     expect(screenOf(state)).toBe(kind)
