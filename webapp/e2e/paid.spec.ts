@@ -895,11 +895,14 @@ test("a name searched again after its invoice was cancelled keeps that order's n
   await expect(page.locator(".list-row", { hasText: "Checkout not finished" }), "no new code is left pending").toHaveCount(0)
 })
 
+const ORDER_SECOND_MS = 1000
+
 test("a replaced invoice leads to its new order until a late payment reaches it", async ({ page, browser, request }) => {
   const label = uniqueLabel("late")
   const row = (p: typeof page) => p.locator(".list-row:visible", { hasText: `${label}.simplex` })
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "xmr" })
   await control(request, `expire/${invoiceId}`)
+  await page.waitForTimeout(ORDER_SECOND_MS)
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
