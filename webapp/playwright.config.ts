@@ -12,7 +12,7 @@ const SAFARI = { ...devices["Desktop Safari"], viewport: { width: 1280, height: 
 
 const FRAMES = /frames\.spec\.ts$/
 const SCREENS = /screens\.spec\.ts$/
-const WEBKIT_WORKERS = 1
+const WEBKIT_WORKERS = 2
 // A Firefox 158 or later, named by FIREFOX_158. It reports its own version rather than the one Playwright's device names,
 // and finds its own libraries, which the library path set for Playwright's bundled browsers would replace.
 const FIREFOX_158 = process.env.FIREFOX_158
