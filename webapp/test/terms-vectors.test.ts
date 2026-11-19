@@ -87,6 +87,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   const vector = (kind: Kind, terms: string) => VECTORS.find((v) => v.kind === kind && v.terms === terms)!
   const TERMS = [...new Set(VECTORS.map((v) => v.terms))]
   let sent: Record<string, unknown>[]
+  const TO_SIGN = { type: "read", intentNonce: 0, acceptance: { community: false, policy: CHAIN.sponsor, termsHash: `0x${PLAIN}`, nonce: 0 } }
 
   // the vector's clock and zero IV, storage for the order kept, and a service that answers a move with its view
   async function builders() {
@@ -100,6 +101,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     sent = []
     vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
       if (path === "/api/config") return new Response(JSON.stringify({ stripePublishableKey: null, names: { codesOnly: false, ...CHAIN, termStart: TERM_START } }), { status: 200 })
+      if (path.startsWith(`/api/name/${LABEL_HASH}/sign?`)) return new Response(JSON.stringify(TO_SIGN), { status: 200 })
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       sent.push(body)
       return new Response(JSON.stringify({
@@ -123,8 +125,9 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
 
   it.each(TERMS)("order with terms %s", async (terms) => {
     const { flow } = await builders()
-    const { request } = await flow.orderRequest(draft(terms))
+    const { request: { reveal, ...request } } = await flow.orderRequest(draft(terms))
     expect(request).toEqual({ labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, owner: OWNER, commitment: COMMITMENT, sealed: SEALED, terms, timestamp: TIMESTAMP, signature: vector("order", terms).signature })
+    expect(reveal.label).toBe(LABEL)
   })
 
   it.each(TERMS)("name with terms %s", async (terms) => {
@@ -134,13 +137,16 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     store.saveOrder(record)
     await flow.retargetOrder(record, LABEL, NO_LINKS, quote, terms)
     const agreed = { communityName: terms.startsWith("community/"), termsHash: `0x${terms.replace("community/", "")}` }
-    expect(sent[0]).toEqual({ fields: { labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, terms: agreed }, timestamp: TIMESTAMP, signature: vector("name", terms).signature })
+    const { reveal, ...name } = sent[0]
+    expect(name).toEqual({ fields: { labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, terms: agreed }, timestamp: TIMESTAMP, signature: vector("name", terms).signature })
+    expect(reveal).toMatchObject({ label: LABEL })
   })
 
   it.each(TERMS)("spend with terms %s", async (terms) => {
     const { flow } = await builders()
     const source = { registrationId: REGISTRATION_ID, ownerCode: OWNER_CODE }
-    const { spend } = await flow.spendRequest(source, flow.spendDraft(source, LABEL, NO_LINKS, { ...quote, ...CHAIN, termStart: TERM_START }, terms), 10000, 20000, "btc")
+    const { spend: { reveal, ...spend } } = await flow.spendRequest(source, flow.spendDraft(source, LABEL, NO_LINKS, { ...quote, ...CHAIN, termStart: TERM_START }, terms), 10000, 20000, "btc")
+    expect(reveal.label).toBe(LABEL)
     expect(spend).toEqual({ labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, price: 10000, balance: 20000, terms, timestamp: TIMESTAMP, signature: vector("spend", terms).signature })
   })
 })

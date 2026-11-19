@@ -46,7 +46,7 @@ const registered = (records: Links | null = { contact: CONTACT, channel: "" }, c
     records: records === null ? { type: "other" } : { type: "own", ...records, nonce: 3, edits: { left: 3, nextAt: null }, ...own }, ...change },
   community: null,
 })
-const registering: SearchAnswer = { found: { type: "registering" }, community: null }
+const held: SearchAnswer = { found: { type: "taken" }, community: null }
 const available: SearchAnswer = { found: { type: "available", price: 1500, years: 2, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` } }, community: null }
 const NEXT = { registrationId: "reg-2", invoiceId: "inv-2" }
 const registeredView = (change: ShortView = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
@@ -80,7 +80,7 @@ describe("list helpers", () => {
   it("registrableAgain: counts the grace period the answer gives, and none from an answer without one", () => {
     const expiresAt = NOW / 1000 - 1
     expect(registrableAgain(expiresAt, registered(undefined, { gracePeriod: 3600 }), NOW)).toEqual({ when: "from", at: expiresAt + 3600 })
-    expect(registrableAgain(expiresAt, registering, NOW)).toEqual({ when: "taken" })
+    expect(registrableAgain(expiresAt, held, NOW)).toEqual({ when: "taken" })
   })
   it("ranOut and againLine say when a name ran out and when it can be registered again, as the edit page and search show it", () => {
     const expiresAt = Date.parse("2028-11-16T12:00:00Z") / 1000
@@ -134,7 +134,7 @@ describe("list helpers", () => {
     expect(editable(registered(), OWNER.toLowerCase())).toBe(true)
     expect(editable(registered(undefined, { owner: APP }), OWNER)).toBe(false)
     expect(editable(registered(null), OWNER)).toBe(false)
-    expect(editable(registering, OWNER)).toBe(true)
+    expect(editable(held, OWNER)).toBe(true)
     expect(editable(available, OWNER)).toBe(true)
   })
   it("hasLinks: a name's records once read, else the links it was ordered with", () => {
@@ -460,7 +460,7 @@ describe("edit", () => {
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
-      ["a name another order is registering", answered(opened, registering), "edit-not-registered"],
+      ["a name an order holds", answered(opened, held), "edit-not-registered"],
       ["a registered name with its links", STATES.edit, "edit"],
     ]
     it.each(cases)("%s", (_, state, kind) => {

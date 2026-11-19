@@ -4,7 +4,7 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, commitKey, hoursToSign, movable, nameUnavailable, retryDue,
+  askAgainDue, hoursToSign, movable, retryDue, supportCase,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -492,15 +492,25 @@ describe("failedAlert", () => {
   const failed = (change: Short = {}, state: Partial<OrderState> = {}) => read(null, registration({ phase: "failed", ...change }), state)
   it("words the service's reason for the buyer", () => {
     expect(failedAlert(failed({ reason: "sendsUsedUp" }))).toBe("The name could not be registered")
-    expect(failedAlert(failed({ reason: "linksRefused" }))).toBe("The service refused this order's links")
-    expect(failedAlert(failed({ reason: "registryRefused" }))).toBe("The registry refused the name")
+    expect(failedAlert(failed({ reason: "registryRefused" }))).toBe("The name could not be registered")
+    expect(failedAlert(failed({ reason: "signatureRefused" }))).toBe("The service could not register the name")
+    expect(failedAlert(failed({ reason: "monthEnded" }))).toBe("The name was not registered within a month")
+    expect(failedAlert(failed({ reason: "unread" }))).toBe("The order was not opened for 3 days")
   })
-  it("moves an order to another name unless it sent the most an order may or its code was refused", () => {
+  it("moves an order to another name unless support settles it, it continues by its owner's signature, or its code was refused", () => {
     expect(movable(failed())).toBe(true)
-    expect(movable(failed({ reason: "linksRefused" }))).toBe(true)
+    expect(movable(failed({ reason: "unread" }))).toBe(false)
     expect(movable(failed({ reason: "sendsUsedUp" }))).toBe(false)
+    expect(movable(failed({ reason: "signatureRefused" }))).toBe(false)
+    expect(movable(failed({ reason: "monthEnded" }))).toBe(false)
     expect(movable(failed({}, { codeRefused: true }))).toBe(false)
     expect(movable(STATES.registering)).toBe(false)
+  })
+  it("names the failures whose text sends the buyer to support", () => {
+    expect(supportCase(failed({ reason: "signatureRefused" }))).toBe("signatureRefused")
+    expect(supportCase(failed({ reason: "monthEnded" }))).toBe("monthEnded")
+    expect(supportCase(failed({ reason: "unread" }))).toBe("unread")
+    expect(supportCase(failed({ reason: "sendsUsedUp" }))).toBeNull()
   })
 })
 
@@ -519,8 +529,7 @@ describe("retryDue", () => {
     expect(retryDue(LAPSED)).toBe(true)
     expect(retryDue({ ...LAPSED, record: null }), "no name code here").toBe(false)
     expect(retryDue({ ...LAPSED, record: record({ linksRefused: true }) }), "links refused").toBe(false)
-    expect(retryDue({ ...LAPSED, nameStatus: "registered" }), "the name registered meanwhile").toBe(false)
-    expect(retryDue({ ...LAPSED, nameStatus: "reserved" }), "the name reserved meanwhile").toBe(false)
+    expect(retryDue({ ...LAPSED, nameStatus: "taken" }), "a search answering the name the order holds as taken").toBe(true)
     expect(retryDue({ ...LAPSED, busy: "retry" }), "one on its way").toBe(false)
     expect(retryDue({ ...LAPSED, hold: { until: NOW + 1000, lead: NO_LEAD } }), "a rate limit").toBe(false)
     expect(retryDue(read(null, registration(committed))), "still in its window").toBe(false)
@@ -579,10 +588,6 @@ describe("a stalled stage", () => {
     expect(stalledAt(ticked), "timed from the last tick").toBe(NOW + 60_000 + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS)
     expect(stalledAt(seen(asking)), "changed terms that could not be asked for").not.toBeNull()
   })
-  it("is not said once the search for changed terms answered the name as registered or reserved, as the order then moves to another name once its time to sign is over", () => {
-    const asking = seen(registration({ ...committed, acceptance: acceptanceFor(CHANGED) }))
-    expect(stalledAt(reduce(asking, { type: "name-unavailable", key: commitKey(asking.view!), status: "registered" }))).toBeNull()
-  })
 })
 
 describe("reveal helpers", () => {
@@ -625,13 +630,7 @@ describe("reveal helpers", () => {
     expect([revealDue(listed(CHANGED, { ask })), askAgainDue(listed(CHANGED, { ask }))], "asked, not ticked").toEqual([false, false])
     expect(askAgainDue(listed(CHANGED, { record: null })), "no name code in this browser").toBe(false)
     expect(askAgainDue(listed(CHANGED, { record: record({ linksRefused: true }) })), "links refused").toBe(false)
-    const unavailable = reduce(listed(CHANGED), { type: "name-unavailable", key: commitKey(listed(CHANGED).view!), status: "reserved" })
-    expect([nameUnavailable(unavailable), askAgainDue(unavailable)], "the name registered or reserved meanwhile")
-      .toEqual([{ key: commitKey(listed(CHANGED).view!), status: "reserved" }, false])
-    const unread = { ...unavailable, view: registration({ ...listedView, unread: true }) }
-    expect(nameUnavailable(unread), "a view whose acceptance was not read now").toEqual(unavailable.unavailable)
-    const recommitted = { ...unavailable, view: { ...unavailable.view!, commitment: `0x${"ef".repeat(32)}` } }
-    expect([nameUnavailable(recommitted), askAgainDue(recommitted)], "a new commitment asks again").toEqual([null, true])
+    expect(askAgainDue(listed(CHANGED, { nameStatus: "taken" })), "a search answering the name the order holds as taken").toBe(true)
     expect(revealDue(listed(CHANGED, { ask: { ...ask, agreed: true } })), "the general terms' box alone").toBe(false)
     expect(revealDue(listed(CHANGED, { ask: { ...ask, accepted: true } })), "ticked").toBe(true)
     expect(revealDue(listed(CHANGED, { ask: { ...reask(SIGNED), accepted: true } })), "ticked other terms").toBe(false)
@@ -742,7 +741,7 @@ describe("initialState", () => {
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
       reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null,
-      nameStatus: null, unavailable: null, since: null,
+      nameStatus: null, since: null,
     })
   })
 })

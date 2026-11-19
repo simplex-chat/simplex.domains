@@ -192,11 +192,11 @@ test("a prepaid code for 5 years registers a community name for its 2 years and 
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
 })
 
-test("a code order's name code, entered in another browser before the reveal, lets that browser reveal and register the name", async ({ page, browser, request }) => {
+test("a code order registers its name with its links after its browser closed, and its name code entered in another browser shows it, which reveals nothing", async ({ page, browser, request }) => {
   const links = { contact: contactLink("CR"), channel: channelLink("CR") }
   const { registrationId, label } = await registerWithCode(page, request, "creveal", links)
   const ownerCode = await ownerCodeOf(page, registrationId)
-  // the buying browser goes away before its commitment's wait is over, so it never reveals the name
+  // the buying browser goes away before its commitment's wait is over
   await page.close()
 
   const other = await browser.newContext()
@@ -205,7 +205,7 @@ test("a code order's name code, entered in another browser before the reveal, le
   restored.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith(`/api/registration/${registrationId}/reveal`)) reveals.push(r.url()) })
   await restoreOrder(restored, ownerCode, label)
   await waitRegistered(restored, label)
-  expect(reveals.length, "the restoring browser revealed the name").toBeGreaterThan(0)
+  expect(reveals, "the restoring browser revealed nothing").toEqual([])
   const answer = await searchName(request, label)
   expect(answer.records).toMatchObject(links)
   expect(answer.owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
@@ -550,7 +550,7 @@ test("a code the service refuses as the order is sent says why on the review, wh
   await search(page, uniqueLabel("used"))
   await toReview(page)
   await expect(total(page)).toHaveText(FREE_TOTAL)
-  await page.route("**/api/name/register", (route) => route.fulfill({ status: 409, json: { error: "code_used" } }))
+  await page.route("**/api/name/register", (route) => route.fulfill({ status: 409, json: { type: "code_used" } }))
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
   await expect(page.getByText("This code was already used. Pay for the name here, or check another code.")).toBeVisible()
   await expect(total(page)).not.toHaveText(FREE_TOTAL)
@@ -572,7 +572,7 @@ test("an order refused once the tab moved on to another checkout draws that chec
   await toReview(page)
   await page.route("**/api/invoice", async (route) => {
     await page.evaluate(([key, label]) => sessionStorage.setItem(key, JSON.stringify({ ...JSON.parse(sessionStorage.getItem(key)!), label })), [CHECKOUT_KEY, other])
-    await route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
+    await route.fulfill({ status: 503, json: { type: "provider_unavailable" } })
   })
   await payButton(page).click()
   await expect(onStep(page).locator(".card.order")).toContainText(`${other}.simplex`)
@@ -731,7 +731,7 @@ test("a code checked is listed in Your names, used again from there, and forgott
 async function limitCodeChecks(page: Page, times: number, waitSeconds: number): Promise<() => number> {
   let checks = 0
   await page.route("**/api/code/check", (route) => ++checks <= times
-    ? route.fulfill({ status: 429, headers: { "retry-after": String(waitSeconds) }, json: { error: "rate_limited" } }) : route.continue())
+    ? route.fulfill({ status: 429, headers: { "retry-after": String(waitSeconds) }, json: { type: "rate_limited" } }) : route.continue())
   return () => checks
 }
 
@@ -818,7 +818,7 @@ test("an order refused at checkout for a name taken meanwhile leaves no unfinish
   await page.getByLabel("Name", { exact: true }).fill(label)
   await page.getByLabel("Name", { exact: true }).press("Enter")
   await toReview(page)
-  await page.route("**/api/invoice", (route) => route.fulfill({ status: 409, json: { error: "name_taken" } }))
+  await page.route("**/api/invoice", (route) => route.fulfill({ status: 409, json: { type: "name_taken" } }))
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "This name is no longer available" })).toBeVisible()
   await page.getByRole("link", { name: "Your names" }).first().click()
@@ -877,7 +877,7 @@ test("a failed code order is drawn before its code is checked, and says the code
   await page.addInitScript(watchKept)
   for (const unanswered of ["rate limit", "provider down", "dropped"]) {
     await page.route("**/api/code/check", (route) => unanswered === "dropped" ? route.abort()
-      : route.fulfill(unanswered === "rate limit" ? { status: 429, headers: { "retry-after": "30" }, json: { error: "rate_limited" } } : { status: 503, json: { error: "provider_unavailable" } }))
+      : route.fulfill(unanswered === "rate limit" ? { status: 429, headers: { "retry-after": "30" }, json: { type: "rate_limited" } } : { status: 503, json: { type: "provider_unavailable" } }))
     const asked = page.waitForRequest("**/api/code/check")
     await page.reload()
     await asked
@@ -1151,10 +1151,11 @@ test("a view whose sponsor nonce could not be read is read again after 5 then 15
     const view = await r.json().catch(() => null) as { phase: { signature?: { toSign?: { type: string } } } } | null
     if (view) reads.push({ at: Date.now(), held: url.searchParams.has("seenVersion"), unread: view.phase.signature?.toSign?.type === "unread" })
   })
-  // the service's reads of the sponsor's nonce fail for a while from the commit on
-  await control(request, "search", { unreadSeconds: 12 })
+  await payWithCode(page, label, code)
+  // the order's stored reveal cleared at its register, and the service's reads of the sponsor's nonce fail for a while from then on
+  await control(request, `stale/${new URL(page.url()).searchParams.get("registration")}`)
+  await control(request, "search", { unreadSeconds: 18 })
   try {
-    await payWithCode(page, label, code)
     await waitRegistered(page, label)
   } finally {
     await control(request, "search", { unreadSeconds: 0 })

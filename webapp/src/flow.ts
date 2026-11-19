@@ -60,17 +60,34 @@ export const draftAgain = (record: store.OrderRecord, quote: Quote, terms: strin
 
 export type BuiltOrder = { request: api.SignedOrder; owner: string }
 
-// The order and its owner's signature over it, which proves that the code's wallet placed it.
+// The order and its owner's signature over it, which proves that the code's wallet placed it, with the signed registration
+// and terms acceptance the service registers with after payment.
 export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
   const wallet = walletOf(draft.ownerCode)!
   const timestamp = now()
   const duration = durationFor(draft.years, draft.termStart, timestamp)
   const r = registrationOf(draft.label, wallet.address, commitmentSecret(wallet.seed, draft.label), draft.links, draft.chain, duration)
+  const commitment = makeCommitment(r)
   const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links })
   const owner = checksumAddress(wallet.address)
-  const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(makeCommitment(r)), sealed, terms: draft.terms }
+  const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(commitment), sealed, terms: draft.terms }
+  const reveal = signedReveal(wallet, r, commitment, await api.signFor(order.labelHash, owner), draft.chain)
   const message = `simplex.domains order ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${await sha256Hex(sealed)} ${order.terms} ${timestamp}`
-  return { request: { ...order, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))) }, owner }
+  return { request: { ...order, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal }, owner }
+}
+
+function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, toSign: api.ToSignRead, chain: Pick<api.ChainInfo, "chainId" | "sponsor">): api.RevealBody {
+  const deadline = now() + REVEAL_DEADLINE_SECONDS
+  const digest = registerIntentDigest(BigInt(chain.chainId), fromHex(chain.sponsor), r, BigInt(toSign.intentNonce), BigInt(deadline))
+  const a = toSign.acceptance
+  const acceptance = {
+    termsHash: a.termsHash, nonce: a.nonce,
+    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.community, BigInt(chain.chainId), fromHex(a.policy), commitment, fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
+  }
+  return {
+    label: r.label, secret: hex(r.secret), records: { contact: r.contactLink, channel: r.channelLink },
+    nonce: toSign.intentNonce, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
+  }
 }
 
 // what the order is worth, which for an invoice of a difference is more than the invoice
@@ -83,24 +100,17 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
   }
 }
 
+export async function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode">, duration: number, toSign: api.ToSignRead): Promise<api.RevealBody> {
+  const wallet = walletOf(record.ownerCode)!
+  const site = await namesSite()
+  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(duration))
+  return signedReveal(wallet, r, makeCommitment(r), toSign, site)
+}
+
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
   const toSign = api.toSignOf(view)
   if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
-  const wallet = walletOf(record.ownerCode)!
-  const site = await namesSite()
-  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(view.duration))
-  const deadline = now() + REVEAL_DEADLINE_SECONDS
-  const digest = registerIntentDigest(BigInt(site.chainId), fromHex(site.sponsor), r, BigInt(toSign.intentNonce), BigInt(deadline))
-  const a = toSign.acceptance
-  const acceptance = {
-    termsHash: a.termsHash, nonce: a.nonce,
-    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.community, BigInt(site.chainId), fromHex(a.policy), fromHex(view.commitment), fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
-  }
-  await api.reveal(view.id, {
-    label: record.label, secret: hex(r.secret),
-    records: { contact: r.contactLink, channel: r.channelLink },
-    nonce: toSign.intentNonce, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
-  })
+  await api.reveal(view.id, await revealFor(record, view.duration, toSign))
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -110,7 +120,7 @@ async function sha256Hex(text: string): Promise<string> {
 
 // Another name, or other links, for a failed order or one whose links were refused, on the same wallet so the same code
 // owns it, at the new name's price, which caps any later move.
-export async function retargetOrder(record: store.OrderRecord, label: string, links: api.Links, quote: Quote, terms: string): Promise<api.RegistrationView> {
+export async function retargetOrder(record: store.OrderRecord, label: string, links: api.Links, quote: Pick<Quote, "community">, terms: string): Promise<api.RegistrationView> {
   const site = await namesSite()
   const draft: Draft = { label, links, chain: chainOf(site), years: api.termYears(quote.community, record.years), termStart: site.termStart, ownerCode: record.ownerCode, terms }
   const built = await orderRequest(draft)
@@ -118,7 +128,7 @@ export async function retargetOrder(record: store.OrderRecord, label: string, li
   const timestamp = now()
   const { labelHash: lh, length, duration, commitment, sealed } = built.request
   const message = `simplex.domains name ${record.registrationId} ${lh} ${length} ${duration} ${commitment} ${await sha256Hex(sealed)} ${terms} ${timestamp}`
-  const view = await api.retarget(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))) }, site.chainId)
+  const view = await api.retarget(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal }, site.chainId)
   store.saveOrder({ ...record, label, ...links, paid: view.price, request: built.request, terms, linksRefused: undefined })
   return view
 }
@@ -146,7 +156,7 @@ export async function spendRequest(record: BalanceSource, draft: Draft, price: n
   const covered = price <= balance
   return { ...built, spend: {
     labelHash: lh, length, duration, commitment, sealed, price, balance, ...covered ? {} : { method }, terms, timestamp,
-    signature: hex(signDigest(wallet.privateKey, personalDigest(message))),
+    signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal,
   } }
 }
 

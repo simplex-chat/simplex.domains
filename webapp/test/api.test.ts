@@ -16,6 +16,10 @@ function answerWith(status: number, body: string, headers: Record<string, string
 }
 
 const CHAIN_ID = 31337
+const REVEAL = {
+  label: "alicebakery", secret: `0x${"11".repeat(32)}`, records: { contact: null, channel: null }, nonce: 0, deadline: 1800000000, signature: "0x",
+  acceptance: { termsHash: `0x${"ab".repeat(32)}`, nonce: 0, signature: "0x" },
+}
 const REGISTERED = { type: "registered", owner: "0x1", resolver: "0x2", expiresAt: 1, gracePeriod: 2, entities: [], records: { type: "other" } }
 
 async function errorOf(chainId = CHAIN_ID): Promise<ApiError> {
@@ -90,9 +94,9 @@ describe("termsText", () => {
     }
   })
   it("passes the service's refusal, with its wait", async () => {
-    answerWith(404, JSON.stringify({ error: "not_found" }))
+    answerWith(404, JSON.stringify({ type: "not_found" }))
     await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "not_found" })
-    answerWith(503, JSON.stringify({ error: "terms_unavailable" }), { "retry-after": "30" })
+    answerWith(503, JSON.stringify({ type: "terms_unavailable" }), { "retry-after": "30" })
     await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "terms_unavailable", retryAfter: 30 })
   })
 })
@@ -117,14 +121,14 @@ describe("service errors", () => {
     answerWith(503, JSON.stringify({ type: "provider_unavailable" }))
     const e = await errorOf()
     expect([e.code, e.status]).toEqual(["provider_unavailable", 503])
-    answerWith(409, JSON.stringify({ error: "order_exists" }))
+    answerWith(409, JSON.stringify({ type: "order_exists" }))
     expect((await errorOf()).code).toBe("order_exists")
   })
 
   it("takes a refusal the page does not know as the service's own failure, or the network's under a gateway status", async () => {
     answerWith(409, JSON.stringify({ type: "weird" }))
     expect((await errorOf()).code).toBe("internal")
-    answerWith(503, JSON.stringify({ error: "weird" }))
+    answerWith(503, JSON.stringify({ type: "weird" }))
     expect((await errorOf()).code).toBe("network")
   })
 
@@ -210,7 +214,7 @@ describe("service errors", () => {
     expect(await searchName("ab".repeat(32), 8, CHAIN_ID), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
     answerWith(200, registeredWith({ preview: PREVIEW, ...LINK }))
     expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
-    for (const type of ["registering", "reserved"]) {
+    for (const type of ["taken", "reserved"]) {
       answerWith(200, JSON.stringify({ found: { type } }))
       expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { type }, community: null })
     }
@@ -331,7 +335,8 @@ describe("service errors", () => {
       { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "queued" }, { type: "committing" },
       committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
       committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "taken" },
-      { type: "failed", reason: "sendsUsedUp" }, { type: "failed", reason: "linksRefused" }, { type: "failed", reason: "registryRefused" },
+      { type: "failed", reason: "sendsUsedUp" }, { type: "failed", reason: "registryRefused" }, { type: "failed", reason: "signatureRefused" },
+      { type: "failed", reason: "monthEnded" }, { type: "failed", reason: "unread" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
       expect((await readRegistration("r1")).phase, JSON.stringify(phase)).toEqual(phase)
@@ -339,7 +344,7 @@ describe("service errors", () => {
     for (const phase of [
       { type: "closed" }, { type: "closed", closedBy: "paid" }, { type: "committed", revealAfter: 1, revealBefore: 2 }, committed({ type: "awaiting" }),
       committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4 } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: -1, acceptance } }),
-      { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "failed" }, { type: "failed", reason: "not_registered" },
+      { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "failed" }, { type: "failed", reason: "not_registered" }, { type: "failed", reason: "linksRefused" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
@@ -377,13 +382,13 @@ describe("service errors", () => {
     }
   })
 
-  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: TERMS.hash.slice(2), timestamp: 1, signature: "0x" }
+  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: TERMS.hash.slice(2), timestamp: 1, signature: "0x", reveal: REVEAL }
   const SPEND_SENT = {
     signed: {
       fields: { labelHash: SPEND.labelHash, length: 8, duration: SPEND.duration, commitment: SPEND.commitment, sealed: "sealed", terms: { communityName: false, termsHash: TERMS.hash } },
       timestamp: 1, signature: "0x",
     },
-    price: 20000, balance: 10000, method: "btc",
+    price: 20000, balance: 10000, method: "btc", reveal: REVEAL,
   }
 
   it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
@@ -404,17 +409,17 @@ describe("service errors", () => {
 
   it("gives a refusal for a changed balance the balance as it is now, or null, and takes one it cannot read as no answer", async () => {
     for (const balance of [BALANCE, null]) {
-      answerWith(409, JSON.stringify({ error: "balance_changed", balance }))
+      answerWith(409, JSON.stringify({ type: "balance_changed", balance }))
       const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
       expect(e, JSON.stringify(balance)).toBeInstanceOf(BalanceChanged)
       expect(e).toMatchObject({ code: "balance_changed", status: 409, balance })
     }
-    for (const body of [{ error: "balance_changed" }, { error: "balance_changed", balance: { amount: "lots" } }]) {
+    for (const body of [{ type: "balance_changed" }, { type: "balance_changed", balance: { amount: "lots" } }]) {
       answerWith(409, JSON.stringify(body))
       const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
     }
-    answerWith(409, JSON.stringify({ error: "order_exists" }))
+    answerWith(409, JSON.stringify({ type: "order_exists" }))
     const other = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
     expect(other).not.toBeInstanceOf(BalanceChanged)
     expect((other as ApiError).code).toBe("order_exists")
@@ -464,7 +469,7 @@ describe("service errors", () => {
     const OLDER_SIGNED = `2026-10-23/community/${"c7".repeat(32)}`
     const AVAILABLE = { found: { type: "available", price: 10000, years: 2, terms: COMMUNITY_TERMS }, community: COMMUNITY }
     const availableWith = (terms: unknown) => ({ ...AVAILABLE, found: { ...AVAILABLE.found, terms } })
-    const ORDER = { labelHash: `0x${"ab".repeat(32)}`, length: 6, duration: 2 * 365 * 86400, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", terms: SIGNED, timestamp: 1, signature: "0x" }
+    const ORDER = { labelHash: `0x${"ab".repeat(32)}`, length: 6, duration: 2 * 365 * 86400, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", terms: SIGNED, timestamp: 1, signature: "0x", reveal: REVEAL }
 
     it("signs the general terms' hash for a name not on the community list, and community/ with the community terms' hash for one on it", () => {
       expect(termsFor(TERMS, null)).toBe(TERMS.hash.slice(2))
@@ -554,24 +559,25 @@ describe("service errors", () => {
       ["a spend", () => spend("r1", { ...SPEND, terms: ORDER.terms }, 31337)],
     ]
 
-    it.each(SENDS)("sends %s with the terms the buyer agreed to", async (_, send) => {
-      const fetched = vi.fn(async () => new Response(JSON.stringify({ error: "name_taken" }), { status: 409 }))
+    it.each(SENDS)("sends %s with the terms the buyer agreed to and the reveal", async (_, send) => {
+      const fetched = vi.fn(async () => new Response(JSON.stringify({ type: "name_taken" }), { status: 409 }))
       vi.stubGlobal("fetch", fetched)
       await send().catch(() => undefined)
       const [, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
       const body = JSON.parse(String(init.body))
       expect((body.order ?? body.signed ?? body).fields.terms).toEqual({ communityName: true, termsHash: COMMUNITY_TERMS.hash })
+      expect(body.reveal).toEqual(REVEAL)
     })
 
     it.each(SENDS)("gives %s refused for changed terms the terms of the name's kind and the community entry as they are now", async (_, send) => {
       for (const [terms, community] of [[COMMUNITY_TERMS, COMMUNITY], [TERMS, null], [LOCAL_TERMS, null]] as const) {
-        answerWith(409, JSON.stringify({ error: "terms_changed", terms, community }))
+        answerWith(409, JSON.stringify({ type: "terms_changed", terms, community }))
         const e = await send().then(() => null, (e: unknown) => e)
         expect(e).toBeInstanceOf(TermsChanged)
         expect(e).toMatchObject({ code: "terms_changed", status: 409, terms, community })
       }
-      for (const body of [{ error: "terms_changed" }, { error: "terms_changed", terms: TERMS }, { error: "terms_changed", terms: null, community: null },
-        { error: "terms_changed", terms: { ...TERMS, hash: COMMUNITY_TERMS.hash }, community: null }, { error: "terms_changed", terms: termsOf("ftp://x"), community: null }]) {
+      for (const body of [{ type: "terms_changed" }, { type: "terms_changed", terms: TERMS }, { type: "terms_changed", terms: null, community: null },
+        { type: "terms_changed", terms: { ...TERMS, hash: COMMUNITY_TERMS.hash }, community: null }, { type: "terms_changed", terms: termsOf("ftp://x"), community: null }]) {
         answerWith(409, JSON.stringify(body))
         const e = await send().then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
@@ -579,7 +585,7 @@ describe("service errors", () => {
     })
 
     it.each(SENDS)("passes %s refused while the terms can't be read, with the service's wait", async (_, send) => {
-      answerWith(503, JSON.stringify({ error: "terms_unavailable" }), { "retry-after": "30" })
+      answerWith(503, JSON.stringify({ type: "terms_unavailable" }), { "retry-after": "30" })
       const e = await send().then(() => null, (e: unknown) => e)
       expect(e).not.toBeInstanceOf(TermsChanged)
       expect(e).toMatchObject({ code: "terms_unavailable", status: 503, retryAfter: 30 })

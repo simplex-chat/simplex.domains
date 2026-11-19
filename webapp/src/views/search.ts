@@ -110,7 +110,7 @@ async function runSearch(label: string, seq: number): Promise<void> {
   }
   if (!awaited()) return
   dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow() })
-  if (answer.found.type === "available") void pointAtOwnOrder(label, hash, page)
+  if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 
 function mineFor(hash: string, { found }: api.SearchAnswer): boolean {
@@ -127,7 +127,7 @@ async function pointAtOwnOrder(label: string, hash: string, page: number): Promi
     if (!onPage(page)) return null
     const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId).catch(() => null) : null
     const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId).catch(() => null))
-    return reg && { phase: reg.phase.type, invoice: invoice?.status ?? null }
+    return reg && { phase: reg.phase.type, failure: reg.phase.type === "failed" ? reg.phase.reason : null, invoice: invoice?.status ?? null }
   }
   const orders = ownOrders(store.orders().filter((r) => r.request.labelHash === hash), read)
   ownRead = { label, orders }
@@ -146,7 +146,7 @@ async function readOrder(record: store.OrderRecord): Promise<{ view: api.Registr
 
 // an order moves from a failed registration, or from links the service refused; a name taken first keeps its payment as a balance
 const movable = (view: api.RegistrationView, record: store.OrderRecord) =>
-  view.phase.type === "failed" || (view.phase.type === "committed" && (view.linksRefused || record.linksRefused === true))
+  (view.phase.type === "failed" && view.phase.reason !== "signatureRefused" && view.phase.reason !== "monthEnded") || (view.phase.type === "committed" && (view.linksRefused || record.linksRefused === true))
 
 function movedOf(view: api.RegistrationView, record: store.OrderRecord): Moved | null {
   if (movable(view, record)) return null
@@ -342,7 +342,7 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (answer.answer.found.type === "reserved") {
     return line("info", "info", "Reserved names are not sold here. If it is yours to use, write to ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), ".")
   }
-  return takenAnswer(answer, answer.answer)
+  return takenAnswer(s, answer, answer.answer)
 }
 
 function ruleLine({ label, problem }: Extract<Answer, { kind: "rule" }>): HTMLElement {
@@ -425,22 +425,21 @@ function codeLossNote(state: CodeLoss, reference: string): Note {
 }
 
 // One row as the app lists a chat: the name, the chats it opens as the app's own pictures, and whose it is.
-function takenAnswer(found: Found, answer: api.SearchAnswer): Kid[] {
+function takenAnswer(s: SearchState, found: Found, answer: api.SearchAnswer): Kid[] {
   const { label, mine } = found
   const registered = answer.found.type === "registered" ? answer.found : null
   // there are no renewals, so a name of ours past its expiry is over here, though the chain keeps it ours in its grace period
   const expiresAt = registered?.expiresAt ?? null
   const lapsed = mine && expiresAt !== null && expiresAt < found.now / 1000 ? `${ranOut(expiresAt)} ${againLine(expiresAt, answer, found.now)}` : null
-  // a name whose registration is being mined has no owner on chain yet
-  const registering = answer.found.type === "registering"
-  const whose = mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
-    : el("span", { class: "soft" }, registering ? "Being registered" : "Taken")
+  const own = answer.found.type === "taken" ? ownOrderOf(s) : null
+  const whose = own ? null : mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
+    : el("span", { class: "soft" }, "Taken")
   const { tld } = readSite()
   const name = `${label}.${tld}`
   const entities = registered?.entities ?? []
   return [
     el("div", { class: "card row" }, rowName(label, tld, answer.community, "community"),
       entities.length ? el("span", { class: "chats" }, entities.map((e, i) => chatButton(e, name, `chat-${i}`, answer.community !== null))) : null, whose),
-    lapsed ? line("", "clock", lapsed) : registering ? line("", "clock", "Someone is registering it right now. Its owner and links show once it is on chain.") : null,
+    lapsed ? line("", "clock", lapsed) : own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
   ]
 }

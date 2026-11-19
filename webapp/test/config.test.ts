@@ -30,7 +30,7 @@ describe("configOf", () => {
   it("refuses an answer that is not the service's, as a portal's, or a deployment it cannot use", () => {
     expect(configOf(null)).toBeNull()
     expect(configOf("<!doctype html>")).toBeNull()
-    expect(configOf({ error: "not_found" })).toBeNull()
+    expect(configOf({ type: "not_found" })).toBeNull()
     expect(configOf({ stripePublishableKey: null })).toBeNull()
     for (const change of [{ codesOnly: "no" }, { chainId: -1 }, { chainId: "1" }, { resolver: 1 }, { sponsor: null }, { tld: undefined }, { termStart: 1.5 }]) {
       expect(configOf({ stripePublishableKey: null, names: { ...NAMES, ...change } }), JSON.stringify(change)).toBeNull()
@@ -45,7 +45,7 @@ describe("readConfig", () => {
     expect(fetch).toHaveBeenCalledWith(CONFIG_PATH, { cache: "no-store" })
   })
   it("is null when the service answers an error or the network fails", async () => {
-    serviceAnswering(503, { error: "unavailable" })
+    serviceAnswering(503, { type: "unavailable" })
     expect(await readConfig()).toBeNull()
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
     expect(await readConfig()).toBeNull()

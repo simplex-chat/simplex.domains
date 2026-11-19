@@ -30,8 +30,11 @@ const LINKS = { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN
 type Call = { method: string; path: string; body: Record<string, unknown> }
 let calls: Call[]
 let answers: Record<string, unknown>
+const TO_SIGN = { type: "read", intentNonce: 5, acceptance: { community: false, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: TERMS.hash, nonce: 1 } }
+let signReads: string[]
 
-// localStorage for store.ts, and a fetch that records each call and answers from `answers` by "METHOD path"
+// localStorage for store.ts, and a fetch that records each call and answers from `answers` by "METHOD path", and every
+// signing read with TO_SIGN
 function fakeBrowser(): void {
   const data = new Map<string, string>()
   vi.stubGlobal("window", {
@@ -45,11 +48,15 @@ function fakeBrowser(): void {
   })
   vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
     if (path === "/api/config") return new Response(JSON.stringify(SITE), { status: 200 })
+    if (/^\/api\/name\/[^/]+\/sign\?/.test(path)) {
+      signReads.push(path)
+      return new Response(JSON.stringify(TO_SIGN), { status: 200 })
+    }
     const method = init?.method ?? "GET"
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     calls.push({ method, path, body })
     const key = `${method} ${path.split("?")[0]}`
-    if (!(key in answers)) return new Response(JSON.stringify({ error: "not_found" }), { status: 404 })
+    if (!(key in answers)) return new Response(JSON.stringify({ type: "not_found" }), { status: 404 })
     const answer = typeof answers[key] === "function" ? (answers[key] as () => unknown)() : answers[key]
     if (answer instanceof Response) return answer
     return new Response(JSON.stringify(answer), { status: 200 })
@@ -64,6 +71,7 @@ async function modules() {
 beforeEach(() => {
   calls = []
   answers = {}
+  signReads = []
   fakeBrowser()
 })
 afterEach(() => vi.unstubAllGlobals())
@@ -108,6 +116,25 @@ describe("orderRequest", () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft("dynamis", COMMUNITY_SIGNED))
     expect(flow.recordFor(draft("dynamis", COMMUNITY_SIGNED), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }).terms).toBe(COMMUNITY_SIGNED)
+  })
+
+  it("includes the RegisterName and the terms acceptance the code's key signs at what the service reads for the name and owner, a week ahead of the service's clock", async () => {
+    const { flow } = await modules()
+    const { request } = await flow.orderRequest(draft())
+    expect(signReads).toEqual([`/api/name/${request.labelHash}/sign?owner=${OWNER}`])
+    const { reveal } = request
+    expect(reveal).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 5 })
+    expect(Math.abs(reveal.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
+    const r = {
+      label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(request.duration), secret: fromHex(reveal.secret),
+      resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
+    }
+    const intent = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 5n, BigInt(reveal.deadline))
+    expect(await recoverAddress({ hash: hex(intent) as Hex, signature: reveal.signature as Hex })).toBe(OWNER)
+    const a = TO_SIGN.acceptance
+    expect(reveal.acceptance).toMatchObject({ termsHash: a.termsHash, nonce: 1 })
+    const accepted = acceptTermsDigest(false, 31337n, fromHex(a.policy), fromHex(request.commitment), fromHex(a.termsHash), 1n, BigInt(reveal.deadline))
+    expect(await recoverAddress({ hash: hex(accepted) as Hex, signature: reveal.acceptance.signature as Hex })).toBe(OWNER)
   })
 })
 
@@ -327,7 +354,7 @@ describe("spendBalance", () => {
         fields: { labelHash: SPEND.labelHash, length: 7, duration: SPEND.duration, commitment: SPEND.commitment, sealed: SPEND.sealed, terms: { communityName: false, termsHash: TERMS.hash } },
         timestamp: SPEND.timestamp, signature: SPEND.signature,
       },
-      price: 10000, balance: 20000,
+      price: 10000, balance: 20000, reveal: expect.objectContaining({ label: "another", nonce: TO_SIGN.intentNonce }),
     })
     expect(Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(SPEND.sealed))).toString("hex")).toBe(SPEND.sealedHash.slice(2))
     expect(hashMessage(message)).toBe(SPEND.digest)
@@ -364,7 +391,7 @@ describe("spendBalance", () => {
     const api = await import("../src/api.ts")
     const record = await source(store, flow)
     const now = { amount: 5000, hold: null, refunded: 5000 }
-    answers[`POST /api/registration/${SPEND.registrationId}/spend`] = new Response(JSON.stringify({ error: "balance_changed", balance: now }), { status: 409 })
+    answers[`POST /api/registration/${SPEND.registrationId}/spend`] = new Response(JSON.stringify({ type: "balance_changed", balance: now }), { status: 409 })
     const refused = await flow.spendBalance(record, "another", NO_LINKS, quote(10000), 10000, "btc", SPEND.terms).catch((e: unknown) => e)
     expect(refused).toBeInstanceOf(api.BalanceChanged)
     expect(refused).toMatchObject({ code: "balance_changed", status: 409, balance: now })
@@ -578,7 +605,7 @@ describe("saveLinks after a refusal", () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
-    answers["POST /api/name/records"] = () => new Response(JSON.stringify({ error: "bad_request" }), { status: 400 })
+    answers["POST /api/name/records"] = () => new Response(JSON.stringify({ type: "bad_request" }), { status: 400 })
     await expect(flow.saveLinks(record, CHAIN, 5, { contact: "", channel: "" })).rejects.toMatchObject({ code: "bad_request" })
     expect(calls).toHaveLength(1)
   })

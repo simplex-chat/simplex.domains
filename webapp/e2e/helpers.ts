@@ -46,7 +46,7 @@ export async function registrationOf(request: APIRequestContext, invoiceId: stri
   return (await res.json()).registration.id
 }
 
-interface MockRegistration { invoiceId: string | null; phase: string; revealAfter: number | null; createdAt: string }
+interface MockRegistration { invoiceId: string | null; phase: string; revealAfter: number | null; label: string | null; createdAt: string }
 
 export async function mockRegistration(request: APIRequestContext, invoiceId: string): Promise<MockRegistration> {
   const res = await request.get(`${MOCK}/control/state`)

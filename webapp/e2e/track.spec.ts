@@ -375,7 +375,7 @@ async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
   await page.route(`**/api/registration/${CARD_REGISTRATION}*`, (route) => route.fulfill({ json: registration }))
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? { found: { type: "registering" } } : homeAnswers(order.owner).available }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? homeAnswers(order.owner).taken : homeAnswers(order.owner).available }))
   if (o.forgetful) await page.addInitScript(() => {
     const keep = Storage.prototype.setItem
     Storage.prototype.setItem = function (key: string, value: string) {
@@ -523,23 +523,23 @@ test.describe(() => {
     await useCode(page, code)
     await search(page, label)
     await toReview(page)
-    await page.route("**/api/name/register", (route) => route.fulfill({ status: 400, json: { error: "code_used" } }))
+    await page.route("**/api/name/register", (route) => route.fulfill({ status: 400, json: { type: "code_used" } }))
     await onStep(page).getByRole("button", { name: "Register with your code" }).click()
     await expect(onStep(page).getByText("This code was already used.")).toBeVisible()
     await page.getByRole("radio", { name: "Card" }).click()
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByText("Card is temporarily unavailable")).toBeVisible()
     await fitsWindow(page, "o6-review-code-and-method-refused", frames)
     await page.unroute("**/api/invoice")
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { error: "catalog_changed", price: 12345 } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: 12345 } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
     await fitsWindow(page, "o7-price-changed", frames)
     // the review opened again takes the new price
     await page.reload()
     await page.unroute("**/api/invoice")
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "60" }, json: { error: "rate_limited" } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "60" }, json: { type: "rate_limited" } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "Too many attempts" })).toBeVisible()
     await fitsWindow(page, "o8-too-many", frames)
@@ -555,7 +555,7 @@ test(`Edit links fits both windows with its answer, for a name of ${MAX_LABEL_LE
   const { registrationId } = await fakeRegisteredName(page, label, links, () => saved ? { links: { ...links, contact: contactLink("E3") }, nonce: 1 } : { links, nonce: 0 })
   await page.route("**/api/name/records", (route) => {
     saved += 1
-    return route.fulfill({ status: 400, json: { error: "bad_request" } })
+    return route.fulfill({ status: 400, json: { type: "bad_request" } })
   })
   await page.goto(`/#/edit/${registrationId}`)
   await previewsShown(page)
@@ -647,7 +647,7 @@ test.describe(() => {
   test("each home answer holds its name inside its row with the same room above and under it, and a name of six letters on one line, at a laptop's and a phone's size", async ({ page }) => {
     for (const label of [SHORT_NAME, wideLabel(6), wideLabel(MAX_LABEL_LENGTH)]) {
       const { owner } = await keepOrder(page, "reg-rowfit", null, label)
-      await page.route("**/api/registration/reg-rowfit*", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+      await page.route("**/api/registration/reg-rowfit*", (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
       for (const [state, answer] of Object.entries(homeAnswers(owner))) {
         await page.unroute("**/api/name/**")
         await page.route("**/api/name/**", (route) => route.fulfill({ json: answer }))

@@ -8,6 +8,7 @@ import { secondsLeft } from "./hold.ts"
 import { reloadedForRoute } from "./served-mode.ts"
 
 export const CONTACT_EMAIL = "chat@simplex.chat"
+export const SIMPLEX_SUPPORT = "https://smp6.simplex.im/a#lrdvu2d8A1GumSmoKb2krQmtKhWXq-tyGpHuM7aMwsw"
 
 let rerender: () => void = () => undefined
 

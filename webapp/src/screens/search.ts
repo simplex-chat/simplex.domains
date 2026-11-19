@@ -1,4 +1,4 @@
-import { type Community, type InvoiceView, type Phase, type SearchAnswer, type Terms, termsFor } from "../api.ts"
+import { type Community, type FailReason, type InvoiceView, type Phase, type SearchAnswer, type Terms, termsFor } from "../api.ts"
 import { parseNameCode } from "../crypto/code.ts"
 import { dollars } from "../format.ts"
 import { heldWords } from "./balance.ts"
@@ -144,11 +144,12 @@ export function reduce(s: SearchState, e: SearchEvent): SearchState {
   }
 }
 
-// an order as the service reads it: its registration's phase, and its invoice's status when it has one
-export interface OrderRead { phase: Phase; invoice: InvoiceView["status"] | null }
+// an order as the service reads it: its registration's phase, its failure's reason, and its invoice's status when it has one
+export interface OrderRead { phase: Phase; failure: FailReason | null; invoice: InvoiceView["status"] | null }
 export interface OwnOrders { open: OrderRecord | null; closed: OrderRecord | null }
 
-const ENDED: Phase[] = ["closed", "registered", "taken", "failed"]
+const ENDED: Phase[] = ["closed", "registered", "taken"]
+const ended = (r: OrderRead) => ENDED.includes(r.phase) || r.failure === "monthEnded"
 
 // This browser's orders for a name, newest first: the first that can still register it, and the newest that closed
 // unpaid, cancelled or expired. A cancelled order is closed without a read; one that cannot be read is neither.
@@ -161,7 +162,7 @@ export async function ownOrders(orders: OrderRecord[], read: (o: OrderRecord) =>
     }
     const r = await read(o)
     if (r === null) continue
-    if (r.phase === "unpaid" ? r.invoice === "open" : !ENDED.includes(r.phase)) return { open: o, closed }
+    if (r.phase === "unpaid" ? r.invoice === "open" : !ended(r)) return { open: o, closed }
     if ((r.phase === "unpaid" || r.phase === "closed") && r.invoice !== null) closed ??= o
   }
   return { open: null, closed }

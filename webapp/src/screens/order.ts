@@ -53,8 +53,6 @@ export interface OrderState {
   ask: TermsAsk | null
   // a taken or failed order's name, as one search answered it
   nameStatus: Found["type"] | null
-  // the search of the changed terms' ask answered the name as registered or reserved, for the commit of this key
-  unavailable: { key: string; status: Found["type"] } | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
 }
@@ -89,12 +87,11 @@ export type OrderEvent =
   | { type: "terms-asked"; label: string; terms: Terms; community: Community | null; changed: boolean }
   | { type: "terms-agreed"; agreed: boolean; now: number }
   | { type: "terms-accepted"; accepted: boolean; now: number }
-  | { type: "name-unavailable"; key: string; status: Found["type"] }
   | { type: "hold-started"; until: number; lead: string }
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, unavailable: null, since: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, since: null }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase.type}${view.phase.type === "committed" && view.label !== null ? " signed" : ""}`
@@ -142,7 +139,6 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     // agreeing to changed terms times the stall from then
     case "terms-agreed": return s.ask ? { ...s, ask: { ...s.ask, agreed: e.agreed, changed: false }, since: termsAskedAgain(s) && s.since ? { ...s.since, at: e.now } : s.since } : s
     case "terms-accepted": return s.ask ? { ...s, ask: { ...s.ask, accepted: e.accepted, changed: false }, since: termsAskedAgain(s) && s.since ? { ...s.since, at: e.now } : s.since } : s
-    case "name-unavailable": return { ...s, unavailable: { key: e.key, status: e.status } }
     case "hold-started": return { ...s, busy: null, note: null, hold: { until: Math.max(e.until, s.hold?.until ?? 0), lead: e.lead } }
     case "hold-ended": return { ...s, hold: null }
   }
@@ -185,15 +181,23 @@ export function failedLead({ view, invoice, codeRefused, codeKept, record }: Ord
 
 const FAILED_TITLES: Record<FailReason, string> = {
   sendsUsedUp: "The name could not be registered",
-  linksRefused: "The service refused this order's links",
-  registryRefused: "The registry refused the name",
+  registryRefused: "The name could not be registered",
+  signatureRefused: "The service could not register the name",
+  monthEnded: "The name was not registered within a month",
+  unread: "The order was not opened for 3 days",
 }
 
 export const failedAlert = ({ view }: Pick<OrderState, "view">) => view!.phase.type === "failed" ? FAILED_TITLES[view!.phase.reason] : FAILED_TITLES.registryRefused
 
-export const movable = ({ view, codeRefused }: Pick<OrderState, "view" | "codeRefused">) => !codeRefused && view?.phase.type === "failed" && view.phase.reason !== "sendsUsedUp"
+const UNMOVABLE: FailReason[] = ["sendsUsedUp", "signatureRefused", "monthEnded", "unread"]
 
-export const nameGone = (s: Pick<OrderState, "nameStatus">) => s.nameStatus === "registered" || s.nameStatus === "registering" || s.nameStatus === "reserved"
+export const movable = ({ view, codeRefused }: Pick<OrderState, "view" | "codeRefused">) => !codeRefused && view?.phase.type === "failed" && !UNMOVABLE.includes(view.phase.reason)
+
+export type SupportCase = "signatureRefused" | "monthEnded" | "unread"
+const SUPPORT_CASES: FailReason[] = ["signatureRefused", "monthEnded", "unread"]
+
+export const supportCase = ({ view }: Pick<OrderState, "view">): SupportCase | null =>
+  view?.phase.type === "failed" && SUPPORT_CASES.includes(view.phase.reason) ? view.phase.reason as SupportCase : null
 
 export function hoursToSign({ view, now }: Pick<OrderState, "view" | "now">): number | null {
   const committed = view && committedOf(view)
@@ -201,7 +205,7 @@ export function hoursToSign({ view, now }: Pick<OrderState, "view" | "now">): nu
   return Math.max(1, Math.ceil((committed.revealBefore * 1000 - now) / 3_600_000))
 }
 
-export const retryDue =(s: OrderState) => s.view !== null && lapsedOf(s.view) && s.record !== null && !linksRefused(s) && !nameGone(s) && s.busy === null && s.hold === null
+export const retryDue =(s: OrderState) => s.view !== null && lapsedOf(s.view) && s.record !== null && !linksRefused(s) && s.busy === null && s.hold === null
 
 export const sameStep = (a: RegistrationView, b: RegistrationView) => a.phase.type === b.phase.type && a.label === b.label && a.linksRefused === b.linksRefused && a.moves === b.moves
 
@@ -311,13 +315,7 @@ export const termsAskedAgain = (s: OrderState) => termsChanged(s) && s.ask?.term
 export const termsToAgree = (s: OrderState) => termsChanged(s) && !(termsAskedAgain(s) && ticked(s.ask!))
 
 // The changed terms are asked for once the order is committed and they are not asked for yet.
-export const askAgainDue = (s: OrderState) => !!s.record && !linksRefused(s) && termsChanged(s) && !termsAskedAgain(s) && !nameUnavailable(s)
-
-// The commit an answer about its name belongs to, whatever nonces and terms its reveal signs.
-export const commitKey = (view: RegistrationView) => `${view.id} ${view.commitment} ${committedOf(view)?.revealBefore ?? null}`
-
-// The changed terms cannot be asked for a name the search answered as registered or reserved while this commitment waits.
-export const nameUnavailable = (s: OrderState) => s.view && s.unavailable?.key === commitKey(s.view) ? s.unavailable : null
+export const askAgainDue = (s: OrderState) => !!s.record && !linksRefused(s) && termsChanged(s) && !termsAskedAgain(s)
 
 export function refusalsOf({ view, reveal }: OrderState): number {
   return view?.phase.type === "committed" && reveal?.key === revealKey(view) ? reveal.refusals : 0
@@ -333,7 +331,7 @@ export function revealDue(s: OrderState): boolean {
 
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
-  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s)) return null
+  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!))) return null
   if (view.phase.type !== "committed" || view.label !== null) return since.at + TX_STALL_MS
   return Math.max(since.at, view.phase.revealAfter * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }

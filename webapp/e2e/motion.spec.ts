@@ -47,7 +47,7 @@ test("Back is in the window and reached by the keyboard on every screen that has
   await savedToReview(page)
   await backReady(page, "Check your order")
   // an order refused for a rate limit shows its own screen, with Back to the search
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "30" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "30" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "Too many attempts" })).toBeVisible()
   await backReady(page, "Too many attempts")
@@ -141,7 +141,7 @@ test("a redraw that only changes the words of what is shown, as a rate limit's w
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await search(page, uniqueLabel("rearrive"))
   await toReview(page)
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "Too many attempts" })).toBeVisible()
   await settled(page)

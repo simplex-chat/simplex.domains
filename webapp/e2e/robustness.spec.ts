@@ -130,8 +130,8 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
   const answers = [
-    { status: 409, body: { error: "funded" }, text: "A payment has reached this invoice, so it is kept." },
-    { status: 503, body: { error: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
+    { status: 409, body: { type: "funded" }, text: "A payment has reached this invoice, so it is kept." },
+    { status: 503, body: { type: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
   ]
   for (const answer of answers) {
     await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: answer.status, json: answer.body }))
@@ -140,7 +140,7 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
     await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
     await page.unroute("**/api/invoice/*/cancel")
   }
-  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The invoice is still open\. Try again in/ })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
@@ -177,7 +177,7 @@ test("a registered order opened in a browser without its code offers restore", a
 test("a failed retarget shows one message below the result, however often it is tried", async ({ page, request }) => {
   const { registrationId } = await failedOrder(page, request, uniqueLabel("rtf"))
   await page.goto(`/#/?retarget=${registrationId}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { error: "provider_unavailable" } }))
+  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { type: "provider_unavailable" } }))
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtf2"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(page)
@@ -200,7 +200,7 @@ test("a failed retarget shows one message below the result, however often it is 
 test("a retarget refused for a name taken meanwhile says the name is no longer available", async ({ page, request }) => {
   const { registrationId } = await failedOrder(page, request, uniqueLabel("rtt"))
   await page.goto(`/#/?retarget=${registrationId}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "name_taken" } }))
+  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { type: "name_taken" } }))
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtt2"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(page)
@@ -216,7 +216,7 @@ test("a move refused for its code says what happened to the code and where to wr
   ]
   for (const [error, status, title] of cases) {
     await page.unrouteAll({ behavior: "wait" })
-    await page.route("**/api/registration/*/name", (route) => route.fulfill({ status, json: { error } }))
+    await page.route("**/api/registration/*/name", (route) => route.fulfill({ status, json: { type: error } }))
     await page.goto(`/#/?retarget=${registrationId}`)
     await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtc2"))
     await page.getByLabel("Name", { exact: true }).press("Enter")
@@ -332,10 +332,11 @@ test("an order left before its wait ends asks for this browser in Your names", a
   const label = uniqueLabel("left")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await page.goto("/#/")
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   await expect.poll(async () => {
-    const { phase, revealAfter } = await mockRegistration(request, invoiceId)
-    return phase === "committed" && revealAfter !== null && Date.now() / 1000 >= revealAfter
+    const { phase, revealAfter, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null && revealAfter !== null && Date.now() / 1000 >= revealAfter
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -357,7 +358,7 @@ const UNREAD_ROUND_MS = 8_000
 test("a row Your names could not read is read again while the page stays open", async ({ page }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("unread"), { method: "btc" })
   let refused = true
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => refused ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => refused ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   await page.goto("/#/names")
   const chip = page.locator(".list-row .chip")
   await expect(chip).toHaveText("Not checked")
@@ -370,7 +371,7 @@ test("a code Your names could not check is checked again while the page stays op
   await page.goto("/")
   await page.evaluate((c) => localStorage.setItem(`simplex-names:code:${c}`, JSON.stringify({ code: c, minLength: 6, years: 2, addedAt: new Date().toISOString() })), code)
   let refused = true
-  await page.route("**/api/code/check", (route) => refused ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route("**/api/code/check", (route) => refused ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   await page.goto("/#/names")
   const chip = page.locator(".list-row", { hasText: code }).locator(".chip")
   await expect(chip).toHaveText("Not checked")
@@ -467,7 +468,7 @@ test("paying by card during an outage keeps the order on screen", async ({ page 
 test("a rate-limited cancel holds, and the hold outlives the page drawing itself again", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("hold"), { method: "btc" })
   let cancels = 0
-  await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { error: "rate_limited" } }) })
+  await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) })
   await page.getByText("Cancel this invoice").click()
   await expect(page.getByText("Too many attempts")).toBeVisible()
   await page.getByText("Cancel this invoice").click()
@@ -488,7 +489,7 @@ test("a rate-limited cancel holds, and the hold outlives the page drawing itself
 test("Back from a paused order keeps the order paused", async ({ page }) => {
   await search(page, uniqueLabel("pause"))
   await toReview(page)
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many orders were tried from here\. Try again in \d+ seconds\.$/)
   await page.goBack()
@@ -507,7 +508,7 @@ test("an order on its way keeps its method as sent until it is answered", async 
   await page.route("**/api/invoice", async (route) => {
     if (route.request().method() !== "POST") return route.continue()
     await answered
-    await route.fulfill({ status: 500, json: { error: "internal" } })
+    await route.fulfill({ status: 500, json: { type: "internal" } })
   })
   await payButton(page).click()
   for (const radio of await page.getByRole("radio").all()) await expect(radio).toHaveAttribute("aria-disabled", "true")

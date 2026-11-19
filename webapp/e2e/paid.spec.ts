@@ -6,7 +6,7 @@ import { LINK_MAX_BYTES } from "../src/names.ts"
 import { CARD_FORM_TIMEOUT_MS } from "../src/stripe.ts"
 import {
   blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, mockRegistration, onStep, oracleQuote, payButton, previewsShown, REGISTRATION_MS,
-  offCentre, orderOwnerCode, qrText, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
+  offCentre, orderOwnerCode, qrText, registeredAnswer, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
 } from "./helpers.ts"
 
 // the card form these tests pay with is the dev server's stand-in; a production build loads Stripe's own
@@ -168,7 +168,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(channelField).toHaveValue(channel)
 
   // a rate-limited edit keeps Save off for the wait it was given, whatever is typed meanwhile
-  await page.route("**/api/name/records", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/name/records", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await link.fill("")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Too many attempts")).toBeVisible()
@@ -188,7 +188,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   const refused: { edits: { key: string }[] }[] = []
   await page.route("**/api/name/records", (route) => {
     refused.push(route.request().postDataJSON())
-    return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } })
+    return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } })
   })
   await link.fill(contact)
   await channelField.fill(nextChannel)
@@ -209,7 +209,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
     const json = await res.json() as { found: { records: { nonce: number } } }
     await route.fulfill({ response: res, json: { ...json, found: { ...json.found, records: { ...json.found.records, ...records, nonce: json.found.records.nonce + ahead } } } })
   })
-  await page.route("**/api/name/records", (route) => route.fulfill({ status: 400, json: { error: "bad_request" } }))
+  await page.route("**/api/name/records", (route) => route.fulfill({ status: 400, json: { type: "bad_request" } }))
   await nonceMoved(2, { contact, channel: nextChannel })
   await link.fill("")
   await channelField.fill(channelLink("D4"))
@@ -409,7 +409,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   // a link preview the service cannot answer now is checked again by itself
   let refused = 0
   await page.route("**/api/link/preview", async (route) => {
-    if (refused++ === 0) return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } })
+    if (refused++ === 0) return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } })
     return route.continue()
   })
   await link.fill(contactLink("prev"))
@@ -648,7 +648,7 @@ test("Edit links keeps several links on chain as the contact address they hold, 
 
 test("Check your order draws a link whose profile cannot be read as its kind's default picture, named by the link", async ({ page }) => {
   await toFullReview(page, uniqueLabel("unread"))
-  await page.route("**/api/link/preview", (route) => route.fulfill({ status: 503, json: { error: "unavailable" } }))
+  await page.route("**/api/link/preview", (route) => route.fulfill({ status: 503, json: { type: "unavailable" } }))
   await page.reload()
   const chats = onStep(page).locator(".card.order .chat")
   await expect(chats).toHaveCount(2)
@@ -717,7 +717,9 @@ test("the owner code restores an order in another browser, and a bad code is ref
   await control(request, `confirming/${invoiceId}`)
   await expect(page.getByText("Waiting for 1 confirmation")).toBeVisible()
   await shot(page, "N5-confirming")
-  // the buying browser goes away before the payment settles, so nothing reveals the name
+  // the order's stored reveal is cleared at its register, and the buying browser goes away before the payment settles, so
+  // nothing signs it again
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await page.close()
   await control(request, `settle/${invoiceId}`)
 
@@ -1155,7 +1157,7 @@ test("Cancel this invoice reads as working while its request runs, and as itself
   const answered = new Promise<void>((resolve) => { answer = resolve })
   await page.route("**/cancel", async (route) => {
     await answered
-    await route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
+    await route.fulfill({ status: 503, json: { type: "provider_unavailable" } })
   })
   const link = onStep(page).locator("a[data-focus=cancel]")
   await link.click()
@@ -1170,7 +1172,7 @@ test("Cancel this invoice reads as working while its request runs, and as itself
 
 test("a cancel refused for a rate limit keeps the invoice payable and says so until the wait is over", async ({ page }) => {
   await startOrder(page, uniqueLabel("cxh"), { method: "btc" })
-  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   const cancel = onStep(page).getByText("Cancel this invoice")
   await cancel.click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The invoice is still open\. Try again in/ })).toBeVisible()
@@ -1208,7 +1210,7 @@ test("a restored browser that never opened another browser's newer invoice is le
 
 test("a forgotten order says the link does not work, without asking for the code's orders", async ({ page }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("forgot"), { method: "btc" })
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
   const finds: string[] = []
   page.on("request", (r) => { if (r.url().includes("/api/registration/find")) finds.push(r.url()) })
   await page.goto(`/?order=${invoiceId}`)
@@ -1349,7 +1351,7 @@ test("on a phone, a long name wraps beside its chats on Check your order, the ch
 const NAME_CHECK_MINUTES = 5
 const AVAILABLE = /^The name is available \(checked at \d\d:\d\d\)\. If someone registers it before you pay and the registration succeeds, what you paid is kept as your balance for another name, or refunded on request\.$/
 const TAKEN = /^Someone has registered this name \(checked at \d\d:\d\d\)\. Don't pay this invoice: cancel it and choose another name\.$/
-const takenAnswer = (route: Route) => route.fulfill({ json: { found: { type: "registering" } } })
+const takenAnswer = (route: Route) => route.fulfill({ json: registeredAnswer(`0x${"00".repeat(19)}01`, Math.floor(Date.now() / 1000) + 365 * 86400, { contact: "", channel: "" }) })
 // the heading, the note, the payment's details and the link under them: where each is and how tall
 const payPlaces = (page: Page) => page.evaluate(() => ["h1", ".name-check", ":is(.card.pay, .stripe)", ".actions-row .alt"]
   .map((s) => { const b = document.querySelector(`body > main ${s}`)!.getBoundingClientRect(); return `${s} ${Math.round(b.top)} ${Math.round(b.height)}` }))

@@ -7,12 +7,13 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, movable, nameGone, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, hoursToSign, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, movable, supportCase, type SupportCase, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
+  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, hoursToSign, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
+import type { LinkKind } from "../names.ts"
 import { checkoutUrl, CODE_FROM_ORDER_URL, CODE_URL, editUrl } from "../screens/routes.ts"
 import { hasLinks, linksAction } from "../screens/names.ts"
 import * as session from "../session.ts"
@@ -24,7 +25,7 @@ import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
 import { loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
-  asStep, type Builder, CONTACT_EMAIL, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
+  asStep, type Builder, CONTACT_EMAIL, SIMPLEX_SUPPORT, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
   searchLink, showRefund, useBalance, whenDropped, whenLeaving,
 } from "./shell.ts"
 
@@ -169,7 +170,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     if (!record && invoice) record = await adoptSibling(view, invoice)
     if (!isRoute(mine)) return
     if (view.phase.type !== "failed") codeChecked = false
-    if (view.phase.type !== "taken" && !api.lapsedOf(view)) status = undefined
+    if (view.phase.type !== "taken") status = undefined
     if (invoice && invoice.status !== "open") store.clearCardSubmitted(invoice.invoiceId)
     if (invoice && invoice.status !== "open" && record?.cardSubmittedAt) {
       store.updateOrder(record.registrationId, { cardSubmittedAt: undefined })
@@ -185,7 +186,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     if (answered !== drawn || recorded !== drawnRecord) {
       drawn = answered
       drawnRecord = recorded
-      if ((view.phase.type === "taken" || (api.lapsedOf(view) && record)) && status === undefined) {
+      if (view.phase.type === "taken" && status === undefined) {
         status = await statusNow(view, record ?? null)
         if (!isRoute(mine)) return
       }
@@ -291,20 +292,17 @@ function askAgain(record: store.OrderRecord): void {
   const gen = opened
   askingAgain = gen
   const done = () => { if (askingAgain === gen) askingAgain = null }
-  // after a pause, a search that failed for now is made again, and after one that answered other terms than the
-  // view's, the view is read again; one that answered the name as registered or reserved ends the ask, which the page says
+  // after a pause, a search that failed for now is made again, and after terms the service no longer has for the view's
+  // hash, the view is read again
   const later = (delay: number, again: () => void) => setTimeout(() => { done(); again() }, delay)
   const tick = () => answer(gen, { type: "tick", now: api.serviceNow() })
-  api.searchName(state.view!.labelHash, record.label.length, readSite().chainId).then((searched) => {
+  const { chainId } = readSite()
+  api.searchName(state.view!.labelHash, record.label.length, chainId).then(async (searched) => {
+    const terms = await api.currentTermsOf(readToSign(state.view!)!.acceptance.termsHash, chainId).catch(() => null)
     if (!isOpen(gen) || !askAgainDue(state)) return done()
-    const quote = flow.availableOf(searched)
-    if (quote === null) {
-      done()
-      return answer(gen, { type: "name-unavailable", key: commitKey(state.view!), status: searched.found.type })
-    }
-    if (!flow.orderable(quote) || quote.terms.hash !== readToSign(state.view!)!.acceptance.termsHash) return later(RETRY_MS, () => reread(gen))
+    if (terms === null) return later(RETRY_MS, () => reread(gen))
     done()
-    askTerms(gen, record.label, quote, true)
+    askTerms(gen, record.label, { terms, community: searched.community }, true)
     // the notice is focused only while the focus is on the page, not in the header, the footer or a dialog
     const active = document.activeElement
     if (active === document.body || active?.closest("body > main")) focusOn("reveal")
@@ -428,7 +426,7 @@ function watchName(s: OrderState): void {
     try {
       const answer = await api.searchName(labelHash, length, readSite().chainId)
       if (nameWatch !== watch) return
-      nameCheck = { invoiceId, taken: answer.found.type === "registered" || answer.found.type === "registering", at: Date.now() }
+      nameCheck = { invoiceId, taken: answer.found.type === "registered", at: Date.now() }
       showNameCheck()
     } catch (e) {
       next = api.retryDelay(e, RETRY_MS) ?? NAME_CHECK_MS
@@ -1066,9 +1064,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
   const steps = stages(states)
   const stalled = stalledAt(s)
-  const unavailable = nameUnavailable(s)
   const lapsed = api.lapsedOf(view)
-  const gone = lapsed && nameGone(s)
   const clockNode = el("b", {})
   const note = el("span", {})
   const tryAgain = () => {
@@ -1085,7 +1081,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
       return say(note, WAIT_NOTE)
     }
     if (!clockNode.querySelector("svg")) clockNode.replaceChildren(icon("clock"))
-    if (lapsed) return say(note, gone ? "The time to sign ran out." : LAPSED_NOTE)
+    if (lapsed) return say(note, LAPSED_NOTE)
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase.type !== "committed") return say(note, view.phase.type === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)
@@ -1093,18 +1089,11 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)
-  const another = gone && s.record ? btn("Choose another name", "", () => go(`/#/?retarget=${view.id}`)) : null
-  return screen({ title: headingOf(s), lead: unavailable || gone ? null : leadOf(s), action: another ?? (refused ? btn("Try again", "", tryAgain) : null) },
+  return screen({ title: headingOf(s), lead: leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
-    gone ? alertBox("warn", "alert", s.nameStatus === "reserved" ? "The name was reserved meanwhile" : "Someone registered the name first",
-      "This order can't register it. Choose another name for it.") : null,
-    // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
-    // hours to sign are over
-    unavailable ? alertBox("warn", "alert", unavailable.status === "reserved" ? "The name was reserved meanwhile" : "Someone registered the name first",
-      "This order can't register it. Once its time to sign is over, choose another name for it.") : null,
     referenceLine(s.invoice?.invoiceId ?? view.id),
     termsAskedAgain(s) ? agreement(s, "reveal") : null)
 }
@@ -1145,11 +1134,15 @@ function buildLinksRefused(s: OrderState, signal: AbortSignal): HTMLElement {
   holdEnds(signal)(s.hold !== null)
   const title = view.phase.type === "failed" ? s.invoice ? "Paid, not registered" : "Not registered" : headingOf(s)
   return screen({ title, lead: orderLine(s), action: move, alt: link("Choose another name", () => go(`/#/?retarget=${view.id}`)) },
-    alertBox("warn", "alert", "The service refused this order's links",
-      "They are part of the order, so they cannot be changed in it. Register the name without them and add links in Your names once it is registered, or choose another name."),
+    alertBox("warn", "alert", REFUSED_LINK[view.linksRefused ?? "contact"], "Replace or remove it to register the name."),
     actionNote(s, signal),
     referenceLine(s.invoice?.invoiceId ?? view.id),
     agreement(s, "move"))
+}
+
+const REFUSED_LINK: Record<LinkKind, string> = {
+  contact: "The contact link is not a SimpleX short link to a contact.",
+  channel: "The channel link is not a SimpleX short link to a channel.",
 }
 
 // what a move refused for good says: the service bounds how often an order moves, and support settles it from there
@@ -1164,11 +1157,9 @@ async function moveWithoutLinks(): Promise<void> {
   const reference = state.invoice?.invoiceId ?? view.id
   dispatch({ type: "move-started" })
   try {
-    const quote = await flow.quoteOf(record.label)
-    if (!quote) return answer(gen, { type: "move-failed", note: warning("This name is no longer available. Choose another name.") })
-    const terms = termsOrAsk(gen, record, api.signedTermsOf(view.terms), quote)
-    if (terms === null) return
-    await flow.retargetOrder(record, record.label, { contact: "", channel: "" }, quote, terms)
+    const ask = state.ask?.label === record.label && ticked(state.ask) ? state.ask : null
+    const terms = ask ? api.currentTerms(ask) : api.signedTermsOf(view.terms)
+    await flow.retargetOrder(record, record.label, { contact: "", channel: "" }, { community: ask ? ask.community : view.community }, terms)
     reread(gen)
   } catch (e) {
     if (holdOn(e, "Nothing changed. ", gen)) return
@@ -1273,17 +1264,50 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   // a code refused for good leaves no other name to move to, so the page offers another search as the other endings do
   const another = setAction(btn("Choose another name", "", () => go(`/#/?retarget=${view.id}`)), false, s.hold !== null)
   another.dataset.focus = "move"
+  const settled = supportCase(s)
+  const continued = setAction(btn("Continue", "", () => void continueOrder()), s.busy === "move", s.hold !== null)
   // links the service refused, or a failure another name can register, need the browser with the code
-  const action = view.linksRefused || (movable(s) && !s.record) ? withoutRecord("") : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : movable(s) ? another : null
+  const action = settled === "unread" ? (s.record ? continued : withoutRecord(""))
+    : view.linksRefused || (movable(s) && !s.record) ? withoutRecord("") : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : movable(s) ? another : null
   holdEnds(signal)(s.hold !== null)
   const failedAt: StageState[] = view.commitTx === null ? ["failed", "", ""] : ["done", "done", "failed"]
   const support = [el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with its reference."]
-  return screen({ title: invoice ? "Paid, not registered" : "Not registered", lead: failedLead(s), action },
+  const reference = invoice?.invoiceId ?? view.id
+  return screen({ title: invoice ? "Paid, not registered" : "Not registered", lead: settled ? undefined : failedLead(s), action },
     el("p", { class: "note center" }, ...orderLine(s)),
     stages(failedAt),
-    alertBox("danger", "alert", failedAlert(s), ["Write to ", ...support]),
+    alertBox("danger", "alert", failedAlert(s), settled ? supportText(settled, view, reference) : ["Write to ", ...support]),
     actionNote(s, signal),
-    referenceLine(invoice?.invoiceId ?? view.id))
+    referenceLine(reference))
+}
+
+function supportText(settled: SupportCase, view: api.RegistrationView, reference: string): Kid[] {
+  const code = view.payment.type === "code"
+  const contact = ["contact support via ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX"), ", and include order reference ", reference]
+  const received = code ? "Your code is received" : "Your payment is received"
+  if (settled === "signatureRefused") return [`${received}, please `, ...contact]
+  if (settled === "unread") {
+    const until = view.phase.type === "failed" && view.phase.heldUntil ? dateOf(Date.parse(view.phase.heldUntil) / 1000) : ""
+    return [`${received}. Until ${until}, this service accepts no other order for the name. Choose Continue to sign the registration again, or `, ...contact, "."]
+  }
+  return code
+    ? ["Your code is released. If it has not expired, use it for another name. Otherwise, ", ...contact, "."]
+    : ["The money paid for this order has been added to its balance. Spend it on another name, or ", ...contact, ", to have it refunded."]
+}
+
+async function continueOrder(): Promise<void> {
+  const gen = opened
+  const record = state.record!
+  const view = state.view!
+  dispatch({ type: "move-started" })
+  try {
+    await api.reveal(view.id, await flow.revealFor(record, view.duration, await api.signFor(view.labelHash, view.owner)))
+    reread(gen)
+  } catch (e) {
+    if (holdOn(e, "Nothing changed. ", gen)) return
+    answer(gen, { type: "move-failed", note: warning("That did not go through. Nothing changed. Try again in a moment.") })
+    reread(gen)
+  }
 }
 
 // Another order may have spent the code since this one failed, which a move would only find out. A code revoked or

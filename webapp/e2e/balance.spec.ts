@@ -478,7 +478,7 @@ test("a held balance is waited for on the service's clock, however far the devic
   let finds = 0
   await page.route("**/api/registration/find", (route) => {
     finds++
-    return route.fulfill({ status: 429, headers: { "retry-after": "60" }, json: { error: "rate_limited" } })
+    return route.fulfill({ status: 429, headers: { "retry-after": "60" }, json: { type: "rate_limited" } })
   })
   const reads: string[] = []
   page.on("request", (r) => { if (r.method() === "GET" && /\/api\/registration\/[^/?]+$/.test(new URL(r.url()).pathname)) reads.push(r.url()) })
@@ -551,7 +551,7 @@ test.describe(() => {
       const order = await keepOrder(page, "reg-balrow", "inv-balrow", "w".repeat(MAX_LABEL_LENGTH))
       const view = registrationView(order, { phase: { type: "taken" }, commitTx: "0x02",
         balance: { amount: 10000, hold: held ? { type: "open", heldUntil: new Date(Date.now() + 900_000).toISOString() } : null, refunded: 0 } })
-      await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+      await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
       await page.route("**/api/config", (route) => route.continue())
       await page.route("**/api/registration/reg-balrow*", (route) => route.fulfill({ json: view }))
       await page.route("**/api/invoice/inv-balrow*", (route) => route.fulfill({ json: { invoiceId: "inv-balrow", status: "paid", amount: 10000, currency: "usd",

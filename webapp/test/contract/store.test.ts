@@ -48,7 +48,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
 
   it.each([
     ["search-available", "available"], ["search-available-community", "available"], ["search-available-without-terms", "available"],
-    ["search-reserved", "reserved"], ["search-reserved-community", "reserved"], ["search-registering", "registering"],
+    ["search-reserved", "reserved"], ["search-reserved-community", "reserved"], ["search-taken", "taken"],
     ["search-registered", "registered"], ["search-registered-other", "registered"], ["search-registered-edits-0", "registered"], ["search-registered-edits-1", "registered"],
   ])("reads %s as a name %s and shows it found", async (name, type) => {
     const answer = await search(name)
@@ -134,7 +134,14 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect((e as api.EditLimited).nextAt).toBeGreaterThan(0)
   })
 
-  const order = { labelHash: HASH, length: LABEL.length, duration: 1, owner: "0x1", commitment: HASH, sealed: "sealed", terms: "ab".repeat(32), timestamp: 0, signature: "0x" }
+  const reveal = { label: LABEL, secret: HASH, records: { contact: null, channel: null }, nonce: 0, deadline: 1, signature: "0x", acceptance: { termsHash: HASH, nonce: 0, signature: "0x" } }
+  const order = { labelHash: HASH, length: LABEL.length, duration: 1, owner: "0x1", commitment: HASH, sealed: "sealed", terms: "ab".repeat(32), timestamp: 0, signature: "0x", reveal }
+
+  it("reads what the owner signs with an order, and the read refused while the chain is unread", async () => {
+    answering("sign-read")
+    expect(await api.signFor(HASH, "0x1")).toMatchObject({ type: "read", intentNonce: 4, acceptance: { community: false, nonce: 2 } })
+    expect((await refusal("sign-unavailable", () => api.signFor(HASH, "0x1"))).code).toBe("name_check_unavailable")
+  })
 
   it("reads a code order refused for changed terms with the terms and the community entry now", async () => {
     const e = await refusal("register-terms-changed", () => api.registerWithCode(order, "code", chainId()))

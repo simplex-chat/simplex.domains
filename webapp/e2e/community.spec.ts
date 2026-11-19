@@ -416,10 +416,11 @@ test("Register without links asks for the terms once they changed, and the order
   await payButton(page).click()
   await page.waitForURL(/\?order=/)
   const invoiceId = new URL(page.url()).searchParams.get("order")!
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await control(request, "search", { refuseLinks: true })
   try {
     await control(request, `settle/${invoiceId}`)
-    await expect(page.getByText("The service refused this order's links")).toBeVisible({ timeout: REGISTRATION_MS })
+    await expect(page.getByText("The contact link is not a SimpleX short link to a contact.")).toBeVisible({ timeout: REGISTRATION_MS })
   } finally {
     await control(request, "search", { refuseLinks: false })
   }
@@ -462,60 +463,45 @@ test("community terms changed on chain between the order and its reveal are agre
 
 test("changed community terms whose searches fail for now are asked for once a search is made again after a pause", async ({ page, request }) => {
   await orderBeforeTermsChange(page, request, "cs", async (_, invoiceId) => {
-    // the pay page checks the name too, so only the searches once the order is committed fail, and past the tick at
-    // revealAfter, so that only a search made again after a pause can bring the notice
-    let failing = true
+    // the pay page checks the name too, so only the first two searches once the order awaits its owner's signature fail,
+    // after its register met the changed terms, so that only a search made again after a pause can bring the notice
     let failed = 0
     await page.route("**/api/name/*", async (route) => {
-      if (!failing || (await invoiceViewOf(request, invoiceId)).phase.type !== "committed") return route.fallback()
+      if (failed >= 2 || api.committedOf(await invoiceViewOf(request, invoiceId))?.signature.type !== "awaiting") return route.fallback()
       failed++
-      await route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
+      await route.fulfill({ status: 503, json: { type: "provider_unavailable" } })
     })
     await control(request, `settle/${invoiceId}`)
-    await expect.poll(async () => (await invoiceViewOf(request, invoiceId)).phase.type, { timeout: REGISTRATION_MS }).toBe("committed")
-    const revealAfter = await revealAfterOf(request, invoiceId)
-    await page.waitForTimeout(Math.max(0, revealAfter * 1000 - Date.now()) + 1000)
-    failing = false
-    await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: 2 * RETRY_MS })
-    expect(failed).toBeGreaterThan(1)
+    await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS + 2 * RETRY_MS })
+    expect(failed).toBe(2)
   })
 })
 
-test("changed community terms that a search answers otherwise than the view are asked for once the view is read again", async ({ page, request }) => {
-  await orderBeforeTermsChange(page, request, "cr", async (_, invoiceId) => {
-    // the first search once the order is committed answers yet other terms, as if they changed again after the view
-    let answered = false
-    await page.route("**/api/name/*", async (route) => {
-      if (answered || (await invoiceViewOf(request, invoiceId)).phase.type !== "committed") return route.fallback()
-      const response = await route.fetch()
-      const json = await response.json()
-      const link = `http://127.0.0.1:8098/terms/${"d8".repeat(32)}.md#sha256=${"d8".repeat(32)}`
-      json.found.terms = { hash: keccak256(toHex(link)), link }
-      answered = true
-      await route.fulfill({ response, json })
+test("changed community terms are asked for by the hash the order's view asks to accept, the view read again while the service has no terms of that hash", async ({ page, request }) => {
+  await orderBeforeTermsChange(page, request, "cr", async (_, invoiceId, hash) => {
+    let refused = false
+    await page.route(`**/api/terms/${hash}`, async (route) => {
+      if (refused) return route.fallback()
+      refused = true
+      await route.fulfill({ status: 404, json: { type: "not_found" } })
     })
     let reads = 0
-    page.on("request", (r) => { if (answered && r.url().endsWith(`/api/invoice/${invoiceId}`)) reads++ })
+    page.on("request", (r) => { if (refused && r.url().endsWith(`/api/invoice/${invoiceId}`)) reads++ })
     await control(request, `settle/${invoiceId}`)
     await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
-    expect([answered, reads > 0], "the view is read again after that search").toEqual([true, true])
+    expect([refused, reads > 0], "the view is read again after its terms were not found").toEqual([true, true])
   })
 })
 
-test("changed community terms of a name reserved meanwhile are not asked for: the page says the order cannot register it, and searches no more", async ({ page, request }) => {
+test("changed community terms of the name an order holds are asked for whatever a search answers for the name", async ({ page, request }) => {
   await orderBeforeTermsChange(page, request, "cz", async (_, invoiceId) => {
-    let searches = 0
     await page.route("**/api/name/*", async (route) => {
       if ((await invoiceViewOf(request, invoiceId)).phase.type !== "committed") return route.fallback()
-      searches++
       await route.fulfill({ json: { found: { type: "reserved" } } })
     })
     await control(request, `settle/${invoiceId}`)
-    await expect(onStep(page).locator(".notice", { hasText: "The name was reserved meanwhile" })).toContainText("This order can't register it.", { timeout: REGISTRATION_MS })
-    await expect(onStep(page).locator(".screen-head .lead"), "no lead asks to keep the page open for the name").toHaveCount(0)
-    await page.waitForTimeout(3 * RETRY_MS)
-    expect(searches, "one search, not one after each pause").toBe(1)
-    await expect(onStep(page).getByText(TERMS_CHANGED)).toHaveCount(0)
+    await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
+    await expect(onStep(page).getByText("The name was reserved meanwhile")).toHaveCount(0)
   })
 })
 

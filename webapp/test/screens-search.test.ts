@@ -424,7 +424,7 @@ describe("ownOrders", () => {
     }
     return { asked, read }
   }
-  const unpaid = (invoice: OrderRead["invoice"]): OrderRead => ({ phase: "unpaid", invoice })
+  const unpaid = (invoice: OrderRead["invoice"]): OrderRead => ({ phase: "unpaid", failure: null, invoice })
 
   it("finds nothing for a name this browser never ordered", async () => {
     expect(await ownOrders([], reader({}).read)).toEqual({ open: null, closed: null })
@@ -452,15 +452,16 @@ describe("ownOrders", () => {
     const closed = order("r1", { cancelled: true })
     const open = order("r2")
     const older = order("r3")
-    for (const live of [unpaid("open"), { phase: "queued", invoice: "paid" }, { phase: "committed", invoice: null }] as OrderRead[]) {
+    for (const live of [unpaid("open"), { phase: "queued", failure: null, invoice: "paid" }, { phase: "committed", failure: null, invoice: null },
+      { phase: "failed", failure: "registryRefused", invoice: "paid" }] as OrderRead[]) {
       const { asked, read } = reader({ r2: live, r3: unpaid("expired") })
       expect(await ownOrders([closed, open, older], read), JSON.stringify(live)).toEqual({ open, closed })
       expect(asked, "nothing older is read").toEqual(["r2"])
     }
   })
-  it("takes a registered, taken or failed order as neither open nor closed", async () => {
-    for (const phase of ["registered", "taken", "failed"] as const) {
-      expect(await ownOrders([order("r1")], reader({ r1: { phase, invoice: "paid" } }).read), phase).toEqual({ open: null, closed: null })
+  it("takes a registered or taken order, or one failed at its month's end, as neither open nor closed", async () => {
+    for (const [phase, failure] of [["registered", null], ["taken", null], ["failed", "monthEnded"]] as const) {
+      expect(await ownOrders([order("r1")], reader({ r1: { phase, failure, invoice: "paid" } }).read), phase).toEqual({ open: null, closed: null })
     }
   })
   it("takes an order with no invoice as never closed, whatever its phase", async () => {
