@@ -4,9 +4,31 @@ import { labelHash } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
 import {
-  addNameCode, answersReserved, agreeToTerms, checkoutOwnerCode, contactLink, control, failedOrder, FIT_SIZES, MOCK, mockRegistration, onStep, payButton, previewsShown, REGISTRATION_MS, registrationOf, savedToReview,
-  offCentre, search, searchName, sevenLetters, shot, startOrder, takenHeading, takenOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered,
+  addNameCode, answersReserved, agreeToTerms, checkoutOwnerCode, contactLink, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, payButton, previewsShown, REGISTRATION_MS, registrationOf,
+  registrationView, savedToReview, offCentre, search, searchName, sevenLetters, shot, startOrder, takenHeading, takenOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
+
+// an order this browser keeps, answered paid with the registration given
+async function paidOrder(page: Parameters<typeof keepOrder>[0], id: string, reg: Record<string, unknown>): Promise<void> {
+  const order = await keepOrder(page, `reg-${id}`, `inv-${id}`, "alicebakery")
+  const invoice = { invoiceId: `inv-${id}`, status: "paid", amount: 10000, currency: "usd", expiresAt: new Date().toISOString(), kind: "name", registration: registrationView(order, reg),
+    cryptoCurrency: "btc", cryptoAmount: "0.00156", cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true, address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s" }
+  await page.route(`**/api/invoice/inv-${id}*`, (route) => route.fulfill({ json: invoice }))
+  await page.route(`**/api/registration/reg-${id}*`, (route) => route.fulfill({ json: invoice.registration }))
+  await page.goto(`/?order=inv-${id}`)
+}
+
+test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
+  await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, hold: null, refunded: 0 } })
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Another buyer paid for it first.")
+  await expect(onStep(page).locator(".stage.done")).toHaveCount(0)
+  await expect(onStep(page).locator(".stage.failed")).toHaveText("Committing")
+})
+
+test("a paid order whose signature the service refused says to contact support in a whole sentence", async ({ page }) => {
+  await paidOrder(page, "refused", { phase: { type: "failed", reason: "signatureRefused" }, commitTx: "0x02" })
+  await expect(onStep(page).locator(".notice", { hasText: "The name could not be registered" })).toContainText("and include order reference inv-refused.")
+})
 
 test("a name taken first keeps its payment as its balance, which pays for another name owned by the same code", async ({ page, request }) => {
   const label = uniqueLabel("tk")

@@ -1314,7 +1314,7 @@ function buildTaken(s: OrderState): HTMLElement {
   const title = label ? [gradName(label, readSite().tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
   return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : api.takenByOrder(view) ? "Another buyer paid for it first." : "Someone registered it before your order could.",
     ...balanceActions(s) },
-    stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
+    api.takenByOrder(view) ? stages(["failed", "", ""]) : stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,
     record ? null : alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to use the balance."),
     referenceLine(invoice?.invoiceId ?? view.id))
@@ -1363,7 +1363,7 @@ function supportText(settled: SupportCase, view: api.RegistrationView, reference
   const code = view.payment.type === "code"
   const contact = ["contact support via ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX"), ", and include order reference ", reference]
   const received = code ? "Your code is received" : "Your payment is received"
-  if (settled === "signatureRefused") return [`${received}, please `, ...contact]
+  if (settled === "signatureRefused") return [`${received}, please `, ...contact, "."]
   if (settled === "unread") {
     const until = view.phase.type === "failed" && view.phase.heldUntil ? dateOf(Date.parse(view.phase.heldUntil) / 1000) : ""
     return [`${received}. Until ${until}, this service accepts no other order for the name. Choose Continue to sign the registration again, or `, ...contact, "."]
