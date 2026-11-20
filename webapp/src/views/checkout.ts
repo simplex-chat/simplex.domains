@@ -9,7 +9,7 @@ import type { LinkKind } from "../names.ts"
 import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
 import { RETRY_MS, REVEAL_HOURS } from "../screens/order.ts"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
+  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
@@ -94,16 +94,18 @@ async function watchBalance(source: string, signal: AbortSignal): Promise<void> 
   while (!signal.aborted) {
     let unnamed = false
     const readAt = api.serviceNow()
-    let balance: api.Balance | null
+    let read: api.RegistrationView
     try {
-      balance = (await api.readRegistration(source, undefined, signal)).balance
+      read = await api.readRegistration(source, undefined, signal)
     } catch (e) {
       await pause(api.retryDelay(e, RETRY_MS) ?? RETRY_MS, signal)
       continue
     }
     if (signal.aborted) return
+    const { balance } = read
     session.updateActiveBalance(source, session.appliedBalance(source, balance))
     if (!act({ type: "balance-read", balance })) return
+    if (read.disputeDays !== state.balanceDays) dispatch({ type: "balance-days", days: read.disputeDays })
     if (!balanceHeld(state.checkout)) return showOwnOrder()
     const paying = store.orderByRegistration(source)
     if (!holder && paying && api.serviceNow() >= findAfter) {
@@ -458,9 +460,12 @@ function buildCommunity(s: CheckoutState): HTMLElement {
     communityCheck({ ...c, community, changed: false, tld: c.chain.tld, chainId: c.chain.chainId, disabled: s.sending || !read?.text }, accept, true))
 }
 
+const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
+
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
+  const days = disputeDaysOf(s)
   const paid = !(c.code || codeEntry(c, s.codesOnly) === "field" || covered(c))
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
@@ -471,7 +476,8 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
-      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth))),
+      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth)),
+      days === null ? null : el("p", { class: "note center" }, disputeLine(days))),
     payNote(s, blocked !== null, signal),
     agreement(s))
 }

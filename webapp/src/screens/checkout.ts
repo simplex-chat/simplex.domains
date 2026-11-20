@@ -1,4 +1,4 @@
-import type { Balance, Community, Method, Terms } from "../api.ts"
+import { type Balance, type Community, DISPUTE_DAYS, type Method, type Terms } from "../api.ts"
 import type { LinkKind } from "../names.ts"
 import { type AppliedCode, appliedBalance, type Checkout } from "../session.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -27,6 +27,7 @@ export interface CheckoutState {
   holder: Holder | null
   // the community terms' text read for their step, by their hash; null when it cannot be shown
   communityText: { hash: string; text: string | null } | null
+  balanceDays: number | null
 }
 
 export interface Holder { label: string; tld: string; url: string }
@@ -52,12 +53,13 @@ export type CheckoutEvent =
   | { type: "terms-changed"; terms: Terms; community: Community | null }
   | { type: "balance-changed"; balance: Balance | null }
   | { type: "balance-read"; balance: Balance | null }
+  | { type: "balance-days"; days: number }
   | { type: "holder-seen"; holder: Holder | null }
   | { type: "hold-started"; until: number }
   | { type: "hold-ended" }
 
 export function initialState(checkout: Checkout, step: CheckoutStep, codesOnly: boolean): CheckoutState {
-  return { step, checkout, codesOnly, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, holder: null, communityText: null }
+  return { step, checkout, codesOnly, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, holder: null, communityText: null, balanceDays: null }
 }
 
 export function changeOf({ checkout, codesOnly }: CheckoutState, e: CheckoutEvent): Partial<Checkout> | null {
@@ -115,6 +117,7 @@ export function reduce(s: CheckoutState, e: CheckoutEvent): CheckoutState {
     case "terms-changed": return unsent(s, { checkout })
     case "balance-changed": return unsent(s, { checkout })
     case "balance-read": return change ? { ...s, checkout, holder: balanceHeld(checkout) ? s.holder : null } : s
+    case "balance-days": return { ...s, balanceDays: e.days }
     case "holder-seen": return { ...s, holder: e.holder }
     case "hold-started": return unsent(s, { hold: { until: Math.max(e.until, s.hold?.until ?? 0), lead: NO_LEAD }, refusal: "too-many" })
     case "hold-ended": return { ...s, hold: null }
@@ -170,6 +173,13 @@ export function codeEntry(c: Checkout, codesOnly: boolean): "field" | "link" | n
 
 // the open code field takes the payment choices' place, and the order waits for a code there that covers the name
 export const awaitsCode = (c: Checkout, codesOnly: boolean) => codeEntry(c, codesOnly) === "field" && c.code === null
+
+export function disputeDaysOf({ checkout: c, codesOnly, balanceDays }: CheckoutState): number | null {
+  if (c.code || codeEntry(c, codesOnly) === "field") return DISPUTE_DAYS.code
+  if (!c.balance) return DISPUTE_DAYS[methodOf(c)]
+  if (balanceDays === null) return null
+  return covered(c) ? balanceDays : Math.max(balanceDays, DISPUTE_DAYS[methodOf(c)])
+}
 
 // the review opens once the name code is saved and a community name's terms are accepted on their own step, which only a
 // community name has
