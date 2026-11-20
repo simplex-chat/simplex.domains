@@ -7,7 +7,7 @@ import type { IconName } from "../icons.ts"
 import {
   balanceRows, type BalanceRow, CODE_CHIPS, holderOf, EDIT_RETRY_MS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
   againLine, initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
-  reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
+  reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign, withChainEnd,
 } from "../screens/names.ts"
 import { codesOnly } from "../mode.ts"
 import { heldWords } from "../screens/balance.ts"
@@ -299,7 +299,7 @@ const rowCode = (code: string) => el("div", { class: "row-code" },
 
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId
-  const seen = s.seen[id]
+  const seen = s.seen[id] && withChainEnd(s.seen[id], s.now)
   // the order may have moved to another name since it was stored
   const label = seen?.view.label ?? o.label
   const tld = seen?.view.tld ?? o.tld

@@ -168,7 +168,13 @@ export function nameRows(s: ListState): OrderRecord[] {
 // A registered name past its expiry: there are no renewals, so the page takes it as over, though the chain keeps it its
 // holder's through the grace period, and whether or not someone has registered it again since.
 export const lapsed = ({ view, answer }: Pick<RowSeen, "view" | "answer">, now: number) =>
-  view.phase === "registered" && ((view.expiresAt !== null && view.expiresAt < now / 1000) || answer?.status === "available")
+  view.phase === "registered" && (view.expiresAt === null ? answer?.status === "available" : view.expiresAt < now / 1000)
+
+const endedOnChain = ({ view, answer }: Pick<RowSeen, "view" | "answer">, now: number) =>
+  view.phase === "registered" && view.expiresAt !== null && view.expiresAt >= now / 1000 && answer?.status === "available"
+
+export const withChainEnd = (seen: RowSeen, now: number): RowSeen =>
+  endedOnChain(seen, now) ? { ...seen, view: { ...seen.view, phase: "ended", expiresAt: null, disputeUntil: null } } : seen
 
 export const waitsToSign = (view: RegistrationView, now: number) =>
   view.phase === "committed" && view.label === null && view.revealAfter !== null && now / 1000 >= view.revealAfter
@@ -354,7 +360,7 @@ export function screenOfEdit(s: EditState): EditKind {
   if (!s.record) return "edit-no-code"
   if (!s.read) return "edit-unreadable"
   const { view, answer, now } = s.read
-  if (view.phase === "ended") return "edit-ended"
+  if (view.phase === "ended" || endedOnChain({ view, answer }, now)) return "edit-ended"
   if (lapsed({ view, answer }, now)) return "edit-expired"
   if (answer.status === "registered" && answer.owner !== undefined && !owns(answer, s.record.owner)) return "edit-in-app"
   if (answer.status === "registered" && owns(answer, s.record.owner) && answer.records === null) return "edit-elsewhere"
