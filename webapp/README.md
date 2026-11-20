@@ -44,7 +44,7 @@ npx playwright install chromium firefox webkit
 
 The backend needs two things outside this repo:
 
-1. The contracts: ens-contracts at PR #51 (f7d9741, which gives each sponsored registration a dispute period), the submodule of [simplex-namespace-contract](https://github.com/brenzi/simplex-namespace-contract) at its main (e3ba0a5, PR #10), whose `test/fixtures/terms/` holds the terms' texts, compiled:
+1. The contracts: ens-contracts at PR #51 (f7d9741, in which each sponsored registration has a dispute period), the submodule of [simplex-namespace-contract](https://github.com/brenzi/simplex-namespace-contract) at its main (e3ba0a5, PR #10), whose `test/fixtures/terms/` holds the terms' texts, compiled:
 
    ```
    git clone https://github.com/brenzi/simplex-namespace-contract.git && cd simplex-namespace-contract

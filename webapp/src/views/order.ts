@@ -1267,10 +1267,10 @@ function buildRegistered(s: OrderState): HTMLElement {
     el("div", { class: "yours-edit center" }, btn(linksAction(hasLinks(s.record!, null)), "quiet small", () => go(editUrl(view.id)))), qr] : null)
 }
 
-function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null, endableUntil: number | null): string {
+function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null, disputeUntil: number | null): string {
   const until = view.expiresAt ? dateOf(view.expiresAt) : ""
   const lead = record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
-  return endableUntil === null ? lead : `${lead} Until ${dateOf(endableUntil)}, the registration can be ended if its payment is disputed or refunded.`
+  return disputeUntil === null ? lead : `${lead} Until ${dateOf(disputeUntil)}, the registration can be ended if its payment is disputed or refunded.`
 }
 
 function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HTMLElement {
