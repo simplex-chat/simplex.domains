@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
-  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
+  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, disputeEndAhead, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
@@ -20,7 +20,7 @@ function registration(change: Partial<RegistrationView> = {}): RegistrationView 
   return {
     ...CHAIN, id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
     price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: "2026-10-23", ...change,
+    community: null, terms: "2026-10-23", disputeDays: 120, disputeUntil: null, ...change,
   }
 }
 
@@ -363,6 +363,16 @@ describe("costOf", () => {
   })
   it("is null for a code order, which costs nothing", () => {
     expect(costOf(registration({ price: 0 }), null)).toBeNull()
+  })
+})
+
+describe("disputeEndAhead", () => {
+  const registered = (disputeUntil: number | null) => read(null, registration({ phase: "registered", disputeUntil }))
+  it("is a registered name's dispute end while it is ahead", () => {
+    expect(disputeEndAhead(registered(NOW / 1000 + 1))).toBe(NOW / 1000 + 1)
+  })
+  it("is null once the dispute end is reached, and for a name registered without one", () => {
+    for (const disputeUntil of [NOW / 1000, NOW / 1000 - 1, null]) expect(disputeEndAhead(registered(disputeUntil)), String(disputeUntil)).toBeNull()
   })
 })
 

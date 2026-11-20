@@ -111,12 +111,13 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await waitRegistered(page, label)
   const registered = await searchName(request, label)
   expect(registered.status).toBe("registered")
-  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}.`)
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { years: number; duration: number; registerTx: string; disputeDays: number; disputeUntil: number }
+  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}. Until ${dateOf(view.disputeUntil)}, the registration can be ended if its payment is disputed or refunded.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
-  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { years: number; duration: number; registerTx: string }
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
   expect(registered.expiresAt).toBe(await chainExpiry(label))
+  expect(view.disputeUntil, "the dispute days signed in the reveal, counted on chain from the register's block").toBe(await blockTimeOf(view.registerTx) + view.disputeDays * 86400)
   await shot(page, "K8-registered-with-code")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })

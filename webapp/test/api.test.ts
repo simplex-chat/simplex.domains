@@ -231,7 +231,7 @@ describe("service errors", () => {
   const REGISTRATION = {
     id: "r1", version: 4, unread: [], moves: 0, phase: "unpaid", labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: "2026-10-23", acceptance: null,
+    resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: "2026-10-23", acceptance: null, disputeDays: 120, disputeUntil: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -300,7 +300,22 @@ describe("service errors", () => {
     }
   })
 
-  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
+  it("passes an order's dispute days, 14 to 120, and its dispute end, and takes a view without them or with values that cannot be so as no answer", async () => {
+    for (const change of [{ disputeDays: 14 }, { disputeDays: 120, disputeUntil: 1810000000 }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
+      expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
+    }
+    for (const change of [
+      { disputeDays: undefined }, { disputeDays: null }, { disputeDays: 13 }, { disputeDays: 121 }, { disputeDays: 14.5 }, { disputeDays: "14" },
+      { disputeUntil: undefined }, { disputeUntil: -1 }, { disputeUntil: "1810000000" },
+    ]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
+      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
+    }
+  })
+
+  const SPEND ={ labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
 
   it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify({ registrationId: "r2" }), { status: 200 }))

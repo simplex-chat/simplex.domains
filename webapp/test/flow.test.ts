@@ -69,7 +69,7 @@ function view(request: { labelHash: string; duration: number; commitment: string
   return {
     id: "reg1", version: 1, unread: [], moves: 0, phase: "committed", labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
     years: 2, duration: request.duration, price: 20000, fromBalance: 0, balance: null, commitTx: "0x01", registerTx: null, revealAfter: 1000, revealBefore: 87400, intentNonce: 3, acceptance: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: SIGNED, ...CHAIN, ...extra,
+    community: null, terms: SIGNED, disputeDays: 120, disputeUntil: null, ...CHAIN, ...extra,
   }
 }
 
@@ -109,12 +109,12 @@ describe("orderRequest", () => {
 })
 
 describe("revealOrder", () => {
-  it("sends the label, secret and links with a RegisterName signature from the code's key, a week ahead of the service's clock", async () => {
+  it("sends the label, secret and links with a RegisterName signature from the code's key, of the order's dispute days, a week ahead of the service's clock", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
-    await flow.revealOrder(view(built.request) as never, record)
+    await flow.revealOrder(view(built.request, { disputeDays: 14 }) as never, record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: [LINKS.contact], channel: [] }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
@@ -122,7 +122,7 @@ describe("revealOrder", () => {
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
       resolver: fromHex(CHAIN.resolver), contactLinks: [LINKS.contact], channelLinks: [],
     }
-    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 3n, BigInt(body.deadline))
+    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 14n, 3n, BigInt(body.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: body.signature })).toBe(OWNER)
   })
 

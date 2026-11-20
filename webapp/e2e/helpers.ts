@@ -553,7 +553,7 @@ export async function keepOrder(page: Page, registrationId: string, invoiceId: s
 export const registrationView = (o: KeptOrder, change: Record<string, unknown> = {}) => ({
   ...CHAIN, id: o.registrationId, version: 1, unread: [], moves: 0, phase: "unpaid", labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
   years: 2, duration: 2 * YEAR_S, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, acceptance: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-  community: null, terms: PLAIN_TERMS, ...change,
+  community: null, terms: PLAIN_TERMS, disputeDays: 120, disputeUntil: null, ...change,
 })
 
 // A registered name of this browser's code, as the service answers it, holding `links` until `records` answers otherwise.

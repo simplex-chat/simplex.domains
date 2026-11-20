@@ -20,7 +20,7 @@ function registration(change: Partial<RegistrationView> = {}): RegistrationView 
   return {
     ...CHAIN, id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
     duration: 2 * YEAR_S, price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: "2026-10-23", ...change,
+    community: null, terms: "2026-10-23", disputeDays: 120, disputeUntil: null, ...change,
   }
 }
 

@@ -351,11 +351,12 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
 
   await waitRegistered(page, label)
   const main = page.locator("body > main")
-  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}.`)
+  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; disputeUntil: number } }
+  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}. Until ${dateOf(paidInvoice.registration.disputeUntil)}, the registration can be ended if its payment is disputed or refunded.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string } }
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
+  expect(paidInvoice.registration.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
   // how to use the name in the app, with its code, and no buttons to go elsewhere
   await expect(main.locator(".card.use").getByRole("heading", { name: "Use in the app" })).toBeVisible()
   await expect(await shownCode(page)).toHaveText(ownerCode)
