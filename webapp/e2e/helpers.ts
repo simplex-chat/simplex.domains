@@ -561,7 +561,8 @@ export async function fakeRegisteredName(page: Page, label: string, links: { con
   records: () => { links: { contact: string; channel: string }; nonce: number } = () => ({ links, nonce: 0 })): Promise<KeptOrder> {
   const order = await keepOrder(page, `reg-${label.slice(0, 12)}`, null, label, links)
   const expiresAt = Math.floor(Date.now() / 1000) + YEAR_S
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt }) }))
+  const disputeUntil = Math.floor(Date.now() / 1000) + 120 * 86400
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt, disputeUntil }) }))
   await page.route("**/api/name/**", (route) => {
     const now = records()
     return route.fulfill({ json: { status: "registered", entities: [], owner: order.owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId, records: now.links, recordsNonce: now.nonce,

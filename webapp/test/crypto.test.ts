@@ -160,9 +160,9 @@ describe("registration", () => {
         { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
       ] },
       primaryType: "RegisterName" as const,
-      message: { label: r.label, owner: hex(r.owner), duration: r.duration, resolver: hex(RESOLVER), data: recordCalls(r).map(hex), disputeDays: 14n, nonce: 0n, deadline: 1800000000n },
+      message: { label: r.label, owner: hex(r.owner), duration: r.duration, resolver: hex(RESOLVER), data: recordCalls(r).map(hex), disputeDays: 37n, nonce: 0n, deadline: 1800000000n },
     }
-    const digest = registerIntentDigest(CHAIN_ID, SPONSOR, r, 14n, 0n, 1800000000n)
+    const digest = registerIntentDigest(CHAIN_ID, SPONSOR, r, 37n, 0n, 1800000000n)
     expect(hex(digest)).toBe(hashTypedData(typed))
     const signature = hex(signDigest(wallet.privateKey, digest))
     expect(await recoverTypedDataAddress({ ...typed, signature })).toBe(OWNER_ADDRESS)

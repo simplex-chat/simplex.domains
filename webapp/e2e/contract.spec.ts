@@ -1095,6 +1095,15 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
 })
 
+test("a reveal signed over other dispute days than its view's is bad_request, and the reveal over the view's registers the name", async ({ request }) => {
+  const { draft, built, id } = await codeOrder(request, uniqueLabel("tu"))
+  const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+  const view = await untilRevealable(id)
+  await expect(flow.revealOrder({ ...view, disputeDays: view.disputeDays + 1 }, record)).rejects.toMatchObject({ code: "bad_request" })
+  await flow.revealOrder(view, record)
+  await untilPhase(id, ["registered"])
+})
+
 test("a move repeat is answered however old its signature, while a move signed too long ago is bad_request", async ({ request }) => {
   const { id, view } = await failedOrder(request, uniqueLabel("th"))
   const record = store.orderByRegistration(id)!

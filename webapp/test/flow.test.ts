@@ -114,7 +114,7 @@ describe("revealOrder", () => {
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
-    await flow.revealOrder(view(built.request, { disputeDays: 14 }) as never, record)
+    await flow.revealOrder(view(built.request, { disputeDays: 37 }) as never, record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: [LINKS.contact], channel: [] }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
@@ -122,7 +122,7 @@ describe("revealOrder", () => {
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
       resolver: fromHex(CHAIN.resolver), contactLinks: [LINKS.contact], channelLinks: [],
     }
-    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 14n, 3n, BigInt(body.deadline))
+    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 37n, 3n, BigInt(body.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: body.signature })).toBe(OWNER)
   })
 
