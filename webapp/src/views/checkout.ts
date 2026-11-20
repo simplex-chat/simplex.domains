@@ -94,18 +94,16 @@ async function watchBalance(source: string, signal: AbortSignal): Promise<void> 
   while (!signal.aborted) {
     let unnamed = false
     const readAt = api.serviceNow()
-    let read: api.RegistrationView
+    let balance: api.Balance | null
     try {
-      read = await api.readRegistration(source, undefined, signal)
+      balance = (await api.readRegistration(source, undefined, signal)).balance
     } catch (e) {
       await pause(api.retryDelay(e, RETRY_MS) ?? RETRY_MS, signal)
       continue
     }
     if (signal.aborted) return
-    const { balance } = read
     session.updateActiveBalance(source, session.appliedBalance(source, balance))
     if (!act({ type: "balance-read", balance })) return
-    if (read.disputeDays !== state.balanceDays) dispatch({ type: "balance-days", days: read.disputeDays })
     if (!balanceHeld(state.checkout)) return showOwnOrder()
     const paying = store.orderByRegistration(source)
     if (!holder && paying && api.serviceNow() >= findAfter) {
@@ -238,7 +236,7 @@ const disputeLine = (days: number) => `For ${days} days after it is registered, 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
 // starts, its end, and what it costs; a name registered with a code costs nothing. Paid from a balance, its price takes
 // the chats' place and the table ends with what the balance pays and the rest. In codes-only mode a code pays for every order.
-function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number | null): HTMLElement {
+function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
@@ -251,7 +249,7 @@ function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number 
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
-      disputeDays === null ? null : row("Dispute period", hinted("period", `${disputeDays} days`, disputeLine(disputeDays))),
+      row("Dispute period", hinted("period", `${disputeDays} days`, disputeLine(disputeDays))),
       c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
         : c.balance ? [row("From your balance", `\u2212${dollars(fromBalance)}`), row("To pay", dollars(rest), "total")]
         : row("Total", dollars(c.price), "total"),

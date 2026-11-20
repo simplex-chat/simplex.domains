@@ -158,6 +158,7 @@ export interface Balance {
   held: boolean
   heldUntil: string | null
   refunded: number
+  disputeDays: number
 }
 
 export interface RegistrationView extends ChainInfo {
@@ -357,7 +358,7 @@ const isPreview = (e: unknown) => isObject(e) && (e.type === "address" || e.type
 const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unknown>).link) && nullable((e as Record<string, unknown>).deepLink, isText)
 const isChain = (a: Record<string, unknown>) => isText(a.resolver) && isText(a.sponsor) && typeof a.chainId === "number" && isText(a.tld)
 const PHASES: Phase[] = ["unpaid", "queued", "committing", "committed", "registering", "registered", "ended", "taken", "failed"]
-const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded)
+const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded) && isDisputeDays(v.disputeDays)
 const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,112}$/.test(v)
 const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
 const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash

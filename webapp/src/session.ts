@@ -15,11 +15,12 @@ export interface AppliedBalance {
   amount: number
   held: boolean
   heldUntil: string | null
+  disputeDays: number
 }
 
 // a balance pays only while something is left of it
 export const appliedBalance = (source: string, balance: Balance | null): AppliedBalance | null =>
-  balance && balance.amount > 0 ? { source, amount: balance.amount, held: balance.held, heldUntil: balance.held ? balance.heldUntil : null } : null
+  balance && balance.amount > 0 ? { source, amount: balance.amount, held: balance.held, heldUntil: balance.held ? balance.heldUntil : null, disputeDays: balance.disputeDays } : null
 
 // how the balance changed since the page took it: another amount left, or none
 export type BalanceChange = "changed" | "gone"

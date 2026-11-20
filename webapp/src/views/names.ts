@@ -370,8 +370,9 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
   const { view } = s.seen[b.id]
   const holder = b.held ? holderOf(s, b.id) : undefined
+  const usable = session.appliedBalance(b.id, view.balance)
   const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
-    : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
+    : usable ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance(usable)),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
   const sub = ["From ", nameText(view.label ?? o.label, view.tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
