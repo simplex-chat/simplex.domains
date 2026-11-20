@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
-  cancelInvoice, checkCode, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlTake, createInvoice, currentTerms, dump, editRecords, find,
+  cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, createInvoice, currentTerms, dump, editRecords, find,
   HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retry, reveal, search, spend,
 } from "./mock/service.ts"
 
@@ -62,6 +62,8 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/control\/community$/, (_, b) => controlCommunity(b)],
   ["POST", /^\/control\/community-terms$/, (_, b) => controlCommunityTerms(b)],
   ["POST", /^\/control\/edits$/, (_, b) => controlEdits(b)],
+  ["POST", /^\/control\/clock$/, (_, b) => controlClock(b)],
+  ["POST", /^\/control\/seed$/, (_, b) => controlSeed(b)],
   ["POST", /^\/control\/code\/state$/, (_, b) => setCodeState(b.code, b.state)],
   ["POST", /^\/control\/code$/, (_, b) => ({ code: issueCode(Number(b.minLength), Number(b.years ?? 2), (b.state ?? "unused") as never) })],
   ["GET", /^\/control\/state$/, () => dump()],
@@ -85,7 +87,7 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function reply(res: ServerResponse, status: number, body: unknown, retryAfter: number | null = null): void {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", date: new Date().toUTCString(), ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
   res.end(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? v.toString() : v)))
 }
 

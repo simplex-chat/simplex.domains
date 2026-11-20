@@ -1,6 +1,6 @@
 // A stand-in for StoreService's names API, driving the real contracts on the local chain.
 // A development fixture: memory only, no money, and not a specification of the real service.
-import { createHash, randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
 import {
   encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
@@ -11,12 +11,14 @@ import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/
 import { CODES_ONLY, type Mode } from "../../src/mode.ts"
 import { labelProblem, LINK_MAX_BYTES, linkKind, type LinkKind, linkProblem, MAX_LABEL_LENGTH, MIN_LABEL_LENGTH } from "../../src/names.ts"
 import {
-  baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
+  baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, moveChainTo, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
 } from "./chain.ts"
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
 import { savedTerms } from "../serve-terms.ts"
 import { addressFor } from "./addresses.ts"
+import { setClock } from "./clock.ts"
 import { deepLinkOf } from "./links.ts"
+import { randomBytes, seedRandom } from "./random.ts"
 
 const YEARS = 2
 const COMMUNITY_YEARS = 2
@@ -1594,6 +1596,22 @@ export function controlMode(body: Record<string, unknown>): Record<string, unkno
 }
 
 export const modeNow = () => ({ mode: control.mode })
+
+export async function controlClock(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { now } = body
+  if (!Number.isInteger(now)) throw badRequest()
+  if (await chainNow() > (now as number)) throw new HttpError(409, "chain_ahead")
+  await moveChainTo(now as number)
+  setClock((now as number) * 1000)
+  return { now }
+}
+
+export function controlSeed(body: Record<string, unknown>): Record<string, unknown> {
+  const { seed } = body
+  if (seed !== null && typeof seed !== "string") throw badRequest()
+  seedRandom(seed)
+  return { seed }
+}
 
 // The service's record_edits_per_year as a restart with a new ini sets it, and a name's counted edits: count of them, all
 // made at `at` in unix seconds (now when not given), in place of those it has.

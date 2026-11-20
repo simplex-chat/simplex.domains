@@ -13,6 +13,7 @@
 #   MOCK_RESEND_MS     how often the mock tries again a transaction that did not go out (default: 5000)
 #   MOCK_RESENDS       how many times it tries (default: 12)
 #   MOCK_RETRY_AFTER_SECONDS  the wait the mock names for a rate limit injected with invoiceError (default: 30)
+#   CHAIN_START        the unix time of each chain's first block, for a run whose clock /control/clock sets (default: now)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -35,7 +36,7 @@ chain_file() { echo "dev/local-chain${SLOTS:+-$1}.json"; }
 # hour; a few stay in memory, as a call for the latest block fails with none while the next one is mined.
 MEMORY_STATES=8
 for ((i = 0; i < count; i++)); do
-  "$ANVIL" --chain-id 31337 --host "${ANVIL_HOST:-127.0.0.1}" --port "$((RPC_PORT + i))" --block-time 1 --prune-history "$MEMORY_STATES" --silent &
+  "$ANVIL" --chain-id 31337 --host "${ANVIL_HOST:-127.0.0.1}" --port "$((RPC_PORT + i))" --block-time 1 --prune-history "$MEMORY_STATES" --silent ${CHAIN_START:+--timestamp "$CHAIN_START"} &
 done
 rpc() { curl -s -X POST -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\"}" "$(rpc_url "$1")"; }
 for ((i = 0; i < count; i++)); do

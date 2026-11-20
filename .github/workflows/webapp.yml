@@ -34,7 +34,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -87,9 +87,33 @@ jobs:
           npx vite preview --host 127.0.0.1 &
           curl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4173/
           BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts
+      - name: Screens
+        id: screens
+        if: ${{ !cancelled() && matrix.browser == 'chromium' }}
+        env:
+          CHAIN_START: 1793602800
+        run: |
+          docker stop backend
+          docker run -d --name screens-backend --network host --ulimit core=0 \
+            -e SLOTS -e CHAIN_START -e MIN_COMMITMENT_AGE=5 -e MOCK_RESEND_MS=1000 -e MOCK_RESENDS=600 \
+            -v "$PWD/dev:/repo/webapp/dev" \
+            simplex-names-webapp dev/start.sh
+          for ((i = 0; i < SLOTS; i++)); do
+            curl -fs -o /dev/null --max-time 5 --retry 300 --retry-delay 2 --retry-all-errors "http://127.0.0.1:$((8099 + i))/control/state"
+          done
+          docker run --rm --network host --ipc host -v "$GITHUB_WORKSPACE:/work" -w /work/webapp -e SLOTS -e SCREENS=1 \
+            mcr.microsoft.com/playwright:v$(node -p 'require("@playwright/test/package.json").version')-noble \
+            npx playwright test --project=screens --output=test-results/screens
+      - uses: actions/upload-artifact@v7
+        if: failure() && steps.screens.outcome == 'failure'
+        with:
+          name: screens
+          path: webapp/e2e/screens
       - name: Backend log
         if: failure()
-        run: docker logs backend
+        run: |
+          docker logs backend
+          if [ "${{ steps.screens.outcome }}" = failure ]; then docker logs screens-backend; fi
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
