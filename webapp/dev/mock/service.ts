@@ -718,7 +718,7 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
 
 type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash"> & Partial<Pick<Registration, "fromBalance" | "balanceSource">>
 
-const DISPUTE_DAYS: Record<Registration["method"], number> = { card: 120, btc: 14, xmr: 14, code: 120, balance: 14 }
+const DISPUTE_DAYS: Record<Registration["method"], number> = { card: 120, btc: 14, xmr: 14, code: 14, balance: 14 }
 const disputeDaysOf = ({ method, balanceSource }: NewRegistration) => Math.max(DISPUTE_DAYS[method], balanceSource ? registrations.get(balanceSource)!.disputeDays : 0)
 
 function newRegistration(order: OrderBody, extra: NewRegistration): Registration {

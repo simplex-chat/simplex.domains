@@ -68,7 +68,7 @@ npm run dev
 
 `MIN_COMMITMENT_AGE` is the seconds a registration waits after its commit; the contracts' deploy scripts use 60.
 
-Each order's view in the mock contains the dispute days that the owner signs in its reveal, those of its payment: 120 for a card or a prepaid code, 14 for Bitcoin or Monero, and, for an order paid from a balance, the largest among the payments that funded it. Once the name is registered, the view contains the registrar's dispute end.
+Each order's view in the mock contains the dispute days that the owner signs in its reveal, those of its payment: 120 for a card, 14 for Bitcoin, Monero or a prepaid code, and, for an order paid from a balance, the largest among the payments that funded it. Once the name is registered, the view contains the registrar's dispute end.
 
 Without a Stripe key the dev server shows a stand-in card form, labelled as a test, whose Pay button acts as a submitted card; the production build never has the stand-in, and shows that the card form did not load. The page reads the key from `GET /api/config`, which the mock answers with none. To see Stripe's own form in development, make the mock's answer carry a test publishable key (`pk_test_…`, from the Stripe dashboard in test mode) and keep it out of commits; the mock's client secrets are not Stripe's, so no card can be confirmed against it: that needs the service, with the account's test secret key (`sk_test_…`).
 
