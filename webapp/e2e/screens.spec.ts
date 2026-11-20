@@ -1446,7 +1446,7 @@ screen(2032, "order-registering-no-record-wait", async (r) => {
   await other.route(`**/api/invoice/${invoiceId}*`, async (route) => {
     const res = await route.fetch()
     const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, revealAfter: r.now + 600 } } })
+    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, revealAfter: r.now + 60 } } })
   })
   await other.goto(`/?order=${invoiceId}`)
   await expect(onStep(other).getByRole("heading")).toBeVisible()
