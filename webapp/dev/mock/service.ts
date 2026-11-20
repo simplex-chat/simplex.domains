@@ -1506,6 +1506,7 @@ export async function controlUnregister(registrationId: string): Promise<Record<
   if (reg.phase !== "registered" || reg.disputeUntil === null) throw badRequest()
   await send(controller, "unregister", [reg.label, BigInt(reg.disputeUntil)], undefined, contractsOwner)
   reg.phase = "ended"
+  reg.expiresAt = null
   reg.disputeUntil = null
   changed(reg)
   return { ok: true }

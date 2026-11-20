@@ -85,7 +85,7 @@ Tests and manual checks move orders along with `POST` requests to the mock:
 | `/control/overdue/<invoice>` | the invoice's rate window ends now; the next request that meets it expires it, unless money reached it |
 | `/control/fail/<registration>` | the next commit fails |
 | `/control/lapse/<registration>` | a committed order not signed yet runs out of time for its reveal and fails |
-| `/control/unregister/<registration>` | the contracts' owner unregisters a registered order's name in its dispute period, as the guardian or the admin does for a disputed, reversed or refunded payment: the name is available to anyone at once, and the order is `ended` from then on, with no dispute end |
+| `/control/unregister/<registration>` | the contracts' owner unregisters a registered order's name in its dispute period, as the guardian or the admin does for a disputed, reversed or refunded payment: the name is available to anyone at once, and the order is `ended` from then on, with no expiry and no dispute end |
 | `/control/take` `{"label"}` | a rival registers the name before the waiting order; a paid order taken keeps its price as its balance |
 | `/control/refund/<invoice or registration>` `{"cents"}` | support refunds the order's whole balance, the cents given or all of it, answering the refund and the orders whose balances paid it, or why not: `no_balance`, `balance_held` (with the holder and its invoice's expiry, overdue or not) or `balance_changed` |
 | `/control/credit/<registration>` `{"cents"}` | the order's balance grows by the cents, as a later credit (a late payment, a cheaper move) grows it |
