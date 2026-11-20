@@ -30,6 +30,7 @@ const PRICE_BASE = 5000n
 const PRICE_EXCEPTIONS = [{ labelLength: 7n, priceCentsPerYear: 10000n }, { labelLength: 6n, priceCentsPerYear: 20000n }]
 // the seeded names are registered as a paid order is, for paid years from the term start
 const SEED_YEARS = 2
+const SEED_DISPUTE_DAYS = 120n
 // the registrar's credit in USD with 18 decimals, more than any number of test runs spends
 const ALLOWANCE = 1_000_000n * 10n ** 18n
 // SimplexNamePolicy.Reason.Internal
@@ -121,7 +122,7 @@ const holderAccount = privateKeyToAccount(holderKey)
 const REGISTER_TYPES = {
   RegisterName: [
     { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-    { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" },
+    { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 } as const
@@ -167,9 +168,9 @@ for (const registration of seeds) {
     domain: { name: "SimplexSponsor", version: "1", chainId, verifyingContract: sponsor.address },
     types: REGISTER_TYPES,
     primaryType: "RegisterName",
-    message: { ...registration, nonce, deadline },
+    message: { ...registration, disputeDays: SEED_DISPUTE_DAYS, nonce, deadline },
   })
-  await write(registrar, sponsor, "registerWithCredit", [registration, nonce, deadline, signature])
+  await write(registrar, sponsor, "registerWithCredit", [registration, SEED_DISPUTE_DAYS, nonce, deadline, signature])
 }
 
 const deployment = {

@@ -87,7 +87,7 @@ export async function revealOrder(view: api.RegistrationView, record: store.Orde
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, view, BigInt(view.duration))
   const deadline = Math.max(view.revealBefore!, now() + REVEAL_DEADLINE_SECONDS)
-  const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.intentNonce!), BigInt(deadline))
+  const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.disputeDays), BigInt(view.intentNonce!), BigInt(deadline))
   const a = view.acceptance
   const acceptance = a ? {
     termsHash: a.termsHash, nonce: a.nonce,

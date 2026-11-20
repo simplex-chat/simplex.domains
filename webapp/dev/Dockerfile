@@ -4,12 +4,13 @@
 
 FROM node:24-bookworm AS contracts
 ARG NAMESPACE_COMMIT=e3ba0a50d9475dab8336b5a4026ab0fc5f79ebd4
-ARG ENS_CONTRACTS_COMMIT=6ccb5c52c80619493db32a4128ee5067f4274ac2
+ARG ENS_CONTRACTS_COMMIT=f7d97419535ec75622f572e90fdb33fa928b38e7
 WORKDIR /src
 RUN git clone https://github.com/brenzi/simplex-namespace-contract.git . \
  && git fetch origin "$NAMESPACE_COMMIT" \
  && git checkout "$NAMESPACE_COMMIT" \
  && git submodule update --init ens-contracts \
+ && git -C ens-contracts fetch origin "$ENS_CONTRACTS_COMMIT" \
  && git -C ens-contracts checkout "$ENS_CONTRACTS_COMMIT"
 WORKDIR /src/ens-contracts
 RUN npx --yes pnpm@9 install --frozen-lockfile --ignore-scripts && npx hardhat compile

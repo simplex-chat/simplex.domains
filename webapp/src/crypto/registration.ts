@@ -57,13 +57,14 @@ export function recordCalls(r: Registration): Uint8Array[] {
     )
 }
 
-export function registerIntentDigest(chainId: bigint, sponsor: Uint8Array, r: Registration, nonce: bigint, deadline: bigint): Uint8Array {
-  const intent = hashStruct("RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)", [
+export function registerIntentDigest(chainId: bigint, sponsor: Uint8Array, r: Registration, disputeDays: bigint, nonce: bigint, deadline: bigint): Uint8Array {
+  const intent = hashStruct("RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 disputeDays,uint256 nonce,uint256 deadline)", [
     keccak_256(utf8ToBytes(r.label)),
     addressWord(r.owner),
     uint256(r.duration),
     addressWord(r.resolver),
     keccak_256(concatBytes(...recordCalls(r).map((c) => keccak_256(c)))),
+    uint256(disputeDays),
     uint256(nonce),
     uint256(deadline),
   ])
