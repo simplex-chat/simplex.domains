@@ -53,3 +53,4 @@ All texts: tense and person. A text addresses the person reading it as "you", ne
 | 39 | screenshot test | The countdown masks show as pink squares, which read as page defects in review (items 12, 27). Show countdowns at a fixed value from the test clock instead of masking them, or draw the mask in the background colour (Playwright's `maskColor`). |
 | 40 | home-retarget-moved-after-refusal | "Your order went …" is unclear and grammatically wrong; reword. |
 | 41 | order-unreadable (phone) | "The page keeps trying …" gives the page an effort; reword. The screen asks to "quote the reference below", and the reference shown reads "unreadable": show the order's reference, or do not ask to quote one. |
+| 42 | checkout-review-balance-gone (phone) | Bad language; rewrite. |
