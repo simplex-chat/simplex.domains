@@ -214,26 +214,31 @@ async function showOpenOrder(signal: AbortSignal): Promise<void> {
 
 const row = (what: string, value: Kid, cls?: string) => el("div", { class: `trow${cls ? ` ${cls}` : ""}` }, el("span", {}, what), el("span", {}, value))
 
-const BONUS_HINT = "bonus-hint"
 const HUSHED = "hushed"
+
+function hinted(cls: string, shown: string, hint: string): HTMLElement {
+  const days = el("button", { class: "days", type: "button", "aria-describedby": `${cls}-hint`, "data-focus": cls }, shown)
+  const holder = el("span", { class: cls }, days, el("span", { class: "tip", id: `${cls}-hint`, role: "tooltip" }, hint))
+  days.addEventListener("keydown", (e) => { if (e.key === "Escape") holder.classList.add(HUSHED) })
+  days.addEventListener("blur", () => holder.classList.remove(HUSHED))
+  holder.addEventListener("mouseleave", () => holder.classList.remove(HUSHED))
+  return holder
+}
 
 // The free days before the paid years start, with a hint saying why, which shows over the page on hover, focus or tap
 // and Escape hides.
 function term(years: number, termStart: number, now: number): Kid {
   const free = freeDays(termStart, now)
   if (free === 0) return `${years} years`
-  const days = el("button", { class: "days", type: "button", "aria-describedby": BONUS_HINT, "data-focus": "bonus" }, bonusDays(free))
-  const bonus = el("span", { class: "bonus" }, days, el("span", { class: "tip", id: BONUS_HINT, role: "tooltip" }, bonusHint(years, termStart)))
-  days.addEventListener("keydown", (e) => { if (e.key === "Escape") bonus.classList.add(HUSHED) })
-  days.addEventListener("blur", () => bonus.classList.remove(HUSHED))
-  bonus.addEventListener("mouseleave", () => bonus.classList.remove(HUSHED))
-  return [`${years} years `, bonus]
+  return [`${years} years `, hinted("bonus", bonusDays(free), bonusHint(years, termStart))]
 }
+
+const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
 // starts, its end, and what it costs; a name registered with a code costs nothing. Paid from a balance, its price takes
 // the chats' place and the table ends with what the balance pays and the rest. In codes-only mode a code pays for every order.
-function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
+function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number | null): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
@@ -245,6 +250,7 @@ function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
+      disputeDays === null ? null : row("Dispute period", hinted("period", `${disputeDays} days`, disputeLine(disputeDays))),
       c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
         : c.balance ? [row("From your balance", `\u2212${dollars(fromBalance)}`), row("To pay", dollars(rest), "total")]
         : row("Total", dollars(c.price), "total"),
@@ -460,22 +466,18 @@ function buildCommunity(s: CheckoutState): HTMLElement {
     communityCheck({ ...c, community, changed: false, tld: c.chain.tld, chainId: c.chain.chainId, disabled: s.sending || !read?.text }, accept, true))
 }
 
-const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
-
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
-  const days = disputeDaysOf(s)
   const paid = !(c.code || codeEntry(c, s.codesOnly) === "field" || covered(c))
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
-    el("div", { class: "review" }, orderCard(c, s.codesOnly),
+    el("div", { class: "review" }, orderCard(c, s.codesOnly, disputeDaysOf(s)),
       !c.codeError ? null : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)
         : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
-      days === null ? null : el("p", { class: "note center" }, disputeLine(days)),
       codeBlock(s),
       !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth))),
     payNote(s, blocked !== null, signal),
