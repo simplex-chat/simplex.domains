@@ -1,9 +1,9 @@
 // The checkout's steps: the links the name opens, its name code, a community name's community terms, and Check your order
 // with how it pays, and Pay.
 import * as api from "../api.ts"
-import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction } from "../dom.ts"
+import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction, shortName, shortNameText } from "../dom.ts"
 import * as flow from "../flow.ts"
-import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, shortLabel, termEnd } from "../format.ts"
+import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } from "../format.ts"
 import { type Method, methodMark } from "../icons.ts"
 import type { LinkKind } from "../names.ts"
 import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
@@ -243,9 +243,9 @@ function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number)
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
   const { fromBalance, rest } = split(c)
   const side = c.balance ? el("b", { class: "price" }, dollars(c.price)) : chats.length ? el("span", { class: "chats" }, chats) : null
-  const shown = shortLabel(c.label)
+  const short = shortName(c.label, c.chain.tld)
   return el("section", { class: "card order" },
-    el("div", { class: "row" }, shown === c.label ? null : el("span", { class: "sr-only" }, name), rowName(shown, c.chain.tld, c.community, "community", { read: c.label }), side),
+    el("div", { class: "row" }, short.whole, rowName(c.label, c.chain.tld, c.community, "community", { name: short }), side),
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
@@ -277,17 +277,17 @@ function balanceNote(s: CheckoutState): HTMLElement | null {
 function balanceChangeLine(s: CheckoutState): HTMLElement | null {
   const { checkout: c, holder } = s
   if (holder && heldForThisName(s)) {
-    return line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), ` holds your balance ${heldWords(c.balance!.heldUntil)}.`,
+    return line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, shortNameText(holder.label, holder.tld)), ` holds your balance ${heldWords(c.balance!.heldUntil)}.`,
       ` Press ${payLabel(c, s.codesOnly)} to open it.`)
   }
   if (c.balance?.held) {
-    return line("warn", "wallet", "Your balance is in use by ", holder ? el("a", { href: holder.url }, nameText(holder.label, holder.tld)) : "another order",
+    return line("warn", "wallet", "Your balance is in use by ", holder ? el("a", { href: holder.url }, shortNameText(holder.label, holder.tld)) : "another order",
       ` ${heldWords(c.balance.heldUntil)}.`)
   }
   switch (c.balanceChange) {
     case undefined: return null
     case "gone": return holder && tookOwnOrder(s)
-      ? line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), " already took your balance, with nothing more to pay.")
+      ? line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, shortNameText(holder.label, holder.tld)), " already took your balance, with nothing more to pay.")
       : line("warn", "wallet", "Your balance was spent or refunded meanwhile, so you pay the whole price.")
     case "changed": return line("warn", "wallet", `Your balance changed to ${dollars(c.balance!.amount)} meanwhile. Check what is left to pay.`)
   }

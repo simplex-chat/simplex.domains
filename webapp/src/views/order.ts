@@ -1,9 +1,9 @@
 // An order's page (?order=<invoice>) or a code registration's (?registration=<id>): payment, registration, and every ending.
 import * as api from "../api.ts"
 import { parseNameCode } from "../crypto/code.ts"
-import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
+import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, shortNameText, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
-import { clock, dateOf, dollars, methodName, SEP, shortAddress, shortLabel, timeOf } from "../format.ts"
+import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, disputeEndAhead, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
@@ -1272,8 +1272,7 @@ function buildRegistered(s: OrderState): HTMLElement {
   const qr = el("div", { class: "code-qr" })
   return screen({ title: [label ? gradName(label, view.tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record, disputeEndAhead(s)), action: registeredAction(s.record) },
     code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
-      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", el("span", { "aria-hidden": "true" }, nameText(shortLabel(label ?? ""), view.tld, ".")),
-        el("span", { class: "sr-only" }, `${label}.${view.tld}.`), " For a channel, set it in the channel's profile.")),
+      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", shortNameText(label ?? "", view.tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
     codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
     // under the code and over its QR, so showing the code moves it and nothing above it
