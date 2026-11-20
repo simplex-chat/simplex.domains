@@ -239,7 +239,7 @@ const disputeLine = (days: number) => `For ${days} days after it is registered, 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
 // starts, its end, and what it costs; a name registered with a code costs nothing. Paid from a balance, its price takes
 // the chats' place and the table ends with what the balance pays and the rest. In codes-only mode a code pays for every order.
-function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number): HTMLElement {
+function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number | null): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
@@ -252,7 +252,7 @@ function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number)
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
-      row("Dispute period", hinted("period", `${disputeDays} days`, disputeLine(disputeDays))),
+      disputeDays === null ? null : row("Dispute period", hinted("period", `${disputeDays} days`, disputeLine(disputeDays))),
       c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
         : c.balance ? [row("From your balance", `\u2212${dollars(fromBalance)}`), row("To pay", dollars(rest), "total")]
         : row("Total", dollars(c.price), "total"),

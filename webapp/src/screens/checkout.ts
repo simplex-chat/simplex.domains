@@ -174,8 +174,9 @@ export const awaitsCode = (c: Checkout, codesOnly: boolean) => codeEntry(c, code
 export const paymentOf = (c: Checkout, codesOnly: boolean): Payment =>
   c.code || codeEntry(c, codesOnly) === "field" ? "code" : covered(c) ? "balance" : methodOf(c)
 
-export function disputeDaysOf({ checkout: c, codesOnly }: CheckoutState): number {
-  return allowedDays(paymentOf(c, codesOnly), c.balance?.disputeDays ?? null)
+export function disputeDaysOf(s: CheckoutState): number | null {
+  const { checkout: c, codesOnly } = s
+  return tookOwnOrder(s) ? null : allowedDays(paymentOf(c, codesOnly), c.balance?.disputeDays ?? null)
 }
 
 // the review opens once the name code is saved and a community name's terms are accepted on their own step, which only a
