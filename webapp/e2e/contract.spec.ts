@@ -1099,7 +1099,7 @@ test("a reveal signed over other dispute days than its view's is bad_request, an
   const { draft, built, id } = await codeOrder(request, uniqueLabel("tu"))
   const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
   const view = await untilRevealable(id)
-  await expect(flow.revealOrder({ ...view, disputeDays: view.disputeDays + 1 }, record)).rejects.toMatchObject({ code: "bad_request" })
+  await expect(flow.revealOrder({ ...view, disputeDays: view.disputeDays - 1 }, record)).rejects.toMatchObject({ code: "bad_request" })
   await flow.revealOrder(view, record)
   await untilPhase(id, ["registered"])
 })
