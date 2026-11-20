@@ -114,7 +114,8 @@ export class DisputeDaysRefused extends Error {
 
 async function disputeDaysAllowed(view: api.RegistrationView, record: store.OrderRecord): Promise<number> {
   const paid = record.method === "balance" ? 0 : api.DISPUTE_DAYS[record.method]
-  if (view.fromBalance === 0 || view.disputeDays <= paid) return paid
+  const fromBalance = record.method === "balance" || record.balanceSource !== undefined
+  if (!fromBalance || view.disputeDays <= paid) return paid
   const source = record.balanceSource ?? await balanceSourceOf(record)
   if (!source) throw new Error("find answers this order without the order whose balance paid it")
   const balance = (await api.readRegistration(source)).balance
@@ -322,11 +323,10 @@ export async function newerOrder(record: store.OrderRecord): Promise<store.Order
   return next
 }
 
-// When the service made one of the code's orders, which an adopted order's invoice does not say; null when the service does not list it.
-export async function createdAtOf(record: store.OrderRecord, registrationId: string): Promise<string | null> {
+export async function foundOrder(record: store.OrderRecord, registrationId: string): Promise<Found | null> {
   const wallet = walletOf(record.ownerCode)
   if (!wallet) return null
-  return (await findOrders(wallet)).find((r) => r.registrationId === registrationId)?.createdAt ?? null
+  return (await findOrders(wallet)).find((r) => r.registrationId === registrationId) ?? null
 }
 
 async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<RestoreResult> {

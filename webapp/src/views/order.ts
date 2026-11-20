@@ -306,12 +306,13 @@ async function adoptSibling(view: api.RegistrationView, invoice: api.InvoiceView
   if (!sibling) return undefined
   const closed = invoice.status !== "open" && view.phase === "unpaid"
   const next = closed ? await nextOrder(view, invoice) : undefined
+  const found = next ? null : await flow.foundOrder(sibling, view.id)
   const record: store.OrderRecord = { ...sibling, registrationId: view.id, invoiceId: invoice.invoiceId,
     method: invoice.cryptoCurrency ?? "card", paid: view.price,
-    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: undefined, replacedBy: next && store.orderUrl(next),
+    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: found?.balanceSource ?? undefined, replacedBy: next && store.orderUrl(next),
     // a replaced invoice came just before its replacement; otherwise the code asks the service when the order was made,
     // which a later search for a newer order compares against
-    createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : await flow.createdAtOf(sibling, view.id).catch(() => null) ?? new Date(api.serviceNow()).toISOString() }
+    createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : found?.createdAt ?? new Date(api.serviceNow()).toISOString() }
   const adopted = await flow.syncRecord(record, view)
   if (adopted === record) store.saveOrder(record)
   if (adopted && !adopted.replacedBy) await replaceOlder(view, invoice)
