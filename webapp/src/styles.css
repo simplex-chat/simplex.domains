@@ -665,6 +665,7 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .field-copy { position: relative; }
   .field-copy::before { content: ""; position: absolute; inset: -6px; }
   .row > a, .alt a, .acts a, .end-links a, .have-code > a { padding-block: 12px; margin-block: -12px; }
+  .have-code:has(> a) { margin-top: 4px; }
 }
 
 /* a phone: its heading smaller, Back above it on a line kept on every screen, and the main button across the column with
