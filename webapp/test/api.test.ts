@@ -266,7 +266,7 @@ describe("service errors", () => {
     }
   })
 
-  const BALANCE = { amount: 10000, held: true, heldUntil: "2026-10-16T12:00:00Z", refunded: 2500 }
+  const BALANCE = { amount: 10000, held: true, heldUntil: "2026-10-16T12:00:00Z", refunded: 2500, disputeDays: 14 }
 
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {
@@ -292,6 +292,7 @@ describe("service errors", () => {
     for (const change of [
       { fromBalance: undefined }, { fromBalance: -1 }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
       { balance: { ...BALANCE, held: "yes" } }, { balance: { ...BALANCE, heldUntil: 5 } }, { balance: { ...BALANCE, refunded: null } },
+      { balance: { ...BALANCE, disputeDays: undefined } }, { balance: { ...BALANCE, disputeDays: 13 } }, { balance: { ...BALANCE, disputeDays: 121 } },
       { linksRefused: undefined }, { linksRefused: "no" }, { latePayment: undefined }, { latePayment: {} }, { latePayment: { waiting: "later" } },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
@@ -345,7 +346,7 @@ describe("service errors", () => {
       expect(e, JSON.stringify(balance)).toBeInstanceOf(BalanceChanged)
       expect(e).toMatchObject({ code: "balance_changed", status: 409, balance })
     }
-    for (const body of [{ error: "balance_changed" }, { error: "balance_changed", balance: { amount: "lots" } }]) {
+    for (const body of [{ error: "balance_changed" }, { error: "balance_changed", balance: { amount: "lots" } }, { error: "balance_changed", balance: { ...BALANCE, disputeDays: undefined } }]) {
       answerWith(409, JSON.stringify(body))
       const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(body)).toBe("network")

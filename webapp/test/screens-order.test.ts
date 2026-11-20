@@ -383,7 +383,7 @@ describe("finished", () => {
   const paidLate = (reg: Partial<RegistrationView>) => crypto({ status: "paid", paidInFull: true }, reg)
   it("follows money paid after the close until it is in the balance", () => {
     expect(finished(paidLate({}), registration())).toBe(false)
-    expect(finished(paidLate({}), registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0 } }))).toBe(true)
+    expect(finished(paidLate({}), registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } }))).toBe(true)
   })
   it("follows a late credit while it is confirming or being made, and stops once only support can make it", () => {
     for (const waiting of ["confirming", "crediting"] as const) expect(finished(paidLate({}), registration({ latePayment: { waiting } })), waiting).toBe(false)
@@ -391,7 +391,7 @@ describe("finished", () => {
     expect(finished(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }), registration({ latePayment: { waiting: "support" } })), "a part payment").toBe(true)
   })
   it("stops at a whole late payment that BTCPay keeps expired once it is in the balance, and follows a part payment for the rest", () => {
-    const credited = registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0 } })
+    const credited = registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } })
     expect(finished(crypto(LATE_FULL, credited), credited)).toBe(true)
     expect(finished(crypto(LATE_FULL), registration()), "not credited yet").toBe(false)
     const part = crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, credited)
@@ -406,7 +406,7 @@ describe("finished", () => {
 })
 
 describe("closedBalance", () => {
-  const BALANCE = { amount: 750, held: false, heldUntil: null, refunded: 0 }
+  const BALANCE = { amount: 750, held: false, heldUntil: null, refunded: 0, disputeDays: 14 }
   it("offers the balance that a confirmed part payment on an expired invoice became, so the page asks no whole price again", () => {
     expect(closedBalance(read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { balance: BALANCE })))).toBe("offer")
   })
@@ -429,7 +429,7 @@ describe("closedBalance", () => {
 describe("spendCovers", () => {
   const expired = (sourceBalance: OrderState["sourceBalance"], change: Partial<OrderState> = {}) =>
     read(crypto({ status: "expired", amount: 500 }, { price: 1500, fromBalance: 1000 }), undefined, { record: record({ balanceSource: "reg-0" }), sourceBalance, ...change })
-  const balance = (amount: number, held = false) => ({ amount, held, heldUntil: null, refunded: 0 })
+  const balance = (amount: number, held = false) => ({ amount, held, heldUntil: null, refunded: 0, disputeDays: 14 })
   it("registers with the balance once it has grown to the price", () => {
     expect(spendCovers(expired(balance(1500)))).toBe(true)
     expect(spendCovers(expired(balance(4000)))).toBe(true)
@@ -467,7 +467,7 @@ describe("newInvoiceBy", () => {
     expect(newInvoiceBy(record(), crypto({ status: "expired", amount: 500 }, { fromBalance: 1000 }))).toBe("find")
   })
   it("spends the order's own balance, which money on its closed invoice became, for the rest of the same name", () => {
-    const credited = { balance: { amount: 750, held: false, heldUntil: null, refunded: 0 } }
+    const credited = { balance: { amount: 750, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } }
     expect(newInvoiceBy(record(), crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, credited))).toBe("own")
     expect(newInvoiceBy(record({ balanceSource: "reg-0" }), crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { ...credited, fromBalance: 1000 })), "the balance that paid part first")
       .toBe("spend")

@@ -3,7 +3,7 @@ import { walletOf } from "../src/flow.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import {
-  addNameCode, control, FIT_SIZES, keepOrder, MOCK, onStep, payButton, search, searchName, sevenLetters, shot, startOrder, takenOrder, registrationView, test, toReview, uniqueLabel, waitRegistered,
+  addNameCode, control, FIT_SIZES, keepOrder, MOCK, onStep, payButton, registrationOf, search, searchName, sevenLetters, shot, startOrder, takenOrder, registrationView, test, toReview, uniqueLabel, waitRegistered,
 } from "./helpers.ts"
 
 const balanceRow = (page: Page) => onStep(page).locator(".list-row[data-key^='balance-']")
@@ -75,11 +75,20 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   await search(page, cheaper)
   await expect(page.locator(".answer .hint")).toHaveText("Paid from your balance. $100 stays in it.")
   await shot(page, "B3-home-balance")
+  const source = `**/api/registration/${await registrationOf(request, invoiceId)}*`
+  let readAgain: () => void = () => undefined
+  const held = new Promise<void>((done) => { readAgain = done })
+  await page.route(source, async (route) => {
+    await held
+    await route.continue()
+  })
   await toReview(page)
+  await expect(disputeDays(page), "the days of the Bitcoin payment the balance came from, taken with the balance before its order is read again").toHaveText("14 days")
+  readAgain()
+  await page.unroute(source)
   await expect(onStep(page).locator(".order > .row .price")).toHaveText("$100")
   await expect(onStep(page).locator(".trow", { hasText: "From your balance" })).toContainText("−$100")
   await expect(onStep(page).locator(".trow.total")).toHaveText(/^To pay\s*\$0$/)
-  await expect(disputeDays(page), "the days of the Bitcoin payment the balance came from").toHaveText("14 days")
   await shot(page, "B4-review-balance")
   await onStep(page).getByRole("button", { name: "Register with your balance" }).click()
   await page.waitForURL(/\?registration=/)
@@ -549,7 +558,7 @@ test.describe(() => {
     test(`a balance of a name of ${MAX_LABEL_LENGTH} wide letters keeps its words clear of its ${held ? "chip and the order holding it" : "Use and Refund"}, beside them or above, down to a 320 px phone`, async ({ page }) => {
       const order = await keepOrder(page, "reg-balrow", "inv-balrow", "w".repeat(MAX_LABEL_LENGTH))
       const view = registrationView(order, { phase: "taken", commitTx: "0x02",
-        balance: { amount: 10000, held, heldUntil: held ? new Date(Date.now() + 900_000).toISOString() : null, refunded: 0 } })
+        balance: { amount: 10000, held, heldUntil: held ? new Date(Date.now() + 900_000).toISOString() : null, refunded: 0, disputeDays: 14 } })
       await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
       await page.route("**/api/registration/reg-balrow*", (route) => route.fulfill({ json: view }))
       await page.route("**/api/invoice/inv-balrow*", (route) => route.fulfill({ json: { invoiceId: "inv-balrow", status: "paid", amount: 10000, currency: "usd",

@@ -1930,7 +1930,7 @@ screen(2192, "order-taken-balance-order", async (r) => {
   const order = await kept(r, `reg-${r.id}`, null, r.id)
   await r.page.evaluate((key) => localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), method: "balance" })), `simplex-names:order:reg-${r.id}`)
   await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: registrationView(order, {
-    phase: "taken", fromBalance: 10000, balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 }, commitTx: "0x02",
+    phase: "taken", fromBalance: 10000, balance: { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 14 }, commitTx: "0x02",
   }) }))
   await r.page.goto(`/?registration=reg-${r.id}`)
   await heading(r.page, `${r.id}.simplex was taken`)
@@ -2072,7 +2072,7 @@ screen(2232, "order-reorder-balance-in-use", async (r) => {
   await r.page.route(`**/api/registration/${source}*`, async (route) => {
     const res = await route.fetch()
     const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, balance: { amount: 10000, held: true, heldUntil: new Date((r.now + 3600) * 1000).toISOString(), refunded: 0 } } })
+    await route.fulfill({ response: res, json: { ...json, balance: { amount: 10000, held: true, heldUntil: new Date((r.now + 3600) * 1000).toISOString(), refunded: 0, disputeDays: 14 } } })
   })
   await press(r.page, "Get a new invoice")
   await shown(r.page, "Your balance is in use by")

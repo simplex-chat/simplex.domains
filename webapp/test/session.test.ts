@@ -82,7 +82,7 @@ describe("the tab's active code", () => {
 })
 
 describe("the tab's active balance", () => {
-  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
+  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null, disputeDays: 14 }
   const CODE = { display: "SN8-AAAAA", minLength: 8, years: 5 }
   it("takes the code's place, and a code chosen later takes the balance's", () => {
     setActiveCode(CODE)
@@ -101,11 +101,12 @@ describe("the tab's active balance", () => {
     updateActiveBalance("reg-taken", null)
     expect(activeBalance()).toBeNull()
   })
-  it("applies an order's balance only while something is left, with the end of the invoice that holds it", () => {
-    expect(appliedBalance("reg-1", { amount: 10000, held: false, heldUntil: null, refunded: 0 })).toEqual({ source: "reg-1", amount: 10000, held: false, heldUntil: null })
-    expect(appliedBalance("reg-1", { amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", refunded: 0 }))
-      .toEqual({ source: "reg-1", amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z" })
-    expect(appliedBalance("reg-1", { amount: 0, held: false, heldUntil: null, refunded: 10000 }), "refunded whole").toBeNull()
+  it("applies an order's balance only while something is left, with the end of the invoice that holds it and the dispute days it pays for", () => {
+    expect(appliedBalance("reg-1", { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 120 }))
+      .toEqual({ source: "reg-1", amount: 10000, held: false, heldUntil: null, disputeDays: 120 })
+    expect(appliedBalance("reg-1", { amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", refunded: 0, disputeDays: 14 }))
+      .toEqual({ source: "reg-1", amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", disputeDays: 14 })
+    expect(appliedBalance("reg-1", { amount: 0, held: false, heldUntil: null, refunded: 10000, disputeDays: 14 }), "refunded whole").toBeNull()
     expect(appliedBalance("reg-1", null)).toBeNull()
   })
 })

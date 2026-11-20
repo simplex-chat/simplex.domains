@@ -346,7 +346,7 @@ describe("returnedTo", () => {
 })
 
 describe("a balance", () => {
-  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
+  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null, disputeDays: 14 }
   it("is the tab's as the page opens, and as its order reads now", () => {
     const s = open({ balance: BALANCE })
     expect(s.balance).toEqual(BALANCE)

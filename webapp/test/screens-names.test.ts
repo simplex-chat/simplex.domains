@@ -193,7 +193,7 @@ describe("list helpers", () => {
 })
 
 describe("balances", () => {
-  const BALANCE = { amount: 10000, held: false, heldUntil: null, refunded: 0 }
+  const BALANCE = { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 14 }
   const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }),
     record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
   // a registered name's row is complete with its name's answer

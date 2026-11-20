@@ -360,6 +360,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   expect(paidInvoice.registration.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
   // how to use the name in the app, with its code, and no buttons to go elsewhere
   await expect(main.locator(".card.use").getByRole("heading", { name: "Use in the app" })).toBeVisible()
+  await expect(main.locator(".card.use :is(.sr-only, [aria-hidden=true])"), "a name of up to 25 letters drawn and read as it is").toHaveCount(0)
   await expect(await shownCode(page)).toHaveText(ownerCode)
   await expect(main.getByRole("button", { name: "Copy code" })).toBeVisible()
   await expect(main.getByRole("checkbox")).toHaveCount(0)
@@ -468,6 +469,8 @@ test("a reveal over more dispute days than the order's payment allows is not sig
   const notice = onStep(page).locator(".notice", { hasText: "This order cannot be signed" })
   await expect(notice).toHaveText("This order cannot be signedIts registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.",
     { timeout: REGISTRATION_MS })
+  await expect(page.locator("body > .sr-only[role=status]")).toHaveText("This order cannot be signed. Its registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.")
+  await expect(onStep(page).locator(".screen-head .lead"), "no lead to keep the page open").toHaveCount(0)
   expect(reveals, "no reveal sent").toEqual([])
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
@@ -525,6 +528,23 @@ test("the term's free days are the early adopter bonus, explained on hover, focu
   await expect(onStep(phone).getByRole("tooltip")).toBeVisible()
   expect(await inWindow(phone, onStep(phone).getByRole("tooltip")), "the hint on tap in the window").toBe(true)
   expect(await reviewLayout(phone), "the hint shown on tap moves nothing").toEqual(phoneBefore)
+  await context.close()
+})
+
+test("on a touch screen, I have a code takes its taps under the payment methods, none of theirs", async ({ page, browser, baseURL, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium's touch emulation gives the page a coarse pointer")
+  await search(page, uniqueLabel("tap"))
+  await toReview(page)
+  const checkout = await page.evaluate((key) => sessionStorage.getItem(key)!, CHECKOUT_KEY)
+  const context = await browser.newContext({ baseURL, viewport: FIT_SIZES[1], hasTouch: true, reducedMotion: "reduce" })
+  await context.addInitScript(([key, value]) => sessionStorage.setItem(key, value), [CHECKOUT_KEY, checkout])
+  const phone = await context.newPage()
+  await phone.goto("/#/checkout")
+  await expect(onStep(phone).getByRole("heading", { name: "Check your order" })).toBeVisible()
+  expect(await phone.evaluate(() => matchMedia("(pointer: coarse)").matches), "a coarse pointer").toBe(true)
+  const methods = (await onStep(phone).locator(".methods").boundingBox())!
+  const link = (await onStep(phone).getByRole("button", { name: "I have a code" }).boundingBox())!
+  expect(Math.round(link.y), "the top of the link's tap area").toBeGreaterThanOrEqual(Math.round(methods.y + methods.height))
   await context.close()
 })
 
