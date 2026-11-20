@@ -265,9 +265,8 @@ screen(104, "home-own-order-registering", async (r) => {
 
 screen(105, "home-own-order-unpaid", async (r) => {
   await ordered(r, label(r.id))
-  await r.page.route(`**/api/name/${hex(labelHash(label(r.id)))}*`, (route) => route.fulfill({ json: { found: { type: "taken" } } }))
   await search(r.page, label(r.id))
-  await answerLine(r.page)
+  await shown(r.page, "You already have an order for this name.")
 })
 
 screen(106, "home-own-order-failed", async (r) => {
