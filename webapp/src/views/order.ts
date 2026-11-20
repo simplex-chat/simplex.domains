@@ -87,10 +87,12 @@ function dispatch(event: OrderEvent): void {
   wakeOnTime()
 }
 
+const LONGEST_TIMEOUT_MS = 2 ** 31 - 1
+
 function wakeOnTime(): void {
   clearTimeout(wakes)
   const at = wakeAt(state)
-  if (at !== null) wakes = setTimeout(() => dispatch({ type: "tick", now: api.serviceNow() }), at - api.serviceNow())
+  if (at !== null) wakes = setTimeout(() => dispatch({ type: "tick", now: api.serviceNow() }), Math.min(at - api.serviceNow(), LONGEST_TIMEOUT_MS))
 }
 
 const isOpen = (gen: number) => gen === opened && isRoute(pageRoute)
