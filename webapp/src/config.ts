@@ -46,7 +46,7 @@ export async function loadConfig(): Promise<void> {
 }
 
 export async function namesSite(): Promise<NamesSite> {
-  site ??= (await readConfig())?.names ?? null
+  if (!site) await loadConfig()
   if (!site) throw new ApiError("network", 0, null, {})
   return site
 }

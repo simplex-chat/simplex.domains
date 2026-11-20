@@ -66,19 +66,24 @@ describe("loadConfig", () => {
 })
 
 describe("namesSite", () => {
-  it("reads the deployment again when the load could not, and asks no more once it has it", async () => {
+  it("reads the deployment again when the load could not, with the page's mode and Stripe key, and asks no more once it has it", async () => {
     vi.resetModules()
     const config = await import("../src/config.ts")
+    const mode = await import("../src/mode.ts")
+    const stripe = await import("../src/stripe.ts")
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
     await config.loadConfig()
     expect(config.loadedSite()).toBeNull()
     expect(() => config.readSite()).toThrow()
     await expect(config.namesSite()).rejects.toMatchObject({ code: "network" })
-    const fetch = serviceAnswering(200, { stripePublishableKey: null, names: NAMES })
-    expect(await config.namesSite()).toEqual(NAMES)
-    expect(await config.namesSite()).toEqual(NAMES)
+    expect([mode.pageMode(), stripe.publishableKey()]).toEqual(["open", ""])
+    const codes = { ...NAMES, codesOnly: true }
+    const fetch = serviceAnswering(200, { stripePublishableKey: "pk_test_again", names: codes })
+    expect(await config.namesSite()).toEqual(codes)
+    expect(await config.namesSite()).toEqual(codes)
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(config.readSite()).toEqual(NAMES)
+    expect(config.readSite()).toEqual(codes)
+    expect([mode.pageMode(), stripe.publishableKey()]).toEqual(["codes", "pk_test_again"])
   })
   it("refuses a service that sells no names", async () => {
     vi.resetModules()
