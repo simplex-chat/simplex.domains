@@ -1379,7 +1379,7 @@ screen(2004, "order-registering-committing", async (r) => {
   await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
 })
 
-const committedPhase = (r: Reach, revealAfter = r.now + 600) => ({ type: "committed", revealAfter, revealBefore: r.now + 86400, signature: { type: "signed" } })
+const committedPhase = (r: Reach, revealAfter = r.now + 60) => ({ type: "committed", revealAfter, revealBefore: r.now + 86400, signature: { type: "signed" } })
 const registeringAs = async (r: Reach, change: Record<string, unknown>) => {
   const order = await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
   const view = registrationView(order, { phase: committedPhase(r), commitTx: "0x02", ...change })
