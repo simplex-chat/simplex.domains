@@ -333,7 +333,11 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
-    if (e instanceof flow.DisputeDaysRefused) return dispatch({ type: "reveal-declined", key, days: e.days, allowed: e.allowed })
+    if (e instanceof flow.DisputeDaysRefused) {
+      dispatch({ type: "reveal-declined", key, days: e.days, allowed: e.allowed })
+      if (isRoute(pageRoute) && state.reference === reference) announce(`${NOT_SIGNABLE}. ${overDays(e)} Write to ${CONTACT_EMAIL} with the reference below.`)
+      return
+    }
     // links the service refuses are in the commitment, so signing again cannot fix them: the order has to move
     if (e instanceof api.ApiError && e.code === "invalid_link") {
       store.updateOrder(record.registrationId, { linksRefused: true })
@@ -1121,6 +1125,9 @@ function headingOf({ view, record }: OrderState): Kid {
 const leadOf = ({ record }: OrderState) => record ? ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)]
   : "The browser with its name code signed it."
 
+const NOT_SIGNABLE = "This order cannot be signed"
+const overDays = ({ days, allowed }: { days: number; allowed: number }) => `Its registration could be ended for ${days} days, longer than the ${allowed} days its payment allows.`
+
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
@@ -1158,12 +1165,11 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)
-  return screen({ title: headingOf(s), lead: unavailable ? null : leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
+  return screen({ title: headingOf(s), lead: unavailable || declined ? null : leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
-    declined ? alertBox("danger", "alert", "This order cannot be signed", [`Its registration could be ended for ${declined.days} days, longer than the ${declined.allowed} days its payment allows. Write to `,
-      el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
+    declined ? alertBox("danger", "alert", NOT_SIGNABLE, [`${overDays(declined)} Write to `, el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
