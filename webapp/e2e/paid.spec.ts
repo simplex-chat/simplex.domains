@@ -444,7 +444,7 @@ test("Check your order says for how many days the registration can be ended, by 
   for (const [method, days] of [["Card", 120], ["Bitcoin", 14], ["Monero", 14]] as const) {
     await page.getByRole("radio", { name: method }).click()
     await expect(disputeRow(page).getByRole("button")).toHaveText(`${days} days`)
-    await expect(disputeRow(page).getByRole("tooltip")).toHaveText(disputeLine(days))
+    await expect(disputeRow(page).getByRole("button")).toHaveAccessibleDescription(disputeLine(days))
   }
   await expect(disputeRow(page).getByRole("tooltip")).toBeHidden()
   await disputeRow(page).getByRole("button").hover()
@@ -469,6 +469,7 @@ test("a reveal over more dispute days than the order's payment allows is not sig
   await expect(notice).toHaveText("This order cannot be signedIts registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.",
     { timeout: REGISTRATION_MS })
   expect(reveals, "no reveal sent").toEqual([])
+  await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
 test("the term's free days are the early adopter bonus, explained on hover, focus and tap, with nothing moving", async ({ page, browser, baseURL }) => {
@@ -536,7 +537,7 @@ test("a term that has started has no free days, so no bonus or hint, which come 
   await page.reload()
   await expect(onStep(page).locator(".trow").first()).toHaveText("Term2 years")
   await expect(bonusOf(page)).toHaveCount(0)
-  await expect(onStep(page).locator("[role=tooltip]")).toHaveCount(0)
+  await expect(onStep(page).locator(".trow").first().locator("[role=tooltip]")).toHaveCount(0)
   await startAt(termStart)
   await page.reload()
   await expect(bonusOf(page)).toHaveAccessibleDescription(/^Early adopter bonus/)
@@ -1413,15 +1414,23 @@ test("once a name is registered, Back to its search never offers it again, and Y
   expect(await page.evaluate(() => (window as unknown as { __chips: string[] }).__chips), "the row's chips from its first draw").toEqual([])
 })
 
-test("on a phone, a long name wraps beside its chats on Check your order, the chats at the row's right", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(63)}`.slice(0, 63))
+const orderRow = async (page: Page) => {
   const row = onStep(page).locator(".card.order > .row")
   const [box, name, chats] = await Promise.all([row, row.locator(".name"), row.locator(".chats")].map(async (l) => (await l.boundingBox())!))
   const padding = await row.evaluate((r) => parseFloat(getComputedStyle(r).paddingRight))
+  return { name, chats, right: Math.round(box.x + box.width - padding) }
+}
+
+test("on a phone, a long name wraps beside its chats on Check your order, the chats at the row's right, as they are for a name abbreviated", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(25)}`.slice(0, 25))
+  const { name, chats, right } = await orderRow(page)
   expect(chats.x, "the chats after the name").toBeGreaterThanOrEqual(name.x + name.width)
-  expect(Math.round(chats.x + chats.width), "the chats at the row's right").toBe(Math.round(box.x + box.width - padding))
+  expect(Math.round(chats.x + chats.width), "the chats at the row's right").toBe(right)
   expect(name.height, "the name on more than one line").toBeGreaterThan(40)
+  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(63)}`.slice(0, 63))
+  const abbreviated = await orderRow(page)
+  expect(Math.round(abbreviated.chats.x + abbreviated.chats.width), "the chats of a name abbreviated at the row's right").toBe(abbreviated.right)
 })
 
 // how often a pay page checks its name again (NAME_CHECK_MS in src/views/order.ts)
