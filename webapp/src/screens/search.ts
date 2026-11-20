@@ -148,7 +148,7 @@ export function reduce(s: SearchState, e: SearchEvent): SearchState {
 export interface OrderRead { phase: Phase; invoice: InvoiceView["status"] | null }
 export interface OwnOrders { open: OrderRecord | null; closed: OrderRecord | null }
 
-const ENDED: Phase[] = ["registered", "ended", "taken", "failed"]
+const OUTCOMES: Phase[] = ["registered", "ended", "taken", "failed"]
 
 // This browser's orders for a name, newest first: the first that can still register it, and the newest that closed
 // unpaid, cancelled or expired. A cancelled order is closed without a read; one that cannot be read is neither.
@@ -161,7 +161,7 @@ export async function ownOrders(orders: OrderRecord[], read: (o: OrderRecord) =>
     }
     const r = await read(o)
     if (r === null) continue
-    if (r.phase === "unpaid" ? r.invoice === "open" : !ENDED.includes(r.phase)) return { open: o, closed }
+    if (r.phase === "unpaid" ? r.invoice === "open" : !OUTCOMES.includes(r.phase)) return { open: o, closed }
     if (r.phase === "unpaid" && r.invoice !== null) closed ??= o
   }
   return { open: null, closed }
