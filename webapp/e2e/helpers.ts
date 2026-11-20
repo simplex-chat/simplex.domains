@@ -29,11 +29,12 @@ export function uniqueLabel(prefix: string): string {
 // a name of 7 letters, which costs $200 for its 2 years where one of 8 or more costs $100
 export const sevenLetters = () => `b${Math.random().toString(36).slice(2).replace(/[^a-z]/g, "")}bbbbbb`.slice(0, 7)
 
-// A link's key, led by a tag that tells the mock what profile to give it, in whole base64url groups, which the chat core reads
-const LINK_KEY_CHARS = 32
-const linkKey = (tag: string, rest: string) => `${tag}${rest}`.slice(0, LINK_KEY_CHARS)
-export const contactLink = (tag: string) => `https://smp8.simplex.im/a#${linkKey(tag, "Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS")}`
-export const channelLink = (tag: string) => `https://smp9.simplex.im/c#${linkKey(tag, "Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm")}`
+// A link's key, led by a tag that tells the mock what profile to give it: a 32-byte hash in base64url, as the chat core reads
+// it, 43 characters, the last with its two spare bits zero
+const LINK_KEY_CHARS = 43
+const linkKey = (tag: string, rest: string) => `${tag}${rest}`.slice(0, LINK_KEY_CHARS - 1) + "A"
+export const contactLink = (tag: string) => `https://smp8.simplex.im/a#${linkKey(tag, "Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSt4Uv6Wx8Zg")}`
+export const channelLink = (tag: string) => `https://smp9.simplex.im/c#${linkKey(tag, "Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lmn3Bq5Cs7Eg")}`
 
 export async function control(request: APIRequestContext, path: string, body: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const res = await request.post(`${MOCK}/control/${path}`, { data: body })

@@ -270,10 +270,13 @@ screen(110, "home-other-order-registering", async ({ page, id }) => {
   await answerLine(page)
 })
 
-screen(112, "home-taken-unparseable-link", async ({ page }) => {
-  await seededAsNames(page, "bakery", [])
-  await search(page, "bakery")
-  await expect(onStep(page).locator(".answer .card.row")).toContainText("Taken")
+screen(112, "home-taken-unparseable-link", async (r) => {
+  const { page, registrationId } = await registeredElsewhere(r)
+  const ownerCode = await ownerCodeOf(page, registrationId)
+  await ownerSetsText(ownerCode, r.id, "simplex.contact", damaged(contactLink("")))
+  await ownerSetsText(ownerCode, r.id, "simplex.channel", damaged(channelLink("")))
+  await search(r.page, r.id)
+  await expect(onStep(r.page).locator(".answer .card.row")).toContainText("Taken")
 })
 
 screen(114, "home-taken-kind-mismatch", async ({ page, id }) => {
@@ -347,26 +350,14 @@ const answerName = (page: Page, name: string, json: Record<string, unknown>) =>
 const UNREADABLE_TERMS = `http://127.0.0.1:8098/terms/${"0".repeat(64)}.md#sha256=${"0".repeat(64)}`
 const OTHER_OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" as const
 const deepOf = (link: string) => `simplex:/${link.includes("/c#") ? "c" : "a"}#${link.split("#")[1]}?h=${new URL(link).host}`
-const BAKERY_LINKS = { contact: "https://smp8.simplex.im/a#contact", channel: channelLink("BN") }
+const BAKERY_LINKS = { contact: contactLink("AB"), channel: channelLink("BN") }
 const BAKERY = [
   { preview: okPreview("contact", "Alice's Bakery", { fullName: "Sourdough and pastries, Lisbon" }), link: BAKERY_LINKS.contact, deepLink: deepOf(BAKERY_LINKS.contact) },
   { preview: okPreview("channel", "Bakery news", { fullName: "Daily bakes and opening hours", publicMemberCount: 1204 }), link: BAKERY_LINKS.channel, deepLink: deepOf(BAKERY_LINKS.channel) },
 ]
 const takenWith = (entities: unknown[], links = BAKERY_LINKS) => registeredTo(OTHER_OWNER, START_S + 2 * YEAR_S, links, entities)
-const NAMES_SEEDS = {
-  bakery: { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS", channel: "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm" },
-  bakehouse: { contact: "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS", channel: "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm" },
-}
-const seededAsNames = (page: Page, name: keyof typeof NAMES_SEEDS, entities: unknown[]) =>
-  page.route(`**/api/name/${hex(labelHash(name))}*`, async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    json.found.entities = entities
-    json.found.records = { ...json.found.records, ...NAMES_SEEDS[name] }
-    await route.fulfill({ response: res, json })
-  })
-const unavailableSeeds = (name: keyof typeof NAMES_SEEDS) => (["contact", "channel"] as const).map((kind) =>
-  ({ preview: { kind, profile: { type: "unavailable" } }, link: NAMES_SEEDS[name][kind], deepLink: deepOf(NAMES_SEEDS[name][kind]) }))
+const damaged = (link: string) => `${link.slice(0, -1)}B`
+const UNFETCHED_LINKS = { contact: contactLink("Off"), channel: channelLink("Off") }
 const seven = (id: string) => `s${([...id].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) % 36 ** 6).toString(36).padStart(6, "0")}`
 
 screen(124, "home-empty", async ({ page }) => {
@@ -497,10 +488,10 @@ screen(168, "home-taken-chats-read", async ({ page }) => {
   await search(page, "bakery")
   await expect(page.locator(".answer").getByRole("button", { name: "Bakery news, channel" })).toBeVisible()
 })
-screen(170, "home-taken-chats-unread", async ({ page }) => {
-  await seededAsNames(page, "bakery", unavailableSeeds("bakery"))
-  await search(page, "bakery")
-  await expect(page.locator(".answer .row .chat").first()).toBeVisible()
+screen(170, "home-taken-chats-unread", async (r) => {
+  await registeredElsewhere(r, UNFETCHED_LINKS)
+  await search(r.page, r.id)
+  await expect(r.page.locator(".answer .row .chat")).toHaveCount(2)
 })
 screen(172, "home-taken-no-chats", async ({ page }) => {
   await search(page, "harbour")
@@ -533,14 +524,13 @@ const bakeryChat = async (page: Page, name: string) => {
 }
 screen(182, "home-chat-popup-channel", ({ page }) => bakeryChat(page, "Bakery news, channel"))
 screen(184, "home-chat-popup-contact", ({ page }) => bakeryChat(page, "Alice's Bakery, contact address"))
-screen(186, "home-chat-popup-unread", async ({ page }) => {
-  await seededAsNames(page, "bakery", unavailableSeeds("bakery"))
-  await search(page, "bakery")
-  await page.locator(".answer .row .chat").last().click()
-  await expect(page.getByRole("dialog")).toBeVisible()
+screen(186, "home-chat-popup-unread", async (r) => {
+  await registeredElsewhere(r, UNFETCHED_LINKS)
+  await search(r.page, r.id)
+  await r.page.locator(".answer .row .chat").last().click()
+  await expect(r.page.getByRole("dialog")).toBeVisible()
 })
 screen(188, "home-chat-popup-community", async ({ page }) => {
-  await seededAsNames(page, "bakehouse", unavailableSeeds("bakehouse"))
   await search(page, "bakehouse")
   await page.locator(".answer .row .chat").first().click()
   await expect(page.getByRole("dialog")).toBeVisible()
@@ -767,9 +757,9 @@ const linkStep = async (page: Page, name: string, link: string) => {
   await page.waitForTimeout(800)
 }
 
-screen(1000, "checkout-links-simplex-without-h", ({ page, id }) => linkStep(page, id, "simplex:/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9"))
-screen(1002, "checkout-links-noncanonical-key", ({ page, id }) => linkStep(page, id, "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS"))
-screen(1004, "checkout-links-forms-now-taken", ({ page, id }) => linkStep(page, id, "https://smp8.simplex.im/A#G7Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7p"))
+screen(1000, "checkout-links-simplex-without-h", ({ page, id }) => linkStep(page, id, contactLink("").replace("https://smp8.simplex.im/", "simplex:/")))
+screen(1002, "checkout-links-noncanonical-key", ({ page, id }) => linkStep(page, id, damaged(contactLink(""))))
+screen(1004, "checkout-links-forms-now-taken", ({ page, id }) => linkStep(page, id, contactLink("G7").replace("/a#", "/A#")))
 
 const review = async ({ page, id }: Reach, method?: "Card" | "Bitcoin" | "Monero") => {
   await search(page, id)
@@ -2186,7 +2176,7 @@ screen(3000, "names-row-lapsed-unsigned", async (r) => {
 
 const ownerSetsChannel = async (r: Reach, registrationId: string) => {
   const ownerCode = await r.page.evaluate((id) => JSON.parse(localStorage.getItem(`simplex-names:order:${id}`)!).ownerCode as string, registrationId)
-  await ownerSetsText(ownerCode, r.id, "simplex.channel", "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm")
+  await ownerSetsText(ownerCode, r.id, "simplex.channel", damaged(channelLink("")))
 }
 
 screen(3002, "names-row-registered-unparsed-link", async (r) => {
@@ -2273,9 +2263,9 @@ const editField = async (r: Reach, link: string) => {
   await r.page.waitForTimeout(800)
 }
 
-screen(3024, "names-edit-field-simplex-no-host", (r) => editField(r, "simplex:/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9"))
-screen(3026, "names-edit-field-uppercase-type", (r) => editField(r, "https://smp8.simplex.im/A#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9"))
-screen(3028, "names-edit-field-noncanonical-typed", (r) => editField(r, "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm"))
+screen(3024, "names-edit-field-simplex-no-host", (r) => editField(r, contactLink("").replace("https://smp8.simplex.im/", "simplex:/")))
+screen(3026, "names-edit-field-uppercase-type", (r) => editField(r, contactLink("").replace("/a#", "/A#")))
+screen(3028, "names-edit-field-noncanonical-typed", (r) => editField(r, damaged(channelLink(""))))
 screen(3030, "names-edit-field-noncanonical-kept", async (r) => {
   const { registrationId } = await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
@@ -2325,6 +2315,10 @@ const registered = async (r: Reach, name: string, links: { contact: string; chan
   const registrationId = new URL(r.page.url()).searchParams.get("registration")!
   await waitRegistered(r.page, name)
   return registrationId
+}
+const registeredElsewhere = async (r: Reach, links: { contact: string; channel: string } | null = null) => {
+  const page = await elsewhere(r, "/")
+  return { page, registrationId: await registered({ ...r, page }, r.id, links) }
 }
 
 screen(3032, "names-list-empty", async ({ page }) => { await yourNames(page) })
