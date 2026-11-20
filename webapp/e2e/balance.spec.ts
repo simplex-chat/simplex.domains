@@ -80,12 +80,11 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   const held = new Promise<void>((done) => { readAgain = done })
   await page.route(source, async (route) => {
     await held
-    await route.continue()
+    await route.continue().catch(() => undefined)
   })
   await toReview(page)
   await expect(disputeDays(page), "the days of the Bitcoin payment the balance came from, taken with the balance before its order is read again").toHaveText("14 days")
   readAgain()
-  await page.unroute(source)
   await expect(onStep(page).locator(".order > .row .price")).toHaveText("$100")
   await expect(onStep(page).locator(".trow", { hasText: "From your balance" })).toContainText("−$100")
   await expect(onStep(page).locator(".trow.total")).toHaveText(/^To pay\s*\$0$/)
