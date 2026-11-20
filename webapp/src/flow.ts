@@ -84,6 +84,8 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
 // The owner signs the registration once the commit has aged, with a deadline a week ahead and never before the commitment
 // lapses, so the service can commit again after a lapse and register without the page.
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
+  const allowed = await disputeDaysAllowed(view, record)
+  if (view.disputeDays > allowed) throw new DisputeDaysRefused(view.disputeDays, allowed)
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, view, BigInt(view.duration))
   const deadline = Math.max(view.revealBefore!, now() + REVEAL_DEADLINE_SECONDS)
@@ -98,6 +100,23 @@ export async function revealOrder(view: api.RegistrationView, record: store.Orde
     records: { contact: r.contactLinks, channel: r.channelLinks },
     nonce: view.intentNonce!, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   })
+}
+
+export class DisputeDaysRefused extends Error {
+  readonly days: number
+  readonly allowed: number
+  constructor(days: number, allowed: number) {
+    super("dispute_days")
+    this.days = days
+    this.allowed = allowed
+  }
+}
+
+async function disputeDaysAllowed(view: api.RegistrationView, record: store.OrderRecord): Promise<number> {
+  const paid = record.method === "balance" ? 0 : api.DISPUTE_DAYS[record.method]
+  if (view.fromBalance === 0) return paid
+  const source = record.balanceSource ?? await balanceSourceOf(record)
+  return Math.max(paid, source ? (await api.readRegistration(source)).disputeDays : view.disputeDays)
 }
 
 async function sha256Hex(text: string): Promise<string> {

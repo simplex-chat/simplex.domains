@@ -59,6 +59,7 @@ export interface OrderState {
   unavailable: { key: string; status: SearchAnswer["status"] } | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
+  declined: { key: string; days: number; allowed: number } | null
 }
 
 export type OrderEvent =
@@ -75,6 +76,7 @@ export type OrderEvent =
   | { type: "reveal-refused"; key: string }
   | { type: "reveal-failed"; key: string }
   | { type: "reveal-retried" }
+  | { type: "reveal-declined"; key: string; days: number; allowed: number }
   | { type: "cancel-started" }
   | { type: "cancel-answered" }
   | { type: "cancel-failed"; note: Note }
@@ -96,7 +98,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, unavailable: null, since: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, unavailable: null, since: null, declined: null }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase}${view.phase === "committed" && view.label !== null ? " signed" : ""}`
@@ -126,6 +128,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "reveal-refused": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false, refusals: s.reveal.refusals + 1 } } : s
     case "reveal-failed": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false } } : s
     case "reveal-retried": return s.reveal ? { ...s, reveal: { ...s.reveal, refusals: 0 } } : s
+    case "reveal-declined": return { ...s, declined: { key: e.key, days: e.days, allowed: e.allowed }, reveal: s.reveal?.key === e.key ? { ...s.reveal, sending: false } : s.reveal }
     case "cancel-started": return start(s, "cancel")
     case "cancel-answered": return end(s, "cancel", {})
     case "cancel-failed": return end(s, "cancel", { note: e.note })
@@ -292,13 +295,15 @@ export const commitKey = (view: RegistrationView) => `${view.id} ${view.commitme
 // The changed terms cannot be asked for a name the search answered as registered or reserved while this commitment waits.
 export const nameUnavailable = (s: OrderState) => s.view && s.unavailable?.key === commitKey(s.view) ? s.unavailable : null
 
+export const declinedNow = ({ view, declined }: OrderState) => view && declined?.key === revealKey(view) ? declined : null
+
 export function refusalsOf({ view, reveal }: OrderState): number {
   return view?.phase === "committed" && reveal?.key === revealKey(view) ? reveal.refusals : 0
 }
 
 export function revealDue(s: OrderState): boolean {
   const { view, record, reveal } = s
-  if (view?.phase !== "committed" || view.label !== null || view.intentNonce === null || !record || linksRefused(s)) return false
+  if (view?.phase !== "committed" || view.label !== null || view.intentNonce === null || !record || linksRefused(s) || declinedNow(s)) return false
   if (view.unread.includes("acceptance") || termsToAgree(s)) return false
   if ((view.revealAfter ?? 0) * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
@@ -306,7 +311,7 @@ export function revealDue(s: OrderState): boolean {
 
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
-  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s)) return null
+  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s) || declinedNow(s)) return null
   if (view.phase !== "committed" || view.label !== null) return since.at + TX_STALL_MS
   return Math.max(since.at, (view.revealAfter ?? 0) * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }

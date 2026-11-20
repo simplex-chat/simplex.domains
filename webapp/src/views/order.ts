@@ -6,7 +6,7 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, shortLabel, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, disputeEndAhead, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, disputeEndAhead, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
@@ -333,6 +333,7 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
+    if (e instanceof flow.DisputeDaysRefused) return dispatch({ type: "reveal-declined", key, days: e.days, allowed: e.allowed })
     // links the service refuses are in the commitment, so signing again cannot fix them: the order has to move
     if (e instanceof api.ApiError && e.code === "invalid_link") {
       store.updateOrder(record.registrationId, { linksRefused: true })
@@ -1130,6 +1131,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const states = stagesOf(view)
   sayStage(view, states)
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
+  const declined = declinedNow(s)
   const steps = stages(states)
   const stalled = stalledAt(s)
   const unavailable = nameUnavailable(s)
@@ -1152,7 +1154,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase !== "committed") return say(note, view.phase === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)
-    if (view.label === null && (refused || termsToAgree(s))) say(note, "The registration is not signed yet.")
+    if (view.label === null && (refused || declined || termsToAgree(s))) say(note, "The registration is not signed yet.")
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)
@@ -1161,6 +1163,8 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
+    declined ? alertBox("danger", "alert", "The name is not signed", [`The registration could be ended for ${declined.days} days after it is registered, longer than the ${declined.allowed} days its payment allows, so this page does not sign it. Write to `,
+      el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
     unavailable ? alertBox("warn", "alert", unavailable.status === "reserved" ? "The name was reserved meanwhile" : "Someone registered the name first",
