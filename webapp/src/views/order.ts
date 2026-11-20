@@ -1276,7 +1276,7 @@ function registeredLead(view: api.RegistrationView, record: store.OrderRecord | 
 function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
   const label = labelOf(view!, record)
   return outcome({ tone: "warn", icon: "alert", title: "Registration ended",
-    text: ["The registration of ", label ? nameText(label, view!.tld) : "the name", " was ended because a payment for it was disputed, reversed or refunded in full. Anyone can register the name now."],
+    text: ["The registration of ", label ? nameText(label, view!.tld) : "the name", " was ended because a payment for it was disputed, reversed or refunded in full."],
     action: btn("Search a name", "", () => go(searchLink(""))), reference: invoice?.invoiceId ?? view!.id })
 }
 
