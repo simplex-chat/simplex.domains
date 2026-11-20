@@ -502,6 +502,11 @@ describe("disputeDaysOf", () => {
     expect(disputeDaysOf(open({ checkout: checkout({ method: "card", balance: BALANCE }) })), "covered").toBe(14)
     expect(disputeDaysOf(open({ checkout: checkout({ method: "btc", balance: { ...BALANCE, disputeDays: 120 } }) })), "covered").toBe(120)
   })
+  it("is none once this name's own order took the balance, as that order signs the balance's days", () => {
+    const own = { label: "alice1", tld: "simplex", url: "/?registration=reg-9" }
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", balance: null, balanceChange: "gone" }), holder: own }))).toBeNull()
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", balance: null, balanceChange: "gone" }) })), "gone before its order is found: the whole price, by card").toBe(120)
+  })
   it("follows the balance's days as a read changes them", () => {
     const s = open({ checkout: checkout({ method: "btc", balance: BALANCE }) })
     const read = reduce(s, { type: "balance-read", balance: { amount: 1500, held: false, heldUntil: null, refunded: 0, disputeDays: 120 } })

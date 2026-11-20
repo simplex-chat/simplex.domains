@@ -61,6 +61,14 @@ describe("the tab's checkout", () => {
     setCheckout(null)
     expect(tabCheckout()).toBeNull()
   })
+  it("one holding a balance an older page kept without its dispute days is a leftover", () => {
+    const balance = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
+    setCheckout({ ...checkout("olderbalance", "SN-AAAAA"), balance } as never)
+    expect(tabCheckout()).toBeNull()
+    setCheckout({ ...checkout("newerbalance", "SN-AAAAA"), balance: { ...balance, disputeDays: 120 } })
+    expect(tabCheckout()!.balance).toEqual({ ...balance, disputeDays: 120 })
+    setCheckout(null)
+  })
 })
 
 describe("the tab's active code", () => {
@@ -100,6 +108,12 @@ describe("the tab's active balance", () => {
     expect(activeBalance()).toEqual({ ...BALANCE, amount: 2500 })
     updateActiveBalance("reg-taken", null)
     expect(activeBalance()).toBeNull()
+  })
+  it("is none when an older page kept it without its dispute days", () => {
+    const { disputeDays: _, ...older } = BALANCE
+    setActiveBalance(older as never)
+    expect(activeBalance()).toBeNull()
+    setActiveBalance(null)
   })
   it("applies an order's balance only while something is left, with the end of the invoice that holds it and the dispute days it pays for", () => {
     expect(appliedBalance("reg-1", { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 120 }))

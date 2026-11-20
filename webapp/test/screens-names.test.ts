@@ -130,13 +130,14 @@ describe("list helpers", () => {
     expect(linksAction(hasLinks(record({ contact: CONTACT }), null))).toBe("Edit links")
     expect(linksAction(hasLinks(record(), registered({ contact: "", channel: CHANNEL })))).toBe("Edit links")
   })
-  it("editable: a name in the app's wallet, or pointed at another resolver, is not edited here", () => {
+  it("editable: a name in the app's wallet, pointed at another resolver, or not answered as registered, is not edited here", () => {
     expect(editable(registered(), OWNER)).toBe(true)
     expect(editable(registered(), OWNER.toLowerCase())).toBe(true)
     expect(editable(registered(undefined, { owner: APP }), OWNER)).toBe(false)
     expect(editable(registered(null), OWNER)).toBe(false)
     expect(editable(registered(undefined, { owner: undefined }), OWNER)).toBe(true)
-    expect(editable(available, OWNER)).toBe(true)
+    expect(editable(available, OWNER), "unregistered on chain before the service's check").toBe(false)
+    expect(editable({ status: "reserved", community: null }, OWNER)).toBe(false)
   })
   it("hasLinks: a name's records once read, else the links it was ordered with", () => {
     expect(hasLinks(record(), registered()), "a contact address on chain").toBe(true)
@@ -468,6 +469,8 @@ describe("edit", () => {
       ["a name registered again by someone else", STATES["edit-expired"], "edit-expired"],
       ["a registration ended in its dispute period", STATES["edit-ended"], "edit-ended"],
       ["a registration ended, its name registered again since", answered(opened, registered(undefined, { owner: APP }), registration({ phase: "ended", label: "alice" })), "edit-ended"],
+      ["a name unregistered on chain before the service's check, read again", answered(opened, available), "edit-unreadable"],
+      ["a name reserved since, read again", answered(opened, { status: "reserved", community: null }), "edit-unreadable"],
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
