@@ -412,6 +412,8 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .review { display: grid; gap: 8px; }
 .review .pay-with { --block-gap: 8px; }
 .review .trow { padding-block: 4px; }
+.review:has(.line) .order > .row { min-height: 0; }
+.review:has(.line) .trow { line-height: 1.3; }
 .screen-body:has(> .review) { --body-gap: 8px; }
 /* the balance's live region keeps its place in the review empty, taking no gap */
 .review > .balance-note:empty { margin-top: -8px; }
