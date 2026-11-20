@@ -293,7 +293,28 @@ screen(116, "home-retarget-failed-other-cause", async (r) => {
   await heading(r.page, "Paid, not registered")
 })
 
+const movedElsewhere = async (r: Reach, retarget: string) => {
+  const other = await r.page.context().newPage()
+  await other.goto(retarget)
+  await other.getByLabel("Name", { exact: true }).fill(`${r.id}-z`)
+  await other.getByLabel("Name", { exact: true }).press("Enter")
+  await agreeToTerms(other)
+  await control(r.request, "search", { unsentSeconds: 120 })
+  await press(other, "Register with your payment")
+  await other.waitForURL(/\?order=/)
+  await other.close()
+}
+
 screen(118, "home-retarget-moved", async (r) => {
+  const { registrationId } = await failed(r, label(r.id))
+  const retarget = `/#/?retarget=${registrationId}`
+  await movedElsewhere(r, retarget)
+  await r.page.goto(retarget)
+  await r.page.waitForURL(/\?order=/)
+  await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
+})
+
+screen(119, "home-retarget-unpaid", async (r) => {
   const { invoiceId } = await paid(r, label(r.id))
   await r.page.goto(`/#/?retarget=${await registrationOf(r.request, invoiceId)}`)
   await heading(r.page, "Pay with Bitcoin")
@@ -306,15 +327,7 @@ screen(120, "home-retarget-moved-after-refusal", async (r) => {
   await r.page.getByLabel("Name", { exact: true }).fill(`${r.id}-y`)
   await r.page.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(r.page)
-  const other = await r.page.context().newPage()
-  await other.goto(retarget)
-  await other.getByLabel("Name", { exact: true }).fill(`${r.id}-z`)
-  await other.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(other)
-  await control(r.request, "search", { unsentSeconds: 120 })
-  await press(other, "Register with your payment")
-  await other.waitForURL(/\?order=/)
-  await other.close()
+  await movedElsewhere(r, retarget)
   await press(r.page, "Register with your payment")
   await r.page.waitForURL(/\?order=/)
   await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
