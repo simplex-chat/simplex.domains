@@ -14,6 +14,7 @@ import {
   baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, moveChainTo, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
 } from "./chain.ts"
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
+import { registerNameTypedData } from "../register-name.ts"
 import { savedTerms } from "../serve-terms.ts"
 import { addressFor } from "./addresses.ts"
 import { setClock } from "./clock.ts"
@@ -72,7 +73,7 @@ const SIGN_AGAIN = ["InvalidNonce", "TermsNotAccepted", "TermsMismatch"]
 const COMMUNITY_TEXT_MAX = 200
 const SECP256K1_HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n
 
-export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
+export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "ended" | "taken" | "failed"
 type Method = "card" | "btc" | "xmr"
 type Coin = Exclude<Method, "card">
 const isMethod = (v: unknown): v is Method => v === "card" || v === "btc" || v === "xmr"
@@ -121,6 +122,8 @@ interface Registration {
   balanceSource: string | null
   // the terms the order signed when it was made or last moved
   terms: string
+  disputeDays: number
+  disputeUntil: number | null
 }
 
 interface Invoice {
@@ -475,7 +478,7 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
     id: reg.id, version: reg.version, moves: reg.moves, phase: reg.phase, labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     resolver: deployment.resolver, sponsor: deployment.sponsor, chainId: deployment.chainId, tld: deployment.tld, years: reg.years, duration: reg.duration, price: reg.paid,
     fromBalance: reg.fromBalance, balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx, revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
-    intentNonce, acceptance, unread, expiresAt: reg.expiresAt, error: reg.error, linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: reg.terms,
+    intentNonce, disputeDays: reg.disputeDays, acceptance, unread, expiresAt: reg.expiresAt, disputeUntil: reg.disputeUntil, error: reg.error, linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: reg.terms,
   }
 }
 
@@ -500,7 +503,8 @@ function balanceView(registrationId: string): Record<string, unknown> | null {
   if (!b) return null
   const holder = heldBy(registrationId)
   const inv = holder === null ? null : invoices.get(registrations.get(holder)!.invoiceId!)!
-  return { amount: b.amount, held: inv !== null, heldUntil: inv !== null && inv.amountPaid === null ? inv.expiresAt : null, refunded: b.refunded }
+  return { amount: b.amount, held: inv !== null, heldUntil: inv !== null && inv.amountPaid === null ? inv.expiresAt : null, refunded: b.refunded,
+    disputeDays: balanceDisputeDays(registrations.get(registrationId)!) }
 }
 
 // What money on a closed unpaid order waits on before it is all in the order's balance: money received and not confirmed,
@@ -645,11 +649,9 @@ async function checkOrderSigner(o: OrderBody, body: Record<string, unknown>): Pr
 
 const freshTimestamp = (timestamp: unknown) => { if (Math.abs(nowSeconds() - (timestamp as number)) > SIGNED_REQUEST_SECONDS) throw badRequest() }
 
-// A registration is live while its invoice is open, or once paid until it is taken.
-// a registered order is not live either, so its wallet can order the name again once it lapses
 function live(reg: Registration): boolean {
   if (reg.phase === "unpaid") return reg.invoiceId !== null && invoices.get(reg.invoiceId)!.status === "open"
-  return reg.phase !== "taken" && reg.phase !== "registered"
+  return reg.phase !== "taken" && reg.phase !== "registered" && reg.phase !== "ended"
 }
 
 // The answer to an exact resend, or nothing; an overdue order of the same wallet and name with nothing received is closed
@@ -715,10 +717,19 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
 
 type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash"> & Partial<Pick<Registration, "fromBalance" | "balanceSource">>
 
+const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
+const balanceDisputeDays = (reg: Registration) => reg.phase === "unpaid" && isMethod(reg.method) ? DISPUTE_DAYS[reg.method] : reg.disputeDays
+
+function disputeDaysOf({ method, balanceSource }: NewRegistration): number {
+  const balance = balanceSource ? balanceDisputeDays(registrations.get(balanceSource)!) : 0
+  return method === "balance" ? balance : Math.max(DISPUTE_DAYS[method], balance)
+}
+
 function newRegistration(order: OrderBody, extra: NewRegistration): Registration {
   const reg: Registration = {
     id: id(), invoiceId: null, fromBalance: 0, balanceSource: null, ...order, ...extra, label: null, secret: null, records: null, intent: null, acceptance: null, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, moves: 0, linksRefused: false, resends: 0, version: 1,
+    disputeDays: disputeDaysOf(extra), disputeUntil: null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -940,7 +951,7 @@ async function register(reg: Registration): Promise<void> {
         if (!(e instanceof Reverted) || await accepted() !== acceptance.termsHash) throw e
       })
     }
-    reg.registerTx = await sendTx(sponsor, "registerWithCredit", [registrationTuple(reg), nonce, deadline, signature], sending)
+    reg.registerTx = await sendTx(sponsor, "registerWithCredit", [registrationTuple(reg), BigInt(reg.disputeDays), nonce, deadline, signature], sending)
   } catch (e) {
     if (e instanceof NotSent) throw e
     // a register with no answer may still be mined, so the order waits for the chain; a relay with no answer fails the order
@@ -983,6 +994,8 @@ async function registered(reg: Registration): Promise<void> {
   for (let i = 0; ; i++) {
     try {
       reg.expiresAt = Number(await read<bigint>(baseRegistrar, "nameExpires", [BigInt(reg.labelHash)]))
+      const disputeUntil = await read<bigint>(baseRegistrar, "disputeUntil", [BigInt(reg.labelHash)])
+      reg.disputeUntil = disputeUntil === 0n ? null : Number(disputeUntil)
       break
     } catch (e) {
       if (i + 1 >= EXPIRY_READS) throw e
@@ -1072,15 +1085,8 @@ export async function reveal(registrationId: string, body: Record<string, unknow
   if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unavailable)) !== reg.commitment) throw badRequest()
   if (deadline < nowSeconds()) throw badRequest()
   const signer = await recoverTypedDataAddress({
-    domain: { name: "SimplexSponsor", version: "1", chainId: deployment.chainId, verifyingContract: deployment.sponsor },
-    types: {
-      RegisterName: [
-        { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-        { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-      ],
-    },
-    primaryType: "RegisterName",
-    message: { label, owner: reg.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, nonce: BigInt(nonce), deadline: BigInt(deadline) },
+    ...registerNameTypedData(deployment.chainId, deployment.sponsor),
+    message: { label, owner: reg.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(reg.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
     signature,
   })
   if (signer !== reg.owner) throw badRequest()
@@ -1498,6 +1504,18 @@ export function controlRegistration(action: string, registrationId: string): Rec
   return { ok: true }
 }
 
+export async function controlUnregister(registrationId: string): Promise<Record<string, unknown>> {
+  const reg = registrations.get(registrationId)
+  if (!reg) throw new HttpError(404, "not_found")
+  if (reg.phase !== "registered" || reg.disputeUntil === null) throw badRequest()
+  await send(controller, "unregister", [reg.label, BigInt(reg.disputeUntil)], undefined, contractsOwner)
+  reg.phase = "ended"
+  reg.expiresAt = null
+  reg.disputeUntil = null
+  changed(reg)
+  return { ok: true }
+}
+
 // The order and those whose balances paid it, back to the first, as support pays a refund back by the methods that paid.
 // A closed unpaid order released the balance it held, so the chain stops there.
 function balanceChain(reg: Registration): Record<string, unknown>[] {
@@ -1562,16 +1580,9 @@ let holderTurn: Promise<unknown> = Promise.resolve()
 async function registerForHolder(tuple: { label: string; owner: Address; duration: bigint; secret: Hex; resolver: Address; data: Hex[]; reverseRecord: number; referrer: Hex }): Promise<void> {
   const nonce = await read<bigint>(sponsor, "nonces", [holder.address])
   const deadline = BigInt(nowSeconds() + 3600)
-  const signature = await holder.signTypedData({
-    domain: { name: "SimplexSponsor", version: "1", chainId: deployment.chainId, verifyingContract: deployment.sponsor },
-    types: { RegisterName: [
-      { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-      { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-    ] },
-    primaryType: "RegisterName",
-    message: { ...tuple, nonce, deadline },
-  })
-  await send(sponsor, "registerWithCredit", [tuple, nonce, deadline, signature])
+  const disputeDays = BigInt(DISPUTE_DAYS.card)
+  const signature = await holder.signTypedData({ ...registerNameTypedData(deployment.chainId, deployment.sponsor), message: { ...tuple, disputeDays, nonce, deadline } })
+  await send(sponsor, "registerWithCredit", [tuple, disputeDays, nonce, deadline, signature])
 }
 
 export function controlSearch(body: Record<string, unknown>): Record<string, unknown> {

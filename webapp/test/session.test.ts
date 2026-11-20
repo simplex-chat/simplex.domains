@@ -61,6 +61,14 @@ describe("the tab's checkout", () => {
     setCheckout(null)
     expect(tabCheckout()).toBeNull()
   })
+  it("one holding a balance an older page kept without its dispute days is a leftover", () => {
+    const balance = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
+    setCheckout({ ...checkout("olderbalance", "SN-AAAAA"), balance } as never)
+    expect(tabCheckout()).toBeNull()
+    setCheckout({ ...checkout("newerbalance", "SN-AAAAA"), balance: { ...balance, disputeDays: 120 } })
+    expect(tabCheckout()!.balance).toEqual({ ...balance, disputeDays: 120 })
+    setCheckout(null)
+  })
 })
 
 describe("the tab's active code", () => {
@@ -82,7 +90,7 @@ describe("the tab's active code", () => {
 })
 
 describe("the tab's active balance", () => {
-  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
+  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null, disputeDays: 14 }
   const CODE = { display: "SN8-AAAAA", minLength: 8, years: 5 }
   it("takes the code's place, and a code chosen later takes the balance's", () => {
     setActiveCode(CODE)
@@ -101,11 +109,18 @@ describe("the tab's active balance", () => {
     updateActiveBalance("reg-taken", null)
     expect(activeBalance()).toBeNull()
   })
-  it("applies an order's balance only while something is left, with the end of the invoice that holds it", () => {
-    expect(appliedBalance("reg-1", { amount: 10000, held: false, heldUntil: null, refunded: 0 })).toEqual({ source: "reg-1", amount: 10000, held: false, heldUntil: null })
-    expect(appliedBalance("reg-1", { amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", refunded: 0 }))
-      .toEqual({ source: "reg-1", amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z" })
-    expect(appliedBalance("reg-1", { amount: 0, held: false, heldUntil: null, refunded: 10000 }), "refunded whole").toBeNull()
+  it("is none when an older page kept it without its dispute days", () => {
+    const { disputeDays: _, ...older } = BALANCE
+    setActiveBalance(older as never)
+    expect(activeBalance()).toBeNull()
+    setActiveBalance(null)
+  })
+  it("applies an order's balance only while something is left, with the end of the invoice that holds it and the dispute days it pays for", () => {
+    expect(appliedBalance("reg-1", { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 120 }))
+      .toEqual({ source: "reg-1", amount: 10000, held: false, heldUntil: null, disputeDays: 120 })
+    expect(appliedBalance("reg-1", { amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", refunded: 0, disputeDays: 14 }))
+      .toEqual({ source: "reg-1", amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", disputeDays: 14 })
+    expect(appliedBalance("reg-1", { amount: 0, held: false, heldUntil: null, refunded: 10000, disputeDays: 14 }), "refunded whole").toBeNull()
     expect(appliedBalance("reg-1", null)).toBeNull()
   })
 })

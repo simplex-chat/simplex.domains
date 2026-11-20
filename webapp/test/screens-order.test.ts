@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
-  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
+  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, disputeEndAhead, failedAlert, failedLead, finished, newInvoiceBy, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, sameStep, screenOf, spendCovers, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, commitKey, nameUnavailable,
 } from "../src/screens/order.ts"
@@ -20,7 +20,7 @@ function registration(change: Partial<RegistrationView> = {}): RegistrationView 
   return {
     ...CHAIN, id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
     price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: "2026-10-23", ...change,
+    community: null, terms: "2026-10-23", disputeDays: 120, disputeUntil: null, ...change,
   }
 }
 
@@ -70,6 +70,7 @@ const STATES: Record<OrderKind, OrderState> = {
   registering: read(null, registration({ phase: "committing" })),
   "links-refused": read(null, registration(committed), { record: record({ linksRefused: true }) }),
   registered: read(null, registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
+  ended: read(null, registration({ phase: "ended", label: "alice", registerTx: "0xe9" })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
   failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", error: "The registration ran out of gas" })),
   "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
@@ -100,6 +101,8 @@ describe("screenOf", () => {
     ["an expired invoice with nothing received", STATES["status:closed"], "status:closed"],
     ["a registration link of an unpaid order", STATES["status:paid-by-invoice"], "status:paid-by-invoice"],
     ["a registered order", STATES.registered, "registered"],
+    ["a registration ended in its dispute period", STATES.ended, "ended"],
+    ["a registration ended, seen without the name code", read(null, registration({ phase: "ended", label: "alice" }), { record: null }), "ended"],
     ["a name taken first", STATES.taken, "taken"],
     ["a failed registration", STATES.failed, "failed"],
     ["a failed registration whose links the service refused, as its view says", read(null, registration({ phase: "failed", linksRefused: true })), "links-refused"],
@@ -366,11 +369,21 @@ describe("costOf", () => {
   })
 })
 
+describe("disputeEndAhead", () => {
+  const registered = (disputeUntil: number | null) => read(null, registration({ phase: "registered", disputeUntil }))
+  it("is a registered name's dispute end while it is ahead", () => {
+    expect(disputeEndAhead(registered(NOW / 1000 + 1))).toBe(NOW / 1000 + 1)
+  })
+  it("is null once the dispute end is reached, and for a name registered without one", () => {
+    for (const disputeUntil of [NOW / 1000, NOW / 1000 - 1, null]) expect(disputeEndAhead(registered(disputeUntil)), String(disputeUntil)).toBeNull()
+  })
+})
+
 describe("finished", () => {
   const paidLate = (reg: Partial<RegistrationView>) => crypto({ status: "paid", paidInFull: true }, reg)
   it("follows money paid after the close until it is in the balance", () => {
     expect(finished(paidLate({}), registration())).toBe(false)
-    expect(finished(paidLate({}), registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0 } }))).toBe(true)
+    expect(finished(paidLate({}), registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } }))).toBe(true)
   })
   it("follows a late credit while it is confirming or being made, and stops once only support can make it", () => {
     for (const waiting of ["confirming", "crediting"] as const) expect(finished(paidLate({}), registration({ latePayment: { waiting } })), waiting).toBe(false)
@@ -378,21 +391,22 @@ describe("finished", () => {
     expect(finished(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }), registration({ latePayment: { waiting: "support" } })), "a part payment").toBe(true)
   })
   it("stops at a whole late payment that BTCPay keeps expired once it is in the balance, and follows a part payment for the rest", () => {
-    const credited = registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0 } })
+    const credited = registration({ balance: { amount: 1500, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } })
     expect(finished(crypto(LATE_FULL, credited), credited)).toBe(true)
     expect(finished(crypto(LATE_FULL), registration()), "not credited yet").toBe(false)
     const part = crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, credited)
     expect(finished(part, part.registration)).toBe(false)
   })
-  it("stops at a registered name, and follows an open invoice and a taken or failed order", () => {
+  it("stops at a registered name or an ended registration, and follows an open invoice and a taken or failed order", () => {
     expect(finished(null, registration({ phase: "registered" }))).toBe(true)
+    expect(finished(null, registration({ phase: "ended" }))).toBe(true)
     expect(finished(crypto(), registration())).toBe(false)
     expect(finished(null, registration({ phase: "taken" }))).toBe(false)
   })
 })
 
 describe("closedBalance", () => {
-  const BALANCE = { amount: 750, held: false, heldUntil: null, refunded: 0 }
+  const BALANCE = { amount: 750, held: false, heldUntil: null, refunded: 0, disputeDays: 14 }
   it("offers the balance that a confirmed part payment on an expired invoice became, so the page asks no whole price again", () => {
     expect(closedBalance(read(crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { balance: BALANCE })))).toBe("offer")
   })
@@ -415,7 +429,7 @@ describe("closedBalance", () => {
 describe("spendCovers", () => {
   const expired = (sourceBalance: OrderState["sourceBalance"], change: Partial<OrderState> = {}) =>
     read(crypto({ status: "expired", amount: 500 }, { price: 1500, fromBalance: 1000 }), undefined, { record: record({ balanceSource: "reg-0" }), sourceBalance, ...change })
-  const balance = (amount: number, held = false) => ({ amount, held, heldUntil: null, refunded: 0 })
+  const balance = (amount: number, held = false) => ({ amount, held, heldUntil: null, refunded: 0, disputeDays: 14 })
   it("registers with the balance once it has grown to the price", () => {
     expect(spendCovers(expired(balance(1500)))).toBe(true)
     expect(spendCovers(expired(balance(4000)))).toBe(true)
@@ -453,7 +467,7 @@ describe("newInvoiceBy", () => {
     expect(newInvoiceBy(record(), crypto({ status: "expired", amount: 500 }, { fromBalance: 1000 }))).toBe("find")
   })
   it("spends the order's own balance, which money on its closed invoice became, for the rest of the same name", () => {
-    const credited = { balance: { amount: 750, held: false, heldUntil: null, refunded: 0 } }
+    const credited = { balance: { amount: 750, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } }
     expect(newInvoiceBy(record(), crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, credited))).toBe("own")
     expect(newInvoiceBy(record({ balanceSource: "reg-0" }), crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, { ...credited, fromBalance: 1000 })), "the balance that paid part first")
       .toBe("spend")
@@ -633,6 +647,16 @@ describe("reveal helpers", () => {
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS } })).toBe(false)
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS - 1 } })).toBe(true)
   })
+  it("a reveal over more dispute days than the payment allows is not signed again, nor taken as stalled, until the service asks another", () => {
+    const key = revealKey(view)
+    const timed = { ...waiting, since: { stage: "reg-1 committed", at: NOW } }
+    expect(stalledAt(timed)).not.toBeNull()
+    const declined = reduce(reduce(timed, { type: "reveal-sent", key }), { type: "reveal-declined", key, days: 120, allowed: 14 })
+    expect(declined.declined).toEqual({ key, days: 120, allowed: 14 })
+    expect(revealDue(declined)).toBe(false)
+    expect(stalledAt(declined)).toBeNull()
+    expect(revealDue({ ...declined, view: registration({ ...committed, intentNonce: 5 }) }), "another reveal").toBe(true)
+  })
 })
 
 describe("wakeAt", () => {
@@ -645,6 +669,13 @@ describe("wakeAt", () => {
   })
   it("takes the earlier of two moments", () => {
     expect(wakeAt({ ...paying, view: registration({ ...committed, revealAfter: NOW / 1000 + 30 }) })).toBe(NOW + 30_000)
+  })
+  it("wakes a registered name's page at its dispute end, which a tick then takes away", () => {
+    const registered = read(null, registration({ phase: "registered", label: "alice", disputeUntil: NOW / 1000 + 30 }))
+    expect(wakeAt(registered)).toBe(NOW + 30_000)
+    const woken = reduce(registered, { type: "tick", now: wakeAt(registered)! })
+    expect(disputeEndAhead(woken)).toBeNull()
+    expect(wakeAt(woken)).toBeNull()
   })
   it("sleeps when nothing waits on the clock", () => {
     expect(wakeAt(STATES["pay-crypto"])).toBeNull()
@@ -720,7 +751,7 @@ describe("initialState", () => {
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
       reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null,
-      nameStatus: null, unavailable: null, since: null,
+      nameStatus: null, unavailable: null, since: null, declined: null,
     })
   })
 })

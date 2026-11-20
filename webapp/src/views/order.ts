@@ -1,12 +1,12 @@
 // An order's page (?order=<invoice>) or a code registration's (?registration=<id>): payment, registration, and every ending.
 import * as api from "../api.ts"
 import { parseNameCode } from "../crypto/code.ts"
-import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
+import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, shortNameText, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, disputeEndAhead, failedAlert, failedLead, finished, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, sameStep, REVEAL_ATTEMPTS, REVEAL_HOURS, revealDue, revealKey, screenOf, stalledAt, unreadDelay, wakeAt, askAgainDue, commitKey, nameUnavailable, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { heldWords } from "../screens/balance.ts"
@@ -87,10 +87,12 @@ function dispatch(event: OrderEvent): void {
   wakeOnTime()
 }
 
+const LONGEST_TIMEOUT_MS = 2 ** 31 - 1
+
 function wakeOnTime(): void {
   clearTimeout(wakes)
   const at = wakeAt(state)
-  if (at !== null) wakes = setTimeout(() => dispatch({ type: "tick", now: api.serviceNow() }), at - api.serviceNow())
+  if (at !== null) wakes = setTimeout(() => dispatch({ type: "tick", now: api.serviceNow() }), Math.min(at - api.serviceNow(), LONGEST_TIMEOUT_MS))
 }
 
 const isOpen = (gen: number) => gen === opened && isRoute(pageRoute)
@@ -304,12 +306,13 @@ async function adoptSibling(view: api.RegistrationView, invoice: api.InvoiceView
   if (!sibling) return undefined
   const closed = invoice.status !== "open" && view.phase === "unpaid"
   const next = closed ? await nextOrder(view, invoice) : undefined
+  const found = next ? null : await flow.foundOrder(sibling, view.id)
   const record: store.OrderRecord = { ...sibling, registrationId: view.id, invoiceId: invoice.invoiceId,
     method: invoice.cryptoCurrency ?? "card", paid: view.price,
-    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: undefined, replacedBy: next && store.orderUrl(next),
+    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: found?.balanceSource ?? undefined, replacedBy: next && store.orderUrl(next),
     // a replaced invoice came just before its replacement; otherwise the code asks the service when the order was made,
     // which a later search for a newer order compares against
-    createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : await flow.createdAtOf(sibling, view.id).catch(() => null) ?? new Date(api.serviceNow()).toISOString() }
+    createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : found?.createdAt ?? new Date(api.serviceNow()).toISOString() }
   const adopted = await flow.syncRecord(record, view)
   if (adopted === record) store.saveOrder(record)
   if (adopted && !adopted.replacedBy) await replaceOlder(view, invoice)
@@ -331,6 +334,11 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
+    if (e instanceof flow.DisputeDaysDeclined) {
+      dispatch({ type: "reveal-declined", key, days: e.days, allowed: e.allowed })
+      if (isRoute(pageRoute) && state.reference === reference) announce(`${NOT_SIGNABLE}. ${overDays(e)} Write to ${CONTACT_EMAIL} with the reference below.`)
+      return
+    }
     // links the service refuses are in the commitment, so signing again cannot fix them: the order has to move
     if (e instanceof api.ApiError && e.code === "invalid_link") {
       store.updateOrder(record.registrationId, { linksRefused: true })
@@ -1118,6 +1126,9 @@ function headingOf({ view, record }: OrderState): Kid {
 const leadOf = ({ record }: OrderState) => record ? ["Keep this page open until the name is yours, ", el("span", { class: "nowrap" }, `or come back within ${REVEAL_HOURS} hours.`)]
   : "The browser with its name code signed it."
 
+const NOT_SIGNABLE = "This order cannot be signed"
+const overDays = ({ days, allowed }: { days: number; allowed: number }) => `Its registration could be ended for ${days} days, longer than the ${allowed} days its payment allows.`
+
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const REGISTERING_NOTE = "Registering the name. It is yours in a moment."
@@ -1128,6 +1139,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const states = stagesOf(view)
   sayStage(view, states)
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
+  const declined = declinedNow(s)
   const steps = stages(states)
   const stalled = stalledAt(s)
   const unavailable = nameUnavailable(s)
@@ -1150,14 +1162,15 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase !== "committed") return say(note, view.phase === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)
-    if (view.label === null && (refused || termsToAgree(s))) say(note, "The registration is not signed yet.")
+    if (view.label === null && (refused || declined || termsToAgree(s))) say(note, "The registration is not signed yet.")
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)
-  return screen({ title: headingOf(s), lead: unavailable ? null : leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
+  return screen({ title: headingOf(s), lead: unavailable || declined ? null : leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
+    declined ? alertBox("danger", "alert", NOT_SIGNABLE, [`${overDays(declined)} Write to `, el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
@@ -1258,18 +1271,26 @@ function buildRegistered(s: OrderState): HTMLElement {
   const code = s.record?.ownerCode ?? null
   // the code's QR is under everything, there only while the code is shown
   const qr = el("div", { class: "code-qr" })
-  return screen({ title: [label ? gradName(label, view.tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record), action: registeredAction(s.record) },
+  return screen({ title: [label ? gradName(label, view.tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record, disputeEndAhead(s)), action: registeredAction(s.record) },
     code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
-      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", view.tld, "."), " For a channel, set it in the channel's profile.")),
+      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", shortNameText(label ?? "", view.tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
     codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
     // under the code and over its QR, so showing the code moves it and nothing above it
     el("div", { class: "yours-edit center" }, btn(linksAction(hasLinks(s.record!, null)), "quiet small", () => go(editUrl(view.id)))), qr] : null)
 }
 
-function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null): string {
+function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null, disputeUntil: number | null): string {
   const until = view.expiresAt ? dateOf(view.expiresAt) : ""
-  return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
+  const dispute = disputeUntil === null ? "" : ` It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
+  return record ? `Registered until ${until}.${dispute}` : `Registered until ${until} to ${shortAddress(view.owner)}.${dispute} Its name code is not in this browser.`
+}
+
+function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
+  const label = labelOf(view!, record)
+  return outcome({ tone: "warn", icon: "alert", title: "Registration ended",
+    text: ["The registration of ", label ? nameText(label, view!.tld) : "the name", " was ended because a payment for it was disputed, reversed or refunded in full."],
+    action: codesOnly() ? codeAction() : btn("Search a name", "", () => go(searchLink(""))), reference: invoice?.invoiceId ?? view!.id })
 }
 
 function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HTMLElement {
@@ -1396,6 +1417,7 @@ const BUILDERS: Record<OrderKind, Builder<OrderState>> = {
   registering: buildRegistering,
   "links-refused": buildLinksRefused,
   registered: buildRegistered,
+  ended: buildEnded,
   taken: buildTaken,
   failed: buildFailed,
   "not-on-device": buildNotOnDevice,

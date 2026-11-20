@@ -84,10 +84,12 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
 // The owner signs the registration once the commit has aged, with a deadline a week ahead and never before the commitment
 // lapses, so the service can commit again after a lapse and register without the page.
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
+  const allowed = await disputeDaysAllowed(view, record)
+  if (view.disputeDays > allowed) throw new DisputeDaysDeclined(view.disputeDays, allowed)
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, view, BigInt(view.duration))
   const deadline = Math.max(view.revealBefore!, now() + REVEAL_DEADLINE_SECONDS)
-  const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.intentNonce!), BigInt(deadline))
+  const digest = registerIntentDigest(BigInt(view.chainId), fromHex(view.sponsor), r, BigInt(view.disputeDays), BigInt(view.intentNonce!), BigInt(deadline))
   const a = view.acceptance
   const acceptance = a ? {
     termsHash: a.termsHash, nonce: a.nonce,
@@ -98,6 +100,27 @@ export async function revealOrder(view: api.RegistrationView, record: store.Orde
     records: { contact: r.contactLinks, channel: r.channelLinks },
     nonce: view.intentNonce!, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   })
+}
+
+export class DisputeDaysDeclined extends Error {
+  readonly days: number
+  readonly allowed: number
+  constructor(days: number, allowed: number) {
+    super("dispute_days")
+    this.days = days
+    this.allowed = allowed
+  }
+}
+
+async function disputeDaysAllowed(view: api.RegistrationView, record: store.OrderRecord): Promise<number> {
+  const paid = api.allowedDays(record.method, null)
+  const fromBalance = record.method === "balance" || record.balanceSource !== undefined
+  if (!fromBalance || view.disputeDays <= paid) return paid
+  const source = record.balanceSource ?? await balanceSourceOf(record)
+  if (!source) throw new Error("find answers this order without the order whose balance paid it")
+  const balance = (await api.readRegistration(source)).balance
+  if (!balance) throw new Error("the view of the order whose balance paid this one lacks its balance")
+  return api.allowedDays(record.method, balance.disputeDays)
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -265,7 +288,7 @@ export async function restore(text: string): Promise<RestoreResult> {
 export async function ownOrderFor(ownerCode: string, nameHash: string): Promise<store.OrderRecord | null> {
   const wallet = walletOf(ownerCode)!
   const found = (await findOrders(wallet)).filter((r) => r.labelHash === nameHash)
-  const chosen = found.find((r) => !["unpaid", "taken"].includes(r.phase)) ?? found.find((r) => r.phase === "unpaid")
+  const chosen = found.find((r) => !["unpaid", "ended", "taken"].includes(r.phase)) ?? found.find((r) => r.phase === "unpaid")
   return chosen ? (await reopen(wallet, ownerCode, chosen)).record : null
 }
 
@@ -300,11 +323,10 @@ export async function newerOrder(record: store.OrderRecord): Promise<store.Order
   return next
 }
 
-// When the service made one of the code's orders, which an adopted order's invoice does not say; null when the service does not list it.
-export async function createdAtOf(record: store.OrderRecord, registrationId: string): Promise<string | null> {
+export async function foundOrder(record: store.OrderRecord, registrationId: string): Promise<Found | null> {
   const wallet = walletOf(record.ownerCode)
   if (!wallet) return null
-  return (await findOrders(wallet)).find((r) => r.registrationId === registrationId)?.createdAt ?? null
+  return (await findOrders(wallet)).find((r) => r.registrationId === registrationId) ?? null
 }
 
 async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<RestoreResult> {

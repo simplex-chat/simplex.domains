@@ -226,6 +226,51 @@ test("the balance's steps fit both windows, their heading, main button and link 
   oneFrame(frames)
 })
 
+async function spendAnswerLost(page: Page, pay: () => Promise<void>): Promise<void> {
+  let lost = false
+  await page.route("**/api/registration/*/spend", async (route) => {
+    if (lost) return route.fallback()
+    lost = true
+    await route.fetch()
+    await route.abort()
+  })
+  await pay()
+  await expect(onStep(page).getByRole("heading", { name: "That did not go through" })).toBeVisible()
+  await page.goBack()
+  await page.goForward()
+  await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
+}
+
+test("the balance's review fits both windows while this name's own order holds the balance, as a lost answer to its spend leaves it", async ({ page, request }) => {
+  const frames: Record<string, Frame[]> = {}
+  await takenOrder(page, request, uniqueLabel("fitheld"))
+  await page.getByRole("button", { name: "Choose another name" }).click()
+  await search(page, sevenLetters())
+  await toReview(page)
+  await spendAnswerLost(page, () => payButton(page).click())
+  await expect(onStep(page).locator(".line", { hasText: "holds your balance" })).toBeVisible()
+  await fitsWindow(page, "b6-review-held-this-name", frames)
+  oneFrame(frames)
+})
+
+for (const length of [25, MAX_LABEL_LENGTH]) {
+  test(`the balance's review fits both windows once this name's own order took the balance, for a name of ${length} wide letters`, async ({ page, request }) => {
+    const label = wideLabel(length)
+    const frames: Record<string, Frame[]> = {}
+    await takenOrder(page, request, uniqueLabel("fittook"))
+    await page.getByRole("button", { name: "Choose another name" }).click()
+    await search(page, label)
+    await toReview(page)
+    await spendAnswerLost(page, () => onStep(page).getByRole("button", { name: "Register with your balance" }).click())
+    const line = onStep(page).locator(".line", { hasText: "already took your balance" })
+    await expect(line).toBeVisible()
+    await expect(line.getByRole("link"), "the name read whole").toHaveAccessibleName(`${label}.simplex`)
+    if (length > 25) await expect(line.locator("a [aria-hidden=true]"), "the name drawn abbreviated").toHaveText(`${label.slice(0, 12)}...${label.slice(-3)}.simplex`)
+    await fitsWindow(page, `b7-review-took-own-order-${length}`, frames)
+    oneFrame(frames)
+  })
+}
+
 // Stripe's card form as Stripe.js dahlia draws it, its least and greatest height: 221-230 px on the 600 px column and
 // 306-320 px on a phone's. A column from 489 px, a 521 px window's, is taken to draw as the 600 px one.
 const STRIPE_FORM_PX = { wide: [221, 230], narrow: [306, 320] } as const
@@ -504,7 +549,7 @@ test.describe(() => {
     await shown("o1-partial-bitcoin", invoice, "Pay with Bitcoin")
     await shown("o2-closed-part-paid", invoiceOf(order, "expired", {}, PART), "Invoice closed")
     // as BTCPay keeps an invoice paid after it closed
-    await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } },
+    await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } },
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: "failed", commitTx: "0x02", error: "The registration transaction reverted on chain" }), "Paid, not registered")
@@ -512,7 +557,7 @@ test.describe(() => {
     await onStep(page).getByRole("button", { name: "Try again" }).click()
     await expect(onStep(page).getByText("That did not go through")).toBeVisible()
     await fitsWindow(page, "o3b-not-registered-retry-refused", frames)
-    await shown("o4-taken", invoiceOf(order, "paid", { phase: "taken", commitTx: "0x02", balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } }), /was taken$/)
+    await shown("o4-taken", invoiceOf(order, "paid", { phase: "taken", commitTx: "0x02", balance: { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 14 } }), /was taken$/)
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     // a taken order seen in a browser without its code, which says where to add the code
     const elsewhere = await browser.newContext()
@@ -815,6 +860,13 @@ for (const length of [15, 25, MAX_LABEL_LENGTH]) {
     await fitsWindow(page, `${shots}-3-code`, frames)
     await savedToReview(page)
     await fitsWindow(page, `${shots}-4-review`, frames)
+    if (length > 25) {
+      await expect(step.locator(".card.order .row .name"), "the name abbreviated in the card").toHaveText(new RegExp(`^${label.slice(0, 12)}\\.\\.\\.${label.slice(-3)}\\.simplex$`))
+      await expect(step.locator(".card.order .row .sr-only"), "the whole name, for a screen reader").toHaveText(`${label}.simplex`)
+      const read = await step.locator(".card.order > .row").ariaSnapshot()
+      expect(read.split(`${label}.simplex`).length - 1, `the whole name read once: ${read}`).toBe(1)
+      expect(read, "the abbreviation not read").not.toContain("...")
+    }
     await payButton(page).click()
     await page.waitForURL(/\?order=/)
     await expect(page.getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
@@ -839,6 +891,9 @@ test(`the name-is-yours screen fits both windows for a name of ${MAX_LABEL_LENGT
   await page.goto(`/?registration=${registrationId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Edit links" })).toBeVisible()
+  const instruction = onStep(page).locator(".card.use p")
+  await expect(instruction.locator(".sr-only"), "the whole name, for a screen reader").toHaveText(`${label}.simplex.`)
+  await expect(instruction.locator("[aria-hidden=true]"), "the name as drawn").toHaveText(/^m+\.\.\.m+\.simplex\.$/)
   await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`)
 })
 

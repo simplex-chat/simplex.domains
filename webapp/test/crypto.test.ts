@@ -150,19 +150,19 @@ describe("registration", () => {
     expect(hex(commitmentSecret(seed, "dynamis"))).not.toBe(hex(commitmentSecret(seed, "dynamos")))
   })
 
-  it("signs RegisterName as viem's typed data, recoverable to the owner", async () => {
+  it("signs RegisterName with the dispute days as viem's typed data, recoverable to the owner", async () => {
     const wallet = walletFromEntropy(ENTROPY)
     const r = registration(wallet.address, ["https://smp8.simplex.im/a#contact"])
     const typed = {
       domain: { name: "SimplexSponsor", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(SPONSOR) },
       types: { RegisterName: [
         { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-        { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
+        { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
       ] },
       primaryType: "RegisterName" as const,
-      message: { label: r.label, owner: hex(r.owner), duration: r.duration, resolver: hex(RESOLVER), data: recordCalls(r).map(hex), nonce: 0n, deadline: 1800000000n },
+      message: { label: r.label, owner: hex(r.owner), duration: r.duration, resolver: hex(RESOLVER), data: recordCalls(r).map(hex), disputeDays: 37n, nonce: 0n, deadline: 1800000000n },
     }
-    const digest = registerIntentDigest(CHAIN_ID, SPONSOR, r, 0n, 1800000000n)
+    const digest = registerIntentDigest(CHAIN_ID, SPONSOR, r, 37n, 0n, 1800000000n)
     expect(hex(digest)).toBe(hashTypedData(typed))
     const signature = hex(signDigest(wallet.privateKey, digest))
     expect(await recoverTypedDataAddress({ ...typed, signature })).toBe(OWNER_ADDRESS)

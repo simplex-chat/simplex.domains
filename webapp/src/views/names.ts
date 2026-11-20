@@ -316,7 +316,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
     ? seen.answer.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
   const listed = seen ? community !== null : api.communityAgreed(o.terms)
   const state = rowChip(s, o, seen)
-  const title = rowName(label, tld, community, `${id}-community`, listed)
+  const title = rowName(label, tld, community, `${id}-community`, { listed })
   if (chats.length) opensFirstChat(title, chats[0])
   return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null, null), state && chipRoom(state),
     [chats.length ? el("span", { class: "chats" }, chats) : null, ...acts], shown ? rowCode(code) : null)
@@ -370,8 +370,9 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
   const { view } = s.seen[b.id]
   const holder = b.held ? holderOf(s, b.id) : undefined
+  const usable = session.appliedBalance(b.id, view.balance)
   const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
-    : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
+    : usable ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance(usable)),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
   const sub = ["From ", nameText(view.label ?? o.label, view.tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
@@ -645,6 +646,7 @@ const EDIT_BUILDERS: Record<EditKind, Builder<EditState>> = {
   "edit-no-code": (s) => editNotice(s, alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to edit this name's links.")),
   "edit-unreadable": buildUnreadable,
   "edit-expired": buildExpired,
+  "edit-ended": notice("alert", "The registration was ended", "A payment for it was disputed, reversed or refunded in full, so this page no longer edits its links."),
   "edit-in-app": notice("key", "This name has another owner", "Its owner changed, so this browser can no longer edit its links."),
   "edit-elsewhere": notice("link", "This name's links are kept elsewhere", "It points at another resolver, so its links are not edited here."),
   "edit-not-registered": notice("clock", "The name is not registered yet", "Its links can be edited once the registration is final."),

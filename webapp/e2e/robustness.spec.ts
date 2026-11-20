@@ -163,7 +163,7 @@ test("a registered order opened in a browser without its code offers restore", a
   const other = await browser.newContext()
   const page2 = await other.newPage()
   await page2.goto(`/?order=${invoiceId}`)
-  await expect(page2.getByText("Its name code is not in this browser.")).toBeVisible()
+  await expect(page2.locator("body > main .lead")).toHaveText(/^Registered until .+ to .+\. It can be ended until .+ if a payment for it is disputed, reversed or refunded in full\. Its name code is not in this browser\.$/)
   await page2.getByRole("button", { name: "Restore with your name code" }).click()
   await codeField(page2).fill(ownerCode)
   await page2.getByRole("button", { name: "Add to Your names" }).click()

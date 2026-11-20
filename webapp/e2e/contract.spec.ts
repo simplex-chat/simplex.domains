@@ -531,7 +531,7 @@ async function spendBody(src: Paying, request: api.SignedOrder, money: Json, tim
 
 const spendCall = (id: string, body: Json) => call("POST", `/api/registration/${id}/spend`, body)
 const balanceOf = async (id: string) => (await viewOf(id)).balance
-const free = (amount: number, refunded = 0) => ({ amount, held: false, heldUntil: null, refunded })
+const free = (amount: number, refunded = 0, disputeDays = api.DISPUTE_DAYS.btc) => ({ amount, held: false, heldUntil: null, refunded, disputeDays })
 
 // A difference spend from the paying order, holding its whole balance; its invoice.
 async function holdBalance(src: Paying, balance: number): Promise<Json> {
@@ -572,7 +572,7 @@ test("a dearer name holds the whole balance until its invoice for the difference
   expect(res.status, JSON.stringify(res.json)).toBe(200)
   const registration = res.json.registration as api.RegistrationView
   expect([res.json.amount, registration.phase, registration.price, registration.fromBalance]).toEqual([PRICE.seven - PRICE.long, "unpaid", PRICE.seven, PRICE.long])
-  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: res.json.expiresAt, refunded: 0 })
+  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: res.json.expiresAt, refunded: 0, disputeDays: api.DISPUTE_DAYS.btc })
   // signed again long after, with the balance held since: the same order
   const again = await spendBody(src, order, money, order.timestamp + 2 * SIGNED_WINDOW_S)
   expect((await spendCall(src.id, again)).json.invoiceId).toBe(res.json.invoiceId)
@@ -650,13 +650,13 @@ test("a cancel or an expiry releases a held balance; an overdue holder reads fre
   const cancelled = await holdBalance(src, PRICE.long)
   expect((await balanceOf(src.id))!.held).toBe(true)
   expect((await call("POST", `/api/invoice/${cancelled.invoiceId}/cancel`)).status).toBe(200)
-  expect(await balanceOf(src.id), "released by the cancel").toEqual(free(PRICE.long))
+  expect(await balanceOf(src.id), "released by the cancel").toEqual(free(PRICE.long, 0, api.DISPUTE_DAYS.card))
   const expired = await holdBalance(src, PRICE.long)
   await control(request, `expire/${expired.invoiceId}`)
-  expect(await balanceOf(src.id), "released by the expiry").toEqual(free(PRICE.long))
+  expect(await balanceOf(src.id), "released by the expiry").toEqual(free(PRICE.long, 0, api.DISPUTE_DAYS.card))
   const overdue = await holdBalance(src, PRICE.long)
   await control(request, `overdue/${overdue.invoiceId}`)
-  expect(await balanceOf(src.id), "an overdue holder holds nothing").toEqual(free(PRICE.long))
+  expect(await balanceOf(src.id), "an overdue holder holds nothing").toEqual(free(PRICE.long, 0, api.DISPUTE_DAYS.card))
   expect(await heldStatus(overdue.invoiceId as string), "not closed by reading the balance").toBe("open")
   const { invoices } = (await call("GET", "/control/state")).json as { invoices: { id: string; expiresAt: string }[] }
   const refused = await call("POST", `/control/refund/${src.invoiceId}`, {})
@@ -664,7 +664,7 @@ test("a cancel or an expiry releases a held balance; an overdue holder reads fre
   const covered = await spendCall(src.id, await spendBody(src, await orderOf(src, uniqueLabel("se")), { price: PRICE.long, balance: PRICE.long }))
   expect(covered.status, JSON.stringify(covered.json)).toBe(200)
   expect(await heldStatus(overdue.invoiceId as string), "closed by the spend").toBe("expired")
-  expect(await balanceOf(src.id)).toEqual(free(0))
+  expect(await balanceOf(src.id)).toEqual(free(0, 0, api.DISPUTE_DAYS.card))
 })
 
 test("a holder that money reached keeps the hold past its expiry until it settles, and the next order of a holder's wallet and name closes an empty one", async ({ request }) => {
@@ -757,7 +757,7 @@ test("a late payment is credited once settled, each confirmed figure once, at th
     .toEqual(["expired", true, "0", null])
   const card = await closed("card")
   await control(request, `settle/${card.invoiceId}`)
-  expect(await balanceOf(card.id)).toEqual(free(PRICE.long))
+  expect(await balanceOf(card.id)).toEqual(free(PRICE.long, 0, api.DISPUTE_DAYS.card))
   // received while open, held when the invoice closed, then confirmed
   const label = uniqueLabel("lq")
   const open = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(await draftOf(label))).request, "xmr", (await quote(label)).price))
@@ -861,14 +861,14 @@ test("a hold by an invoice money reached has no end, find names each order's pay
   const src = await lateBalance(request)
   const holder = await holdBalance(src, PRICE.long)
   const holderId = (holder.registration as Json).id as string
-  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: holder.expiresAt, refunded: 0 })
+  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: holder.expiresAt, refunded: 0, disputeDays: api.DISPUTE_DAYS.btc })
   expect(await findOf(src.draft.ownerCode)).toMatchObject([
     { registrationId: holderId, balanceSource: src.id, heldBy: null }, { registrationId: src.id, balanceSource: null, heldBy: holderId },
   ])
   // money reached the holder's invoice and is confirming past its expiry: the hold has no end until it settles
   await control(request, `partial/${holder.invoiceId}`)
   await control(request, `overdue/${holder.invoiceId}`)
-  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: null, refunded: 0 })
+  expect(await balanceOf(src.id)).toEqual({ amount: PRICE.long, held: true, heldUntil: null, refunded: 0, disputeDays: api.DISPUTE_DAYS.btc })
   expect((await findOf(src.draft.ownerCode))[1]).toMatchObject({ registrationId: src.id, heldBy: holderId })
 
   // an overdue holder that nothing reached holds nothing, and find names none
@@ -915,6 +915,23 @@ test("money paid after a difference invoice closed goes to that order's own bala
   expect(await balanceOf(src.id), "the close released the hold").toEqual(free(PRICE.long))
   await control(request, `settle/${holder.invoiceId}`)
   expect([await balanceOf(holderId), await balanceOf(src.id)]).toEqual([free(PRICE.seven - PRICE.long), free(PRICE.long)])
+})
+
+test("a balance pays for the dispute days of the payment it came from, which for a closed order is its own invoice's, and an order paid from it gets them", async ({ request }) => {
+  const src = await lateBalance(request, uniqueLabel("ld"), "card")
+  expect((await balanceOf(src.id))!.disputeDays, "a closed card order's balance").toBe(api.DISPUTE_DAYS.card)
+  const holder = await holdBalance(src, PRICE.long)
+  const holderId = (holder.registration as Json).id as string
+  expect((await viewOf(holderId)).disputeDays, "a difference in Bitcoin over a card's balance").toBe(api.DISPUTE_DAYS.card)
+  await control(request, `expire/${holder.invoiceId}`)
+  await control(request, `settle/${holder.invoiceId}`)
+  expect(await balanceOf(holderId), "Bitcoin paid after the difference's invoice closed").toEqual(free(PRICE.seven - PRICE.long))
+  const covered = await spendCall(holderId, await spendBody({ ...src, id: holderId }, await orderOf(src, uniqueLabel("le")), { price: PRICE.long, balance: PRICE.seven - PRICE.long }))
+  expect(covered.status, JSON.stringify(covered.json)).toBe(200)
+  expect((await viewOf(covered.json.registrationId as string)).disputeDays).toBe(api.DISPUTE_DAYS.btc)
+  const fromCard = await spendCall(src.id, await spendBody(src, await orderOf(src, uniqueLabel("lf")), { price: PRICE.long, balance: PRICE.long }))
+  expect(fromCard.status, JSON.stringify(fromCard.json)).toBe(200)
+  expect((await viewOf(fromCard.json.registrationId as string)).disputeDays, "an order the card's balance covers").toBe(api.DISPUTE_DAYS.card)
 })
 
 test("a spend whose difference is below the card's least charge refuses the card and takes coin", async ({ request }) => {
@@ -1093,6 +1110,15 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   await flow.revealOrder(view, record)
   const done = await untilPhase(id, ["registered"])
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
+})
+
+test("a reveal signed over other dispute days than its view's is bad_request, and the reveal over the view's registers the name", async ({ request }) => {
+  const { draft, built, id } = await codeOrder(request, uniqueLabel("tu"))
+  const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+  const view = await untilRevealable(id)
+  await expect(flow.revealOrder({ ...view, disputeDays: view.disputeDays - 1 }, record)).rejects.toMatchObject({ code: "bad_request" })
+  await flow.revealOrder(view, record)
+  await untilPhase(id, ["registered"])
 })
 
 test("a move repeat is answered however old its signature, while a move signed too long ago is bad_request", async ({ request }) => {

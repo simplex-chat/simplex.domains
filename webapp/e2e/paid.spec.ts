@@ -307,7 +307,8 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.locator(".screen-body > .review + [role=status] + .mid")).toHaveCount(1)
   await expect(step.locator(".card.order .name")).toHaveText(`${label}.simplex`)
   // the term holds the free days until the paid years start, which are folded into it
-  await expect(step.locator(".card.order .trow")).toHaveText([/^Term2 years and (\d{2,} days|1 day)Early adopter bonus: your 2 years start on 1\u00a0January 2027\.$/, /^Registered until31\u00a0December 2028$/, /^Total\$\d+$/])
+  await expect(step.locator(".card.order .trow")).toHaveText([/^Term2 years and (\d{2,} days|1 day)Early adopter bonus: your 2 years start on 1\u00a0January 2027\.$/, /^Registered until31\u00a0December 2028$/,
+    `Dispute period14 days${disputeLine(14)}`, /^Total\$\d+$/])
   // each link as the chat it opens, read only
   await expect(step.locator(".card.order .chat")).toHaveCount(2)
   await expect(step.getByRole("button", { name: "Contact F1Y8m3, contact address" })).toBeVisible()
@@ -351,13 +352,15 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
 
   await waitRegistered(page, label)
   const main = page.locator("body > main")
-  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}.`)
+  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; disputeUntil: number } }
+  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}. It can be ended until ${dateOf(paidInvoice.registration.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string } }
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
+  expect(paidInvoice.registration.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
   // how to use the name in the app, with its code, and no buttons to go elsewhere
   await expect(main.locator(".card.use").getByRole("heading", { name: "Use in the app" })).toBeVisible()
+  await expect(main.locator(".card.use :is(.sr-only, [aria-hidden=true])"), "a name of up to 25 letters drawn and read as it is").toHaveCount(0)
   await expect(await shownCode(page)).toHaveText(ownerCode)
   await expect(main.getByRole("button", { name: "Copy code" })).toBeVisible()
   await expect(main.getByRole("checkbox")).toHaveCount(0)
@@ -433,6 +436,45 @@ const inWindow = async (page: Page, node: Locator) => {
 const termLines = (page: Page) => onStep(page).locator(".trow").first().locator("> span").last()
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
+const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
+const disputeRow = (page: Page) => onStep(page).locator(".card.order .trow", { hasText: "Dispute period" })
+
+test("Check your order says for how many days the registration can be ended, by the way it is paid, explained on hover", async ({ page }) => {
+  await search(page, uniqueLabel("days"))
+  await toReview(page)
+  for (const [method, days] of [["Card", 120], ["Bitcoin", 14], ["Monero", 14]] as const) {
+    await page.getByRole("radio", { name: method }).click()
+    await expect(disputeRow(page).getByRole("button")).toHaveText(`${days} days`)
+    await expect(disputeRow(page).getByRole("button")).toHaveAccessibleDescription(disputeLine(days))
+  }
+  await expect(disputeRow(page).getByRole("tooltip")).toBeHidden()
+  await disputeRow(page).getByRole("button").hover()
+  await expect(disputeRow(page).getByRole("tooltip")).toBeVisible()
+  await page.mouse.move(0, 0)
+  await page.getByRole("radio", { name: "Card" }).click()
+  await onStep(page).getByRole("button", { name: "I have a code" }).click()
+  await expect(disputeRow(page).getByRole("button")).toHaveText("14 days")
+})
+
+test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
+  const { invoiceId } = await startOrder(page, uniqueLabel("over"), { method: "btc" })
+  const reveals: string[] = []
+  page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/reveal")) reveals.push(r.url()) })
+  await page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
+  })
+  await control(request, `settle/${invoiceId}`)
+  const notice = onStep(page).locator(".notice", { hasText: "This order cannot be signed" })
+  await expect(notice).toHaveText("This order cannot be signedIts registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.",
+    { timeout: REGISTRATION_MS })
+  await expect(page.locator("body > .sr-only[role=status]")).toHaveText("This order cannot be signed. Its registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.")
+  await expect(onStep(page).locator(".screen-head .lead"), "no lead to keep the page open").toHaveCount(0)
+  expect(reveals, "no reveal sent").toEqual([])
+  await page.unrouteAll({ behavior: "ignoreErrors" })
+})
+
 test("the term's free days are the early adopter bonus, explained on hover, focus and tap, with nothing moving", async ({ page, browser, baseURL }) => {
   await search(page, uniqueLabel("bonus"))
   await toReview(page, false)
@@ -489,6 +531,23 @@ test("the term's free days are the early adopter bonus, explained on hover, focu
   await context.close()
 })
 
+test("on a touch screen, I have a code takes its taps under the payment methods, none of theirs", async ({ page, browser, baseURL, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium's touch emulation gives the page a coarse pointer")
+  await search(page, uniqueLabel("tap"))
+  await toReview(page)
+  const checkout = await page.evaluate((key) => sessionStorage.getItem(key)!, CHECKOUT_KEY)
+  const context = await browser.newContext({ baseURL, viewport: FIT_SIZES[1], hasTouch: true, reducedMotion: "reduce" })
+  await context.addInitScript(([key, value]) => sessionStorage.setItem(key, value), [CHECKOUT_KEY, checkout])
+  const phone = await context.newPage()
+  await phone.goto("/#/checkout")
+  await expect(onStep(phone).getByRole("heading", { name: "Check your order" })).toBeVisible()
+  expect(await phone.evaluate(() => matchMedia("(pointer: coarse)").matches), "a coarse pointer").toBe(true)
+  const methods = (await onStep(phone).locator(".methods").boundingBox())!
+  const link = (await onStep(phone).getByRole("button", { name: "I have a code" }).boundingBox())!
+  expect(Math.round(link.y), "the top of the link's tap area").toBeGreaterThanOrEqual(Math.round(methods.y + methods.height))
+  await context.close()
+})
+
 test("a term that has started has no free days, so no bonus or hint, which come back with the days", async ({ page }) => {
   await search(page, uniqueLabel("nobonus"))
   await toReview(page, false)
@@ -498,7 +557,7 @@ test("a term that has started has no free days, so no bonus or hint, which come 
   await page.reload()
   await expect(onStep(page).locator(".trow").first()).toHaveText("Term2 years")
   await expect(bonusOf(page)).toHaveCount(0)
-  await expect(onStep(page).locator("[role=tooltip]")).toHaveCount(0)
+  await expect(onStep(page).locator(".trow").first().locator("[role=tooltip]")).toHaveCount(0)
   await startAt(termStart)
   await page.reload()
   await expect(bonusOf(page)).toHaveAccessibleDescription(/^Early adopter bonus/)
@@ -1375,15 +1434,23 @@ test("once a name is registered, Back to its search never offers it again, and Y
   expect(await page.evaluate(() => (window as unknown as { __chips: string[] }).__chips), "the row's chips from its first draw").toEqual([])
 })
 
-test("on a phone, a long name wraps beside its chats on Check your order, the chats at the row's right", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(63)}`.slice(0, 63))
+const orderRow = async (page: Page) => {
   const row = onStep(page).locator(".card.order > .row")
   const [box, name, chats] = await Promise.all([row, row.locator(".name"), row.locator(".chats")].map(async (l) => (await l.boundingBox())!))
   const padding = await row.evaluate((r) => parseFloat(getComputedStyle(r).paddingRight))
+  return { name, chats, right: Math.round(box.x + box.width - padding) }
+}
+
+test("on a phone, a long name wraps beside its chats on Check your order, the chats at the row's right, as they are for a name abbreviated", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(25)}`.slice(0, 25))
+  const { name, chats, right } = await orderRow(page)
   expect(chats.x, "the chats after the name").toBeGreaterThanOrEqual(name.x + name.width)
-  expect(Math.round(chats.x + chats.width), "the chats at the row's right").toBe(Math.round(box.x + box.width - padding))
+  expect(Math.round(chats.x + chats.width), "the chats at the row's right").toBe(right)
   expect(name.height, "the name on more than one line").toBeGreaterThan(40)
+  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(63)}`.slice(0, 63))
+  const abbreviated = await orderRow(page)
+  expect(Math.round(abbreviated.chats.x + abbreviated.chats.width), "the chats of a name abbreviated at the row's right").toBe(abbreviated.right)
 })
 
 // how often a pay page checks its name again (NAME_CHECK_MS in src/views/order.ts)

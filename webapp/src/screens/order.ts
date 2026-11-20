@@ -19,7 +19,7 @@ export const TX_STALL_MS = 180_000
 const UNREAD_PACING_MS = [5_000, 15_000, 30_000]
 export const unreadDelay = (reads: number) => UNREAD_PACING_MS[Math.min(reads, UNREAD_PACING_MS.length - 1)]
 
-export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "links-refused" | "registered" | "taken" | "failed" | "not-on-device"
+export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "links-refused" | "registered" | "ended" | "taken" | "failed" | "not-on-device"
   | "status:closed" | "status:card-unconfirmed" | "status:paid-by-invoice" | "status:unreadable" | "status:unknown-link" | "status:price-changed"
 
 export type ClosedCase = "paid-late" | "cancelled" | "received" | "expired"
@@ -59,6 +59,7 @@ export interface OrderState {
   unavailable: { key: string; status: SearchAnswer["status"] } | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
+  declined: { key: string; days: number; allowed: number } | null
 }
 
 export type OrderEvent =
@@ -75,6 +76,7 @@ export type OrderEvent =
   | { type: "reveal-refused"; key: string }
   | { type: "reveal-failed"; key: string }
   | { type: "reveal-retried" }
+  | { type: "reveal-declined"; key: string; days: number; allowed: number }
   | { type: "cancel-started" }
   | { type: "cancel-answered" }
   | { type: "cancel-failed"; note: Note }
@@ -96,7 +98,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, unavailable: null, since: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null, nameStatus: null, unavailable: null, since: null, declined: null }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase}${view.phase === "committed" && view.label !== null ? " signed" : ""}`
@@ -126,6 +128,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "reveal-refused": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false, refusals: s.reveal.refusals + 1 } } : s
     case "reveal-failed": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false } } : s
     case "reveal-retried": return s.reveal ? { ...s, reveal: { ...s.reveal, refusals: 0 } } : s
+    case "reveal-declined": return { ...s, declined: { key: e.key, days: e.days, allowed: e.allowed }, reveal: s.reveal?.key === e.key ? { ...s.reveal, sending: false } : s.reveal }
     case "cancel-started": return start(s, "cancel")
     case "cancel-answered": return end(s, "cancel", {})
     case "cancel-failed": return end(s, "cancel", { note: e.note })
@@ -215,6 +218,8 @@ export function costOf(view: RegistrationView, invoice: InvoiceView | null): { c
   return { cost: view.price, fromBalance: invoice && view.fromBalance >= view.price ? 0 : Math.min(view.fromBalance, view.price) }
 }
 
+export const disputeEndAhead = ({ view, now }: OrderState) => view?.disputeUntil && view.disputeUntil * 1000 > now ? view.disputeUntil : null
+
 // The service refused the order's links at its reveal, as the view says or as this browser saw: trying again would commit
 // the same links, so only another name or other links can register it.
 export const linksRefused = ({ view, record }: OrderState) => view?.linksRefused === true || record?.linksRefused === true
@@ -228,6 +233,7 @@ export function screenOf(s: OrderState): OrderKind {
   if (invoice && view.phase === "unpaid") return paymentKind(s, invoice)
   if (view.phase === "unpaid") return "status:paid-by-invoice"
   if (view.phase === "registered") return "registered"
+  if (view.phase === "ended") return "ended"
   if (view.phase === "taken") return "taken"
   if (view.phase === "failed") return record && linksRefused(s) ? "links-refused" : "failed"
   if (view.phase !== "registering" && view.label === null && !record) return "not-on-device"
@@ -247,7 +253,7 @@ export function closedBalance(s: OrderState): "offer" | "replaced" | null {
 // A taken or failed order is followed too, since another tab or browser can move or retry it. Money paid after the close
 // is followed until it is all in the order's balance, or until the service says only support can credit it.
 export function finished(invoice: InvoiceView | null, view: RegistrationView): boolean {
-  if (view.phase === "registered") return true
+  if (view.phase === "registered" || view.phase === "ended") return true
   if (view.phase !== "unpaid" || !invoice || invoice.status === "open") return false
   if (view.latePayment) return view.latePayment.waiting === "support"
   return paidLate(invoice) && view.balance !== null
@@ -289,13 +295,15 @@ export const commitKey = (view: RegistrationView) => `${view.id} ${view.commitme
 // The changed terms cannot be asked for a name the search answered as registered or reserved while this commitment waits.
 export const nameUnavailable = (s: OrderState) => s.view && s.unavailable?.key === commitKey(s.view) ? s.unavailable : null
 
+export const declinedNow = ({ view, declined }: OrderState) => view && declined?.key === revealKey(view) ? declined : null
+
 export function refusalsOf({ view, reveal }: OrderState): number {
   return view?.phase === "committed" && reveal?.key === revealKey(view) ? reveal.refusals : 0
 }
 
 export function revealDue(s: OrderState): boolean {
   const { view, record, reveal } = s
-  if (view?.phase !== "committed" || view.label !== null || view.intentNonce === null || !record || linksRefused(s)) return false
+  if (view?.phase !== "committed" || view.label !== null || view.intentNonce === null || !record || linksRefused(s) || declinedNow(s)) return false
   if (view.unread.includes("acceptance") || termsToAgree(s)) return false
   if ((view.revealAfter ?? 0) * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
@@ -303,7 +311,7 @@ export function revealDue(s: OrderState): boolean {
 
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
-  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s)) return null
+  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || nameUnavailable(s) || declinedNow(s)) return null
   if (view.phase !== "committed" || view.label !== null) return since.at + TX_STALL_MS
   return Math.max(since.at, (view.revealAfter ?? 0) * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }
@@ -312,6 +320,7 @@ export function stalledAt(s: OrderState): number | null {
 export function wakeAt(s: OrderState): number | null {
   const { invoice, view, record, cardSubmittedAt, now } = s
   const moments = [
+    view?.disputeUntil ? view.disputeUntil * 1000 : null,
     invoice?.status === "open" && !coinOf(invoice) && record && cardSubmittedAt ? Date.parse(cardSubmittedAt) + CARD_SLOW_MS : null,
     view?.phase === "committed" && view.revealAfter !== null ? view.revealAfter * 1000 : null,
   ].filter((at): at is number => at !== null && at > now)

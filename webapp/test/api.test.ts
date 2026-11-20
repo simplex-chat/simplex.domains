@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
+  allowedDays, ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
   communityAgreed, readerUrl, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
@@ -106,6 +106,13 @@ describe("retryDelay", () => {
   it("gives up on a refusal that asking again cannot change", () => {
     expect(retryDelay(new ApiError("not_found", 404, null, {}), USUAL)).toBeNull()
     expect(retryDelay(new ApiError("bad_signature", 400, null, {}), USUAL)).toBeNull()
+  })
+})
+
+describe("allowedDays", () => {
+  it("is the payment's own days, or a balance's when more; a balance alone allows the least, 14", () => {
+    expect([allowedDays("card", null), allowedDays("btc", null), allowedDays("xmr", null), allowedDays("code", null), allowedDays("balance", null)]).toEqual([120, 14, 14, 14, 14])
+    expect([allowedDays("btc", 120), allowedDays("card", 14), allowedDays("balance", 120), allowedDays("balance", 14)]).toEqual([120, 120, 120, 14])
   })
 })
 
@@ -231,7 +238,7 @@ describe("service errors", () => {
   const REGISTRATION = {
     id: "r1", version: 4, unread: [], moves: 0, phase: "unpaid", labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: "2026-10-23", acceptance: null,
+    resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: "2026-10-23", acceptance: null, disputeDays: 120, disputeUntil: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -266,7 +273,7 @@ describe("service errors", () => {
     }
   })
 
-  const BALANCE = { amount: 10000, held: true, heldUntil: "2026-10-16T12:00:00Z", refunded: 2500 }
+  const BALANCE = { amount: 10000, held: true, heldUntil: "2026-10-16T12:00:00Z", refunded: 2500, disputeDays: 14 }
 
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {
@@ -292,12 +299,33 @@ describe("service errors", () => {
     for (const change of [
       { fromBalance: undefined }, { fromBalance: -1 }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
       { balance: { ...BALANCE, held: "yes" } }, { balance: { ...BALANCE, heldUntil: 5 } }, { balance: { ...BALANCE, refunded: null } },
+      { balance: { ...BALANCE, disputeDays: undefined } }, { balance: { ...BALANCE, disputeDays: 13 } }, { balance: { ...BALANCE, disputeDays: 121 } },
       { linksRefused: undefined }, { linksRefused: "no" }, { latePayment: undefined }, { latePayment: {} }, { latePayment: { waiting: "later" } },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
     }
+  })
+
+  it("passes an order's dispute days, 14 to 120, and its dispute end, and takes a view without them or with values that cannot be so as no answer", async () => {
+    for (const change of [{ disputeDays: 14 }, { disputeDays: 120, disputeUntil: 1810000000 }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
+      expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
+    }
+    for (const change of [
+      { disputeDays: undefined }, { disputeDays: null }, { disputeDays: 13 }, { disputeDays: 121 }, { disputeDays: 14.5 }, { disputeDays: "14" },
+      { disputeUntil: undefined }, { disputeUntil: -1 }, { disputeUntil: "1810000000" },
+    ]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
+      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
+    }
+  })
+
+  it("passes an order whose registration was ended in its dispute period", async () => {
+    answerWith(200, JSON.stringify({ ...REGISTRATION, phase: "ended", label: "alice", disputeUntil: null }))
+    expect(await readRegistration("r1")).toMatchObject({ phase: "ended", disputeUntil: null })
   })
 
   const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
@@ -325,7 +353,7 @@ describe("service errors", () => {
       expect(e, JSON.stringify(balance)).toBeInstanceOf(BalanceChanged)
       expect(e).toMatchObject({ code: "balance_changed", status: 409, balance })
     }
-    for (const body of [{ error: "balance_changed" }, { error: "balance_changed", balance: { amount: "lots" } }]) {
+    for (const body of [{ error: "balance_changed" }, { error: "balance_changed", balance: { amount: "lots" } }, { error: "balance_changed", balance: { ...BALANCE, disputeDays: undefined } }]) {
       answerWith(409, JSON.stringify(body))
       const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(body)).toBe("network")

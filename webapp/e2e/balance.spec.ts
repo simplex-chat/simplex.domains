@@ -3,10 +3,11 @@ import { walletOf } from "../src/flow.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import {
-  addNameCode, control, FIT_SIZES, keepOrder, MOCK, onStep, payButton, search, searchName, sevenLetters, shot, startOrder, takenOrder, registrationView, test, toReview, uniqueLabel, waitRegistered,
+  addNameCode, control, FIT_SIZES, keepOrder, MOCK, onStep, payButton, registrationOf, REGISTRATION_MS, search, searchName, sevenLetters, shot, startOrder, takenHeading, takenOrder, registrationView, test, toReview, uniqueLabel, waitRegistered,
 } from "./helpers.ts"
 
 const balanceRow = (page: Page) => onStep(page).locator(".list-row[data-key^='balance-']")
+const disputeDays = (page: Page) => onStep(page).locator(".card.order .trow", { hasText: "Dispute period" }).getByRole("button")
 const chip = (page: Page) => page.locator(".code-chip")
 
 // Your names, its rows read
@@ -39,7 +40,7 @@ const ROW_GAP = 14
 // a page moved on to another invoice than `from`, rather than to a page of none
 const otherInvoice = (from: string) => (url: URL) => url.searchParams.get("order") !== null && url.searchParams.get("order") !== from
 
-interface MockInvoice { amount: number; status: string; registration: { id: string; price: number; fromBalance: number; phase: string; balance: unknown } }
+interface MockInvoice { amount: number; status: string; registration: { id: string; price: number; fromBalance: number; phase: string; balance: unknown; disputeDays: number } }
 const invoiceOf = async (page: Page, invoiceId: string) => (await (await page.request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()) as MockInvoice
 
 test("a paid order taken first keeps its price as its balance, which a cheaper name spends keeping the rest, and a dearer one with the difference by card", async ({ page, request }) => {
@@ -74,7 +75,16 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   await search(page, cheaper)
   await expect(page.locator(".answer .hint")).toHaveText("Paid from your balance. $100 stays in it.")
   await shot(page, "B3-home-balance")
+  const source = `**/api/registration/${await registrationOf(request, invoiceId)}*`
+  let readAgain: () => void = () => undefined
+  const held = new Promise<void>((done) => { readAgain = done })
+  await page.route(source, async (route) => {
+    await held
+    await route.continue().catch(() => undefined)
+  })
   await toReview(page)
+  await expect(disputeDays(page), "the days of the Bitcoin payment the balance came from, taken with the balance before its order is read again").toHaveText("14 days")
+  readAgain()
   await expect(onStep(page).locator(".order > .row .price")).toHaveText("$100")
   await expect(onStep(page).locator(".trow", { hasText: "From your balance" })).toContainText("−$100")
   await expect(onStep(page).locator(".trow.total")).toHaveText(/^To pay\s*\$0$/)
@@ -96,6 +106,7 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   await expect(onStep(page).locator(".trow.total")).toHaveText(/^To pay\s*\$100$/)
   await page.getByRole("radio", { name: "Card" }).click()
   await expect(payButton(page)).toHaveText("Pay $100 with Card")
+  await expect(disputeDays(page), "the card's days, more than the balance's").toHaveText("120 days")
   await shot(page, "B6-review-balance-more")
   await payButton(page).click()
   await page.waitForURL(/\?order=/)
@@ -386,6 +397,32 @@ test("a difference order adopted by another browser gets its new invoice as a ne
   await other.close()
 })
 
+test("a difference order adopted by another browser is signed there for the days of the card's balance it was paid from", async ({ page, browser, request }) => {
+  const taken = uniqueLabel("bcard")
+  const { invoiceId, ownerCode } = await startOrder(page, taken, { method: "card" })
+  await control(request, "take", { label: taken })
+  await control(request, `settle/${invoiceId}`)
+  await expect(page.getByRole("heading", { name: takenHeading(taken) })).toBeVisible({ timeout: REGISTRATION_MS })
+  await page.getByRole("button", { name: "Choose another name" }).click()
+  const dearer = sevenLetters()
+  await search(page, dearer)
+  await toReview(page)
+  await expect(disputeDays(page), "the card's days, more than the Bitcoin difference's").toHaveText("120 days")
+  await payButton(page).click()
+  await page.waitForURL(/\?order=/)
+  const difference = new URL(page.url()).searchParams.get("order")!
+  await page.close()
+  const other = await browser.newContext()
+  const away = await other.newPage()
+  await addNameCode(away, ownerCode)
+  await away.goto(`/?order=${difference}`)
+  await expect(onStep(away).getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
+  await control(request, `settle/${difference}`)
+  await waitRegistered(away, dearer)
+  expect((await invoiceOf(away, difference)).registration.disputeDays).toBe(120)
+  await other.close()
+})
+
 test("Try again after a spend whose answer was lost sends the same body, and the service answers the one order it made", async ({ page, request }) => {
   await takenOrder(page, request, uniqueLabel("bretry"))
   await page.getByRole("button", { name: "Choose another name" }).click()
@@ -497,6 +534,7 @@ test("a covered spend whose answer was lost, its review opened again, says its o
   await page.goForward()
   await expect(onStep(page).locator(".line", { hasText: "took your balance" })).toHaveText(`Your order for ${name}.simplex already took your balance, with nothing more to pay.`)
   await expect(onStep(page).getByText("you pay the whole price")).toHaveCount(0)
+  await expect(disputeDays(page), "no days while nothing is left to pay here").toHaveCount(0)
   await onStep(page).getByRole("button", { name: "Open your order" }).click()
   await page.waitForURL(/\?registration=/)
   await waitRegistered(page, name)
@@ -546,7 +584,7 @@ test.describe(() => {
     test(`a balance of a name of ${MAX_LABEL_LENGTH} wide letters keeps its words clear of its ${held ? "chip and the order holding it" : "Use and Refund"}, beside them or above, down to a 320 px phone`, async ({ page }) => {
       const order = await keepOrder(page, "reg-balrow", "inv-balrow", "w".repeat(MAX_LABEL_LENGTH))
       const view = registrationView(order, { phase: "taken", commitTx: "0x02",
-        balance: { amount: 10000, held, heldUntil: held ? new Date(Date.now() + 900_000).toISOString() : null, refunded: 0 } })
+        balance: { amount: 10000, held, heldUntil: held ? new Date(Date.now() + 900_000).toISOString() : null, refunded: 0, disputeDays: 14 } })
       await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
       await page.route("**/api/registration/reg-balrow*", (route) => route.fulfill({ json: view }))
       await page.route("**/api/invoice/inv-balrow*", (route) => route.fulfill({ json: { invoiceId: "inv-balrow", status: "paid", amount: 10000, currency: "usd",

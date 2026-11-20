@@ -1,7 +1,7 @@
 // What this browser keeps: its orders with their owner codes, and its prepaid codes.
 // Storage can be missing or full; the page then keeps everything in memory and says so where it matters.
 
-import type { Method } from "./api.ts"
+import type { Payment } from "./api.ts"
 
 export interface OrderRecord {
   registrationId: string
@@ -12,7 +12,7 @@ export interface OrderRecord {
   contact: string
   channel: string
   // a balance alone paid when it covered the price; a difference is paid by its invoice's method
-  method: Method | "code" | "balance"
+  method: Payment
   paid: number
   years: number
   // the request, kept to ask for a new invoice for the same commitment

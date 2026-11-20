@@ -1864,6 +1864,16 @@ screen(2176, "order-registered-no-links", async (r) => {
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
 })
+screen(2177, "order-registering-days-refused", async (r) => {
+  const { invoiceId } = await paid(r, r.id)
+  await r.page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
+  })
+  await control(r.request, `settle/${invoiceId}`)
+  await shown(r.page, "This order cannot be signed")
+})
 screen(2178, "order-registered-no-record", async (r) => {
   const { invoiceId } = await paid(r, r.id)
   await control(r.request, `settle/${invoiceId}`)
@@ -1871,6 +1881,14 @@ screen(2178, "order-registered-no-record", async (r) => {
   const other = await elsewhere(r, `/?order=${invoiceId}`)
   await heading(other, `${r.id}.simplex is yours`)
   return other
+})
+screen(2179, "order-ended", async (r) => {
+  const { invoiceId, registrationId } = await paid(r, r.id)
+  await control(r.request, `settle/${invoiceId}`)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.reload()
+  await heading(r.page, "Registration ended")
 })
 screen(2180, "order-taken-chain", async (r) => { await takenOrder(r.page, r.request, r.id) })
 screen(2182, "order-taken-reserved", async (r) => {
@@ -1912,7 +1930,7 @@ screen(2192, "order-taken-balance-order", async (r) => {
   const order = await kept(r, `reg-${r.id}`, null, r.id)
   await r.page.evaluate((key) => localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), method: "balance" })), `simplex-names:order:reg-${r.id}`)
   await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: registrationView(order, {
-    phase: "taken", fromBalance: 10000, balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 }, commitTx: "0x02",
+    phase: "taken", fromBalance: 10000, balance: { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 14 }, commitTx: "0x02",
   }) }))
   await r.page.goto(`/?registration=reg-${r.id}`)
   await heading(r.page, `${r.id}.simplex was taken`)
@@ -2054,7 +2072,7 @@ screen(2232, "order-reorder-balance-in-use", async (r) => {
   await r.page.route(`**/api/registration/${source}*`, async (route) => {
     const res = await route.fetch()
     const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, balance: { amount: 10000, held: true, heldUntil: new Date((r.now + 3600) * 1000).toISOString(), refunded: 0 } } })
+    await route.fulfill({ response: res, json: { ...json, balance: { amount: 10000, held: true, heldUntil: new Date((r.now + 3600) * 1000).toISOString(), refunded: 0, disputeDays: 14 } } })
   })
   await press(r.page, "Get a new invoice")
   await shown(r.page, "Your balance is in use by")
@@ -2175,6 +2193,13 @@ screen(3012, "names-list-config-unread-fresh", async (r) => {
   await r.page.goto("about:blank")
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id })).toBeVisible()
+})
+screen(3013, "names-row-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto("/#/names")
+  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Ended")
 })
 screen(3014, "names-list-config-unread-seen", async (r) => {
   await codeOrder(r, r.id)
@@ -2716,6 +2741,13 @@ screen(3130, "names-edit-expired-from", async (r) => {
 screen(3132, "names-edit-expired-taken", async (r) => {
   await editFaked(r, { phase: "registered", expiresAt: r.now - 100 * 86400 }, (order) => registeredFor(order, r.now + YEAR_S, { owner: OTHER_OWNER }))
   await shown(r.page, "This name has expired")
+})
+screen(3133, "names-edit-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto(`/#/edit/${registrationId}`)
+  await shown(r.page, "The registration was ended")
 })
 screen(3134, "names-edit-other-owner", async (r) => {
   const expiresAt = START_S + 2 * YEAR_S

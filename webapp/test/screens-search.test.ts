@@ -346,7 +346,7 @@ describe("returnedTo", () => {
 })
 
 describe("a balance", () => {
-  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
+  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null, disputeDays: 14 }
   it("is the tab's as the page opens, and as its order reads now", () => {
     const s = open({ balance: BALANCE })
     expect(s.balance).toEqual(BALANCE)
@@ -458,8 +458,8 @@ describe("ownOrders", () => {
       expect(asked, "nothing older is read").toEqual(["r2"])
     }
   })
-  it("takes a registered, taken or failed order as neither open nor closed", async () => {
-    for (const phase of ["registered", "taken", "failed"] as const) {
+  it("takes a registered, ended, taken or failed order as neither open nor closed", async () => {
+    for (const phase of ["registered", "ended", "taken", "failed"] as const) {
       expect(await ownOrders([order("r1")], reader({ r1: { phase, invoice: "paid" } }).read), phase).toEqual({ open: null, closed: null })
     }
   })

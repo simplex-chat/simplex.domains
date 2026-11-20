@@ -361,13 +361,14 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .trow.total { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--surface-line); font-size: 17px; }
 .trow.total span { color: var(--ink); font-weight: 700; }
 /* the term's free days, whose hint shows over the rows under it, so nothing moves */
-.bonus { position: relative; }
-.bonus > .days { all: unset; border-radius: 4px; color: var(--ok-fg); cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
-.bonus > .days:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.bonus > .tip { position: absolute; top: calc(100% + 6px); right: 0; z-index: 1; width: max-content; max-width: min(300px, calc(100vw - 48px)); padding: 8px 12px;
+:is(.bonus, .period) { position: relative; }
+:is(.bonus, .period) > .days { all: unset; border-radius: 4px; color: var(--ok-fg); cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+.period > .days { color: inherit; }
+:is(.bonus, .period) > .days:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.bonus, .period) > .tip { position: absolute; top: calc(100% + 6px); right: 0; z-index: 1; width: max-content; max-width: min(300px, calc(100vw - 48px)); padding: 8px 12px;
   border-radius: 10px; background: var(--ink); color: var(--surface); font-size: var(--fs-small); font-weight: 500; line-height: 1.4; text-align: left;
   white-space: normal; visibility: hidden; opacity: 0; transition: opacity var(--fast), visibility var(--fast); }
-.bonus:is(:hover, :focus-within):not(.hushed) > .tip { visibility: visible; opacity: 1; }
+:is(.bonus, .period):is(:hover, :focus-within):not(.hushed) > .tip { visibility: visible; opacity: 1; }
 .pay-with, .code-entry, .link-fields, .forget { --block-gap: 12px; display: grid; gap: var(--block-gap); }
 /* an empty verdict or note stays in the accessibility tree, so its next words are announced; in a column, unlike a grid,
    its negative margin takes back the gap */
@@ -408,19 +409,15 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .preview .entity { flex: 1; }
 /* while the field is focused its link shows alone, from its start, at the field's whole width */
 .link-field .field:focus-within .preview { display: none; }
-.review { display: grid; gap: 14px; }
-/* a review holding a refusal's line is drawn tighter, so its fullest state, with a name of 63 wide letters, fits the frame */
-.review:has(.line) { gap: 8px; }
-.review:has(.line) .pay-with { --block-gap: 8px; }
-.review:has(.line) .trow { padding-block: 4px; }
-/* a name that breaks over lines takes room, so the review draws as tight as with a line */
-.review:has(.order .name:not(.whole)) { gap: 8px; }
-.review:has(.order .name:not(.whole)) .trow { padding-block: 4px; }
-.screen-body:has(> .review .line) { --body-gap: 8px; }
+.review { display: grid; gap: 8px; }
+.review .pay-with { --block-gap: 8px; }
+.review .trow { padding-block: 4px; }
+.review:has(.line) .order > .row { min-height: 0; }
+.review:has(.line) .trow { line-height: 1.3; }
+.screen-body:has(> .review) { --body-gap: 8px; }
 /* the balance's live region keeps its place in the review empty, taking no gap */
-.review > .balance-note:empty { margin-top: -14px; }
-.review:has(.line) > .balance-note:empty { margin-top: -8px; }
-.screen-body:has(> .review .line) > [role="status"]:empty { margin-top: -8px; }
+.review > .balance-note:empty { margin-top: -8px; }
+.screen-body:has(> .review) > [role="status"]:empty { margin-top: -8px; }
 /* the link to a code just under the payment choices, and the field it opens in their place */
 .have-code { display: grid; justify-items: center; font-size: var(--fs-small); }
 .have-code:has(> a) { margin-block: -8px; line-height: 1.2; }
@@ -644,6 +641,7 @@ html.dark .monero-base { fill: #fff; }
   .check:hover .box { border-color: var(--primary); }
   .cinfo:hover { background: var(--chip); }
   .bonus > .days:hover { background: var(--ok-bg); }
+  .period > .days:hover { background: var(--chip); }
 }
 /* after the hover rules and as specific as the quiet one, as a button pressed with a mouse still matches them */
 :is(.btn, .btn.quiet):not([disabled], [aria-busy="true"]):active { filter: brightness(.94); }
@@ -667,6 +665,7 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .field-copy { position: relative; }
   .field-copy::before { content: ""; position: absolute; inset: -6px; }
   .row > a, .alt a, .acts a, .end-links a, .have-code > a { padding-block: 12px; margin-block: -12px; }
+  .have-code:has(> a) { margin-top: 4px; }
 }
 
 /* a phone: its heading smaller, Back above it on a line kept on every screen, and the main button across the column with

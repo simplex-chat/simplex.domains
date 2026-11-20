@@ -1,7 +1,7 @@
 // The checkout's steps: the links the name opens, its name code, a community name's community terms, and Check your order
 // with how it pays, and Pay.
 import * as api from "../api.ts"
-import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction } from "../dom.ts"
+import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction, shortName, shortNameText } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } from "../format.ts"
 import { type Method, methodMark } from "../icons.ts"
@@ -9,7 +9,7 @@ import type { LinkKind } from "../names.ts"
 import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
 import { RETRY_MS, REVEAL_HOURS } from "../screens/order.ts"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
+  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, paymentOf, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
@@ -37,8 +37,11 @@ const SIGNED_WINDOW_S = 600
 const years = (c: session.Checkout) => api.termYears(c.community, c.code?.years ?? c.years)
 // a card order waiting for Stripe holds a second paid order; a code or a balance that covers the price pays nothing, so it holds none
 const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || covered(checkout) || codesOnly ? null : waiting
-const payLabel = (c: session.Checkout, codesOnly: boolean) => c.code || codeEntry(c, codesOnly) === "field" ? "Register with your code"
-  : covered(c) ? "Register with your balance" : `Pay ${dollars(split(c).rest)} with ${methodName(methodOf(c))}`
+function payLabel(c: session.Checkout, codesOnly: boolean): string {
+  const payment = paymentOf(c, codesOnly)
+  if (payment === "code") return "Register with your code"
+  return payment === "balance" ? "Register with your balance" : `Pay ${dollars(split(c).rest)} with ${methodName(payment)}`
+}
 
 function waitingCardOrder(): WaitingOrder | null {
   const order = store.orders().find((o) => o.method === "card" && o.cardSubmittedAt && o.invoiceId)
@@ -212,37 +215,44 @@ async function showOpenOrder(signal: AbortSignal): Promise<void> {
 
 const row = (what: string, value: Kid, cls?: string) => el("div", { class: `trow${cls ? ` ${cls}` : ""}` }, el("span", {}, what), el("span", {}, value))
 
-const BONUS_HINT = "bonus-hint"
 const HUSHED = "hushed"
+
+function hinted(cls: string, shown: string, hint: string): HTMLElement {
+  const days = el("button", { class: "days", type: "button", "aria-describedby": `${cls}-hint`, "data-focus": cls }, shown)
+  const holder = el("span", { class: cls }, days, el("span", { class: "tip", id: `${cls}-hint`, role: "tooltip" }, hint))
+  days.addEventListener("keydown", (e) => { if (e.key === "Escape") holder.classList.add(HUSHED) })
+  days.addEventListener("blur", () => holder.classList.remove(HUSHED))
+  holder.addEventListener("mouseleave", () => holder.classList.remove(HUSHED))
+  return holder
+}
 
 // The free days before the paid years start, with a hint saying why, which shows over the page on hover, focus or tap
 // and Escape hides.
 function term(years: number, termStart: number, now: number): Kid {
   const free = freeDays(termStart, now)
   if (free === 0) return `${years} years`
-  const days = el("button", { class: "days", type: "button", "aria-describedby": BONUS_HINT, "data-focus": "bonus" }, bonusDays(free))
-  const bonus = el("span", { class: "bonus" }, days, el("span", { class: "tip", id: BONUS_HINT, role: "tooltip" }, bonusHint(years, termStart)))
-  days.addEventListener("keydown", (e) => { if (e.key === "Escape") bonus.classList.add(HUSHED) })
-  days.addEventListener("blur", () => bonus.classList.remove(HUSHED))
-  bonus.addEventListener("mouseleave", () => bonus.classList.remove(HUSHED))
-  return [`${years} years `, bonus]
+  return [`${years} years `, hinted("bonus", bonusDays(free), bonusHint(years, termStart))]
 }
+
+const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
 // starts, its end, and what it costs; a name registered with a code costs nothing. Paid from a balance, its price takes
 // the chats' place and the table ends with what the balance pays and the rest. In codes-only mode a code pays for every order.
-function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
+function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number | null): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
   const { fromBalance, rest } = split(c)
   const side = c.balance ? el("b", { class: "price" }, dollars(c.price)) : chats.length ? el("span", { class: "chats" }, chats) : null
+  const short = shortName(c.label, c.chain.tld)
   return el("section", { class: "card order" },
-    el("div", { class: "row" }, rowName(c.label, c.chain.tld, c.community, "community"), side),
+    el("div", { class: "row" }, short.whole, rowName(c.label, c.chain.tld, c.community, "community", { name: short }), side),
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
+      disputeDays === null ? null : row("Dispute period", hinted("period", `${disputeDays} days`, disputeLine(disputeDays))),
       c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
         : c.balance ? [row("From your balance", `\u2212${dollars(fromBalance)}`), row("To pay", dollars(rest), "total")]
         : row("Total", dollars(c.price), "total"),
@@ -270,17 +280,17 @@ function balanceNote(s: CheckoutState): HTMLElement | null {
 function balanceChangeLine(s: CheckoutState): HTMLElement | null {
   const { checkout: c, holder } = s
   if (holder && heldForThisName(s)) {
-    return line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), ` holds your balance ${heldWords(c.balance!.heldUntil)}.`,
+    return line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, shortNameText(holder.label, holder.tld)), ` holds your balance ${heldWords(c.balance!.heldUntil)}.`,
       ` Press ${payLabel(c, s.codesOnly)} to open it.`)
   }
   if (c.balance?.held) {
-    return line("warn", "wallet", "Your balance is in use by ", holder ? el("a", { href: holder.url }, nameText(holder.label, holder.tld)) : "another order",
+    return line("warn", "wallet", "Your balance is in use by ", holder ? el("a", { href: holder.url }, shortNameText(holder.label, holder.tld)) : "another order",
       ` ${heldWords(c.balance.heldUntil)}.`)
   }
   switch (c.balanceChange) {
     case undefined: return null
     case "gone": return holder && tookOwnOrder(s)
-      ? line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), " already took your balance, with nothing more to pay.")
+      ? line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, shortNameText(holder.label, holder.tld)), " already took your balance, with nothing more to pay.")
       : line("warn", "wallet", "Your balance was spent or refunded meanwhile, so you pay the whole price.")
     case "changed": return line("warn", "wallet", `Your balance changed to ${dollars(c.balance!.amount)} meanwhile. Check what is left to pay.`)
   }
@@ -461,11 +471,11 @@ function buildCommunity(s: CheckoutState): HTMLElement {
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
-  const paid = !(c.code || codeEntry(c, s.codesOnly) === "field" || covered(c))
+  const paid = !["code", "balance"].includes(paymentOf(c, s.codesOnly))
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
-    el("div", { class: "review" }, orderCard(c, s.codesOnly),
+    el("div", { class: "review" }, orderCard(c, s.codesOnly, disputeDaysOf(s)),
       !c.codeError ? null : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)
         : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
       balanceNote(s),
@@ -566,7 +576,7 @@ async function sendOrder(): Promise<void> {
     else go(url)
   }
   const method = methodOf(c)
-  const chosen = c.code ? "code" : covered(c) ? "balance" : method
+  const chosen = paymentOf(c, state.codesOnly)
   const of = JSON.stringify([draft, c.code?.display ?? method, c.price, c.balance && [c.balance.source, c.balance.amount]])
   try {
     // a spend that reached the service, as its order holding the balance shows, is sent again as it was, however old

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, FALLBACK_METHOD, initialState, reduce, screenOf, split, stepFor,
+  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, paymentOf, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, FALLBACK_METHOD, initialState, reduce, screenOf, split, stepFor,
 } from "../src/screens/checkout.ts"
 import { timeOf } from "../src/format.ts"
 import { BALANCE_READ_MS, CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../src/screens/balance.ts"
@@ -233,7 +233,7 @@ describe("reduce", () => {
 
 describe("a code entered on the review", () => {
   const OTHER = { display: "SN6-DDDDD-EEEEE-FFFFF", minLength: 6, years: 5 }
-  const BALANCE = { source: "reg-1", amount: 500, held: false, heldUntil: null }
+  const BALANCE = { source: "reg-1", amount: 500, held: false, heldUntil: null, disputeDays: 14 }
   const opened = reduce(open(), { type: "code-opened" })
 
   it("is offered as a link where the order is paid, never where the tab's code or a balance pays it", () => {
@@ -315,8 +315,8 @@ describe("initialState", () => {
 })
 
 describe("a balance", () => {
-  const BALANCE = { source: "reg-taken", amount: 1000, held: false, heldUntil: null }
-  const read = (amount: number, held = false) => ({ amount, held, heldUntil: held ? "2026-10-17T12:30:00Z" : null, refunded: 0 })
+  const BALANCE = { source: "reg-taken", amount: 1000, held: false, heldUntil: null, disputeDays: 14 }
+  const read = (amount: number, held = false) => ({ amount, held, heldUntil: held ? "2026-10-17T12:30:00Z" : null, refunded: 0, disputeDays: 14 })
   it("pays what it holds of the price, and the rest is left to pay", () => {
     expect(split(checkout({ balance: BALANCE }))).toEqual({ fromBalance: 1000, rest: 500 })
     expect(covered(checkout({ balance: BALANCE }))).toBe(false)
@@ -399,7 +399,7 @@ describe("holdWait", () => {
 })
 
 describe("a held balance and Pay", () => {
-  const HELD = { source: "reg-taken", amount: 1000, held: true, heldUntil: "2026-10-17T12:30:00Z" }
+  const HELD = { source: "reg-taken", amount: 1000, held: true, heldUntil: "2026-10-17T12:30:00Z", disputeDays: 14 }
   const holder = (label: string) => ({ label, tld: "simplex", url: "/?order=inv-9" })
   it("waits while another name's order holds it, or an order find has not named yet", () => {
     expect(payWaits(open({ checkout: checkout({ balance: HELD }) }))).toBe(true)
@@ -420,12 +420,12 @@ describe("tookOwnOrder", () => {
   it("is not a balance gone elsewhere, one still there, or one gone before its order is found", () => {
     expect(tookOwnOrder(open({ checkout: checkout({ balance: null, balanceChange: "gone" }), holder: { ...own, label: "bakery7" } }))).toBe(false)
     expect(tookOwnOrder(open({ checkout: checkout({ balance: null, balanceChange: "gone" }) }))).toBe(false)
-    expect(tookOwnOrder(open({ checkout: checkout({ balance: { source: "s", amount: 500, held: false, heldUntil: null }, balanceChange: "changed" }), holder: own }))).toBe(false)
+    expect(tookOwnOrder(open({ checkout: checkout({ balance: { source: "s", amount: 500, held: false, heldUntil: null, disputeDays: 14 }, balanceChange: "changed" }), holder: own }))).toBe(false)
   })
 })
 
 describe("methods for a small difference", () => {
-  const BALANCE = { source: "reg-taken", amount: 1460, held: false, heldUntil: null }
+  const BALANCE = { source: "reg-taken", amount: 1460, held: false, heldUntil: null, disputeDays: 14 }
   it("leaves out the card for a difference below its least charge, paying in Bitcoin what was chosen as card", () => {
     const small = checkout({ balance: BALANCE, method: "card" })
     expect([methodsFor(small), methodOf(small)]).toEqual([["btc", "xmr"], "btc"])
@@ -482,5 +482,46 @@ describe("codes-only mode", () => {
     expect(screenOf(refused)).toBe("status:codes-only")
     expect(refused).toMatchObject({ sending: false, busy: false, checkout: sent.checkout })
     expect(screenOf(reduce(refused, opened(refused))), "the review opened again").toBe("review")
+  })
+})
+
+describe("paymentOf", () => {
+  const BALANCE = { source: "reg-taken", amount: 1500, held: false, heldUntil: null, disputeDays: 14 }
+  it("is a code, taken or awaited in the field, a balance that covers the price, or the method that pays the rest", () => {
+    expect(paymentOf(checkout({ method: "card", code: CODE }), false)).toBe("code")
+    expect(paymentOf(checkout({ method: "card", codeHere: true }), false), "the code field opened").toBe("code")
+    expect(paymentOf(checkout({ method: "card" }), true), "codes-only mode").toBe("code")
+    expect(paymentOf(checkout({ method: "card", balance: BALANCE }), false)).toBe("balance")
+    expect(paymentOf(checkout({ method: "card", price: 3000, balance: BALANCE }), false)).toBe("card")
+    expect(paymentOf(checkout({ method: "card", price: 1520, balance: BALANCE }), false), "a difference below the card's least charge").toBe("btc")
+  })
+})
+
+describe("disputeDaysOf", () => {
+  const BALANCE = { source: "reg-taken", amount: 1500, held: false, heldUntil: null, disputeDays: 14 }
+  it("is the days the way to pay allows: 120 for a card, 14 for Bitcoin, Monero or a code", () => {
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card" }) }))).toBe(120)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "btc" }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "xmr" }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", code: CODE }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", codeHere: true }) })), "the code field opened").toBe(14)
+    expect(disputeDaysOf(initialState(checkout({ method: "card" }), "review", true)), "codes-only mode").toBe(14)
+  })
+  it("from a balance, is the days the balance pays for, as taken with it, or the way to pay the rest's when more", () => {
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", price: 3000, balance: BALANCE }) }))).toBe(120)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "btc", price: 3000, balance: BALANCE }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "btc", price: 3000, balance: { ...BALANCE, disputeDays: 120 } }) }))).toBe(120)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", balance: BALANCE }) })), "covered").toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "btc", balance: { ...BALANCE, disputeDays: 120 } }) })), "covered").toBe(120)
+  })
+  it("is none once this name's own order took the balance, as that order signs the balance's days", () => {
+    const own = { label: "alice1", tld: "simplex", url: "/?registration=reg-9" }
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", balance: null, balanceChange: "gone" }), holder: own }))).toBeNull()
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", balance: null, balanceChange: "gone" }) })), "gone before its order is found: the whole price, by card").toBe(120)
+  })
+  it("follows the balance's days as a read changes them", () => {
+    const s = open({ checkout: checkout({ method: "btc", balance: BALANCE }) })
+    const read = reduce(s, { type: "balance-read", balance: { amount: 1500, held: false, heldUntil: null, refunded: 0, disputeDays: 120 } })
+    expect([disputeDaysOf(read), read.checkout.balanceChange]).toEqual([120, undefined])
   })
 })

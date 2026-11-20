@@ -168,7 +168,7 @@ export function nameRows(s: ListState): OrderRecord[] {
 // A registered name past its expiry: there are no renewals, so the page takes it as over, though the chain keeps it its
 // holder's through the grace period, and whether or not someone has registered it again since.
 export const lapsed = ({ view, answer }: Pick<RowSeen, "view" | "answer">, now: number) =>
-  view.phase === "registered" && ((view.expiresAt !== null && view.expiresAt < now / 1000) || answer?.status === "available")
+  view.phase === "registered" && (view.expiresAt === null ? answer?.status === "available" : view.expiresAt < now / 1000)
 
 export const waitsToSign = (view: RegistrationView, now: number) =>
   view.phase === "committed" && view.label === null && view.revealAfter !== null && now / 1000 >= view.revealAfter
@@ -176,7 +176,7 @@ export const waitsToSign = (view: RegistrationView, now: number) =>
 const PHASE_CHIPS: Record<Phase, [string, string]> = {
   unpaid: ["Waiting for payment", "warn"],
   queued: ["Registering", "brand"], committing: ["Registering", "brand"], committed: ["Registering", "brand"], registering: ["Registering", "brand"],
-  registered: ["Registered", "ok"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
+  registered: ["Registered", "ok"], ended: ["Ended", "bad"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
 }
 
 const CHIPS = {
@@ -230,7 +230,8 @@ export const CODE_CHIPS: Record<CodeState, [string, string]> = {
 }
 
 export function editable(answer: SearchAnswer, owner: string): boolean {
-  if (answer.status !== "registered" || answer.owner === undefined) return true
+  if (answer.status !== "registered") return false
+  if (answer.owner === undefined) return true
   return answer.owner.toLowerCase() === owner.toLowerCase() && answer.records !== null
 }
 
@@ -267,7 +268,7 @@ export function reduceRestore(s: RestoreState, e: RestoreEvent): RestoreState {
 }
 
 export const EDIT_RETRY_MS = 5000
-export type EditKind = "edit" | "edit-unreadable" | "edit-no-code" | "edit-expired" | "edit-in-app" | "edit-elsewhere" | "edit-not-registered"
+export type EditKind = "edit" | "edit-unreadable" | "edit-no-code" | "edit-expired" | "edit-ended" | "edit-in-app" | "edit-elsewhere" | "edit-not-registered"
 interface EditRead { view: RegistrationView; answer: SearchAnswer; now: number }
 type EditResult = "sending" | "nothing" | "saved" | "unanswered" | "moved" | "refused"
 
@@ -354,7 +355,9 @@ export function screenOfEdit(s: EditState): EditKind {
   if (!s.record) return "edit-no-code"
   if (!s.read) return "edit-unreadable"
   const { view, answer, now } = s.read
+  if (view.phase === "ended") return "edit-ended"
   if (lapsed({ view, answer }, now)) return "edit-expired"
+  if (view.phase === "registered" && answer.status !== "registered") return "edit-unreadable"
   if (answer.status === "registered" && answer.owner !== undefined && !owns(answer, s.record.owner)) return "edit-in-app"
   if (answer.status === "registered" && owns(answer, s.record.owner) && answer.records === null) return "edit-elsewhere"
   if (view.phase !== "registered" || answer.status !== "registered" || !answer.records || answer.recordsNonce == null) return "edit-not-registered"

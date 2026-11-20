@@ -69,7 +69,7 @@ function view(request: { labelHash: string; duration: number; commitment: string
   return {
     id: "reg1", version: 1, unread: [], moves: 0, phase: "committed", labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
     years: 2, duration: request.duration, price: 20000, fromBalance: 0, balance: null, commitTx: "0x01", registerTx: null, revealAfter: 1000, revealBefore: 87400, intentNonce: 3, acceptance: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: SIGNED, ...CHAIN, ...extra,
+    community: null, terms: SIGNED, disputeDays: 14, disputeUntil: null, ...CHAIN, ...extra,
   }
 }
 
@@ -109,12 +109,12 @@ describe("orderRequest", () => {
 })
 
 describe("revealOrder", () => {
-  it("sends the label, secret and links with a RegisterName signature from the code's key, a week ahead of the service's clock", async () => {
+  it("sends the label, secret and links with a RegisterName signature from the code's key, of the order's dispute days, a week ahead of the service's clock", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
-    const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
+    const record = flow.recordFor(draft(), built, "card", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
-    await flow.revealOrder(view(built.request) as never, record)
+    await flow.revealOrder(view(built.request, { disputeDays: 37 }) as never, record)
     const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: [LINKS.contact], channel: [] }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
@@ -122,7 +122,7 @@ describe("revealOrder", () => {
       label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
       resolver: fromHex(CHAIN.resolver), contactLinks: [LINKS.contact], channelLinks: [],
     }
-    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 3n, BigInt(body.deadline))
+    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 37n, 3n, BigInt(body.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: body.signature })).toBe(OWNER)
   })
 
@@ -149,6 +149,77 @@ describe("revealOrder", () => {
     const other = acceptTermsDigest(!community, 31337n, fromHex(acceptance.policy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, BigInt(sent.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: sent.acceptance.signature })).toBe(OWNER)
     expect(await recoverAddress({ hash: hex(other) as Hex, signature: sent.acceptance.signature })).not.toBe(OWNER)
+  })
+
+  it.each([["btc", 15, 14], ["xmr", 15, 14], ["code", 15, 14], ["card", 121, 120]] as const)("signs no reveal of an order paid by %s over %i dispute days, more than its %i", async (method, days, allowed) => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId: method === "code" ? null : "inv1" })
+    answers["POST /api/registration/reg1/reveal"] = {}
+    await expect(flow.revealOrder(view(built.request, { disputeDays: days }) as never, record)).rejects.toMatchObject({ days, allowed })
+    expect(calls, "nothing sent").toEqual([])
+  })
+
+  const paying = (request: Parameters<typeof view>[0], disputeDays: number) =>
+    view(request, { id: "src", phase: "unpaid", disputeDays: 120, balance: { amount: 0, held: false, heldUntil: null, refunded: 0, disputeDays } })
+
+  it("allows an order paid from a balance the dispute days that balance pays for, and no more", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = { ...flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }), balanceSource: "src" }
+    answers["POST /api/registration/reg1/reveal"] = {}
+    answers["GET /api/registration/src"] = paying(built.request, 120)
+    await flow.revealOrder(view(built.request, { fromBalance: 10000, disputeDays: 120 }) as never, record)
+    expect(calls.map((c) => `${c.method} ${c.path.split("?")[0]}`)).toEqual(["GET /api/registration/src", "POST /api/registration/reg1/reveal"])
+    calls = []
+    answers["GET /api/registration/src"] = paying(built.request, 14)
+    await expect(flow.revealOrder(view(built.request, { fromBalance: 10000, disputeDays: 120 }) as never, record)).rejects.toMatchObject({ days: 120, allowed: 14 })
+    expect(calls.map((c) => c.method)).toEqual(["GET"])
+  })
+
+  it("reads no balance for an order whose own payment allows its dispute days", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = { ...flow.recordFor(draft(), built, "card", 20000, { registrationId: "reg1", invoiceId: "inv1" }), balanceSource: "src" }
+    answers["POST /api/registration/reg1/reveal"] = {}
+    await flow.revealOrder(view(built.request, { fromBalance: 10000, disputeDays: 120 }) as never, record)
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/registration/reg1/reveal"])
+  })
+
+  it.each([["btc", "inv1"], ["code", null]] as const)("signs no reveal of a %s order made here without a balance over its payment's days, whatever balance the view and find name", async (method, invoiceId) => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId })
+    answers["POST /api/registration/reg1/reveal"] = {}
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash,
+      sealed: built.request.sealed, balanceSource: "src", heldBy: null }] }
+    answers["GET /api/registration/src"] = paying(built.request, 120)
+    await expect(flow.revealOrder(view(built.request, { fromBalance: 10000, disputeDays: 120 }) as never, record)).rejects.toMatchObject({ days: 120, allowed: 14 })
+    expect(calls, "nothing asked or sent").toEqual([])
+  })
+
+  it("signs an order paid from a balance alone at the least dispute days without reading that balance, whatever the view's fromBalance", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = { ...flow.recordFor(draft(), built, "balance", 20000, { registrationId: "reg1", invoiceId: null }), balanceSource: "src" }
+    answers["POST /api/registration/reg1/reveal"] = {}
+    for (const fromBalance of [20000, 0]) await flow.revealOrder(view(built.request, { fromBalance, disputeDays: 14 }) as never, record)
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/registration/reg1/reveal", "POST /api/registration/reg1/reveal"])
+  })
+
+  it("signs no order paid from a balance that find does not name, or whose paying order has no balance, so its reveal is tried again", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = flow.recordFor(draft(), built, "balance", 20000, { registrationId: "reg1", invoiceId: null })
+    answers["POST /api/registration/reg1/reveal"] = {}
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash,
+      sealed: built.request.sealed, balanceSource: null, heldBy: null }] }
+    const unnamed = await flow.revealOrder(view(built.request, { fromBalance: 20000, disputeDays: 120 }) as never, record).then(() => null, (e: unknown) => e)
+    expect([unnamed instanceof Error, unnamed instanceof flow.DisputeDaysDeclined]).toEqual([true, false])
+    answers["GET /api/registration/src"] = view(built.request, { id: "src", phase: "taken" })
+    const none = await flow.revealOrder(view(built.request, { fromBalance: 20000, disputeDays: 120 }) as never, { ...record, balanceSource: "src" }).then(() => null, (e: unknown) => e)
+    expect([none instanceof Error, none instanceof flow.DisputeDaysDeclined]).toEqual([true, false])
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/registration/find", "GET /api/registration/src"])
   })
 })
 
@@ -342,7 +413,7 @@ describe("spendBalance", () => {
     const { flow, store } = await modules()
     const api = await import("../src/api.ts")
     const record = await source(store, flow)
-    const now = { amount: 5000, held: false, heldUntil: null, refunded: 5000 }
+    const now = { amount: 5000, held: false, heldUntil: null, refunded: 5000, disputeDays: 14 }
     answers[`POST /api/registration/${SPEND.registrationId}/spend`] = new Response(JSON.stringify({ error: "balance_changed", balance: now }), { status: 409 })
     const refused = await flow.spendBalance(record, "another", NO_LINKS, quote(10000), 10000, "btc", SPEND.terms).catch((e: unknown) => e)
     expect(refused).toBeInstanceOf(api.BalanceChanged)
