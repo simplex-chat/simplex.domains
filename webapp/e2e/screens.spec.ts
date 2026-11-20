@@ -2154,6 +2154,13 @@ screen(3006, "names-row-expired-no-expiry", async (r) => {
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toBeVisible()
 })
+screen(3007, "names-row-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto("/#/names")
+  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Ended")
+})
 screen(3008, "names-balance-outpaid", async (r) => {
   await takenOrder(r.page, r.request, r.id)
   await r.page.goto("/#/names")
@@ -2724,6 +2731,13 @@ screen(3130, "names-edit-expired-from", async (r) => {
 screen(3132, "names-edit-expired-taken", async (r) => {
   await editFaked(r, { phase: "registered", expiresAt: r.now - 100 * 86400 }, (order) => registeredFor(order, r.now + YEAR_S, { owner: OTHER_OWNER }))
   await shown(r.page, "This name has expired")
+})
+screen(3133, "names-edit-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto(`/#/edit/${registrationId}`)
+  await shown(r.page, "The registration was ended")
 })
 screen(3134, "names-edit-other-owner", async (r) => {
   const expiresAt = START_S + 2 * YEAR_S
