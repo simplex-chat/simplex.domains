@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { bonusDays, bonusHint, clock, dateOf, dollars, freeDays, letters, methodName, seconds, shortAddress, termEnd, timeOf } from "../src/format.ts"
+import { bonusDays, bonusHint, clock, dateOf, dollars, freeDays, letters, methodName, seconds, shortAddress, shortLabel, termEnd, timeOf } from "../src/format.ts"
 import { deepLinkOf } from "../dev/mock/links.ts"
 import { foldLabel, labelProblem, linkKind, linkProblem, LINK_MAX_BYTES, linkTooLong } from "../src/names.ts"
 
@@ -98,6 +98,13 @@ describe("formatting", () => {
     expect(shortAddress("0x014f9c09CcEeDEF1B713110d04D3a07d5B5D9b73")).toBe("0x014f\u2060…\u20609b73")
     expect([letters(1), letters(7)]).toEqual(["1 letter", "7 letters"])
     expect(dateOf(Date.UTC(2028, 10, 12) / 1000)).toBe("12\u00a0November 2028")
+  })
+
+  it("keeps a name of up to 25 letters whole, and shortens a longer one to its first 12 letters, ... and its last 3", () => {
+    for (const label of ["bakery", "a".repeat(25)]) expect(shortLabel(label), label).toBe(label)
+    expect(shortLabel("a".repeat(26))).toBe(`${"a".repeat(12)}...aaa`)
+    expect(shortLabel("the-best-bakery-in-lisbon-since-1987")).toBe("the-best-bak...987")
+    expect(shortLabel("m".repeat(63))).toHaveLength(18)
   })
 
   const TERM_START = Date.UTC(2027, 0, 1) / 1000
