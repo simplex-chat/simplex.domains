@@ -18,6 +18,8 @@ export interface AppliedBalance {
   disputeDays: number
 }
 
+const keptByOlderPage = (balance: AppliedBalance | null | undefined) => balance != null && !Number.isInteger(balance.disputeDays)
+
 // a balance pays only while something is left of it
 export const appliedBalance = (source: string, balance: Balance | null): AppliedBalance | null =>
   balance && balance.amount > 0 ? { source, amount: balance.amount, held: balance.held, heldUntil: balance.held ? balance.heldUntil : null, disputeDays: balance.disputeDays } : null
@@ -107,7 +109,7 @@ export const setScrolled = (at: number, y: number) => write(SCROLLED, { ...scrol
 // continue; one kept without its step opens the review, which sends it on
 export function checkout(): Checkout | null {
   const c = read<Checkout>(CHECKOUT)
-  return c?.label && c.chain && typeof c.terms?.hash === "string" && typeof c.termStart === "number" ? { ...c, step: c.step ?? "review", balance: c.balance ?? null } : null
+  return c?.label && c.chain && typeof c.terms?.hash === "string" && typeof c.termStart === "number" && !keptByOlderPage(c.balance) ? { ...c, step: c.step ?? "review", balance: c.balance ?? null } : null
 }
 export const setCheckout = (c: Checkout | null) => write(CHECKOUT, c)
 
@@ -120,7 +122,10 @@ export function setActiveCode(code: AppliedCode | null): void {
 }
 
 // the balance this tab pays with, chosen in Your names or on its order's page, until it is taken off or spent
-export const activeBalance = () => read<AppliedBalance>(ACTIVE_BALANCE)
+export function activeBalance(): AppliedBalance | null {
+  const balance = read<AppliedBalance>(ACTIVE_BALANCE)
+  return keptByOlderPage(balance) ? null : balance
+}
 export function setActiveBalance(balance: AppliedBalance | null): void {
   write(ACTIVE_BALANCE, balance)
   if (balance) write(ACTIVE_CODE, null)
