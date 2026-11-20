@@ -122,13 +122,13 @@ const answer = (route: Route, status: number, type: string, retryAfter?: number,
 const posting = (path: RegExp, f: (route: Route) => Promise<unknown> | unknown) => async (route: Route) =>
   route.request().method() === "POST" && path.test(new URL(route.request().url()).pathname) ? f(route) : route.fallback()
 
-async function paid(r: Reach, name: string): Promise<{ invoiceId: string; registrationId: string }> {
+async function ordered(r: Reach, name: string): Promise<{ invoiceId: string; registrationId: string }> {
   const { invoiceId } = await startOrder(r.page, name, { method: "btc" })
   return { invoiceId, registrationId: await registrationOf(r.request, invoiceId) }
 }
 
 async function failed(r: Reach, name: string, how: "fail" | "fail-name" = "fail-name"): Promise<{ invoiceId: string; registrationId: string }> {
-  const order = await paid(r, name)
+  const order = await ordered(r, name)
   await control(r.request, `${how}/${order.registrationId}`)
   await control(r.request, `settle/${order.invoiceId}`)
   await heading(r.page, "Paid, not registered")
@@ -141,7 +141,7 @@ const unsigned = async (page: Page) => {
 }
 
 async function committedUnsigned(r: Reach, name: string): Promise<{ invoiceId: string; registrationId: string }> {
-  const order = await paid(r, name)
+  const order = await ordered(r, name)
   await unsigned(r.page)
   await control(r.request, `stale/${order.registrationId}`)
   await control(r.request, `settle/${order.invoiceId}`)
@@ -235,7 +235,7 @@ screen(100, "home-unchecked-config", async ({ page }) => {
 })
 
 screen(102, "home-own-paid-order", async (r) => {
-  const { invoiceId, registrationId } = await paid(r, label(r.id))
+  const { invoiceId, registrationId } = await ordered(r, label(r.id))
   await unsigned(r.page)
   await control(r.request, `stale/${registrationId}`)
   await control(r.request, `settle/${invoiceId}`)
@@ -244,7 +244,7 @@ screen(102, "home-own-paid-order", async (r) => {
 })
 
 screen(104, "home-own-order-registering", async (r) => {
-  await paid(r, label(r.id))
+  await ordered(r, label(r.id))
   await r.page.route(`**/api/name/${hex(labelHash(label(r.id)))}*`, (route) => route.fulfill({ json: { found: { type: "taken" } } }))
   await search(r.page, label(r.id))
   await answerLine(r.page)
@@ -315,7 +315,7 @@ screen(118, "home-retarget-moved", async (r) => {
 })
 
 screen(119, "home-retarget-unpaid", async (r) => {
-  const { invoiceId } = await paid(r, label(r.id))
+  const { invoiceId } = await ordered(r, label(r.id))
   await r.page.goto(`/#/?retarget=${await registrationOf(r.request, invoiceId)}`)
   await heading(r.page, "Pay with Bitcoin")
 })
@@ -515,7 +515,7 @@ screen(174, "home-taken-community", async ({ page }) => {
   await expect(page.locator(".answer .row .chat").first()).toBeVisible()
 })
 screen(176, "home-yours", async (r) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
   await search(r.page, r.id)
@@ -1392,7 +1392,7 @@ screen(2002, "order-pay-card-held-by-order", async (r) => {
   await expect(onStep(r.page).locator(".name-check:not(.unchecked)")).toBeVisible()
 })
 screen(2004, "order-registering-committing", async (r) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, "search", { unsentSeconds: 120 })
   await control(r.request, `settle/${invoiceId}`)
   await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
@@ -1429,7 +1429,7 @@ screen(2012, "order-registering-stalled", async (r) => {
   await shown(r.page, "This is taking longer than usual")
 })
 screen(2014, "order-registering-signature-refused", async (r) => {
-  const { invoiceId, registrationId } = await paid(r, r.id)
+  const { invoiceId, registrationId } = await ordered(r, r.id)
   await r.page.route("**/api/registration/*/reveal", (route) => answer(route, 400, "bad_request"))
   await control(r.request, `stale/${registrationId}`)
   await control(r.request, `settle/${invoiceId}`)
@@ -1437,7 +1437,7 @@ screen(2014, "order-registering-signature-refused", async (r) => {
 })
 
 const termsChangedOrder = async (r: Reach) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, "general-terms", { text: TERMS_TEXT })
   await control(r.request, `settle/${invoiceId}`)
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/ })).toBeVisible({ timeout: REGISTRATION_MS })
@@ -1447,7 +1447,7 @@ const termsChangedOrder = async (r: Reach) => {
 screen(2016, "order-registering-terms-asked", async (r) => { await termsChangedOrder(r) })
 screen(2018, "order-registering-community-terms-asked", async (r) => {
   await control(r.request, "community", { label: r.id, for: "screens of the names page" })
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, "community-terms", { text: "The community terms, changed for the screens" })
   await control(r.request, `settle/${invoiceId}`)
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/ })).toBeVisible({ timeout: REGISTRATION_MS })
@@ -1459,7 +1459,7 @@ screen(2020, "order-registering-terms-ticked", async (r) => {
   await agreeToTerms(r.page)
 })
 const goneWhileTermsWait = async (r: Reach, gone: Record<string, unknown>, says: string) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   let answered = false
   await r.page.route(`**/api/name/${hex(labelHash(r.id))}*`, (route) => answered ? route.fulfill({ json: gone }) : route.fallback())
   await control(r.request, "general-terms", { text: TERMS_TEXT })
@@ -1479,7 +1479,7 @@ screen(2028, "order-lapsed-no-record", async (r) => {
   return other
 })
 screen(2030, "order-registering-no-record-committing", async (r) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, "search", { unsentSeconds: 120 })
   await control(r.request, `settle/${invoiceId}`)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
@@ -1931,12 +1931,12 @@ screen(2174, "order-registered-links", async (r) => {
   await waitRegistered(r.page, r.id)
 })
 screen(2176, "order-registered-no-links", async (r) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
 })
 screen(2178, "order-registered-no-record", async (r) => {
-  const { invoiceId } = await paid(r, r.id)
+  const { invoiceId } = await ordered(r, r.id)
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
