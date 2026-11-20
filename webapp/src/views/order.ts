@@ -1262,7 +1262,8 @@ function buildRegistered(s: OrderState): HTMLElement {
   const qr = el("div", { class: "code-qr" })
   return screen({ title: [label ? gradName(label, view.tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record, disputeEndAhead(s)), action: registeredAction(s.record) },
     code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
-      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(shortLabel(label ?? ""), view.tld, "."), " For a channel, set it in the channel's profile.")),
+      el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", el("span", { class: "sr-only" }, `${label}.${view.tld}.`),
+        el("span", { "aria-hidden": "true" }, nameText(shortLabel(label ?? ""), view.tld, ".")), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
     codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
     // under the code and over its QR, so showing the code moves it and nothing above it
