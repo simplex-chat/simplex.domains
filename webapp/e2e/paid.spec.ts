@@ -307,7 +307,8 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.locator(".screen-body > .review + [role=status] + .mid")).toHaveCount(1)
   await expect(step.locator(".card.order .name")).toHaveText(`${label}.simplex`)
   // the term holds the free days until the paid years start, which are folded into it
-  await expect(step.locator(".card.order .trow")).toHaveText([/^Term2 years and (\d{2,} days|1 day)Early adopter bonus: your 2 years start on 1\u00a0January 2027\.$/, /^Registered until31\u00a0December 2028$/, /^Total\$\d+$/])
+  await expect(step.locator(".card.order .trow")).toHaveText([/^Term2 years and (\d{2,} days|1 day)Early adopter bonus: your 2 years start on 1\u00a0January 2027\.$/, /^Registered until31\u00a0December 2028$/,
+    `Dispute period14 days${disputeLine(14)}`, /^Total\$\d+$/])
   // each link as the chat it opens, read only
   await expect(step.locator(".card.order .chat")).toHaveCount(2)
   await expect(step.getByRole("button", { name: "Contact F1Y8m3, contact address" })).toBeVisible()
@@ -435,17 +436,23 @@ const termLines = (page: Page) => onStep(page).locator(".trow").first().locator(
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
 const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
+const disputeRow = (page: Page) => onStep(page).locator(".card.order .trow", { hasText: "Dispute period" })
 
-test("Check your order says for how many days the registration can be ended, by the way it is paid", async ({ page }) => {
+test("Check your order says for how many days the registration can be ended, by the way it is paid, explained on hover", async ({ page }) => {
   await search(page, uniqueLabel("days"))
   await toReview(page)
   for (const [method, days] of [["Card", 120], ["Bitcoin", 14], ["Monero", 14]] as const) {
     await page.getByRole("radio", { name: method }).click()
-    await expect(onStep(page).getByText(disputeLine(days))).toBeVisible()
+    await expect(disputeRow(page).getByRole("button")).toHaveText(`${days} days`)
+    await expect(disputeRow(page).getByRole("tooltip")).toHaveText(disputeLine(days))
   }
+  await expect(disputeRow(page).getByRole("tooltip")).toBeHidden()
+  await disputeRow(page).getByRole("button").hover()
+  await expect(disputeRow(page).getByRole("tooltip")).toBeVisible()
+  await page.mouse.move(0, 0)
   await page.getByRole("radio", { name: "Card" }).click()
   await onStep(page).getByRole("button", { name: "I have a code" }).click()
-  await expect(onStep(page).getByText(disputeLine(14))).toBeVisible()
+  await expect(disputeRow(page).getByRole("button")).toHaveText("14 days")
 })
 
 test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
@@ -458,8 +465,9 @@ test("a reveal over more dispute days than the order's payment allows is not sig
     await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
   })
   await control(request, `settle/${invoiceId}`)
-  await expect(onStep(page).getByText("The registration could be ended for 120 days after it is registered, longer than the 14 days its payment allows, so this page does not sign it."))
-    .toBeVisible({ timeout: REGISTRATION_MS })
+  const notice = onStep(page).locator(".notice", { hasText: "This order cannot be signed" })
+  await expect(notice).toHaveText("This order cannot be signedIts registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.",
+    { timeout: REGISTRATION_MS })
   expect(reveals, "no reveal sent").toEqual([])
 })
 

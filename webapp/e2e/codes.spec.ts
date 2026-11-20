@@ -98,7 +98,7 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await toReview(page)
   await expect(total(page)).toHaveText(FREE_TOTAL)
   // no row nor note words the code as a payment
-  await expect(page.locator(".card.order .trow")).toHaveText([/^Term5 years and (\d{2,} days|1 day)Early adopter bonus: your 5 years start on 1\u00a0January 2027\.$/, /^Registered until/, FREE_TOTAL])
+  await expect(page.locator(".card.order .trow")).toHaveText([/^Term5 years and (\d{2,} days|1 day)Early adopter bonus: your 5 years start on 1\u00a0January 2027\.$/, /^Registered until/, /^Dispute period14 days/, FREE_TOTAL])
   await expect(onStep(page).locator(".notes")).toHaveCount(0)
   await expect(page.getByRole("radio")).toHaveCount(0)
   await shot(page, "K3-checkout-covered")

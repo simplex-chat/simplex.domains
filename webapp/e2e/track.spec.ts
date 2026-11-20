@@ -815,6 +815,10 @@ for (const length of [15, 25, MAX_LABEL_LENGTH]) {
     await fitsWindow(page, `${shots}-3-code`, frames)
     await savedToReview(page)
     await fitsWindow(page, `${shots}-4-review`, frames)
+    if (length > 25) {
+      await expect(step.locator(".card.order .row .name"), "the name abbreviated in the card").toHaveText(new RegExp(`^${label.slice(0, 12)}\\.\\.\\.${label.slice(-3)}\\.simplex$`))
+      await expect(step.locator(".card.order .row .sr-only"), "the whole name, for a screen reader").toHaveText(`${label}.simplex`)
+    }
     await payButton(page).click()
     await page.waitForURL(/\?order=/)
     await expect(page.getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()

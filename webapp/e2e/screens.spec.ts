@@ -1872,7 +1872,7 @@ screen(2177, "order-registering-days-refused", async (r) => {
     await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
   })
   await control(r.request, `settle/${invoiceId}`)
-  await shown(r.page, "The name is not signed")
+  await shown(r.page, "This order cannot be signed")
 })
 screen(2178, "order-registered-no-record", async (r) => {
   const { invoiceId } = await paid(r, r.id)
