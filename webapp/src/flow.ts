@@ -114,9 +114,12 @@ export class DisputeDaysRefused extends Error {
 
 async function disputeDaysAllowed(view: api.RegistrationView, record: store.OrderRecord): Promise<number> {
   const paid = record.method === "balance" ? 0 : api.DISPUTE_DAYS[record.method]
-  if (view.fromBalance === 0) return paid
+  if (view.fromBalance === 0 || view.disputeDays <= paid) return paid
   const source = record.balanceSource ?? await balanceSourceOf(record)
-  return Math.max(paid, source ? (await api.readRegistration(source)).disputeDays : view.disputeDays)
+  if (!source) throw new Error("find answers this order without the order whose balance paid it")
+  const balance = (await api.readRegistration(source)).balance
+  if (!balance) throw new Error("the view of the order whose balance paid this one lacks its balance")
+  return Math.max(paid, balance.disputeDays)
 }
 
 async function sha256Hex(text: string): Promise<string> {
