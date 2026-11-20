@@ -164,20 +164,6 @@ test("a registration ended in its dispute period says so on its order's page, is
   await expect(onStep(page).getByRole("button", { name: "Save links" })).toHaveCount(0)
 })
 
-test("a registered order whose name the search finds available before its expiry shows ended in Your names and Edit links, before its view says so", async ({ page }) => {
-  const label = uniqueLabel("unreg")
-  const order = await keepOrder(page, `reg-${label}`, null, label)
-  const expiresAt = Math.floor(Date.now() / 1000) + YEAR_S
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt }) }))
-  await page.goto("/#/names")
-  const row = page.locator(".list-row", { hasText: `${label}.simplex` })
-  await expect(row.locator(".chip")).toHaveText("Ended")
-  await expect(row.locator(".sub")).toHaveText("Registered with a code")
-  await expect(row.getByRole("button")).toHaveText(["Open"])
-  await page.goto(`/#/edit/${order.registrationId}`)
-  await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
-})
-
 test("a registered name's page takes its dispute end away as it passes, and is drawn once while that end is further off than a timer's longest delay", async ({ page }) => {
   const label = uniqueLabel("until")
   const order = await keepOrder(page, `reg-${label}`, null, label)

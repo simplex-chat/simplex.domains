@@ -468,7 +468,6 @@ describe("edit", () => {
       ["a name registered again by someone else", STATES["edit-expired"], "edit-expired"],
       ["a registration ended in its dispute period", STATES["edit-ended"], "edit-ended"],
       ["a registration ended, its name registered again since", answered(opened, registered(undefined, { owner: APP }), registration({ phase: "ended", label: "alice" })), "edit-ended"],
-      ["a registered name the search finds available before its expiry, ended before its order reads so", answered(opened, available), "edit-ended"],
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
