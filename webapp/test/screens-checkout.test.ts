@@ -310,6 +310,7 @@ describe("initialState", () => {
   it("starts on its step with the checkout as stored and nothing else known", () => {
     expect(initialState(checkout(), "links", false)).toEqual({
       step: "links", checkout: checkout(), codesOnly: false, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, holder: null, communityText: null,
+      balanceDays: null,
     })
   })
 })
