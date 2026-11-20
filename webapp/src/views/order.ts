@@ -334,7 +334,7 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
-    if (e instanceof flow.DisputeDaysRefused) {
+    if (e instanceof flow.DisputeDaysDeclined) {
       dispatch({ type: "reveal-declined", key, days: e.days, allowed: e.allowed })
       if (isRoute(pageRoute) && state.reference === reference) announce(`${NOT_SIGNABLE}. ${overDays(e)} Write to ${CONTACT_EMAIL} with the reference below.`)
       return

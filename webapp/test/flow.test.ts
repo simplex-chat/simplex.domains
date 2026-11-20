@@ -215,10 +215,10 @@ describe("revealOrder", () => {
     answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash,
       sealed: built.request.sealed, balanceSource: null, heldBy: null }] }
     const unnamed = await flow.revealOrder(view(built.request, { fromBalance: 20000, disputeDays: 120 }) as never, record).then(() => null, (e: unknown) => e)
-    expect([unnamed instanceof Error, unnamed instanceof flow.DisputeDaysRefused]).toEqual([true, false])
+    expect([unnamed instanceof Error, unnamed instanceof flow.DisputeDaysDeclined]).toEqual([true, false])
     answers["GET /api/registration/src"] = view(built.request, { id: "src", phase: "taken" })
     const none = await flow.revealOrder(view(built.request, { fromBalance: 20000, disputeDays: 120 }) as never, { ...record, balanceSource: "src" }).then(() => null, (e: unknown) => e)
-    expect([none instanceof Error, none instanceof flow.DisputeDaysRefused]).toEqual([true, false])
+    expect([none instanceof Error, none instanceof flow.DisputeDaysDeclined]).toEqual([true, false])
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/registration/find", "GET /api/registration/src"])
   })
 })

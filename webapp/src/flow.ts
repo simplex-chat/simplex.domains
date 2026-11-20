@@ -85,7 +85,7 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
 // lapses, so the service can commit again after a lapse and register without the page.
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
   const allowed = await disputeDaysAllowed(view, record)
-  if (view.disputeDays > allowed) throw new DisputeDaysRefused(view.disputeDays, allowed)
+  if (view.disputeDays > allowed) throw new DisputeDaysDeclined(view.disputeDays, allowed)
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, view, BigInt(view.duration))
   const deadline = Math.max(view.revealBefore!, now() + REVEAL_DEADLINE_SECONDS)
@@ -102,7 +102,7 @@ export async function revealOrder(view: api.RegistrationView, record: store.Orde
   })
 }
 
-export class DisputeDaysRefused extends Error {
+export class DisputeDaysDeclined extends Error {
   readonly days: number
   readonly allowed: number
   constructor(days: number, allowed: number) {
