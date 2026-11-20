@@ -54,11 +54,13 @@ const storedEvent = (change: Partial<Stored> = {}, hold: Hold | null = null): Li
 const list = (change: Partial<Stored> = {}, state: Partial<ListState> = {}): ListState => ({ ...initialList(stored(change), null, {}, {}, NOW), ...state })
 
 describe("list helpers", () => {
-  it("lapsed: a registered name past its expiry, or one the search finds available again, is over", () => {
+  it("lapsed: a registered name past its expiry, or one without an expiry that the search finds available again, is over", () => {
     const view = registeredView()
     expect(lapsed({ view, answer: registered() }, NOW)).toBe(false)
     expect(lapsed({ view, answer: registered() }, NOW + 3 * YEAR_S * 1000)).toBe(true)
-    expect(lapsed({ view, answer: available }, NOW)).toBe(true)
+    expect(lapsed({ view, answer: available }, NOW + 3 * YEAR_S * 1000)).toBe(true)
+    expect(lapsed({ view: registeredView({ expiresAt: null }), answer: available }, NOW)).toBe(true)
+    expect(lapsed({ view, answer: available }, NOW), "a name unregistered before its expiry").toBe(false)
     expect(lapsed({ view: registration({ phase: "committed" }), answer: available }, NOW)).toBe(false)
   })
   it("registrableAgain: free now once the search finds it available", () => {
@@ -448,7 +450,7 @@ describe("edit", () => {
   const STATES: Record<EditKind, EditState> = {
     "edit-no-code": initialEdit("reg-1", null),
     "edit-unreadable": reduceEdit(opened, { type: "read-failed" }),
-    "edit-expired": answered(opened, available),
+    "edit-expired": answered(opened, available, registeredView({ expiresAt: NOW / 1000 - GRACE_S - 1 })),
     "edit-ended": answered(opened, available, registration({ phase: "ended", label: "alice" })),
     "edit-in-app": answered(opened, registered(undefined, { owner: APP })),
     "edit-elsewhere": answered(opened, registered(null)),
@@ -466,6 +468,7 @@ describe("edit", () => {
       ["a name registered again by someone else", STATES["edit-expired"], "edit-expired"],
       ["a registration ended in its dispute period", STATES["edit-ended"], "edit-ended"],
       ["a registration ended, its name registered again since", answered(opened, registered(undefined, { owner: APP }), registration({ phase: "ended", label: "alice" })), "edit-ended"],
+      ["a registered name the search finds available before its expiry, ended before its order reads so", answered(opened, available), "edit-ended"],
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],

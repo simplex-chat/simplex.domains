@@ -2,7 +2,7 @@ import { type APIRequestContext, expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, MOCK, onStep, payButton, recordedFrames, recordFrames, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
+  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, keepOrder, MOCK, onStep, payButton, recordedFrames, recordFrames, registrationView, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
   uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
@@ -275,6 +275,18 @@ test("an order paid before codes only shows no new invoice or balance to spend, 
   await expect(balance.getByRole("button", { name: "Refund" })).toBeVisible()
   await noPaymentUi(page)
   await shot(page, "C8-codes-only-names")
+})
+
+test("a registration ended in its dispute period offers only Register with code, as the other endings do", async ({ page, request }) => {
+  await setMode(request, "codes")
+  const label = uniqueLabel("endc")
+  const order = await keepOrder(page, `reg-${label}`, null, label)
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "ended", commitTx: "0x02", registerTx: "0x03" }) }))
+  await page.goto(`/?registration=${order.registrationId}`)
+  await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: "Search a name" })).toHaveCount(0)
+  await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
+  await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
 })
 
 test("a page opened before codes only, refused as it pays, says registration is by code and leads to a code", async ({ page, request }) => {

@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect, type Locator, type Page } from "@playwright/test"
+import { shortLabel } from "../src/format.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
 import {
@@ -839,6 +840,9 @@ test(`the name-is-yours screen fits both windows for a name of ${MAX_LABEL_LENGT
   await page.goto(`/?registration=${registrationId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Edit links" })).toBeVisible()
+  const instruction = onStep(page).locator(".card.use p")
+  await expect(instruction.locator(".sr-only"), "the whole name, for a screen reader").toHaveText(`${label}.simplex.`)
+  await expect(instruction.locator("[aria-hidden=true]"), "the name as drawn").toHaveText(`${shortLabel(label)}.simplex.`)
   await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`)
 })
 

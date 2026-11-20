@@ -9,7 +9,7 @@ import { dateOf } from "../src/format.ts"
 import {
   agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, offCentre, onStep,
   payButton, previewsShown, qrText, savedToReview, search, searchName, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
-  useCode, waitRegistered,
+  keepOrder, registrationView, useCode, waitRegistered,
   acceptedOnChain, COMMUNITY_TERMS_HASH, contractsOwnerLists, GENERAL_TERMS_HASH,
 } from "./helpers.ts"
 
@@ -150,9 +150,10 @@ test("a registration ended in its dispute period says so on its order's page, is
   const { registrationId, label } = await registerWithCode(page, request, "ended")
   await waitRegistered(page, label)
   await control(request, `unregister/${registrationId}`)
+  expect(await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json(), "the view the service gives an ended order").toMatchObject({ phase: "ended", expiresAt: null, disputeUntil: null })
   await page.reload()
   await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
-  await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was ended because a payment for it was disputed, reversed or refunded in full. Anyone can register the name now.`)
+  await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was ended because a payment for it was disputed, reversed or refunded in full.`)
   expect((await searchName(request, label)).status).toBe("available")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -161,6 +162,47 @@ test("a registration ended in its dispute period says so on its order's page, is
   await page.goto(`/#/edit/${registrationId}`)
   await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Save links" })).toHaveCount(0)
+})
+
+test("a registered order whose name the search finds available before its expiry shows ended in Your names and Edit links, before its view says so", async ({ page }) => {
+  const label = uniqueLabel("unreg")
+  const order = await keepOrder(page, `reg-${label}`, null, label)
+  const expiresAt = Math.floor(Date.now() / 1000) + YEAR_S
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt }) }))
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: `${label}.simplex` })
+  await expect(row.locator(".chip")).toHaveText("Ended")
+  await expect(row.locator(".sub")).toHaveText("Registered with a code")
+  await expect(row.getByRole("button")).toHaveText(["Open"])
+  await page.goto(`/#/edit/${order.registrationId}`)
+  await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
+})
+
+test("a registered name's page takes its dispute end away as it passes, and is drawn once while that end is further off than a timer's longest delay", async ({ page }) => {
+  const label = uniqueLabel("until")
+  const order = await keepOrder(page, `reg-${label}`, null, label)
+  const now = Math.floor(Date.now() / 1000)
+  const expiresAt = now + YEAR_S
+  let disputeUntil = now + 10
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt, disputeUntil }) }))
+  const lead = page.locator("body > main .lead")
+  const disputed = () => `Registered until ${dateOf(expiresAt)}. It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
+  await page.goto(`/?registration=${order.registrationId}`)
+  await expect(lead).toHaveText(disputed())
+  await expect(lead, "the lead once the dispute end has passed").toHaveText(`Registered until ${dateOf(expiresAt)}.`, { timeout: 20_000 })
+  disputeUntil = now + 30 * 86400
+  await page.reload()
+  await expect(lead).toHaveText(disputed())
+  const draws = await page.evaluate(() => new Promise<number>((done) => {
+    let count = 0
+    const watch = new MutationObserver(() => { count++ })
+    watch.observe(document.querySelector("body > main")!, { childList: true })
+    setTimeout(() => {
+      watch.disconnect()
+      done(count)
+    }, 2000)
+  }))
+  expect(draws, "the screens drawn in two seconds after the first").toBe(0)
 })
 
 // These cases need a prepaid code alone, from /control/code, so they run against the service as well as the mock.

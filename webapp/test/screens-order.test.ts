@@ -70,7 +70,7 @@ const STATES: Record<OrderKind, OrderState> = {
   registering: read(null, registration({ phase: "committing" })),
   "links-refused": read(null, registration(committed), { record: record({ linksRefused: true }) }),
   registered: read(null, registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
-  ended: read(null, registration({ phase: "ended", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
+  ended: read(null, registration({ phase: "ended", label: "alice", registerTx: "0xe9" })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
   failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", error: "The registration ran out of gas" })),
   "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
@@ -659,6 +659,13 @@ describe("wakeAt", () => {
   })
   it("takes the earlier of two moments", () => {
     expect(wakeAt({ ...paying, view: registration({ ...committed, revealAfter: NOW / 1000 + 30 }) })).toBe(NOW + 30_000)
+  })
+  it("wakes a registered name's page at its dispute end, which a tick then takes away", () => {
+    const registered = read(null, registration({ phase: "registered", label: "alice", disputeUntil: NOW / 1000 + 30 }))
+    expect(wakeAt(registered)).toBe(NOW + 30_000)
+    const woken = reduce(registered, { type: "tick", now: wakeAt(registered)! })
+    expect(disputeEndAhead(woken)).toBeNull()
+    expect(wakeAt(woken)).toBeNull()
   })
   it("sleeps when nothing waits on the clock", () => {
     expect(wakeAt(STATES["pay-crypto"])).toBeNull()
