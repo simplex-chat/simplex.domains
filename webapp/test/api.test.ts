@@ -320,7 +320,7 @@ describe("service errors", () => {
     expect(await readRegistration("r1")).toMatchObject({ phase: "ended", disputeUntil: null })
   })
 
-  const SPEND ={ labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
+  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
 
   it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify({ registrationId: "r2" }), { status: 200 }))
