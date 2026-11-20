@@ -215,6 +215,8 @@ export function costOf(view: RegistrationView, invoice: InvoiceView | null): { c
   return { cost: view.price, fromBalance: invoice && view.fromBalance >= view.price ? 0 : Math.min(view.fromBalance, view.price) }
 }
 
+export const disputeEndAhead = ({ view, now }: OrderState) => view?.disputeUntil && view.disputeUntil * 1000 > now ? view.disputeUntil : null
+
 // The service refused the order's links at its reveal, as the view says or as this browser saw: trying again would commit
 // the same links, so only another name or other links can register it.
 export const linksRefused = ({ view, record }: OrderState) => view?.linksRefused === true || record?.linksRefused === true
