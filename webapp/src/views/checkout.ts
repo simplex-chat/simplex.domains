@@ -247,7 +247,7 @@ function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number 
   const side = c.balance ? el("b", { class: "price" }, dollars(c.price)) : chats.length ? el("span", { class: "chats" }, chats) : null
   const shown = shortLabel(c.label)
   return el("section", { class: "card order" },
-    el("div", { class: "row" }, rowName(shown, c.chain.tld, c.community, "community"), shown === c.label ? null : el("span", { class: "sr-only" }, name), side),
+    el("div", { class: "row" }, shown === c.label ? null : el("span", { class: "sr-only" }, name), rowName(shown, c.chain.tld, c.community, "community"), side),
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),

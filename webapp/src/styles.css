@@ -639,6 +639,7 @@ html.dark .monero-base { fill: #fff; }
   .check:hover .box { border-color: var(--primary); }
   .cinfo:hover { background: var(--chip); }
   .bonus > .days:hover { background: var(--ok-bg); }
+  .period > .days:hover { background: var(--chip); }
 }
 /* after the hover rules and as specific as the quiet one, as a button pressed with a mouse still matches them */
 :is(.btn, .btn.quiet):not([disabled], [aria-busy="true"]):active { filter: brightness(.94); }
