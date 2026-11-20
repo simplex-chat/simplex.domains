@@ -475,9 +475,9 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
         : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
+      days === null ? null : el("p", { class: "note center" }, disputeLine(days)),
       codeBlock(s),
-      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth)),
-      days === null ? null : el("p", { class: "note center" }, disputeLine(days))),
+      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth))),
     payNote(s, blocked !== null, signal),
     agreement(s))
 }
