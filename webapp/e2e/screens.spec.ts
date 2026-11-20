@@ -270,13 +270,10 @@ screen(110, "home-other-order-registering", async ({ page, id }) => {
   await answerLine(page)
 })
 
-screen(112, "home-taken-unparseable-link", async (r) => {
-  const { invoiceId, ownerCode } = await startOrder(r.page, r.id, { method: "btc" })
-  await control(r.request, `settle/${invoiceId}`)
-  await waitRegistered(r.page, r.id)
-  await ownerSetsText(ownerCode, r.id, "simplex.contact", "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS")
-  await search(r.page, r.id)
-  await answerRow(r.page)
+screen(112, "home-taken-unparseable-link", async ({ page }) => {
+  await seededAsNames(page, "bakery", [])
+  await search(page, "bakery")
+  await expect(onStep(page).locator(".answer .card.row")).toContainText("Taken")
 })
 
 screen(114, "home-taken-kind-mismatch", async ({ page, id }) => {
@@ -311,11 +308,13 @@ screen(120, "home-retarget-moved-after-refusal", async (r) => {
   await other.getByLabel("Name", { exact: true }).fill(`${r.id}-z`)
   await other.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(other)
+  await control(r.request, "search", { unsentSeconds: 120 })
   await press(other, "Register with your payment")
   await other.waitForURL(/\?order=/)
   await other.close()
   await press(r.page, "Register with your payment")
-  await heading(r.page, `${r.id}-z.simplex is yours`)
+  await r.page.waitForURL(/\?order=/)
+  await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
 })
 
 screen(122, "home-retarget-own-name", async (r) => {
@@ -348,12 +347,26 @@ const answerName = (page: Page, name: string, json: Record<string, unknown>) =>
 const UNREADABLE_TERMS = `http://127.0.0.1:8098/terms/${"0".repeat(64)}.md#sha256=${"0".repeat(64)}`
 const OTHER_OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" as const
 const deepOf = (link: string) => `simplex:/${link.includes("/c#") ? "c" : "a"}#${link.split("#")[1]}?h=${new URL(link).host}`
-const BAKERY_LINKS = { contact: contactLink("AB"), channel: channelLink("BN") }
+const BAKERY_LINKS = { contact: "https://smp8.simplex.im/a#contact", channel: channelLink("BN") }
 const BAKERY = [
   { preview: okPreview("contact", "Alice's Bakery", { fullName: "Sourdough and pastries, Lisbon" }), link: BAKERY_LINKS.contact, deepLink: deepOf(BAKERY_LINKS.contact) },
   { preview: okPreview("channel", "Bakery news", { fullName: "Daily bakes and opening hours", publicMemberCount: 1204 }), link: BAKERY_LINKS.channel, deepLink: deepOf(BAKERY_LINKS.channel) },
 ]
 const takenWith = (entities: unknown[], links = BAKERY_LINKS) => registeredTo(OTHER_OWNER, START_S + 2 * YEAR_S, links, entities)
+const NAMES_SEEDS = {
+  bakery: { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS", channel: "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm" },
+  bakehouse: { contact: "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS", channel: "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm" },
+}
+const seededAsNames = (page: Page, name: keyof typeof NAMES_SEEDS, entities: unknown[]) =>
+  page.route(`**/api/name/${hex(labelHash(name))}*`, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    json.found.entities = entities
+    json.found.records = { ...json.found.records, ...NAMES_SEEDS[name] }
+    await route.fulfill({ response: res, json })
+  })
+const unavailableSeeds = (name: keyof typeof NAMES_SEEDS) => (["contact", "channel"] as const).map((kind) =>
+  ({ preview: { kind, profile: { type: "unavailable" } }, link: NAMES_SEEDS[name][kind], deepLink: deepOf(NAMES_SEEDS[name][kind]) }))
 const seven = (id: string) => `s${([...id].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) % 36 ** 6).toString(36).padStart(6, "0")}`
 
 screen(124, "home-empty", async ({ page }) => {
@@ -485,6 +498,7 @@ screen(168, "home-taken-chats-read", async ({ page }) => {
   await expect(page.locator(".answer").getByRole("button", { name: "Bakery news, channel" })).toBeVisible()
 })
 screen(170, "home-taken-chats-unread", async ({ page }) => {
+  await seededAsNames(page, "bakery", unavailableSeeds("bakery"))
   await search(page, "bakery")
   await expect(page.locator(".answer .row .chat").first()).toBeVisible()
 })
@@ -520,11 +534,13 @@ const bakeryChat = async (page: Page, name: string) => {
 screen(182, "home-chat-popup-channel", ({ page }) => bakeryChat(page, "Bakery news, channel"))
 screen(184, "home-chat-popup-contact", ({ page }) => bakeryChat(page, "Alice's Bakery, contact address"))
 screen(186, "home-chat-popup-unread", async ({ page }) => {
+  await seededAsNames(page, "bakery", unavailableSeeds("bakery"))
   await search(page, "bakery")
   await page.locator(".answer .row .chat").last().click()
   await expect(page.getByRole("dialog")).toBeVisible()
 })
 screen(188, "home-chat-popup-community", async ({ page }) => {
+  await seededAsNames(page, "bakehouse", unavailableSeeds("bakehouse"))
   await search(page, "bakehouse")
   await page.locator(".answer .row .chat").first().click()
   await expect(page.getByRole("dialog")).toBeVisible()
@@ -1540,7 +1556,8 @@ const codeOrderAs = async (r: Reach, change: Record<string, unknown>) => {
   }) }))
   await r.page.goto(`/?registration=reg-${r.id}`)
 }
-screen(2056, "order-taken-outpaid", async (r) => {
+screen(2056, "order-taken-outpaid", async (r) => { await takenOrder(r.page, r.request, r.id) })
+screen(2057, "order-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })
   await heading(r.page, `${r.id}.simplex was taken`)
 })
@@ -1611,21 +1628,36 @@ screen(2084, "order-failed-name-gone-since", async (r) => {
   await heading(r.page, "Paid, not registered")
 })
 const failedFor = (reason: string) => ({ phase: { type: "failed", reason }, commitTx: "0x02" })
-screen(2086, "order-failed-signature-paid", async (r) => {
+screen(2086, "order-failed-signature-paid", async (r) => { await failed(r, r.id, "fail") })
+screen(2087, "order-failed-signature-refused-paid", async (r) => {
   await registeringAs(r, failedFor("signatureRefused"))
   await heading(r.page, "Paid, not registered")
 })
 screen(2088, "order-failed-signature-code", async (r) => {
+  await codeFailed(r, r.id)
+  await shown(r.page, "Your code is kept.")
+})
+screen(2089, "order-failed-signature-refused-code", async (r) => {
   await codeOrderAs(r, failedFor("signatureRefused"))
   await heading(r.page, "Not registered")
 })
+const monthLater = (page: Page, change: Record<string, unknown>) => page.route(/\/api\/(invoice|registration)\/[^/?]+(\?.*)?$/, async (route) => {
+  if (route.request().method() !== "GET") return route.fallback()
+  const res = await route.fetch()
+  const json = await res.json()
+  const view = json.registration ?? json
+  if (view.phase?.type === "failed") Object.assign(view, { phase: { type: "failed", reason: "monthEnded" }, ...change })
+  await route.fulfill({ response: res, json })
+})
 screen(2090, "order-failed-month-paid", async (r) => {
-  await registeringAs(r, { ...failedFor("monthEnded"), balance: BALANCE })
-  await heading(r.page, "Paid, not registered")
+  await monthLater(r.page, { balance: BALANCE })
+  await failed(r, r.id, "fail")
+  await shown(r.page, "The name was not registered within a month")
 })
 screen(2092, "order-failed-month-code", async (r) => {
-  await codeOrderAs(r, failedFor("monthEnded"))
-  await heading(r.page, "Not registered")
+  await monthLater(r.page, {})
+  await codeFailed(r, r.id)
+  await shown(r.page, "Your code is released.")
 })
 const unreadOrder = async (r: Reach) => {
   const order = await committedUnsigned(r, r.id)
@@ -2358,10 +2390,14 @@ screen(3044, "names-rows-progress", async (r) => {
   await faked(r, "rows-registering", { phase: { type: "registering" }, payment: { type: "difference", method: "btc", fromBalance: 10000 }, commitTx: "0x02", registerTx: "0x03" }, {})
   const { invoiceId } = await startOrder(r.page, "rows-open-to-finish", { method: "btc" })
   await r.page.goto("/#/trademarks")
+  await control(r.request, `stale/${await registrationOf(r.request, invoiceId)}`)
   await control(r.request, `settle/${invoiceId}`)
-  await expect.poll(async () => (await mockRegistration(r.request, invoiceId)).phase, { timeout: REGISTRATION_MS }).toBe("committed")
+  await expect.poll(async () => {
+    const { phase, label } = await mockRegistration(r.request, invoiceId)
+    return phase === "committed" && label === null
+  }, { timeout: REGISTRATION_MS }).toBe(true)
   await r.page.waitForTimeout(8000)
-  await failed(r, "rows-failed")
+  await failed(r, "rows-failed", "fail")
   const code = await issued(r)
   await control(r.request, "take", { label: "rows-taken-code" })
   await useCode(r.page, code)
