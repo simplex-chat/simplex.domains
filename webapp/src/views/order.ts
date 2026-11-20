@@ -1269,8 +1269,8 @@ function buildRegistered(s: OrderState): HTMLElement {
 
 function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null, disputeUntil: number | null): string {
   const until = view.expiresAt ? dateOf(view.expiresAt) : ""
-  const lead = record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
-  return disputeUntil === null ? lead : `${lead} It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
+  const dispute = disputeUntil === null ? "" : ` It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
+  return record ? `Registered until ${until}.${dispute}` : `Registered until ${until} to ${shortAddress(view.owner)}.${dispute} Its name code is not in this browser.`
 }
 
 function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
