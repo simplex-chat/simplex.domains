@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, FALLBACK_METHOD, initialState, reduce, screenOf, split, stepFor,
+  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, FALLBACK_METHOD, initialState, reduce, screenOf, split, stepFor,
 } from "../src/screens/checkout.ts"
 import { timeOf } from "../src/format.ts"
 import { BALANCE_READ_MS, CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../src/screens/balance.ts"
@@ -482,5 +482,27 @@ describe("codes-only mode", () => {
     expect(screenOf(refused)).toBe("status:codes-only")
     expect(refused).toMatchObject({ sending: false, busy: false, checkout: sent.checkout })
     expect(screenOf(reduce(refused, opened(refused))), "the review opened again").toBe("review")
+  })
+})
+
+describe("disputeDaysOf", () => {
+  const BALANCE = { source: "reg-taken", amount: 1500, held: false, heldUntil: null }
+  it("is the days the way to pay allows: 120 for a card, 14 for Bitcoin, Monero or a code", () => {
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card" }) }))).toBe(120)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "btc" }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "xmr" }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", code: CODE }) }))).toBe(14)
+    expect(disputeDaysOf(open({ checkout: checkout({ method: "card", codeHere: true }) })), "the code field opened").toBe(14)
+    expect(disputeDaysOf(initialState(checkout({ method: "card" }), "review", true)), "codes-only mode").toBe(14)
+  })
+  it("from a balance, is the days of the balance's order once read, or the way to pay the rest's when more", () => {
+    const part = open({ checkout: checkout({ method: "card", price: 3000, balance: BALANCE }) })
+    expect(disputeDaysOf(part), "not read yet").toBeNull()
+    expect(disputeDaysOf(reduce(part, { type: "balance-days", days: 14 }))).toBe(120)
+    const coin = open({ checkout: checkout({ method: "btc", price: 3000, balance: BALANCE }) })
+    expect(disputeDaysOf(reduce(coin, { type: "balance-days", days: 14 }))).toBe(14)
+    expect(disputeDaysOf(reduce(coin, { type: "balance-days", days: 120 }))).toBe(120)
+    const covering = open({ checkout: checkout({ method: "card", balance: BALANCE }) })
+    expect(disputeDaysOf(reduce(covering, { type: "balance-days", days: 14 }))).toBe(14)
   })
 })

@@ -647,6 +647,16 @@ describe("reveal helpers", () => {
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS } })).toBe(false)
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS - 1 } })).toBe(true)
   })
+  it("a reveal over more dispute days than the payment allows is not signed again, nor taken as stalled, until the service asks another", () => {
+    const key = revealKey(view)
+    const timed = { ...waiting, since: { stage: "reg-1 committed", at: NOW } }
+    expect(stalledAt(timed)).not.toBeNull()
+    const declined = reduce(reduce(timed, { type: "reveal-sent", key }), { type: "reveal-declined", key, days: 120, allowed: 14 })
+    expect(declined.declined).toEqual({ key, days: 120, allowed: 14 })
+    expect(revealDue(declined)).toBe(false)
+    expect(stalledAt(declined)).toBeNull()
+    expect(revealDue({ ...declined, view: registration({ ...committed, intentNonce: 5 }) }), "another reveal").toBe(true)
+  })
 })
 
 describe("wakeAt", () => {
@@ -741,7 +751,7 @@ describe("initialState", () => {
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
       reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, sourceBalance: null, ask: null,
-      nameStatus: null, unavailable: null, since: null,
+      nameStatus: null, unavailable: null, since: null, declined: null,
     })
   })
 })

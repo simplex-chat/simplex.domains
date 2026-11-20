@@ -434,6 +434,35 @@ const inWindow = async (page: Page, node: Locator) => {
 const termLines = (page: Page) => onStep(page).locator(".trow").first().locator("> span").last()
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
+const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
+
+test("Check your order says for how many days the registration can be ended, by the way it is paid", async ({ page }) => {
+  await search(page, uniqueLabel("days"))
+  await toReview(page)
+  for (const [method, days] of [["Card", 120], ["Bitcoin", 14], ["Monero", 14]] as const) {
+    await page.getByRole("radio", { name: method }).click()
+    await expect(onStep(page).getByText(disputeLine(days))).toBeVisible()
+  }
+  await page.getByRole("radio", { name: "Card" }).click()
+  await onStep(page).getByRole("button", { name: "I have a code" }).click()
+  await expect(onStep(page).getByText(disputeLine(14))).toBeVisible()
+})
+
+test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
+  const { invoiceId } = await startOrder(page, uniqueLabel("over"), { method: "btc" })
+  const reveals: string[] = []
+  page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/reveal")) reveals.push(r.url()) })
+  await page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
+  })
+  await control(request, `settle/${invoiceId}`)
+  await expect(onStep(page).getByText("The registration could be ended for 120 days after it is registered, longer than the 14 days its payment allows, so this page does not sign it."))
+    .toBeVisible({ timeout: REGISTRATION_MS })
+  expect(reveals, "no reveal sent").toEqual([])
+})
+
 test("the term's free days are the early adopter bonus, explained on hover, focus and tap, with nothing moving", async ({ page, browser, baseURL }) => {
   await search(page, uniqueLabel("bonus"))
   await toReview(page, false)

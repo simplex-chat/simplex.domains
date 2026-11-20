@@ -7,6 +7,7 @@ import {
 } from "./helpers.ts"
 
 const balanceRow = (page: Page) => onStep(page).locator(".list-row[data-key^='balance-']")
+const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
 const chip = (page: Page) => page.locator(".code-chip")
 
 // Your names, its rows read
@@ -78,6 +79,7 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   await expect(onStep(page).locator(".order > .row .price")).toHaveText("$100")
   await expect(onStep(page).locator(".trow", { hasText: "From your balance" })).toContainText("−$100")
   await expect(onStep(page).locator(".trow.total")).toHaveText(/^To pay\s*\$0$/)
+  await expect(onStep(page).getByText(disputeLine(14)), "the days of the Bitcoin payment the balance came from").toBeVisible()
   await shot(page, "B4-review-balance")
   await onStep(page).getByRole("button", { name: "Register with your balance" }).click()
   await page.waitForURL(/\?registration=/)
@@ -96,6 +98,7 @@ test("a paid order taken first keeps its price as its balance, which a cheaper n
   await expect(onStep(page).locator(".trow.total")).toHaveText(/^To pay\s*\$100$/)
   await page.getByRole("radio", { name: "Card" }).click()
   await expect(payButton(page)).toHaveText("Pay $100 with Card")
+  await expect(onStep(page).getByText(disputeLine(120)), "the card's days, more than the balance's").toBeVisible()
   await shot(page, "B6-review-balance-more")
   await payButton(page).click()
   await page.waitForURL(/\?order=/)
