@@ -366,6 +366,24 @@ test("a row Your names could not read is read again while the page stays open", 
   await expect(chip, "the row read again by itself").toHaveText("Waiting for payment", { timeout: UNREAD_ROUND_MS })
 })
 
+test("Your names draws a row as last read while the service's config cannot be read, and reads the row once it can", async ({ page }) => {
+  const order = await keepOrder(page, "reg-config", null, "configunread")
+  const expiresAt = Math.floor(Date.now() / 1000) + ROW_YEAR_S
+  const registered = registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" })
+  await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registered] as const)
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registered }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(order.owner, expiresAt, { contact: "", channel: "" }) }))
+  let unread = true
+  await page.route("**/api/config", (route) => unread ? route.fulfill({ status: 500, json: { type: "internal" } }) : route.continue())
+  await page.goto("about:blank")
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: "configunread" })
+  await expect(row).toContainText("configunread.simplex")
+  await expect(row.locator(".chip")).toHaveText("Not checked")
+  unread = false
+  await expect(row.locator(".chip"), "the row read again once the config is read").toHaveCount(0, { timeout: UNREAD_ROUND_MS })
+})
+
 test("a code Your names could not check is checked again while the page stays open", async ({ page, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   await page.goto("/")

@@ -311,7 +311,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const seen = s.seen[id]
   // the order may have moved to another name since it was stored
   const label = seen?.view.label ?? o.label
-  const tld = seen ? readSite().tld : o.tld
+  const tld = o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
   const registered = seen?.view.phase.type === "registered"
   const code = registered ? o.ownerCode : null
@@ -383,7 +383,7 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
     : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
   const from = BALANCE_FROM[b.from]
-  const sub = ["From ", nameText(view.label ?? o.label, readSite().tld), from && [", ", el("span", { class: "nowrap" }, from)],
+  const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
     b.held ? `${SEP}in use by another order ${heldWords(b.heldUntil)}` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, b.held ? chip("In use", "brand", true) : null, acts)
