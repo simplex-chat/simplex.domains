@@ -1270,7 +1270,7 @@ function buildRegistered(s: OrderState): HTMLElement {
 function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null, disputeUntil: number | null): string {
   const until = view.expiresAt ? dateOf(view.expiresAt) : ""
   const lead = record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
-  return disputeUntil === null ? lead : `${lead} Until ${dateOf(disputeUntil)}, the registration can be ended if its payment is disputed or refunded.`
+  return disputeUntil === null ? lead : `${lead} It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
 }
 
 function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HTMLElement {

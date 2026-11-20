@@ -112,7 +112,7 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   const registered = await searchName(request, label)
   expect(registered.status).toBe("registered")
   const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { years: number; duration: number; registerTx: string; disputeDays: number; disputeUntil: number }
-  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}. Until ${dateOf(view.disputeUntil)}, the registration can be ended if its payment is disputed or refunded.`)
+  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}. It can be ended until ${dateOf(view.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
