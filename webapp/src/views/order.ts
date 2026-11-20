@@ -1162,9 +1162,9 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
-    refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     declined ? alertBox("danger", "alert", "The name is not signed", [`The registration could be ended for ${declined.days} days after it is registered, longer than the ${declined.allowed} days its payment allows, so this page does not sign it. Write to `,
       el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
+    refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     // a name taken or reserved while its changed terms waited cannot be registered by this order, which fails once its
     // hours to sign are over
     unavailable ? alertBox("warn", "alert", unavailable.status === "reserved" ? "The name was reserved meanwhile" : "Someone registered the name first",
