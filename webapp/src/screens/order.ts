@@ -315,9 +315,9 @@ export function stalledAt(s: OrderState): number | null {
 export function wakeAt(s: OrderState): number | null {
   const { invoice, view, record, cardSubmittedAt, now } = s
   const moments = [
+    view?.disputeUntil ? view.disputeUntil * 1000 : null,
     invoice?.status === "open" && !coinOf(invoice) && record && cardSubmittedAt ? Date.parse(cardSubmittedAt) + CARD_SLOW_MS : null,
     view?.phase === "committed" && view.revealAfter !== null ? view.revealAfter * 1000 : null,
-    view?.disputeUntil ? view.disputeUntil * 1000 : null,
   ].filter((at): at is number => at !== null && at > now)
   return moments.length ? Math.min(...moments) : null
 }
