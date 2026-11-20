@@ -62,3 +62,5 @@ All texts: tense and person. A text addresses the person reading it as "you", ne
 | 48 | home-retarget-failed-other-cause (phone) | The order reference appears twice on the page; show it once. |
 | 49 | home-retarget-refused-code-expired | The text makes no sense, and says "with your payment" for an order registered with a code: a code is not a payment (compliance rule above). Reword. |
 | 50 | home-retarget-refused-code-reserved (phone) | The text speaks of a payment and a code at once, for an order registered with a code; say only what applies to a code order (compliance rule above). |
+| 51 | home-retarget-refused-code-revoked (phone) | "Your payment is kept" is very unclear; say what happened and what the person can do. For an order registered with a code, the compliance rule above also applies. |
+| 52 | names-edit-config-unread | Bad language: "The name could not be read now" and "This page tries again by itself" (the page acting). Rewrite. |
