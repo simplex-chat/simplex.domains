@@ -225,13 +225,22 @@ const NO_LINKS = { contact: "", channel: "" }
 const registeredTo = (owner: string, expiresAt: number, links = NO_LINKS, entities: unknown[] = []) => registeredAnswer(owner, expiresAt, links, entities)
 
 const configUnread = (target: Page | BrowserContext) => target.route("**/api/config", (route) => route.fulfill({ status: 500, json: { type: "internal" } }))
+const configUnreadAtLoad = (target: Page | BrowserContext) => {
+  const loaded = new Set<Page>()
+  return target.route("**/api/config", (route) => {
+    const page = route.request().frame().page()
+    if (loaded.has(page)) return route.fallback()
+    loaded.add(page)
+    return answer(route, 500, "internal")
+  })
+}
 
 // --- home
 
 screen(100, "home-unchecked-config", async ({ page }) => {
-  await configUnread(page)
+  await configUnreadAtLoad(page)
   await search(page, "home-unchecked-config")
-  await expect(page.locator(".answer > *").first()).toBeVisible()
+  await expect(onStep(page).locator(".answer .card.row")).toBeVisible()
 })
 
 screen(102, "home-own-paid-order", async (r) => {
@@ -2231,37 +2240,40 @@ screen(3010, "names-pending-config-unread", async (r) => {
   }))
   await payButton(r.page).click()
   await r.page.waitForTimeout(1500)
-  await configUnread(r.page.context())
+  await configUnreadAtLoad(r.page.context())
   const tab = await r.page.context().newPage()
   await tab.goto("/#/names")
   await tab.getByRole("button", { name: "Find the order" }).click()
-  await tab.waitForTimeout(1500)
+  await nameChecked(tab)
   return tab
 })
 screen(3012, "names-list-config-unread-fresh", async (r) => {
   await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
   await r.page.evaluate(() => localStorage.removeItem("simplex-names-seen"))
-  await configUnread(r.page)
+  await configUnreadAtLoad(r.page)
   await r.page.goto("about:blank")
   await r.page.goto("/#/names")
-  await expect(r.page.locator(".list-row", { hasText: r.id })).toBeVisible()
+  await expect(r.page.locator(".list-row", { hasText: r.id })).toContainText("Until")
 })
-screen(3014, "names-list-config-unread-seen", async (r) => {
+const seenListReloaded = async (r: Reach, unread: (page: Page) => Promise<unknown>) => {
   await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id })).toContainText("Until")
-  await configUnread(r.page)
+  await unread(r.page)
   await r.page.reload()
   await r.page.waitForTimeout(1500)
-})
+}
+screen(3014, "names-list-config-unread-seen", (r) => seenListReloaded(r, configUnreadAtLoad))
+screen(3015, "names-list-config-unread-always", (r) => seenListReloaded(r, configUnread))
 screen(3016, "names-check-add-config-unread", async (r) => {
   const { registrationId } = await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
   const ownerCode = await r.page.evaluate((id) => JSON.parse(localStorage.getItem(`simplex-names:order:${id}`)!).ownerCode as string, registrationId)
   const other = await elsewhere(r, "/#/trademarks")
-  await configUnread(other)
+  await configUnreadAtLoad(other)
+  await other.goto("about:blank")
   await other.goto("/#/code")
   await codeField(other).fill(ownerCode)
   await other.getByRole("button", { name: "Add to Your names" }).click()
@@ -2271,9 +2283,10 @@ screen(3016, "names-check-add-config-unread", async (r) => {
 screen(3022, "names-edit-config-unread", async (r) => {
   const { registrationId } = await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
-  await configUnread(r.page)
+  await configUnreadAtLoad(r.page)
   await r.page.goto("about:blank")
   await r.page.goto(`/#/edit/${registrationId}`)
+  await expect(onStep(r.page).locator(".link-field").first()).toBeVisible()
   await r.page.waitForTimeout(1500)
 })
 
