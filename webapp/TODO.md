@@ -50,7 +50,7 @@ All texts: tense and person. A text addresses the person reading it as "you", ne
 | 36 | home-reserved | Bad language: "yours to use" is borderline insulting; reword. |
 | 37 | home-retarget-code-no-text-shorter | The footer text is bad: "if it covers a name that long" gives the code an action; rewrite. |
 | 38 | home-retarget-code-opening-no-text (phone) | The text is weird, and says "34 or more". 34 is the length of the test's name (the state id), whose code order failed with `NameTooShort`. Check where the page takes that number; a code's minimum length comes from the code, not the failed name. |
-| 39 | screenshot test | The countdown masks show as pink squares, which read as page defects in review (items 12, 27). Show countdowns at a fixed value from the test clock instead of masking them, or draw the mask in the background colour (Playwright's `maskColor`). |
+| 39 | screenshot test | The countdown masks show as pink squares, which read as page defects in review (items 12, 27, home-retarget-moved-after-refusal on the phone, home-retarget-moved). Show countdowns at a fixed value from the test clock instead of masking them, or draw the mask in the background colour (Playwright's `maskColor`). |
 | 40 | home-retarget-moved-after-refusal | Resolved by #19: the page opens the moved order, and "Your order went …" is gone. |
 | 41 | order-unreadable (phone) | "The page keeps trying …" gives the page an effort; reword. The screen asks to "quote the reference below", and the reference shown reads "unreadable": show the order's reference, or do not ask to quote one. |
 | 42 | checkout-review-balance-gone (phone) | Bad language; rewrite. |
@@ -59,3 +59,6 @@ All texts: tense and person. A text addresses the person reading it as "you", ne
 | 45 | order-registering-lapsed | While a lapsed order is committed again, the page shows "The name was not signed in time". Decide in the language audit; proposed: show the same screen as the first commit, without that line, since the person has nothing to do. |
 | 46 | home search of a name this browser's own paid order holds | Show the row as names drew it, with the order's price and years, and a "Your order" button that opens the order in place of Register. Decide in the language audit between A, with no line under the row, and B, with "You already paid for this name, the order is being processed." (for a paid order only). |
 | 47 | home-own-order-failed, and every home search of a name this browser has an order for | Show a "Your order" button that opens the order, as decided for screen 16 (item 46), in place of the footer. The user asked for it on 19 November; it was applied nowhere. |
+| 48 | home-retarget-failed-other-cause (phone) | The order reference appears twice on the page; show it once. |
+| 49 | home-retarget-refused-code-expired | The text makes no sense, and says "with your payment" for an order registered with a code: a code is not a payment (compliance rule above). Reword. |
+| 50 | home-retarget-refused-code-reserved (phone) | The text speaks of a payment and a code at once, for an order registered with a code; say only what applies to a code order (compliance rule above). |
