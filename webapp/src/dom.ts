@@ -101,8 +101,9 @@ export function nameText(label: string, tld: string, after = ""): HTMLSpanElemen
 }
 
 // `after` is a label that belongs to the name, kept with its last letters, so it never starts a line alone
-export function nameTitle(label: string, cls = "name", tld = "simplex", ...after: Kid[]): HTMLDivElement {
-  return el("div", { class: cls }, nameHead(label), el("span", { class: "nowrap" }, nameTail(label), el("span", { class: "tld" }, `.${tld}`), ...after))
+export function nameTitle(label: string, cls = "name", tld = "simplex", read = label, ...after: Kid[]): HTMLDivElement {
+  const drawn = (...text: Kid[]) => read === label ? text : el("span", { "aria-hidden": "true" }, ...text)
+  return el("div", { class: cls }, drawn(nameHead(label)), el("span", { class: "nowrap" }, drawn(nameTail(label), el("span", { class: "tld" }, `.${tld}`)), ...after))
 }
 
 export function gradName(label: string, tld = "simplex"): HTMLSpanElement {
