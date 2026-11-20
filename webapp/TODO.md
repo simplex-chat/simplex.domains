@@ -50,7 +50,7 @@ All texts: tense and person. A text addresses the person reading it as "you", ne
 | 36 | home-reserved | Bad language: "yours to use" is borderline insulting; reword. |
 | 37 | home-retarget-code-no-text-shorter | The footer text is bad: "if it covers a name that long" gives the code an action; rewrite. |
 | 38 | home-retarget-code-opening-no-text (phone) | The text is weird, and says "34 or more". 34 is the length of the test's name (the state id), whose code order failed with `NameTooShort`. Check where the page takes that number; a code's minimum length comes from the code, not the failed name. |
-| 39 | screenshot test | The countdown masks show as pink squares, which read as page defects in review (items 12, 27, home-retarget-moved-after-refusal on the phone, home-retarget-moved). Show countdowns at a fixed value from the test clock instead of masking them, or draw the mask in the background colour (Playwright's `maskColor`). |
+| 39 | screenshot test | The countdown masks show as pink squares, which read as page defects in review (items 12, 27, home-retarget-moved-after-refusal on the phone, home-retarget-moved, order-registering-committing on the phone). Show countdowns at a fixed value from the test clock instead of masking them, or draw the mask in the background colour (Playwright's `maskColor`). |
 | 40 | home-retarget-moved-after-refusal | Resolved by #19: the page opens the moved order, and "Your order went …" is gone. |
 | 41 | order-unreadable (phone) | "The page keeps trying …" gives the page an effort; reword. The screen asks to "quote the reference below", and the reference shown reads "unreadable": show the order's reference, or do not ask to quote one. |
 | 42 | checkout-review-balance-gone (phone) | Bad language; rewrite. |
@@ -64,3 +64,5 @@ All texts: tense and person. A text addresses the person reading it as "you", ne
 | 50 | home-retarget-refused-code-reserved (phone) | The text speaks of a payment and a code at once, for an order registered with a code; say only what applies to a code order (compliance rule above). |
 | 51 | home-retarget-refused-code-revoked (phone) | "Your payment is kept" is very unclear; say what happened and what the person can do. For an order registered with a code, the compliance rule above also applies. |
 | 52 | names-edit-config-unread | Bad language: "The name could not be read now" and "This page tries again by itself" (the page acting). Rewrite. |
+| 53 | order-closed-paid-late-support (phone), order-closed-received-support (phone), order-failed-action-failed (very long on the phone), order-failed-month-code (phone), order-failed-unread-code (very long on the phone) | The text is long; shorten it. |
+| 54 | order-taken-before-commit (phone) | Bad language; rewrite. |
