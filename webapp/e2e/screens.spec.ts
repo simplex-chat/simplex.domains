@@ -2197,6 +2197,11 @@ screen(3002, "names-row-registered-unparsed-link", async (r) => {
 })
 
 screen(3008, "names-balance-outpaid", async (r) => {
+  await takenOrder(r.page, r.request, r.id)
+  await r.page.goto("/#/names")
+  await shown(r.page, "registered by someone else first")
+})
+screen(3009, "names-balance-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })
   await heading(r.page, `${r.id}.simplex was taken`)
   await r.page.goto("/#/names")
