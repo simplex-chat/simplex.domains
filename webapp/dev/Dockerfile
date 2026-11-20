@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# The names webapp with its whole dev backend: a local chain with the PR #47 contracts and the mock names service.
+# The names webapp with its whole dev backend: a local chain with the PR #51 contracts and the mock names service.
 # Built from the simplex.domains repository root, as compose.yaml does: the page's fonts and images live there.
 
 FROM node:24-bookworm AS contracts

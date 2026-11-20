@@ -1,5 +1,5 @@
 // The registration, its commitment and the signed intents, from simplexmq PR #1942's names-web (which mirrors
-// simplex-chat PR #7693's Registration.hs), with the record edits and the store's derived secret added.
+// simplex-chat PR #7693's Registration.hs), with the record edits, the store's derived secret and the dispute days added.
 import { concatBytes, numberToBytesBE, utf8ToBytes } from "@noble/curves/utils"
 import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha2"
