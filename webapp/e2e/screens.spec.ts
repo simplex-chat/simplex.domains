@@ -244,6 +244,17 @@ screen(102, "home-own-paid-order", async (r) => {
 })
 
 screen(104, "home-own-order-registering", async (r) => {
+  const { invoiceId } = await committedUnsigned(r, label(r.id))
+  await r.page.route(`**/api/invoice/${invoiceId}`, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, phase: { type: "registering" }, registerTx: "0x03" } } })
+  })
+  await search(r.page, label(r.id))
+  await shown(r.page, "You already have an order for this name.")
+})
+
+screen(105, "home-own-order-unpaid", async (r) => {
   await ordered(r, label(r.id))
   await r.page.route(`**/api/name/${hex(labelHash(label(r.id)))}*`, (route) => route.fulfill({ json: { found: { type: "taken" } } }))
   await search(r.page, label(r.id))
