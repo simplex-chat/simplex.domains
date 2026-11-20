@@ -818,6 +818,9 @@ for (const length of [15, 25, MAX_LABEL_LENGTH]) {
     if (length > 25) {
       await expect(step.locator(".card.order .row .name"), "the name abbreviated in the card").toHaveText(new RegExp(`^${label.slice(0, 12)}\\.\\.\\.${label.slice(-3)}\\.simplex$`))
       await expect(step.locator(".card.order .row .sr-only"), "the whole name, for a screen reader").toHaveText(`${label}.simplex`)
+      const read = await step.locator(".card.order > .row").ariaSnapshot()
+      expect(read.split(`${label}.simplex`).length - 1, `the whole name read once: ${read}`).toBe(1)
+      expect(read, "the abbreviation not read").not.toContain("...")
     }
     await payButton(page).click()
     await page.waitForURL(/\?order=/)
