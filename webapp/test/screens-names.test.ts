@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { InvoiceView, RegistrationView, SearchAnswer } from "../src/api.ts"
+import type { Found, InvoiceView, Links, Phase, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
   balanceRows, changesOf, CODE_CHIPS, holderOf, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
@@ -7,24 +7,22 @@ import {
   againLine, ranOut, registrableAgain, screenOfEdit, type Stored, waitsToSign,
 } from "../src/screens/names.ts"
 import type { CodeRecord, OrderRecord, PendingCode } from "../src/store.ts"
+import { type ShortView, viewOf } from "./registration-view.ts"
 
 const NOW = Date.parse("2026-10-17T12:00:00Z")
 const OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
 const APP = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"
-const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const YEAR_S = 365 * 24 * 3600
 const CONTACT = "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7p"
 const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 
-function registration(change: Partial<RegistrationView> = {}): RegistrationView {
-  return {
-    ...CHAIN, id: "reg-1", version: 1, phase: "unpaid", labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
-    duration: 2 * YEAR_S, price: 1500, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, moves: 0, intentNonce: null, acceptance: null, unread: [], expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    community: null, terms: "2026-10-23", ...change,
-  }
-}
+const registration = (change: ShortView = {}): RegistrationView => viewOf({
+  id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
+  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: null, latePayment: null,
+  community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` },
+}, change)
 
-const invoice = (change: Partial<InvoiceView> = {}, reg: Partial<RegistrationView> = {}): InvoiceView => ({
+const invoice = (change: Partial<InvoiceView> = {}, reg: ShortView = {}): InvoiceView => ({
   invoiceId: "inv-1", status: "open", amount: 1500, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: registration(reg),
   address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", cryptoAmount: "0.00025", cryptoCurrency: "btc", cryptoAmountPaid: "0", cryptoAmountDue: "0.00025",
   paidInFull: false, requiredConfirmations: 1, ...change,
@@ -43,10 +41,14 @@ const pending = (ownerCode: string): PendingCode => ({ ownerCode, label: "bob", 
 
 // the registrar's GRACE_PERIOD, as the search answer gives it
 const GRACE_S = 90 * 86_400
-const registered = (records: { contact: string; channel: string } | null = { contact: CONTACT, channel: "" }, change: Partial<Extract<SearchAnswer, { status: "registered" }>> = {}): SearchAnswer =>
-  ({ status: "registered", entities: [], records, owner: OWNER, recordsNonce: 3, recordEdits: { left: 3, nextAt: null }, expiresAt: NOW / 1000 + 2 * YEAR_S, gracePeriod: GRACE_S, tld: "simplex", community: null, ...change })
-const available: SearchAnswer = { status: "available", price: 1500, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, community: null, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` }, ...CHAIN }
-const registeredView = (change: Partial<RegistrationView> = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
+const registered = (records: Links | null = { contact: CONTACT, channel: "" }, change: Partial<Extract<Found, { type: "registered" }>> = {}, own: { nonce?: number; edits?: RecordEdits } = {}): SearchAnswer => ({
+  found: { type: "registered", entities: [], owner: OWNER, resolver: OWNER, expiresAt: NOW / 1000 + 2 * YEAR_S, gracePeriod: GRACE_S,
+    records: records === null ? { type: "other" } : { type: "own", ...records, nonce: 3, edits: { left: 3, nextAt: null }, ...own }, ...change },
+  community: null,
+})
+const held: SearchAnswer = { found: { type: "taken" }, community: null }
+const available: SearchAnswer = { found: { type: "available", price: 1500, years: 2, terms: { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` } }, community: null }
+const registeredView = (change: ShortView = {}) => registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 2 * YEAR_S, ...change })
 
 const stored = (change: Partial<Stored> = {}): Stored => ({ orders: [], pending: [], codes: [], canPersist: true, ...change })
 const WAIT = { until: NOW + 5000, lead: NO_LEAD }
@@ -77,7 +79,7 @@ describe("list helpers", () => {
   it("registrableAgain: counts the grace period the answer gives, and none from an answer without one", () => {
     const expiresAt = NOW / 1000 - 1
     expect(registrableAgain(expiresAt, registered(undefined, { gracePeriod: 3600 }), NOW)).toEqual({ when: "from", at: expiresAt + 3600 })
-    expect(registrableAgain(expiresAt, registered(undefined, { gracePeriod: undefined }), NOW)).toEqual({ when: "taken" })
+    expect(registrableAgain(expiresAt, held, NOW)).toEqual({ when: "taken" })
   })
   it("ranOut and againLine say when a name ran out and when it can be registered again, as the edit page and search show it", () => {
     const expiresAt = Date.parse("2028-11-16T12:00:00Z") / 1000
@@ -91,8 +93,7 @@ describe("list helpers", () => {
     const view = registration({ phase: "committed", revealAfter: NOW / 1000 - 1 })
     expect(waitsToSign(view, NOW)).toBe(true)
     expect(waitsToSign(view, NOW - 2000)).toBe(false)
-    expect(waitsToSign({ ...view, label: "alice" }, NOW)).toBe(false)
-    expect(waitsToSign({ ...view, revealAfter: null }, NOW)).toBe(false)
+    expect(waitsToSign(registration({ phase: "committed", revealAfter: NOW / 1000 - 1, label: "alice" }), NOW)).toBe(false)
   })
   it("phaseChip words each phase of an order as its page does", () => {
     const cases: [string, RegistrationView, InvoiceView | null, OrderRecord, [string, string]][] = [
@@ -101,9 +102,10 @@ describe("list helpers", () => {
       ["an expired invoice money reached", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.0001" }), record(), ["Invoice expired", "warn"]],
       ["a cancelled invoice that closed", registration(), invoice({ status: "expired" }), record({ cancelled: true }), ["Invoice cancelled", "bad"]],
       ["a payment after the invoice closed", registration(), invoice({ status: "paid" }), record(), ["Paid late", "warn"]],
+      ["an order whose payment was reversed", registration({ phase: "closed", closedBy: "reversed" }), invoice({ status: "paid", cryptoCurrency: "card" }), record(), ["Invoice closed", "bad"]],
       ["a whole payment after the close, credited, kept expired", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }), record(), ["Paid late", "warn"]],
       ["a whole payment after a cancel, credited", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }), record({ cancelled: true }), ["Paid late", "warn"]],
-      ["a whole payment after the close, confirming", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }, { latePayment: { waiting: "confirming" } }), record(),
+      ["a whole payment after the close, confirming", registration(), invoice({ status: "expired", cryptoAmountPaid: "0.00025", paidInFull: true }, { latePayment: "confirming" }), record(),
         ["Invoice expired", "warn"]],
       ["a payment in full", registration(), invoice({ paidInFull: true }), record(), ["Confirming payment", "warn"]],
       ["a card submitted", registration(), invoice({ cryptoCurrency: "card" }), record({ cardSubmittedAt: "2026-10-17T11:59:30Z" }), ["Confirming payment", "warn"]],
@@ -132,7 +134,7 @@ describe("list helpers", () => {
     expect(editable(registered(), OWNER.toLowerCase())).toBe(true)
     expect(editable(registered(undefined, { owner: APP }), OWNER)).toBe(false)
     expect(editable(registered(null), OWNER)).toBe(false)
-    expect(editable(registered(undefined, { owner: undefined }), OWNER)).toBe(true)
+    expect(editable(held, OWNER)).toBe(true)
     expect(editable(available, OWNER)).toBe(true)
   })
   it("hasLinks: a name's records once read, else the links it was ordered with", () => {
@@ -190,36 +192,40 @@ describe("list helpers", () => {
 })
 
 describe("balances", () => {
-  const BALANCE = { amount: 10000, held: false, heldUntil: null, refunded: 0 }
-  const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }),
-    record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
+  const BALANCE = { amount: 10000, hold: null, refunded: 0 }
+  const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-outpaid", invoiceId: "inv-5" }), record({ registrationId: "reg-ended", invoiceId: "inv-6" }),
+    record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }), record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
   // a registered name's row is complete with its name's answer
   const read = (s: ListState, id: string, view: RegistrationView, inv: InvoiceView | null = null) => {
     const r = reduceList(s, { type: "row-read", id, view, invoice: inv, now: NOW })
-    return view.phase === "registered" ? reduceList(r, { type: "row-answered", id, answer: registered() }) : r
+    return view.phase.type === "registered" ? reduceList(r, { type: "row-answered", id, answer: registered() }) : r
   }
   const all = () => {
     let s = list({ orders })
-    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: BALANCE }))
+    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", commitTx: "0xc0", balance: BALANCE }))
+    s = read(s, "reg-outpaid", registration({ id: "reg-outpaid", phase: "taken", balance: BALANCE }))
+    s = read(s, "reg-ended", registration({ id: "reg-ended", phase: "failed", reason: "monthEnded", commitTx: "0xc0", balance: BALANCE }))
     s = read(s, "reg-late", registration({ id: "reg-late", balance: { ...BALANCE, amount: 2500, refunded: 7500 } }), invoice({ invoiceId: "inv-2", status: "paid" }))
-    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000, held: true, heldUntil: "2026-10-17T12:30:00Z" } }))
+    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000, hold: { type: "open", heldUntil: "2026-10-17T12:30:00Z" } } }))
     return read(s, "reg-plain", registration({ id: "reg-plain", phase: "registered" }))
   }
   it("lists each order's balance with what made it, what support refunded, and the open invoice that holds it", () => {
     expect(balanceRows(all())).toEqual([
       { id: "reg-taken", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "taken" },
+      { id: "reg-outpaid", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "outpaid" },
+      { id: "reg-ended", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "ended" },
       { id: "reg-late", amount: 2500, refunded: 7500, held: false, heldUntil: null, from: "late" },
       { id: "reg-moved", amount: 5000, refunded: 0, held: true, heldUntil: "2026-10-17T12:30:00Z", from: "rest" },
     ])
   })
   it("lists a balance support refunded whole, with nothing left, and no balance spent whole or not read yet", () => {
     let s = list({ orders })
-    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: { ...BALANCE, amount: 0, refunded: 10000 } }))
+    s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", commitTx: "0xc0", balance: { ...BALANCE, amount: 0, refunded: 10000 } }))
     s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 0 } }))
     expect(balanceRows(s)).toEqual([{ id: "reg-taken", amount: 0, refunded: 10000, held: false, heldUntil: null, from: "taken" }])
   })
-  it("lists a name registered by someone else first by its balance alone, and every other order as a name", () => {
-    expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-late", "reg-moved", "reg-plain"])
+  it("lists a name taken first by its balance alone, a month-ended order as a name beside its balance, and every other order as a name", () => {
+    expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-ended", "reg-late", "reg-moved", "reg-plain"])
     let spent = list({ orders })
     spent = read(spent, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: { ...BALANCE, amount: 0 } }))
     expect(nameRows(spent).map((o) => o.registrationId), "a taken order whose balance is spent stays a name").toContain("reg-taken")
@@ -229,7 +235,7 @@ describe("balances", () => {
 describe("holderOf", () => {
   const orders = [record({ registrationId: "expired", invoiceId: "inv-e", balanceSource: "src" }), record({ registrationId: "paid", invoiceId: "inv-p", balanceSource: "src" }),
     record({ registrationId: "open", invoiceId: "inv-o", balanceSource: "src" }), record({ registrationId: "other", invoiceId: "inv-x", balanceSource: "src2" })]
-  const read = (s: ListState, id: string, status: InvoiceView["status"], phase: RegistrationView["phase"] = "unpaid") =>
+  const read = (s: ListState, id: string, status: InvoiceView["status"], phase: Phase = "unpaid") =>
     reduceList(s, { type: "row-read", id, view: registration({ id, phase }), invoice: invoice({ invoiceId: `inv-${id}`, status }), now: NOW })
   it("is the order whose invoice is open and holds the balance, never one that expired or was paid", () => {
     let s = read(read(list({ orders }), "expired", "expired"), "paid", "paid", "queued")
@@ -263,27 +269,27 @@ describe("paidLine", () => {
 
 describe("lateLine", () => {
   it("keeps a payment that arrived after its invoice closed as the order's balance", () => {
-    expect(lateLine(invoice({ status: "paid", paidInFull: true }))).toBe("Paid after the invoice closed; kept as your balance")
+    expect(lateLine(invoice({ status: "paid", paidInFull: true }))).toEqual(["Paid after the invoice closed", "kept as your balance"])
   })
   it("says a whole payment that BTCPay keeps expired, or invalid after a cancel, was paid after the close once it is credited", () => {
-    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true }))).toBe("Paid after the invoice closed; kept as your balance")
+    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true }))).toEqual(["Paid after the invoice closed", "kept as your balance"])
   })
   it("keeps part of a payment, and a payment that had not completed, held as the invoice closed", () => {
-    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }))).toBe("Part of the payment arrived; kept as your balance")
+    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }))).toEqual(["Part of the payment arrived", "kept as your balance"])
     expect(lateLine(invoice({ status: "expired", amountPaid: 1500, cryptoCurrency: "card" })))
-      .toBe("A payment did not complete before the invoice closed; kept as your balance")
+      .toEqual(["A payment did not complete before the invoice closed", "kept as your balance"])
   })
   it("keeps it as the balance once it is confirmed or credited, while the credit waits on either", () => {
     const whole = { status: "expired", cryptoAmountPaid: "0.00025", cryptoAmountDue: "0", paidInFull: true } as const
-    expect(lateLine(invoice(whole, { latePayment: { waiting: "confirming" } }))).toBe("A payment did not complete before the invoice closed; kept as your balance once confirmed")
-    expect(lateLine(invoice(whole, { latePayment: { waiting: "crediting" } }))).toBe("A payment did not complete before the invoice closed; kept as your balance once credited")
-    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: { waiting: "confirming" } })))
-      .toBe("Part of the payment arrived; kept as your balance once confirmed")
+    expect(lateLine(invoice(whole, { latePayment: "confirming" }))).toEqual(["A payment did not complete before the invoice closed", "kept as your balance once confirmed"])
+    expect(lateLine(invoice(whole, { latePayment: "crediting" }))).toEqual(["A payment did not complete before the invoice closed", "kept as your balance once credited"])
+    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: "confirming" })))
+      .toEqual(["Part of the payment arrived", "kept as your balance once confirmed"])
   })
   it("sends to support money the service cannot credit by itself", () => {
-    expect(lateLine(invoice({ status: "paid", paidInFull: true }, { latePayment: { waiting: "support" } }))).toBe("Paid after the invoice closed; write to support to have it credited")
-    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: { waiting: "support" } })))
-      .toBe("Part of the payment arrived; write to support to have it credited")
+    expect(lateLine(invoice({ status: "paid", paidInFull: true }, { latePayment: "support" }))).toEqual(["Paid after the invoice closed", null])
+    expect(lateLine(invoice({ status: "expired", cryptoAmountPaid: "0.0001" }, { latePayment: "support" })))
+      .toEqual(["Part of the payment arrived", null])
   })
   it("is null for an invoice that closed with nothing received, and for an open one", () => {
     expect(lateLine(invoice({ status: "expired" }))).toBeNull()
@@ -450,7 +456,7 @@ describe("edit", () => {
     "edit-expired": answered(opened, available),
     "edit-in-app": answered(opened, registered(undefined, { owner: APP })),
     "edit-elsewhere": answered(opened, registered(null)),
-    "edit-not-registered": answered(opened, { status: "reserved", community: null }, registration({ phase: "committed" })),
+    "edit-not-registered": answered(opened, { found: { type: "reserved" }, community: null }, registration({ phase: "committed" })),
     edit: editing,
   }
 
@@ -465,7 +471,7 @@ describe("edit", () => {
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
-      ["a registered name without a records nonce", answered(opened, registered(undefined, { recordsNonce: null })), "edit-not-registered"],
+      ["a name an order holds", answered(opened, held), "edit-not-registered"],
       ["a registered name with its links", STATES.edit, "edit"],
     ]
     it.each(cases)("%s", (_, state, kind) => {
@@ -479,13 +485,12 @@ describe("edit", () => {
         current: { contact: CONTACT, channel: "" }, values: { contact: CONTACT, channel: "" }, nonce: 3, changes: {},
         saving: false, unanswered: false, settled: false, result: null, hold: null, edits: { left: 3, nextAt: null },
       })
-      expect(form(answered(opened, registered(undefined, { recordEdits: undefined }))).edits, "a service that counts no edits").toBeNull()
       expect(form(answered(opened, registered(), undefined, { hold: { until: NOW + 5000, lead: NO_LEAD } })).hold).toEqual({ until: NOW + 5000, lead: NO_LEAD })
       expect(STATES["edit-in-app"].form).toBeNull()
     })
     it("answered again keeps the form as it is typed", () => {
       const typed = reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL })
-      expect(form(answered(typed, registered(undefined, { recordsNonce: 9 }))).values.channel).toBe(CHANNEL)
+      expect(form(answered(typed, registered(undefined, {}, { nonce: 9 }))).values.channel).toBe(CHANNEL)
     })
     it("opened changes nothing", () => {
       expect(reduceEdit(STATES["edit-no-code"], { type: "opened" })).toBe(STATES["edit-no-code"])
@@ -525,13 +530,10 @@ describe("edit", () => {
       const one = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
       expect(form(reduceEdit(one, { type: "save-done", at: NOW / 1000 }))).toMatchObject({ nonce: 4, current: { contact: CONTACT, channel: CHANNEL }, edits: { left: 2, nextAt: NOW / 1000 + YEAR_S } })
     })
-    it("save-done keeps when the oldest counted edit returns, and counts nothing for a service that counts none", () => {
-      const counted = answered(opened, registered(undefined, { recordEdits: { left: 2, nextAt: NOW / 1000 + 100 } }))
+    it("save-done keeps when the oldest counted edit returns", () => {
+      const counted = answered(opened, registered(undefined, {}, { edits: { left: 2, nextAt: NOW / 1000 + 100 } }))
       const sending = reduceEdit(reduceEdit(counted, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
       expect(form(reduceEdit(sending, { type: "save-done", at: NOW / 1000 })).edits).toEqual({ left: 1, nextAt: NOW / 1000 + 100 })
-      const uncounted = answered(opened, registered(undefined, { recordEdits: null }))
-      const sent = reduceEdit(reduceEdit(reduceEdit(uncounted, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" }), { type: "save-done", at: NOW / 1000 })
-      expect(form(sent).edits).toBeNull()
     })
     it("save-done leaves Save on for a field typed while the Save was on its way", () => {
       const sending = reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
@@ -609,7 +611,7 @@ describe("a row shown", () => {
     expect(rowShown(seen, order)).toBe(true)
     const read = readAs(seen, registeredView())
     expect(rowShown(read, order)).toBe(true)
-    expect(read.seen["reg-1"].view.phase, "still drawn as last seen").toBe("registering")
+    expect(read.seen["reg-1"].view.phase.type, "still drawn as last seen").toBe("registering")
     const done = answered(read)
     expect(done.seen["reg-1"]).toEqual({ view: registeredView(), invoice: null, answer: registered() })
     expect(rowShown(done, order)).toBe(true)

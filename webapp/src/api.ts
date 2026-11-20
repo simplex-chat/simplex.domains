@@ -2,14 +2,23 @@
 import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
-import { MAX_LABEL_LENGTH } from "./names.ts"
+import { type LinkKind, MAX_LABEL_LENGTH } from "./names.ts"
+
+const REFUSALS = [
+  "bad_request", "invalid_name", "invalid_link", "not_found", "method_not_allowed", "internal", "rate_limited", "provider_unavailable", "terms_unavailable",
+  "name_check_unavailable", "code_invalid", "code_used", "code_reserved", "code_expired", "code_not_covering", "payment_pending", "codes_only", "order_exists",
+  "name_taken", "catalog_changed", "price_too_high", "balance_changed", "terms_changed", "move_limit", "registration_changed", "not_open", "funded",
+  "stale_nonce", "record_reverted", "edit_pending", "edit_limit",
+] as const
+type Refusal = typeof REFUSALS[number]
+export type ErrorCode = Refusal | "network"
 
 export class ApiError extends Error {
-  readonly code: string
+  readonly code: ErrorCode
   readonly status: number
   readonly retryAfter: number | null
   readonly body: Record<string, unknown>
-  constructor(code: string, status: number, retryAfter: number | null, body: Record<string, unknown>) {
+  constructor(code: ErrorCode, status: number, retryAfter: number | null, body: Record<string, unknown>) {
     super(code)
     this.code = code
     this.status = status
@@ -55,7 +64,7 @@ export function retryDelay(e: unknown, usual: number): number | null {
   return e.status >= 400 && e.status < 500 ? null : usual
 }
 
-export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
+export type Phase = "unpaid" | "closed" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
 export type Method = "card" | "btc" | "xmr"
 
 export interface ChainInfo {
@@ -76,10 +85,10 @@ export interface Terms {
   link: string
 }
 
-// A community name: what it is for, null when the service has no words for it, and the years it is registered for. In a
+// A community name: what it is for, absent when the service has no words for it, and the years it is registered for. In a
 // search answer, a name on the chain's list; in an order's view, an order that signed the community terms.
 export interface Community {
-  for: string | null
+  for?: string
   years: number
 }
 
@@ -127,10 +136,13 @@ export interface RecordEdits {
   nextAt: number | null
 }
 
-export type SearchAnswer =
-  | ({ status: "available"; price: number; currency: string; years: number; termStart: number; community: Community | null; terms: Terms | null } & ChainInfo)
-  | { status: "registered"; entities: Entity[]; records?: Links | null; owner?: string; resolver?: string; recordsNonce?: number | null; recordEdits?: RecordEdits | null; expiresAt?: number; gracePeriod?: number; chainId?: number; tld: string; community: Community | null }
-  | { status: "reserved"; community: Community | null }
+export type ResolverRecords = ({ type: "own"; nonce: number; edits: RecordEdits } & Links) | { type: "other" }
+export type Found =
+  | { type: "available"; price: number; years: number; terms: Terms | null }
+  | { type: "taken" }
+  | { type: "reserved" }
+  | { type: "registered"; owner: string; resolver: string; expiresAt: number; gracePeriod: number; entities: Entity[]; records: ResolverRecords }
+export interface SearchAnswer { found: Found; community: Community | null }
 
 export type ChatKind = "contact" | "channel" | "business" | "bot"
 // whether the service read the link's data: not now (unread), or never, for a host it does not fetch (unavailable)
@@ -145,26 +157,67 @@ export interface Profile {
   subscribers: number | null
   profile: typeof PROFILE_STATES[number]
 }
-// the chat core's own form of the link, null for a link the core cannot parse, which is opened as it is
+// the link as the chat core writes it, and its simplex:/ form, which the app opens
 export interface Entity extends Profile {
   link: string
-  deepLink: string | null
+  deepLink: string
 }
 
-// An order's balance, in cents: what is left to spend, whether an invoice of another order holds it and until when (null
-// once money reached that invoice, which holds it until its payment settles), and what support has refunded from it
+interface LinkProfile { kind: ChatKind; displayName: string; fullName: string; image?: string; subscribers?: number }
+export interface Preview { kind: typeof LINK_KINDS[number]; profile: { type: "ok"; linkProfile: LinkProfile } | { type: "unread" | "unavailable" } }
+type LinkEntity = { preview: Preview; link: string; deepLink: string }
+
+function profileOf({ kind, profile: read }: Preview): Profile {
+  const type = kind === "channel" ? "channel" : "address"
+  if (read.type !== "ok") return { type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile: read.type }
+  const { kind: chat, displayName, fullName, image, subscribers } = read.linkProfile
+  return { type, kind: chat, displayName, fullName, image: image ?? null, subscribers: subscribers ?? null, profile: "ok" }
+}
+const entityOf = (e: LinkEntity): Entity => ({ ...profileOf(e.preview), link: e.link, deepLink: e.deepLink })
+
+// The order holding a balance: an invoice of another order until it expires, or until its payment settles once money reached it.
+export type Hold = { type: "open"; heldUntil: string } | { type: "funded" }
+
+// An order's balance, in cents: what is left to spend, the hold on it, and what support has refunded from it
 export interface Balance {
   amount: number
-  held: boolean
-  heldUntil: string | null
+  hold: Hold | null
   refunded: number
 }
 
-export interface RegistrationView extends ChainInfo {
+// How the order was paid: by an invoice, by another order's balance with an invoice for the difference, by a balance alone, or by a code
+export type Payment =
+  | { type: "invoice"; method: Method }
+  | { type: "difference"; method: Method; fromBalance: number }
+  | { type: "balance"; fromBalance: number }
+  | { type: "code" }
+
+// what the owner signs with the reveal to accept the terms of the name's kind on chain, the policy being the signature's verifying contract
+export interface Acceptance { community: boolean; policy: string; termsHash: string; nonce: number }
+
+// the chain reads the owner signs with, unread when the service could not read them; reading the view again may read them
+export type ToSign = { type: "unread" } | { type: "read"; intentNonce: number; acceptance: Acceptance }
+
+export type Signing = { type: "awaiting"; toSign: ToSign } | { type: "signed" } | { type: "lapsed" }
+
+export type PhaseView =
+  | { type: "unpaid" }
+  | { type: "closed"; closedBy: "expired" | "cancelled" | "reversed" }
+  | { type: "queued" }
+  | { type: "committing" }
+  | { type: "committed"; revealAfter: number; revealBefore: number; signature: Signing }
+  | { type: "registering" }
+  | { type: "registered"; expiresAt: number }
+  | { type: "taken" }
+  | { type: "failed"; reason: FailReason; heldUntil?: string }
+
+export interface AgreedTerms { communityName: boolean; termsHash: string }
+
+export interface RegistrationView {
   id: string
   // counts the service's changes to the registration, which a long poll holds on
   version: number
-  phase: Phase
+  phase: PhaseView
   labelHash: string
   label: string | null
   owner: string
@@ -175,30 +228,33 @@ export interface RegistrationView extends ChainInfo {
   duration: number
   // what the order is worth, in cents: what was paid, or the price of the name it moved to; it caps another move
   price: number
-  // the cents another order's balance paid when this order was made
-  fromBalance: number
+  payment: Payment
   balance: Balance | null
   // what money paid after the invoice closed waits on before it is all in the balance: being confirmed, being credited, or support
-  latePayment: { waiting: LateWait } | null
+  latePayment: LateWait | null
   // how often the order moved to another name or other links, which the service bounds
   moves: number
   commitTx: string | null
   registerTx: string | null
-  revealAfter: number | null
-  revealBefore: number | null
-  intentNonce: number | null
-  // what the owner signs with the reveal to accept the terms of the name's kind on chain, while a committed order waits for
-  // its reveal, the policy being the signature's verifying contract; null otherwise
-  acceptance: { kind: "general" | "community"; policy: string; termsHash: string; nonce: number } | null
-  // the fields left null because the service's chain read failed; reading the view again may fill them
-  unread: string[]
-  expiresAt: number | null
-  error: string | null
-  // a reveal was refused for its links, which the commitment holds: only another name or other links can register it
-  linksRefused: boolean
+  // a reveal was refused for this link, which the commitment holds: only another name or other links can register it
+  linksRefused: LinkKind | null
   community: Community | null
-  terms: string | null
+  terms: AgreedTerms
+  lastAttempt?: { transaction: string; stage: string; reason: string; at: string } | null
 }
+
+export const FAIL_REASONS = ["registryRefused", "signatureRefused", "monthEnded", "unread"] as const
+export type FailReason = (typeof FAIL_REASONS)[number]
+
+export const committedOf = (view: RegistrationView) => view.phase.type === "committed" ? view.phase : null
+export const toSignOf = (view: RegistrationView): ToSign | null => {
+  const committed = committedOf(view)
+  return committed?.signature.type === "awaiting" ? committed.signature.toSign : null
+}
+export const lapsedOf = (view: RegistrationView) => committedOf(view)?.signature.type === "lapsed"
+export const expiresAtOf = (view: RegistrationView) => view.phase.type === "registered" ? view.phase.expiresAt : null
+export const signedTermsOf = (terms: AgreedTerms) => `${terms.communityName ? COMMUNITY_TERMS : ""}${terms.termsHash.slice(2)}`
+export const fromBalanceOf = (view: RegistrationView) => view.payment.type === "difference" || view.payment.type === "balance" ? view.payment.fromBalance : 0
 
 const LATE_WAITS = ["confirming", "crediting", "support"] as const
 export type LateWait = typeof LATE_WAITS[number]
@@ -223,13 +279,17 @@ export interface InvoiceView {
   requiredConfirmations?: number
 }
 
+export const reversedOrder = ({ phase }: RegistrationView) => phase.type === "closed" && phase.closedBy === "reversed"
+
+export const takenByOrder = ({ phase, commitTx }: RegistrationView) => phase.type === "taken" && commitTx === null
+
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
 // All of a closed invoice's amount arrived after it closed and is credited, or waits on support alone. BTCPay keeps such an
 // invoice expired (invalid after a cancel) and says paidInFull; a provider that settles it late reads paid.
 export function paidLate(inv: InvoiceView): boolean {
-  const waiting = inv.registration.latePayment?.waiting
-  return (inv.status === "paid" || (inv.status === "expired" && inv.paidInFull === true)) && (waiting === undefined || waiting === "support")
+  const waiting = inv.registration.latePayment
+  return (inv.status === "paid" || (inv.status === "expired" && inv.paidInFull === true)) && (waiting === null || waiting === "support")
 }
 
 // an invoice closed with nothing received, whose order a new invoice can take over
@@ -244,8 +304,27 @@ interface OrderRequest {
   sealed: string
   terms: string
 }
+export interface RevealBody {
+  label: string
+  secret: string
+  records: { contact: string | null; channel: string | null }
+  nonce: number
+  deadline: number
+  signature: string
+  acceptance: { termsHash: string; nonce: number; signature: string }
+}
 // an order as sent, signed by its owner at a time the service checks
-export type SignedOrder = OrderRequest & { timestamp: number; signature: string }
+export type SignedOrder = OrderRequest & { timestamp: number; signature: string; reveal: RevealBody }
+
+interface OrderFields { labelHash: string; length: number; duration: number; commitment: string; sealed: string; terms: AgreedTerms }
+interface SignedFields { fields: OrderFields; timestamp: number; signature: string }
+
+const agreedTerms = (terms: string): AgreedTerms => ({ communityName: terms.startsWith(COMMUNITY_TERMS), termsHash: signedHash(terms)! })
+export const signedFields = (o: Omit<SignedOrder, "owner" | "reveal">): SignedFields => ({
+  fields: { labelHash: o.labelHash, length: o.length, duration: o.duration, commitment: o.commitment, sealed: o.sealed, terms: agreedTerms(o.terms) },
+  timestamp: o.timestamp, signature: o.signature,
+})
+export const orderOf = (o: SignedOrder): SignedFields & { owner: string } => ({ owner: o.owner, ...signedFields(o) })
 
 // A request is given up after this long, so a hung one never blocks the page for good. Long polls hold as long as
 // the service decides; a link edit answers once it is mined, which a fee bump can stretch to minutes.
@@ -254,8 +333,6 @@ const EDIT_TIMEOUT_MS = 10 * 60_000
 // a wait asked for longer than this is taken as this long, as the badge web client does
 const MAX_RETRY_AFTER_S = 300
 const TOO_MANY_REQUESTS = 429
-// the one refusal under 429 that is the service's own, not a rate limit
-const EDIT_LIMIT = "edit_limit"
 // a proxy's answer when the service is down or slow: the request may never have reached the service
 const GATEWAY_FAILURES = [502, 503, 504]
 // a rate limit that names no wait is waited out for this long
@@ -321,8 +398,8 @@ function answer<T>(res: Response, json: Record<string, unknown>): T {
   if (!res.ok) {
     const retry = retryAfter(res.headers.get("retry-after"))
     // a rate limit or a gateway failure a proxy answers carries no error code of the service's
-    const code = res.status === TOO_MANY_REQUESTS ? (json.error === EDIT_LIMIT ? EDIT_LIMIT : "rate_limited")
-      : typeof json.error === "string" ? json.error
+    const code = res.status === TOO_MANY_REQUESTS ? "rate_limited"
+      : REFUSALS.includes(json.type as Refusal) ? json.type as Refusal
       : GATEWAY_FAILURES.includes(res.status) ? "network" : "internal"
     throw new ApiError(code, res.status, retry, json)
   }
@@ -346,27 +423,34 @@ const isDue = (v: unknown) => typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)
 const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined || test(v)
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)
 // an image the page holds itself, as the service sends it: the page's CSP loads images from nowhere else
-const isImage = (v: unknown) => v === null || (typeof v === "string" && v.startsWith("data:image/"))
+const isImage = (v: unknown) => typeof v === "string" && (v === "" || v.startsWith("data:image/"))
 const CHAT_KINDS: ChatKind[] = ["contact", "channel", "business", "bot"]
-// a channel's record holds a channel; an address's, any other kind of chat
-const isPreview = (e: unknown) => isObject(e) && (e.type === "address" || e.type === "channel") && CHAT_KINDS.includes(e.kind as ChatKind)
-  && (e.type === "channel") === (e.kind === "channel") && isText(e.displayName)
-  && isText(e.fullName) && isImage(e.image) && nullable(e.subscribers, isAmount) && PROFILE_STATES.includes(e.profile as Profile["profile"])
-const isEntity = (e: unknown) => isPreview(e) && isText((e as Record<string, unknown>).link) && nullable((e as Record<string, unknown>).deepLink, isText)
-const isChain = (a: Record<string, unknown>) => isText(a.resolver) && isText(a.sponsor) && typeof a.chainId === "number" && isText(a.tld)
-const PHASES: Phase[] = ["unpaid", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
-const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && typeof v.held === "boolean" && nullable(v.heldUntil, isText) && isAmount(v.refunded)
-const isSignedTerms = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._/-]{1,112}$/.test(v)
+const isLinkProfile = (p: unknown) => isObject(p) && CHAT_KINDS.includes(p.kind as ChatKind) && isText(p.displayName) && isText(p.fullName) && optional(p.image, isImage)
+  && optional(p.subscribers, isAmount)
+const isPreview = (p: unknown) => isObject(p) && LINK_KINDS.includes(p.kind as Preview["kind"]) && isObject(p.profile)
+  && (p.profile.type === "ok" ? isLinkProfile(p.profile.linkProfile) : PROFILE_STATES.includes(p.profile.type as Profile["profile"]))
+const isEntity = (e: unknown) => isObject(e) && isPreview(e.preview) && isText(e.link) && isText(e.deepLink)
+const PHASES: Phase[] = ["unpaid", "closed", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
+const METHODS: Method[] = ["card", "btc", "xmr"]
+const isHold = (v: unknown) => isObject(v) && ((v.type === "open" && isTime(v.heldUntil)) || v.type === "funded")
+const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && nullable(v.hold, isHold) && isAmount(v.refunded)
+const isPayment = (v: unknown) => isObject(v) && ((v.type === "invoice" && METHODS.includes(v.method as Method))
+  || (v.type === "difference" && METHODS.includes(v.method as Method) && isAmount(v.fromBalance)) || (v.type === "balance" && isAmount(v.fromBalance)) || v.type === "code")
 const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
+const isAgreedTerms = (v: unknown) => isObject(v) && typeof v.communityName === "boolean" && isHash(v.termsHash)
 const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
-const isCommunity = (v: unknown) => v === null || (isObject(v) && nullable(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
-const isAcceptance = (v: unknown) => isObject(v) && (v.kind === "general" || v.kind === "community") && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
-const isRegistration = (v: unknown) => isObject(v) && isChain(v) && isText(v.id) && Number.isInteger(v.version) && PHASES.includes(v.phase as Phase) && isText(v.labelHash)
+const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
+const isAcceptance = (v: unknown) => isObject(v) && typeof v.community === "boolean" && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
+const isToSign = (v: unknown) => isObject(v) && (v.type === "unread" || (v.type === "read" && isAmount(v.intentNonce) && isAcceptance(v.acceptance)))
+const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isToSign(v.toSign)) || v.type === "signed" || v.type === "lapsed")
+const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled" || v.closedBy === "reversed")
+  && (v.type !== "committed" || (isAmount(v.revealAfter) && isAmount(v.revealBefore) && isSigning(v.signature)))
+  && (v.type !== "registered" || isAmount(v.expiresAt)) && (v.type !== "failed" || (FAIL_REASONS.includes(v.reason as FailReason) && optional(v.heldUntil, isTime)))
+const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && isPhase(v.phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
-  && isAmount(v.fromBalance) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => isObject(l) && LATE_WAITS.includes(l.waiting as LateWait))
-  && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.revealAfter, isAmount) && nullable(v.revealBefore, isAmount)
-  && nullable(v.intentNonce, isAmount) && nullable(v.acceptance, isAcceptance) && Array.isArray(v.unread) && v.unread.every(isText) && nullable(v.expiresAt, isAmount) && nullable(v.error, isText)
-  && typeof v.linksRefused === "boolean" && isCommunity(v.community) && nullable(v.terms, isSignedTerms)
+  && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
+  && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && nullable(v.linksRefused, (k) => LINK_KINDS.includes(k as LinkKind)) && isCommunity(v.community) && isAgreedTerms(v.terms)
+  && optional(v.lastAttempt, (a) => nullable(a, (t) => isObject(t) && isText(t.transaction) && isText(t.stage) && isText(t.reason) && isText(t.at)))
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)
@@ -374,17 +458,36 @@ const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open",
   && optional(v.cryptoCurrency, (x) => ["card", "btc", "xmr"].includes(x as string)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
 const clampDue = (inv: InvoiceView): InvoiceView => inv.cryptoAmountDue?.startsWith("-") ? { ...inv, cryptoAmountDue: "0" } : inv
 const checkedInvoice = (answer: Promise<unknown>) => checked<InvoiceView>(answer, isInvoice).then(clampDue)
-const isRecords = (v: unknown) => isObject(v) && isText(v.contact) && isText(v.channel)
+const isTime = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v))
 // none left only while an edit is counted, which returns at nextAt
-const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && nullable(v.nextAt, isAmount) && (v.left !== 0 || v.nextAt !== null)
+const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && optional(v.nextAt, isTime) && (v.left !== 0 || v.nextAt !== undefined)
+const isResolverRecords = (v: unknown) => isObject(v) && (v.type === "other" || (v.type === "own" && isText(v.contact) && isText(v.channel) && isAmount(v.nonce) && isRecordEdits(v.edits)))
+const isNameFound = (v: unknown, chainId: number) => isObject(v) && (v.type === "reserved" || v.type === "taken"
+  || (v.type === "available" && isAmount(v.price) && isCount(v.years) && optional(v.terms, (t) => isTerms(t, chainId)))
+  || (v.type === "registered" && isText(v.owner) && isText(v.resolver) && isAmount(v.expiresAt) && isAmount(v.gracePeriod) && Array.isArray(v.entities) && v.entities.every(isEntity)
+    && isResolverRecords(v.records)))
 
-export const searchName = (labelHash: string, length: number) => checked<SearchAnswer>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => isCommunity(a.community) && (
-  a.status === "reserved"
-  || (a.status === "available" && isAmount(a.price) && isCount(a.years) && isAmount(a.termStart) && isText(a.currency) && isChain(a) && nullable(a.terms, (t) => isTerms(t, a.chainId as number)))
-  || (a.status === "registered" && isText(a.tld) && Array.isArray(a.entities) && a.entities.every(isEntity) && optional(a.owner, isText)
-    && optional(a.resolver, isText) && optional(a.records, (r) => nullable(r, isRecords)) && optional(a.recordsNonce, (n) => nullable(n, isAmount)) && optional(a.recordEdits, (r) => nullable(r, isRecordEdits))
-    && optional(a.expiresAt, isAmount) && optional(a.gracePeriod, isAmount) && optional(a.chainId, isAmount))))
-export const previewLink = (link: string) => checked<Profile>(call("POST", "/api/link/preview", { link }), isPreview)
+type WireRecords = ({ type: "own"; nonce: number; edits: { left: number; nextAt?: string } } & Links) | { type: "other" }
+type WireFound = Extract<Found, { type: "registering" | "reserved" }> | { type: "available"; price: number; years: number; terms?: Terms }
+  | (Omit<Extract<Found, { type: "registered" }>, "entities" | "records"> & { entities: LinkEntity[]; records: WireRecords })
+
+function foundOf(f: WireFound): Found {
+  switch (f.type) {
+    case "available": return { type: "available", price: f.price, years: f.years, terms: f.terms ?? null }
+    case "registered": {
+      const records: ResolverRecords = f.records.type === "own"
+        ? { ...f.records, edits: { left: f.records.edits.left, nextAt: f.records.edits.nextAt === undefined ? null : Date.parse(f.records.edits.nextAt) / 1000 } }
+        : f.records
+      return { ...f, entities: f.entities.map(entityOf), records }
+    }
+    default: return f
+  }
+}
+
+export const searchName = (labelHash: string, length: number, chainId: number) =>
+  checked<{ found: WireFound; community?: Community }>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => optional(a.community, isCommunity) && isNameFound(a.found, chainId))
+    .then((a): SearchAnswer => ({ found: foundOf(a.found), community: a.community ?? null }))
+export const previewLink = (link: string) => checked<Preview>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 
 // The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very
 // text whose acceptance the owner signs.
@@ -393,6 +496,13 @@ export async function termsText(terms: Terms, chainId: number, signal?: AbortSig
   const digest = termsLink(terms.link, chainId)?.digest
   if (read.link !== terms.link || keccakOf(terms.link) !== terms.hash || typeof read.text !== "string" || bytesToHex(sha256(utf8ToBytes(read.text))) !== digest) throw noAnswer()
   return read.text
+}
+
+export async function currentTermsOf(hash: string, chainId: number): Promise<Terms> {
+  const read = await call<Record<string, unknown>>("GET", `/api/terms/${hash}`)
+  const terms = { hash, link: read.link }
+  if (!isTerms(terms, chainId)) throw noAnswer()
+  return terms as Terms
 }
 const CODE_STATES = ["unused", "used", "reserved", "expired", "unpaid", "revoked"] as const
 export type CodeState = typeof CODE_STATES[number]
@@ -412,9 +522,13 @@ const signingTerms = (sent: Promise<unknown>, chainId: number) => sent.catch((e:
 })
 
 export const createOrder = (order: SignedOrder, method: Method, price: number, chainId: number) =>
-  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", ...order, method, price }), chainId))
+  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", order: orderOf(order), method, price, reveal: order.reveal }), chainId))
 export const registerWithCode = (order: SignedOrder, code: string, chainId: number) =>
-  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { ...order, code }), chainId), (a) => isText(a.registrationId))
+  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { order: orderOf(order), code, reveal: order.reveal }), chainId), (a) => isText(a.registrationId))
+
+export type ToSignRead = Extract<ToSign, { type: "read" }>
+export const signFor = (labelHash: string, owner: string) =>
+  checked<ToSignRead>(call("GET", `/api/name/${labelHash}/sign?owner=${owner}`), (a) => a.type === "read" && isToSign(a))
 export const cancelInvoice = (invoiceId: string) => checkedInvoice(call("POST", `/api/invoice/${encodeURIComponent(invoiceId)}/cancel`))
 
 // what a long poll on an invoice has seen: its status, its registration's version, and the payment marks, the paid amount
@@ -434,17 +548,18 @@ export function readRegistration(registrationId: string, seenVersion?: number, s
 
 export const changedView = (e: ApiError): RegistrationView | null => isRegistration(e.body.registration) ? e.body.registration as RegistrationView : null
 
-export const reveal = (registrationId: string, body: { label: string; secret: string; records: { contact: string[]; channel: string[] }; nonce: number; deadline: number; signature: string;
-  acceptance?: { termsHash: string; nonce: number; signature: string } }) =>
+export const reveal = (registrationId: string, body: RevealBody) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
 export const retarget = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>
-  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, body), chainId), isRegistration)
+  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal }), chainId), isRegistration)
 // another name paid from an order's balance: the balance the page read, and a method for the difference when it does not cover the price
 export type SpendRequest = Omit<SignedOrder, "owner"> & { price: number; balance: number; method?: Method }
 
 // The new order, without an invoice when the balance covered it, or with the invoice for the difference.
 export async function spend(registrationId: string, body: SpendRequest, chainId: number): Promise<{ registrationId: string } | InvoiceView> {
-  const sent = signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/spend`, body), chainId).catch((e: unknown) => {
+  const { price, balance, method, reveal } = body
+  const wire = { signed: signedFields(body), price, balance, ...method === undefined ? {} : { method }, reveal }
+  const sent = signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/spend`, wire), chainId).catch((e: unknown) => {
     if (!(e instanceof ApiError && e.code === "balance_changed")) throw e
     if (!nullable(e.body.balance, isBalance)) throw noAnswer()
     throw new BalanceChanged(e, e.body.balance as Balance | null)
@@ -462,12 +577,12 @@ export interface FoundOrder {
 export const findRegistrations = (owner: string, timestamp: number, signature: string) =>
   checked<{ registrations: FoundOrder[] }>(
     call("POST", "/api/registration/find", { owner, timestamp, signature }), (a) => Array.isArray(a.registrations) && a.registrations.every(isFound))
-export interface SignedEdit { key: string; value: string; nonce: number; deadline: number; signature: string }
+export interface SignedEdit { key: typeof LINK_KINDS[number]; value: string; nonce: number; deadline: number; signature: string }
 export const editRecords = (body: { labelHash: string; edits: SignedEdit[] }) => {
   const sent = call("POST", "/api/name/records", body, undefined, EDIT_TIMEOUT_MS).catch((e: unknown) => {
-    if (!(e instanceof ApiError && e.code === EDIT_LIMIT)) throw e
-    if (!isAmount(e.body.nextAt)) throw noAnswer()
-    throw new EditLimited(e, e.body.nextAt as number)
+    if (!(e instanceof ApiError && e.code === "edit_limit")) throw e
+    if (!isTime(e.body.nextAt)) throw noAnswer()
+    throw new EditLimited(e, Date.parse(e.body.nextAt as string) / 1000)
   })
   return checked<{ tx: string | null }>(sent, (a) => nullable(a.tx, isText))
 }

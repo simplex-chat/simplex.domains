@@ -1,5 +1,6 @@
 // Your names: this browser's orders and codes, restoring an order with its name code, and editing a name's links.
 import * as api from "../api.ts"
+import { namesSite, readSite } from "../config.ts"
 import { alertBox, announce, btn, chip, codeDisplay, copyButton, el, type Kid, nameCodeQr, nameText, nameTitle, reducedMotion, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { dateOf, dollars, SEP } from "../format.ts"
@@ -19,7 +20,7 @@ import { chatButton } from "./chats.ts"
 import { codeField, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, type LinkFields, linkFieldsFor, linksSettled } from "./links.ts"
 import {
-  asStep, type Builder, CONTACT_EMAIL, currentRoute, draw, drawLoading, focusHeading, focusOn, go, isRedraw, isRoute, kept, keptLive, redirect, screen, showRefund,
+  asStep, type Builder, CONTACT_EMAIL, contactSupport, currentRoute, draw, drawLoading, focusHeading, focusOn, go, isRedraw, isRoute, kept, keptLive, redirect, screen, showRefund,
   useBalance, whenLeaving,
 } from "./shell.ts"
 import { after } from "./effects.ts"
@@ -146,6 +147,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   let view: api.RegistrationView
   let invoice: api.InvoiceView | null = null
   try {
+    await namesSite()
     if (o.invoiceId) {
       invoice = await api.readInvoice(o.invoiceId)
       view = invoice.registration
@@ -163,8 +165,8 @@ async function readOrder(id: string, route: number): Promise<void> {
   if (api.closedEmpty(invoice) && await replaceWithNewer(synced, route)) return
   if (!isRoute(route)) return
   dispatchList({ type: "row-read", id, view, invoice, now: api.serviceNow() })
-  if (view.phase !== "registered") return
-  const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length).catch(() => null)
+  if (view.phase.type !== "registered") return
+  const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length, readSite().chainId).catch(() => null)
   answerList(route, { type: "row-answered", id, answer })
 }
 
@@ -182,11 +184,12 @@ async function findOrder(p: store.PendingCode): Promise<void> {
   if (holding()) return dispatchList({ type: "find-held", ownerCode, until: holdEnd() })
   dispatchList({ type: "find-started", ownerCode })
   try {
-    const { record } = await flow.restore(ownerCode)
-    if (isRoute(route)) go(store.orderUrl(record))
+    const restored = await flow.restore(ownerCode)
+    if (!restored) return answerList(route, { type: "find-ended", ownerCode, outcome: "none" })
+    if (isRoute(route)) go(store.orderUrl(restored.record))
   } catch (e) {
     if (holdFrom(e)) return answerList(route, { type: "find-held", ownerCode, until: holdEnd() })
-    answerList(route, { type: "find-ended", ownerCode, outcome: e instanceof api.ApiError && e.code === "not_found" ? "none" : "unchecked" })
+    answerList(route, { type: "find-ended", ownerCode, outcome: "unchecked" })
   }
 }
 
@@ -273,18 +276,24 @@ const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() +
 // the reference support asks for, in a face where l and I differ
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
-function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): string | (Node | string)[] {
+function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
   // what was paid, from the invoice; the record's amount is the order's worth, lower after a move to a cheaper name
   const paid = paidLine(o, view, invoice)
-  if (lapsed({ view, answer }, now)) return `Expired ${view.expiresAt ? dateOf(view.expiresAt) : ""}`.trim()
-  if (view.phase === "registered") return view.expiresAt ? `Until ${dateOf(view.expiresAt)}` : paid
-  if (invoice && invoice.status !== "open" && view.phase === "unpaid") {
+  const expiresAt = api.expiresAtOf(view)
+  if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
+  if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
+  if (api.reversedOrder(view)) return ""
+  if (invoice && invoice.status !== "open" && (view.phase.type === "unpaid" || view.phase.type === "closed")) {
     const late = lateLine(invoice)
-    return late ? [late, ...reference(invoice.invoiceId)] : `Nothing was charged${SEP}${dateOf(Date.parse(o.createdAt) / 1000)}`
+    if (!late) return `Nothing was charged${SEP}${dateOf(Date.parse(o.createdAt) / 1000)}`
+    const [arrived, kept] = late
+    return kept ? [`${arrived}; ${kept}`, ...reference(invoice.invoiceId)]
+      : [`${arrived}; `, ...contactSupport("contact", el("span", { class: "mono" }, invoice.invoiceId)), ", to have it credited"]
   }
-  if (view.phase === "taken" && o.method === "code") return paid
+  if (view.phase.type === "taken" && o.method === "code") return paid
   if (waitsToSign(view, now)) return `Open the order so this browser can sign it${SEP}${continued(paid)}`
-  return PROGRESS[view.phase] ? `${PROGRESS[view.phase]}${SEP}${continued(paid)}` : paid
+  const progress = PROGRESS[view.phase.type]
+  return progress ? `${progress}${SEP}${continued(paid)}` : paid
 }
 
 function codeToggle(id: string, shown: boolean): HTMLElement {
@@ -302,9 +311,9 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const seen = s.seen[id]
   // the order may have moved to another name since it was stored
   const label = seen?.view.label ?? o.label
-  const tld = seen?.view.tld ?? o.tld
+  const tld = o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
-  const registered = seen?.view.phase === "registered"
+  const registered = seen?.view.phase.type === "registered"
   const code = registered ? o.ownerCode : null
   const shown = code !== null && s.shownCode === id
   const edits = registered && !lapsed(seen, s.now) && (!seen.answer || editable(seen.answer, o.owner))
@@ -312,8 +321,8 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
     : [codeToggle(id, shown), edits ? small(linksAction(hasLinks(o, seen.answer)), `${id}-edit`, () => go(editUrl(id))) : null]
   const community = seen?.view.community ?? null
   // a registered name shows the chats it opens, each opening its popup as the home's answer does
-  const chats = registered && seen.answer?.status === "registered"
-    ? seen.answer.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
+  const chats = registered && seen.answer?.found.type === "registered"
+    ? seen.answer.found.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
   const listed = seen ? community !== null : api.communityAgreed(o.terms)
   const state = rowChip(s, o, seen)
   const title = rowName(label, tld, community, `${id}-community`, listed)
@@ -336,7 +345,7 @@ function rowChip(s: ListState, o: store.OrderRecord, seen: RowSeen | undefined):
   if (s.unread.includes(o.registrationId) || !seen) return chip(ROW_CHIPS.unchecked, "warn")
   if (lapsed(seen, s.now)) return chip(ROW_CHIPS.lapsed, "bad")
   // a registered name says so by its date
-  if (seen.view.phase === "registered") return null
+  if (seen.view.phase.type === "registered") return null
   const [text, tone] = phaseChip(seen.view, seen.invoice, o, s.now)
   return chip(text, tone, tone !== "bad")
 }
@@ -360,8 +369,8 @@ function pendingRow(p: store.PendingCode, s: ListState, open: session.Checkout |
   return node
 }
 
-const BALANCE_FROM: Record<BalanceRow["from"], string> = {
-  taken: "registered by someone else first", late: "paid after its invoice closed", rest: "left after a cheaper name",
+const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
+  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "left after a cheaper name",
 }
 
 // A balance pays for another name, or support refunds it; while an open invoice holds it, neither, and the order that
@@ -373,11 +382,12 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
     : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
       small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
-  const sub = ["From ", nameText(view.label ?? o.label, view.tld), ", ", el("span", { class: "nowrap" }, BALANCE_FROM[b.from]),
+  const from = BALANCE_FROM[b.from]
+  const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
     b.held ? `${SEP}in use by another order ${heldWords(b.heldUntil)}` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, b.held ? chip("In use", "brand", true) : null, acts)
-  node.classList.add("balance-row")
+  if (from) node.classList.add("balance-row")
   return node
 }
 
@@ -516,16 +526,16 @@ async function readEdit(route: number): Promise<void> {
   try {
     view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId)).registration : await api.readRegistration(stored.registrationId)
     record = await flow.syncRecord(stored, view) ?? stored
-    answer = await api.searchName(record.request.labelHash, record.label.length)
+    answer = await api.searchName(record.request.labelHash, record.label.length, (await namesSite()).chainId)
   } catch (e) {
     // a forgotten unpaid order may have a newer one, found with the code
     const newer = e instanceof api.ApiError && e.code === "not_found" ? await flow.newerOrder(stored).catch(() => null) : null
     if (!isRoute(route)) return
     if (newer) return redirect(editUrl(newer.registrationId))
-    return dispatchEdit({ type: "read-failed" })
+    return answerEdit(route, { type: "read-failed" })
   }
   if (!isRoute(route)) return
-  if (view.phase === "unpaid") {
+  if (view.phase.type === "unpaid" || view.phase.type === "closed") {
     // the name may have been registered through a newer invoice that another browser made, perhaps under another name
     const newer = await flow.newerOrder(record).catch(() => null)
     if (!isRoute(route)) return
@@ -550,8 +560,9 @@ const notice = (ic: IconName, title: string, text: string): Builder<EditState> =
 // The chain takes an expired name's link edits from its holder until someone registers it again; this page sends none.
 function buildExpired(s: EditState): HTMLElement {
   const { view, answer, now } = s.read!
+  const expiresAt = api.expiresAtOf(view)
   return editNotice(s, alertBox("info", "clock", "This name has expired",
-    `${ranOut(view.expiresAt)} Names are not renewed, so this page no longer edits its links. ${againLine(view.expiresAt, answer, now)}`))
+    `${ranOut(expiresAt)} Names are not renewed, so this page no longer edits its links. ${againLine(expiresAt, answer, now)}`))
 }
 
 function buildUnreadable(s: EditState, signal: AbortSignal): HTMLElement {
@@ -587,10 +598,10 @@ async function saveLinks(links: LinkFields): Promise<void> {
   }).finally(() => { awaitingChecks = false })
   if (!settled || !isRoute(route)) return showEdit()
   dispatchEdit({ type: "save-started" })
-  const { record, read, form } = edit
+  const { record, form } = edit
   if (!form?.saving) return
   try {
-    await flow.saveLinks(record!, read!.view, form.nonce, form.changes)
+    await flow.saveLinks(record!, readSite(), form.nonce, form.changes)
     answerEdit(route, { type: "save-done", at: api.serviceSeconds() })
   } catch (e) {
     // no answer is not a refusal: the edit may still be mined, and sending it again would pay for it twice
@@ -603,13 +614,14 @@ async function saveLinks(links: LinkFields): Promise<void> {
     if (holdFrom(e)) return answerEdit(route, { type: "save-held", until: holdEnd() })
     // A refused edit may mean the nonce moved: an earlier save, from a page reloaded before it was mined, or from
     // another browser. The next save signs with the fresh one, and the page says why this one did not go.
-    const fresh = await api.searchName(record!.request.labelHash, record!.label.length).catch(() => null)
+    const fresh = await api.searchName(record!.request.labelHash, record!.label.length, readSite().chainId).catch(() => null)
     if (!isRoute(route)) return
     const now = edit.form!
-    const nonce = fresh?.status === "registered" && fresh.recordsNonce != null && fresh.recordsNonce > now.nonce ? fresh.recordsNonce : null
-    const records = nonce !== null && fresh?.status === "registered" && fresh.records ? fresh.records : null
+    const own = fresh?.found.type === "registered" && fresh.found.records.type === "own" ? fresh.found.records : null
+    const nonce = own !== null && own.nonce > now.nonce ? own.nonce : null
+    const records = nonce !== null && own !== null ? { contact: own.contact, channel: own.channel } : null
     if (records) for (const kind of api.LINK_KINDS) links.show(kind, records[kind])
-    dispatchEdit({ type: "save-refused", moved: nonce === null ? null : { nonce, records }, edits: fresh?.status === "registered" ? fresh.recordEdits : null })
+    dispatchEdit({ type: "save-refused", moved: nonce === null ? null : { nonce, records }, edits: own?.edits ?? null })
   }
 }
 

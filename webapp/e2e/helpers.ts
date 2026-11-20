@@ -6,7 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
-import { newOwnerCode, walletOf } from "../src/flow.ts"
+import { KEYS, newOwnerCode, walletOf } from "../src/flow.ts"
 import { readQr } from "../src/scan.ts"
 import { qrPixels } from "../test/qr-image.ts"
 import { mockUrl, pageUrl } from "./slots.ts"
@@ -29,11 +29,12 @@ export function uniqueLabel(prefix: string): string {
 // a name of 7 letters, which costs $200 for its 2 years where one of 8 or more costs $100
 export const sevenLetters = () => `b${Math.random().toString(36).slice(2).replace(/[^a-z]/g, "")}bbbbbb`.slice(0, 7)
 
-// A link's key, led by a tag that tells the mock what profile to give it, in whole base64url groups, which the chat core reads
-const LINK_KEY_CHARS = 32
-const linkKey = (tag: string, rest: string) => `${tag}${rest}`.slice(0, LINK_KEY_CHARS)
-export const contactLink = (tag: string) => `https://smp8.simplex.im/a#${linkKey(tag, "Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS")}`
-export const channelLink = (tag: string) => `https://smp9.simplex.im/c#${linkKey(tag, "Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm")}`
+// A link's key, led by a tag that tells the mock what profile to give it: a 32-byte hash in base64url, as the chat core reads
+// it, 43 characters, the last with its two spare bits zero
+const LINK_KEY_CHARS = 43
+const linkKey = (tag: string, rest: string) => `${tag}${rest}`.slice(0, LINK_KEY_CHARS - 1) + "A"
+export const contactLink = (tag: string) => `https://smp8.simplex.im/a#${linkKey(tag, "Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSt4Uv6Wx8Zg")}`
+export const channelLink = (tag: string) => `https://smp9.simplex.im/c#${linkKey(tag, "Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lmn3Bq5Cs7Eg")}`
 
 export async function control(request: APIRequestContext, path: string, body: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const res = await request.post(`${MOCK}/control/${path}`, { data: body })
@@ -46,7 +47,7 @@ export async function registrationOf(request: APIRequestContext, invoiceId: stri
   return (await res.json()).registration.id
 }
 
-interface MockRegistration { invoiceId: string | null; phase: string; revealAfter: number | null; createdAt: string }
+interface MockRegistration { invoiceId: string | null; phase: string; revealAfter: number | null; label: string | null; createdAt: string }
 
 export async function mockRegistration(request: APIRequestContext, invoiceId: string): Promise<MockRegistration> {
   const res = await request.get(`${MOCK}/control/state`)
@@ -143,7 +144,7 @@ const CHAIN_BLOCK_S = 1
 
 // Another relayer's copy of a signed link edit, mined in the block before the mock's own transaction for it, which then
 // reverts on chain. Blocks are held from before the request until both transactions wait in the pool.
-export async function relayedAhead<T>(label: string, edit: { key: string; value: string; nonce: number; deadline: number; signature: string }, request: () => Promise<T>): Promise<T> {
+export async function relayedAhead<T>(label: string, edit: { key: keyof typeof KEYS; value: string; nonce: number; deadline: number; signature: string }, request: () => Promise<T>): Promise<T> {
   const transport = http(deployment.rpcUrl)
   const anvil = createTestClient({ mode: "anvil", transport })
   await anvil.setIntervalMining({ interval: 0 })
@@ -153,7 +154,7 @@ export async function relayedAhead<T>(label: string, edit: { key: string; value:
     const account = privateKeyToAccount(generatePrivateKey())
     await anvil.setBalance({ address: account.address, value: OWNER_GAS_WEI })
     const data = encodeFunctionData({ abi: CHAIN_ABI, functionName: "setTextWithSig",
-      args: [nodeOf(label), edit.key, edit.value, BigInt(edit.nonce), BigInt(edit.deadline), edit.signature as Hex] })
+      args: [nodeOf(label), KEYS[edit.key], edit.value, BigInt(edit.nonce), BigInt(edit.deadline), edit.signature as Hex] })
     const block = await chain.getBlock()
     await createWalletClient({ account, chain: { ...foundry, id: deployment.chainId }, transport })
       .sendTransaction({ to: deployment.resolver, data, gas: AHEAD_GAS, maxPriorityFeePerGas: AHEAD_TIP_WEI, maxFeePerGas: (block.baseFeePerGas ?? 0n) * 2n + AHEAD_TIP_WEI })
@@ -173,7 +174,7 @@ export async function searchName(request: APIRequestContext, label: string): Pro
   const { labelHash } = await import("../src/crypto/registration.ts")
   const { hex } = await import("../src/crypto/wallet.ts")
   const res = await request.get(`${MOCK}/api/name/${hex(labelHash(label))}?length=${label.length}`)
-  return res.json()
+  return (await res.json()).found
 }
 
 // The page in light and dark, on a desktop and on a phone; the theme is a class, so no redraw is needed.
@@ -383,7 +384,7 @@ export async function agreeToTerms(page: Page): Promise<void> {
 async function tick(page: Page, name: RegExp): Promise<void> {
   const box = onStep(page).getByRole("checkbox", { name })
   if (!await box.isChecked()) await onStep(page).locator(".check.terms", { has: page.getByRole("checkbox", { name }) }).locator(".box").click()
-  await expect(box).toBeChecked()
+  await expect(onStep(page).getByRole("checkbox", { name, checked: false })).toHaveCount(0)
 }
 
 // An available name's Register, through the links skipped and the name code saved, to Check your order.
@@ -474,6 +475,14 @@ export const newClient = () => ({ "x-forwarded-for": `10.${randomInt(OCTET)}.${r
 export const test = base.extend<{ cspViolations: void }>({
   baseURL: async ({ baseURL }, use) => use(baseURL ?? pageUrl(SLOT)),
   extraHTTPHeaders: async ({ extraHTTPHeaders }, use) => use({ ...extraHTTPHeaders, ...newClient() }),
+  page: async ({ page }, use) => {
+    const resize = page.setViewportSize.bind(page)
+    page.setViewportSize = async (size) => {
+      await resize(size)
+      await page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
+    }
+    await use(page)
+  },
   cspViolations: [async ({ context, browser }, use) => {
     const refused: string[] = []
     const watch = async (watched: BrowserContext) => {
@@ -512,11 +521,11 @@ export async function takenOrder(page: Page, request: APIRequestContext, label: 
   return order
 }
 
-// An order paid in Bitcoin whose registration fails, up to its page.
+// An order paid in Bitcoin whose registration the registry refuses for its name, up to its page.
 export async function failedOrder(page: Page, request: APIRequestContext, label: string): Promise<{ invoiceId: string; registrationId: string; ownerCode: string }> {
   const order = await startOrder(page, label, { method: "btc" })
   const registrationId = await registrationOf(request, order.invoiceId)
-  await control(request, `fail/${registrationId}`)
+  await control(request, `fail-name/${registrationId}`)
   await control(request, `settle/${order.invoiceId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
   return { ...order, registrationId }
@@ -524,13 +533,24 @@ export async function failedOrder(page: Page, request: APIRequestContext, label:
 
 // The page's searches of a name answer that it is reserved, as for one the controller's owner reserved after an order's commit.
 export const answersReserved = (page: Page, label: string) =>
-  page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: { status: "reserved", community: null } }))
+  page.route(`**/api/name/${hex(labelHash(label))}*`, (route) => route.fulfill({ json: { found: { type: "reserved" } } }))
 
 export async function waitRegistered(page: Page, label: string): Promise<void> {
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible({ timeout: REGISTRATION_MS })
 }
 
 export const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
+
+export const registeredAnswer = (owner: string, expiresAt: number, links: { contact: string; channel: string }, entities: unknown[] = [], nonce = 0, gracePeriod = 90 * 86400) =>
+  ({ found: { type: "registered", owner, resolver: CHAIN.resolver, expiresAt, gracePeriod, entities, records: { type: "own", ...links, nonce, edits: { left: 3 } } } })
+
+export function okPreview(kind: "contact" | "channel", displayName: string, change: { fullName?: string; image?: string; chat?: "contact" | "business" | "bot"; publicMemberCount?: number } = {}) {
+  const { fullName = "", image, chat = "contact", publicMemberCount = 12 } = change
+  const names = { displayName, fullName, ...image === undefined ? {} : { image } }
+  return kind === "channel"
+    ? { kind, profile: { type: "ok", linkProfile: { kind: "channel", ...names, subscribers: publicMemberCount } } }
+    : { kind, profile: { type: "ok", linkProfile: { kind: chat, ...names } } }
+}
 // the terms an available name's answer asks the buyer to agree to, as dev/deploy.ts links them
 export const TERMS = { hash: GENERAL_TERMS_HASH, link: deployment.generalTermsLink }
 export const LISTED_TERMS = { hash: COMMUNITY_TERMS_HASH, link: deployment.communityTermsLink }
@@ -551,21 +571,22 @@ export async function keepOrder(page: Page, registrationId: string, invoiceId: s
 
 // The service's view of a kept order's registration, as its API answers it.
 export const registrationView = (o: KeptOrder, change: Record<string, unknown> = {}) => ({
-  ...CHAIN, id: o.registrationId, version: 1, unread: [], moves: 0, phase: "unpaid", labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
-  years: 2, duration: 2 * YEAR_S, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, acceptance: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-  community: null, terms: PLAIN_TERMS, ...change,
+  id: o.registrationId, version: 1, moves: 0, phase: { type: "unpaid" }, labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
+  years: 2, duration: 2 * YEAR_S, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: null, latePayment: null,
+  community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, ...change,
 })
+
+export const registeredPhase = (expiresAt: number) => ({ type: "registered", expiresAt })
 
 // A registered name of this browser's code, as the service answers it, holding `links` until `records` answers otherwise.
 export async function fakeRegisteredName(page: Page, label: string, links: { contact: string; channel: string },
   records: () => { links: { contact: string; channel: string }; nonce: number } = () => ({ links, nonce: 0 })): Promise<KeptOrder> {
   const order = await keepOrder(page, `reg-${label.slice(0, 12)}`, null, label, links)
   const expiresAt = Math.floor(Date.now() / 1000) + YEAR_S
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route("**/api/name/**", (route) => {
     const now = records()
-    return route.fulfill({ json: { status: "registered", entities: [], owner: order.owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId, records: now.links, recordsNonce: now.nonce,
-      recordEdits: { left: 3, nextAt: null }, expiresAt, tld: "simplex", community: null } })
+    return route.fulfill({ json: registeredAnswer(order.owner, expiresAt, now.links, [], now.nonce) })
   })
   return order
 }

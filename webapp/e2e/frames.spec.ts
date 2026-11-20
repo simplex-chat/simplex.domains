@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test"
 import {
-  agreeToTerms, CODE_HEADING, contactLink, control, LINKS_HEADING, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
+  agreeToTerms, CODE_HEADING, contactLink, control, LINKS_HEADING, okPreview, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
   takenHeading, test, toFullReview, toReview, uniqueLabel,
 } from "./helpers.ts"
 
@@ -159,7 +159,7 @@ const NON_LATIN_NAME = "Łukasz Żak"
 
 test("a font face that a step's change loads leaves the step where it holds, after a refused link", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.route("**/api/link/preview", (route) => route.fulfill({ json: { type: "address", kind: "contact", displayName: NON_LATIN_NAME, fullName: "", image: null, subscribers: null, profile: "ok" } }))
+  await page.route("**/api/link/preview", (route) => route.fulfill({ json: okPreview("contact", NON_LATIN_NAME) }))
   await search(page, uniqueLabel("face"))
   await onStep(page).getByRole("button", { name: "Register" }).click()
   await heading(page, LINKS_HEADING)

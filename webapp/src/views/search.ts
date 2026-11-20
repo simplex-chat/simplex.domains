@@ -1,8 +1,9 @@
 // The home: the landing's headline, the search box and every answer it can show.
 import * as api from "../api.ts"
+import { loadedSite, namesSite, readSite } from "../config.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
-import { alertBox, btn, el, icon, type Kid, line, link, nameText, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
+import { alertBox, btn, el, icon, type Kid, line, link, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { dollars, letters } from "../format.ts"
 import { codesOnly } from "../mode.ts"
@@ -11,10 +12,10 @@ import type { Hold } from "../screens/hold.ts"
 import { againLine, ranOut } from "../screens/names.ts"
 import { checkoutUrl, CODE_URL } from "../screens/routes.ts"
 import {
-  type Answer, balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Moved, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
+  type Answer, balanceHint, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
   orderCode, type OrderRead, ownOrders, type OwnOrders, type SearchKind, searchLocked, type SearchState, type CodeLoss,
 } from "../screens/search.ts"
-import type { Note } from "../screens/order.ts"
+import { nameCause, type Note } from "../screens/order.ts"
 import { ticked } from "../screens/terms.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
@@ -49,7 +50,7 @@ export function searchPage(params: URLSearchParams): void {
   const fresh = !isRedraw() || shown === null || state.opening !== opening
   const returned = fresh && throughHistory()
   if (fresh) {
-    state = returned ? returnedTo(state, opening, name, store.orders()) : initialSearch()
+    state = returned ? returnedTo(state, opening, name, loadedSite()?.tld, store.orders()) : initialSearch()
     shown = null
     opens += 1
   }
@@ -101,7 +102,7 @@ async function runSearch(label: string, seq: number): Promise<void> {
   const hash = hex(labelHash(label))
   let answer: api.SearchAnswer
   try {
-    answer = await api.searchName(hash, label.length)
+    answer = await api.searchName(hash, label.length, (await namesSite()).chainId)
   } catch (e) {
     if (!awaited()) return
     if (holdFrom(e)) return dispatch({ type: "search-held", seq, until: holdEnd() })
@@ -109,12 +110,12 @@ async function runSearch(label: string, seq: number): Promise<void> {
   }
   if (!awaited()) return
   dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow() })
-  if (answer.status === "available") void pointAtOwnOrder(label, hash, page)
+  if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 
-function mineFor(hash: string, answer: api.SearchAnswer): boolean {
-  if (answer.status !== "registered" || answer.owner === undefined) return false
-  const owner = answer.owner.toLowerCase()
+function mineFor(hash: string, { found }: api.SearchAnswer): boolean {
+  if (found.type !== "registered") return false
+  const owner = found.owner.toLowerCase()
   return store.orders().some((o) => o.request.labelHash === hash && o.owner.toLowerCase() === owner)
 }
 
@@ -126,7 +127,7 @@ async function pointAtOwnOrder(label: string, hash: string, page: number): Promi
     if (!onPage(page)) return null
     const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId).catch(() => null) : null
     const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId).catch(() => null))
-    return reg && { phase: reg.phase, invoice: invoice?.status ?? null }
+    return reg && { phase: reg.phase.type, failure: reg.phase.type === "failed" ? reg.phase.reason : null, invoice: invoice?.status ?? null }
   }
   const orders = ownOrders(store.orders().filter((r) => r.request.labelHash === hash), read)
   ownRead = { label, orders }
@@ -140,22 +141,19 @@ async function readOrder(record: store.OrderRecord): Promise<{ view: api.Registr
   const view = await (record.invoiceId ? api.readInvoice(record.invoiceId).then((i) => i.registration) : api.readRegistration(record.registrationId)).catch(() => null)
   if (!view) return null
   const synced = await flow.syncRecord(record, view) ?? record
-  return { view, synced: { ...synced, paid: view.price, linksRefused: view.linksRefused || synced.linksRefused } }
+  return { view, synced: { ...synced, paid: view.price, linksRefused: view.linksRefused !== null || synced.linksRefused } }
 }
 
 // an order moves from a failed registration, or from links the service refused; a name taken first keeps its payment as a balance
 const movable = (view: api.RegistrationView, record: store.OrderRecord) =>
-  view.phase === "failed" || (view.phase === "committed" && (view.linksRefused || record.linksRefused === true))
-
-function movedOf(view: api.RegistrationView, record: store.OrderRecord): Moved | null {
-  if (movable(view, record)) return null
-  return { url: store.orderUrl(record), label: record.label, tld: record.tld }
-}
+  nameCause(view) || ((view.phase.type === "failed" || view.phase.type === "committed") && (view.linksRefused !== null || record.linksRefused === true))
 
 async function checkRetarget(record: store.OrderRecord): Promise<void> {
   const page = opens
   const read = await readOrder(record)
-  if (read && onPage(page)) dispatch({ type: "retarget-read", record: read.synced, moved: movedOf(read.view, read.synced) })
+  if (!read || !onPage(page)) return
+  if (!movable(read.view, read.synced)) return go(store.orderUrl(read.synced))
+  dispatch({ type: "retarget-read", record: read.synced })
 }
 
 // The tab's balance as its order reads now; one spent or refunded meanwhile, or whose order this browser no longer
@@ -178,12 +176,14 @@ function holdEnded(): void {
 }
 
 type Found = Extract<Answer, { kind: "found" }>
-type Available = Extract<api.SearchAnswer, { status: "available" }>
 
 // an order this browser has for the name, which the search found or the service named in refusing a second one
 const ownOrderOf = ({ ownOrder, register: { refusal } }: SearchState) => ownOrder ?? (refusal?.why === "other" ? refusal.url : null)
 
-const offered = ({ answer }: SearchState) => answer?.kind === "found" && answer.answer.status === "available" ? { label: answer.label, answer: answer.answer } : null
+function offered({ answer }: SearchState): { label: string; answer: flow.Available } | null {
+  const available = answer?.kind === "found" ? flow.availableOf(answer.answer) : null
+  return answer?.kind === "found" && available ? { label: answer.label, answer: available } : null
+}
 
 async function register(): Promise<void> {
   const shown = offered(state)
@@ -198,14 +198,15 @@ async function register(): Promise<void> {
 }
 
 function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode: string | null): void {
-  const chain = flow.chainOf(answer)
+  const site = readSite()
+  const chain = flow.chainOf(site)
   const code = codeFor(s, label)
   // a balance pays under its order's name code, which then owns this name too
   const source = s.balance && store.orderByRegistration(s.balance.source)
   const balance = source ? s.balance : null
   const { ownerCode, saved } = orderCode(source ? source.ownerCode : null, closedCode)
   const started = session.checkout()
-  const quote = { price: answer.price, years: answer.years, termStart: answer.termStart, chain, terms: answer.terms, community: answer.community }
+  const quote = { price: answer.price, years: answer.years, termStart: site.termStart, chain, terms: answer.terms, community: answer.community }
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
   if (started && started.label === label && started.price === answer.price && started.chain.chainId === chain.chainId && !session.isSending(started) && sameCode) {
     const agreed = started.agreed && api.currentTerms(started) === api.currentTerms(answer)
@@ -237,7 +238,7 @@ async function retarget(record: store.OrderRecord, label: string, quote: flow.Qu
     const limited = holdFrom(e)
     if (!onPage(page)) return
     if (read?.synced.label === label) return go(store.orderUrl(record))
-    if (read && !movable(read.view, read.synced)) return dispatch({ type: "retarget-read", record: read.synced, moved: movedOf(read.view, read.synced) })
+    if (read && !movable(read.view, read.synced)) return go(store.orderUrl(read.synced))
     if (limited) return dispatch({ type: "register-held", until: holdEnd() })
     if (e instanceof api.TermsChanged) return dispatch({ type: "terms-changed", label, terms: e.terms, community: e.community })
     const code = e instanceof api.ApiError ? e.code : null
@@ -320,7 +321,6 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
 }
 
 function openingLine(s: SearchState): HTMLElement | null {
-  if (s.moved) return alertBox("info", "info", "Your order already went to another name.", el("a", { href: s.moved.url }, "Open ", nameText(s.moved.label, s.moved.tld)))
   if (!s.retarget) return null
   const [kept, choose] = keptWords(s.retarget)
   return alertBox("info", codeCover(s.retarget) ? "key" : "wallet", kept, choose)
@@ -333,12 +333,12 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (answer?.kind === "uncovered") return line("bad", "alert", `${letters(answer.label.length)}. Your code covers names of ${answer.minLength} or more letters.`)
   if (answer?.kind === "unchecked") return line("warn", "alert", "This name could not be checked. ", link("Try again", retry))
   if (answer?.kind !== "found") return answer?.kind === "checking" ? line("", "clock", "Checking the name…") : null
-  const found = answer.answer
-  if (found.status === "available") return availableAnswer(s, answer.label, found, signal)
-  if (found.status === "reserved") {
+  const available = flow.availableOf(answer.answer)
+  if (available) return availableAnswer(s, answer.label, available, signal)
+  if (answer.answer.found.type === "reserved") {
     return line("info", "info", "Reserved names are not sold here. If it is yours to use, write to ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), ".")
   }
-  return takenAnswer(answer, found)
+  return takenAnswer(s, answer, answer.answer)
 }
 
 function ruleLine({ label, problem }: Extract<Answer, { kind: "rule" }>): HTMLElement {
@@ -360,7 +360,7 @@ const codeFor = (s: SearchState, label: string) => {
   return code && usesCode(s) && label.length >= code.minLength ? code : null
 }
 
-function availableAnswer(s: SearchState, label: string, answer: Available, signal: AbortSignal): Kid[] {
+function availableAnswer(s: SearchState, label: string, answer: flow.Available, signal: AbortSignal): Kid[] {
   const retarget = s.retarget
   const cover = retarget && codeCover(retarget)
   const unpayable = retarget !== null && moveBar(retarget, label, answer.price) !== null
@@ -377,7 +377,7 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
   const deal = free ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, free.years)} years`)]
     : [el("b", { class: "price" }, dollars(answer.price)), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, answer.years)} years`)]
   return [
-    el("div", { class: "card row buy" }, rowName(label, answer.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
+    el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !code && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
     s.balance ? balanceLine(s.balance, answer.price) : null,
@@ -394,7 +394,7 @@ function availableAnswer(s: SearchState, label: string, answer: Available, signa
 function moveAgreement(s: SearchState, label: string, answer: flow.Quote): HTMLElement {
   const agree = (agreed: boolean) => dispatch({ type: "agreed", agreed })
   const accept = (accepted: boolean) => dispatch({ type: "accepted", accepted })
-  return termsChecks({ terms: answer.terms, community: answer.community, agreed: s.agreed, accepted: s.accepted, changed: s.termsChanged, label, tld: answer.tld, chainId: answer.chainId, disabled: s.register.busy }, agree, accept)
+  return termsChecks({ terms: answer.terms, community: answer.community, agreed: s.agreed, accepted: s.accepted, changed: s.termsChanged, label, tld: readSite().tld, chainId: readSite().chainId, disabled: s.register.busy }, agree, accept)
 }
 
 function balanceLine(balance: session.AppliedBalance, price: number): HTMLElement {
@@ -416,24 +416,25 @@ function registerNote({ hold, register: { refusal } }: SearchState, signal: Abor
 
 function codeLossNote(state: CodeLoss, reference: string): Note {
   const [title, line] = STATE_LINES[state]
-  return { tone: "danger", icon: "key", title, text: `${line ? `${line} ` : ""}Write to SimpleX support with this order's reference, `,
-    link: { text: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}`, after: `: ${reference}.` } }
+  return { tone: "danger", icon: "key", title, text: line ? `${line} ` : "", link: { support: reference } }
 }
 
 // One row as the app lists a chat: the name, the chats it opens as the app's own pictures, and whose it is.
-function takenAnswer(found: Found, answer: Extract<api.SearchAnswer, { status: "registered" }>): Kid[] {
+function takenAnswer(s: SearchState, found: Found, answer: api.SearchAnswer): Kid[] {
   const { label, mine } = found
+  const registered = answer.found.type === "registered" ? answer.found : null
   // there are no renewals, so a name of ours past its expiry is over here, though the chain keeps it ours in its grace period
-  const expiresAt = answer.expiresAt ?? null
+  const expiresAt = registered?.expiresAt ?? null
   const lapsed = mine && expiresAt !== null && expiresAt < found.now / 1000 ? `${ranOut(expiresAt)} ${againLine(expiresAt, answer, found.now)}` : null
-  // a name whose registration is being mined has no owner on chain yet
-  const registering = answer.owner === undefined
-  const whose = mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
-    : el("span", { class: "soft" }, registering ? "Being registered" : "Taken")
-  const name = `${label}.${answer.tld}`
+  const own = answer.found.type === "taken" ? ownOrderOf(s) : null
+  const whose = own ? null : mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
+    : el("span", { class: "soft" }, "Taken")
+  const { tld } = readSite()
+  const name = `${label}.${tld}`
+  const entities = registered?.entities ?? []
   return [
-    el("div", { class: "card row" }, rowName(label, answer.tld, answer.community, "community"),
-      answer.entities.length ? el("span", { class: "chats" }, answer.entities.map((e, i) => chatButton(e, name, `chat-${i}`, answer.community !== null))) : null, whose),
-    lapsed ? line("", "clock", lapsed) : registering ? line("", "clock", "Someone is registering it right now. Its owner and links show once it is on chain.") : null,
+    el("div", { class: "card row" }, rowName(label, tld, answer.community, "community"),
+      entities.length ? el("span", { class: "chats" }, entities.map((e, i) => chatButton(e, name, `chat-${i}`, answer.community !== null))) : null, whose),
+    lapsed ? line("", "clock", lapsed) : own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
   ]
 }

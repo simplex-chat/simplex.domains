@@ -7,7 +7,7 @@ import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } 
 import { type Method, methodMark } from "../icons.ts"
 import type { LinkKind } from "../names.ts"
 import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
-import { RETRY_MS, REVEAL_HOURS } from "../screens/order.ts"
+import { RETRY_MS } from "../screens/order.ts"
 import {
   awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
@@ -19,11 +19,11 @@ import * as store from "../store.ts"
 import { CODE_ERRORS, codeField, CODES_ONLY_TITLE, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, linkChat, linkFieldsFor, linksSettled } from "./links.ts"
 import {
-  asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, whenLeaving,
+  asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, supportVia, whenLeaving,
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
-import { openedInstead } from "./order.ts"
+import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
@@ -193,7 +193,7 @@ function settled(waiting: WaitingOrder, signal: AbortSignal): false {
 }
 
 const OPEN_ORDER_LOOKBACK = 5
-const unpaid = (i: api.InvoiceView | null): i is api.InvoiceView => i?.status === "open" && i.registration.phase === "unpaid"
+const unpaid = (i: api.InvoiceView | null): i is api.InvoiceView => i?.status === "open" && i.registration.phase.type === "unpaid"
 
 // An unpaid invoice this browser made is pointed at, not blocking a new order, and followed until paid or closed; only the newest few are asked.
 async function showOpenOrder(signal: AbortSignal): Promise<void> {
@@ -471,7 +471,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
       balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
-      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, `After paying, keep this page open, or reopen its link within ${REVEAL_HOURS} hours. `, eth))),
+      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, "After paying, keep this page open until the name is registered. ", eth))),
     payNote(s, blocked !== null, signal),
     agreement(s))
 }
@@ -496,9 +496,12 @@ function buildFailed(s: CheckoutState): HTMLElement {
   const c = s.checkout
   // the same order is sent again from here; Back leaves it for the search
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
-  return outcome({ tone: "danger", icon: "alert", title: "That did not go through", text: "Nothing was charged. If this happens again, get in touch.",
+  return outcome({ tone: "danger", icon: "alert", title: "That did not go through", text: ["Nothing was charged. If this happens again, ", ...supportVia("contact"), "."],
     action: retry, alt: link("Back", () => go(searchLink(c.label))) })
 }
+
+const buildRefusedLink = (kind: LinkKind) => (): HTMLElement =>
+  outcome({ tone: "warn", icon: "alert", title: REFUSED_LINK[kind], text: REPLACE_LINK, action: btn("Back", "", () => go(checkoutUrl("links"))) })
 
 function buildUnavailable(s: CheckoutState): HTMLElement {
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
@@ -524,6 +527,8 @@ const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
   "status:taken": buildTaken,
   "status:unavailable": buildUnavailable,
   "status:codes-only": buildCodesOnly,
+  "status:link-contact": buildRefusedLink("contact"),
+  "status:link-channel": buildRefusedLink("channel"),
 }
 
 async function submitOrder(): Promise<void> {
@@ -651,6 +656,7 @@ function orderError(e: unknown, c: session.Checkout): void {
     if (c.code) session.dropActiveCode(c.code.display)
     return void act({ type: "order-refused", reason: "code", error: CODE_ERRORS[code] })
   }
+  if (code === "invalid_link" && e instanceof api.ApiError && (e.body.kind === "contact" || e.body.kind === "channel")) return void act({ type: "order-refused", reason: `link-${e.body.kind}` })
   if (code === "provider_unavailable") return void act({ type: "order-refused", reason: "method" })
   if (code === "terms_unavailable") return void act({ type: "order-refused", reason: "unavailable" })
   if (code === CODES_ONLY) {

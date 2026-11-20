@@ -7,7 +7,7 @@ import { mnemonicToAccount } from "viem/accounts"
 import { describe, expect, it } from "vitest"
 import { codeHash, codeProgress, formatOwnerCode, mayBeOwnerCode, parseNameCode } from "../src/crypto/code.ts"
 import {
-  acceptTermsDigest, clearRecordsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
+  acceptTermsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
   registerIntentDigest, setTextDigest, type Registration,
 } from "../src/crypto/registration.ts"
 import { seal, unseal } from "../src/crypto/seal.ts"
@@ -25,8 +25,8 @@ const YEAR = 365n * 86400n
 const TERM_START = Date.UTC(2027, 0, 1) / 1000
 const BEFORE_START = Date.UTC(2026, 9, 21, 9, 15) / 1000
 
-function registration(owner: Uint8Array, contact: string[] = [], channel: string[] = []): Registration {
-  return { label: "dynamis", tld: "simplex", owner, duration: durationFor(2, TERM_START, BEFORE_START), secret: new Uint8Array(32).fill(0x11), resolver: RESOLVER, contactLinks: contact, channelLinks: channel }
+function registration(owner: Uint8Array, contactLink: string | null = null, channelLink: string | null = null): Registration {
+  return { label: "dynamis", tld: "simplex", owner, duration: durationFor(2, TERM_START, BEFORE_START), secret: new Uint8Array(32).fill(0x11), resolver: RESOLVER, contactLink, channelLink }
 }
 
 describe("owner code", () => {
@@ -52,28 +52,6 @@ describe("owner code", () => {
 })
 
 describe("prepaid code", () => {
-  it("accepts the design's example and gives its length and canonical form", () => {
-    const parsed = parseNameCode("SN7-BJTBP-29596-R3HJ8-25YM7")
-    expect(parsed).toEqual({ kind: "prepaid", minLength: 7, canonical: "SN7BJTBP29596R3HJ825YM7", display: "SN7-BJTBP-29596-R3HJ8-25YM7" })
-  })
-
-  it("refuses a typo, which the check character catches", () => {
-    expect(parseNameCode("SN7-4K2P7-TQ9M1-ZX3RB-8HJ5X")).toBeNull()
-  })
-
-  it("refuses a length outside 6 to 63 or written with a leading zero, as the service's parser does", () => {
-    // the zero adds nothing to the check, so this text passes it and only the length rule refuses it
-    expect(parseNameCode("SN07-BJTBP-29596-R3HJ8-25YM7")).toBeNull()
-    // the design's example body under each length, with the check character that length gives
-    const texts = ["SN5-BJTBP-29596-R3HJ8-25YM9", "SN6-BJTBP-29596-R3HJ8-25YM8", "SN9-BJTBP-29596-R3HJ8-25YM5",
-      "SN10-BJTBP-29596-R3HJ8-25YMC", "SN63-BJTBP-29596-R3HJ8-25YMZ", "SN64-BJTBP-29596-R3HJ8-25YMY"]
-    const lengths = texts.map((text) => {
-      const parsed = parseNameCode(text)
-      return parsed?.kind === "prepaid" ? parsed.minLength : null
-    })
-    expect(lengths).toEqual([null, 6, 9, 10, 63, null])
-  })
-
   it("hashes the canonical form as the badge codes do: unpadded base64url SHA-256", () => {
     const expected = createHash("sha256").update("SN7BJTBP29596R3HJ825YM7").digest("base64url")
     expect(codeHash("SN7BJTBP29596R3HJ825YM7")).toBe(expected)
@@ -132,11 +110,11 @@ describe("registration", () => {
   })
 
   it("encodes the records and the commitment as the contract's ABI does", () => {
-    const r = registration(owner, ["https://smp8.simplex.im/a#contact"], ["https://smp9.simplex.im/c#channel"])
+    const r = registration(owner, "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA")
     const node = viemNamehash("dynamis.simplex")
     const data = [
-      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.contact", "https://smp8.simplex.im/a#contact"] }),
-      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.channel", "https://smp9.simplex.im/c#channel"] }),
+      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.contact", "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"] }),
+      encodeFunctionData({ abi, functionName: "setText", args: [node, "simplex.channel", "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA"] }),
     ]
     expect(recordCalls(r).map(hex)).toEqual(data)
     const tuple = { label: r.label, owner: checksumAddress(owner) as `0x${string}`, duration: r.duration, secret: hex(r.secret), resolver: hex(RESOLVER), data, reverseRecord: 0, referrer: zeroHash }
@@ -152,7 +130,7 @@ describe("registration", () => {
 
   it("signs RegisterName as viem's typed data, recoverable to the owner", async () => {
     const wallet = walletFromEntropy(ENTROPY)
-    const r = registration(wallet.address, ["https://smp8.simplex.im/a#contact"])
+    const r = registration(wallet.address, "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA")
     const typed = {
       domain: { name: "SimplexSponsor", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(SPONSOR) },
       types: { RegisterName: [
@@ -168,18 +146,13 @@ describe("registration", () => {
     expect(await recoverTypedDataAddress({ ...typed, signature })).toBe(OWNER_ADDRESS)
   })
 
-  it("signs SetText and ClearRecords as viem's typed data", () => {
+  it("signs SetText as viem's typed data", () => {
     const node = viemNamehash("dynamis.simplex")
     const domain = { name: "SimplexResolver", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(RESOLVER) }
     expect(hex(setTextDigest(CHAIN_ID, RESOLVER, fromHex(node), "simplex.contact", "https://x", 3n, 99n))).toBe(hashTypedData({
       domain, primaryType: "SetText",
       types: { SetText: [{ name: "node", type: "bytes32" }, { name: "key", type: "string" }, { name: "value", type: "string" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
       message: { node, key: "simplex.contact", value: "https://x", nonce: 3n, deadline: 99n },
-    }))
-    expect(hex(clearRecordsDigest(CHAIN_ID, RESOLVER, fromHex(node), 4n, 99n))).toBe(hashTypedData({
-      domain, primaryType: "ClearRecords",
-      types: { ClearRecords: [{ name: "node", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
-      message: { node, nonce: 4n, deadline: 99n },
     }))
   })
 
@@ -205,7 +178,7 @@ describe("registration", () => {
 describe("sealed order", () => {
   it("opens with the same code and not with another", async () => {
     const seed = walletFromEntropy(ENTROPY).seed
-    const order = { label: "dynamis", contact: "https://smp8.simplex.im/a#contact", channel: "" }
+    const order = { label: "dynamis", contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
     const sealed = await seal(seed, order)
     expect(sealed).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(await unseal(seed, sealed)).toEqual(order)

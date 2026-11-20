@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
-  agreeToTerms, brokenNames, CHAIN, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, onStep, payButton, REGISTRATION_MS, registrationOf, rowFit, savedToReview, search, shot,
-  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView, withStripeKey,
+  agreeToTerms, brokenNames, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, rowFit, savedToReview, search, shot,
+  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registeredPhase, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 
@@ -130,8 +130,8 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
   const answers = [
-    { status: 409, body: { error: "funded" }, text: "A payment has reached this invoice, so it is kept." },
-    { status: 503, body: { error: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
+    { status: 409, body: { type: "funded" }, text: "A payment has reached this invoice, so it is kept." },
+    { status: 503, body: { type: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
   ]
   for (const answer of answers) {
     await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: answer.status, json: answer.body }))
@@ -140,7 +140,7 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
     await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
     await page.unroute("**/api/invoice/*/cancel")
   }
-  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The invoice is still open\. Try again in/ })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
@@ -177,7 +177,7 @@ test("a registered order opened in a browser without its code offers restore", a
 test("a failed retarget shows one message below the result, however often it is tried", async ({ page, request }) => {
   const { registrationId } = await failedOrder(page, request, uniqueLabel("rtf"))
   await page.goto(`/#/?retarget=${registrationId}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { error: "provider_unavailable" } }))
+  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { type: "provider_unavailable" } }))
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtf2"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(page)
@@ -200,7 +200,7 @@ test("a failed retarget shows one message below the result, however often it is 
 test("a retarget refused for a name taken meanwhile says the name is no longer available", async ({ page, request }) => {
   const { registrationId } = await failedOrder(page, request, uniqueLabel("rtt"))
   await page.goto(`/#/?retarget=${registrationId}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "name_taken" } }))
+  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { type: "name_taken" } }))
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtt2"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(page)
@@ -216,14 +216,14 @@ test("a move refused for its code says what happened to the code and where to wr
   ]
   for (const [error, status, title] of cases) {
     await page.unrouteAll({ behavior: "wait" })
-    await page.route("**/api/registration/*/name", (route) => route.fulfill({ status, json: { error } }))
+    await page.route("**/api/registration/*/name", (route) => route.fulfill({ status, json: { type: error } }))
     await page.goto(`/#/?retarget=${registrationId}`)
     await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtc2"))
     await page.getByLabel("Name", { exact: true }).press("Enter")
     await agreeToTerms(page)
     await page.getByRole("button", { name: "Register with your payment" }).click()
     const note = page.locator(".answer .notice", { hasText: title })
-    await expect(note, error).toContainText(`Write to SimpleX support with this order's reference, chat@simplex.chat: `)
+    await expect(note, error).toContainText(`Contact support via chat@simplex.chat or SimpleX, and include order reference `)
     await expect(note.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
     await expect(page.getByText("Try again in a moment"), error).toHaveCount(0)
   }
@@ -318,24 +318,25 @@ test("money paid after the close that the service cannot credit by itself sends 
   await control(request, `expire/${invoiceId}`)
   await control(request, `late/${invoiceId}`, { waiting: "support" })
   await control(request, `settle/${invoiceId}`)
-  await expect(onStep(page).getByText("It is not credited to your balance by itself: write to chat@simplex.chat with the reference below.")).toBeVisible()
+  await expect(onStep(page).getByText(`It is not credited to your balance by itself: contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toHaveCount(0)
   const reads: string[] = []
   page.on("request", (r) => { if (r.url().includes(`/api/invoice/${invoiceId}`)) reads.push(r.url()) })
   await page.waitForTimeout(7_000)
   expect(reads, "no reads once only support can credit it").toEqual([])
   await page.goto("/#/names")
-  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText("Paid after the invoice closed; write to support to have it credited")
+  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText(`Paid after the invoice closed; contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}, to have it credited`)
 })
 
 test("an order left before its wait ends asks for this browser in Your names", async ({ page, request }) => {
   const label = uniqueLabel("left")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await page.goto("/#/")
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   await expect.poll(async () => {
-    const { phase, revealAfter } = await mockRegistration(request, invoiceId)
-    return phase === "committed" && revealAfter !== null && Date.now() / 1000 >= revealAfter
+    const { phase, revealAfter, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null && revealAfter !== null && Date.now() / 1000 >= revealAfter
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -357,7 +358,7 @@ const UNREAD_ROUND_MS = 8_000
 test("a row Your names could not read is read again while the page stays open", async ({ page }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("unread"), { method: "btc" })
   let refused = true
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => refused ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => refused ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   await page.goto("/#/names")
   const chip = page.locator(".list-row .chip")
   await expect(chip).toHaveText("Not checked")
@@ -365,12 +366,30 @@ test("a row Your names could not read is read again while the page stays open", 
   await expect(chip, "the row read again by itself").toHaveText("Waiting for payment", { timeout: UNREAD_ROUND_MS })
 })
 
+test("Your names draws a row as last read while the service's config cannot be read, and reads the row once it can", async ({ page }) => {
+  const order = await keepOrder(page, "reg-config", null, "configunread")
+  const expiresAt = Math.floor(Date.now() / 1000) + ROW_YEAR_S
+  const registered = registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" })
+  await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registered] as const)
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registered }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(order.owner, expiresAt, { contact: "", channel: "" }) }))
+  let unread = true
+  await page.route("**/api/config", (route) => unread ? route.fulfill({ status: 500, json: { type: "internal" } }) : route.continue())
+  await page.goto("about:blank")
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: "configunread" })
+  await expect(row).toContainText("configunread.simplex")
+  await expect(row.locator(".chip")).toHaveText("Not checked")
+  unread = false
+  await expect(row.locator(".chip"), "the row read again once the config is read").toHaveCount(0, { timeout: UNREAD_ROUND_MS })
+})
+
 test("a code Your names could not check is checked again while the page stays open", async ({ page, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   await page.goto("/")
   await page.evaluate((c) => localStorage.setItem(`simplex-names:code:${c}`, JSON.stringify({ code: c, minLength: 6, years: 2, addedAt: new Date().toISOString() })), code)
   let refused = true
-  await page.route("**/api/code/check", (route) => refused ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route("**/api/code/check", (route) => refused ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   await page.goto("/#/names")
   const chip = page.locator(".list-row", { hasText: code }).locator(".chip")
   await expect(chip).toHaveText("Not checked")
@@ -467,7 +486,7 @@ test("paying by card during an outage keeps the order on screen", async ({ page 
 test("a rate-limited cancel holds, and the hold outlives the page drawing itself again", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("hold"), { method: "btc" })
   let cancels = 0
-  await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { error: "rate_limited" } }) })
+  await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) })
   await page.getByText("Cancel this invoice").click()
   await expect(page.getByText("Too many attempts")).toBeVisible()
   await page.getByText("Cancel this invoice").click()
@@ -488,7 +507,7 @@ test("a rate-limited cancel holds, and the hold outlives the page drawing itself
 test("Back from a paused order keeps the order paused", async ({ page }) => {
   await search(page, uniqueLabel("pause"))
   await toReview(page)
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many orders were tried from here\. Try again in \d+ seconds\.$/)
   await page.goBack()
@@ -507,7 +526,7 @@ test("an order on its way keeps its method as sent until it is answered", async 
   await page.route("**/api/invoice", async (route) => {
     if (route.request().method() !== "POST") return route.continue()
     await answered
-    await route.fulfill({ status: 500, json: { error: "internal" } })
+    await route.fulfill({ status: 500, json: { type: "internal" } })
   })
   await payButton(page).click()
   for (const radio of await page.getByRole("radio").all()) await expect(radio).toHaveAttribute("aria-disabled", "true")
@@ -546,8 +565,8 @@ test("Back returns to where a page was left, a slow page included, and a reload 
   // before its styles, so the place is one that unstyled frame reaches too.
   await page.setViewportSize({ width: 1280, height: 300 })
   await page.goto("/")
-  const place = await page.evaluate((most) => Math.min(most, document.documentElement.scrollHeight - innerHeight), HOME_PLACE_PX)
-  expect(place).toBe(HOME_PLACE_PX)
+  await expect.poll(() => page.evaluate((most) => Math.min(most, document.documentElement.scrollHeight - innerHeight), HOME_PLACE_PX)).toBe(HOME_PLACE_PX)
+  const place = HOME_PLACE_PX
   await page.evaluate((y) => scrollTo(0, y), place)
   // clicked from inside the page: a pointer click first scrolls the header's link into view, which WebKit does even
   // for a link always in view, moving the place it then leaves
@@ -649,21 +668,20 @@ test("a Continue checkout drawn before its checkout ended draws the list anew ra
 const ROW_READ_MS = 1500
 const ROW_YEAR_S = 365 * 86400
 
-const linkedChat = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", kind, displayName: kind, fullName: "", image: null,
-  subscribers: kind === "channel" ? 12 : null, link: kind === "contact" ? contactLink("R1") : channelLink("R2"), deepLink: "simplex:/a#x", profile: "ok" })
+const linkedChat = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("R1") : channelLink("R2"), deepLink: "simplex:/a#x" })
 
 test("Your names moves no row once drawn as its reads answer, on a browser's first opening and in a new tab after it", async ({ browser }) => {
   for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
     const context = await browser.newContext({ viewport: size })
     const page = await context.newPage()
     const now = Math.floor(Date.now() / 1000)
-    const registered = { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }
+    const registered = { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }
     const kept = [
       [await keepOrder(page, "reg-still0", null, "studio42", { contact: contactLink("R1"), channel: channelLink("R2") }), registered],
       [await keepOrder(page, "reg-still1", "inv-still1", "bakerypaidwithbitcoin"), registered],
       [await keepOrder(page, "reg-still4", "inv-still4", "bakerypaidbycard"), registered],
-      [await keepOrder(page, "reg-still2", null, "w".repeat(MAX_LABEL_LENGTH)), { phase: "committed", commitTx: "0x02" }],
-      [await keepOrder(page, "reg-still3", null, "bakerycodeorder"), { phase: "queued" }],
+      [await keepOrder(page, "reg-still2", null, "w".repeat(MAX_LABEL_LENGTH)), { phase: { type: "committed", revealAfter: now + 3600, revealBefore: now + 86400, signature: { type: "signed" } }, commitTx: "0x02" }],
+      [await keepOrder(page, "reg-still3", null, "bakerycodeorder"), { phase: { type: "queued" } }],
     ] as const
     let answered = 0
     const slowly = async <T>(json: T, route: Route) => {
@@ -680,9 +698,8 @@ test("Your names moves no row once drawn as its reads answer, on a browser's fir
           : { cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bcrt1q", cryptoAmountPaid: "0.00156", paidInFull: true }) }, route))
     }
     // the first name has its two chats, the other none
-    await context.route("**/api/name/**", (route) => slowly({ status: "registered", entities: route.request().url().includes(kept[0][0].request.labelHash)
-      ? [linkedChat("contact"), linkedChat("channel")] : [], owner: kept[0][0].owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId,
-    records: { contact: "", channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, tld: "simplex", community: null }, route))
+    await context.route("**/api/name/**", (route) => slowly(registeredAnswer(kept[0][0].owner, now + ROW_YEAR_S, { contact: "", channel: "" },
+      route.request().url().includes(kept[0][0].request.labelHash) ? [linkedChat("contact"), linkedChat("channel")] : []), route))
     const reads = kept.length + 3
     for (const [tab, opening] of [[page, "first opening"], [await context.newPage(), "new tab"]] as const) {
       const before = answered
@@ -768,13 +785,12 @@ test("a row drawn from the last reads stays drawn as it was, until its name regi
     await page.setViewportSize(size)
     const order = await keepOrder(page, "reg-stays", null, "staysregistering")
     const now = Math.floor(Date.now() / 1000)
-    const registering = registrationView(order, { phase: "registering", commitTx: "0x02", registerTx: "0x03" })
+    const registering = registrationView(order, { phase: { type: "registering" }, commitTx: "0x02", registerTx: "0x03" })
     await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registering] as const)
-    await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
+    await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }) }))
     await page.route("**/api/name/**", async (route) => {
       await new Promise((wait) => setTimeout(wait, ROW_READ_MS))
-      await route.fulfill({ json: { status: "registered", entities: [linkedChat("contact")], owner: order.owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId,
-        records: { contact: contactLink("R1"), channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, tld: "simplex", community: null } })
+      await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
     })
     await rowFrames(page)
     await page.goto("about:blank")
@@ -799,11 +815,10 @@ test("a row drawn not read after the bound keeps its height on a phone when its 
   await page.setViewportSize(SIZES[1])
   const order = await keepOrder(page, "reg-late", null, "lateanswername", { contact: contactLink("R1"), channel: "" })
   const now = Math.floor(Date.now() / 1000)
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route("**/api/name/**", async (route) => {
     await new Promise((wait) => setTimeout(wait, LATE_ANSWER_MS))
-    await route.fulfill({ json: { status: "registered", entities: [linkedChat("contact")], owner: order.owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId,
-      records: { contact: contactLink("R1"), channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, tld: "simplex", community: null } })
+    await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
   })
   await rowFrames(page)
   await page.goto("about:blank")

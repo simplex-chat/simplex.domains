@@ -4,7 +4,7 @@ import {
 } from "../src/screens/checkout.ts"
 import { timeOf } from "../src/format.ts"
 import { BALANCE_READ_MS, CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../src/screens/balance.ts"
-import type { InvoiceView } from "../src/api.ts"
+import type { Balance, InvoiceView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import type { Checkout } from "../src/session.ts"
 
@@ -41,6 +41,8 @@ const STATES: Record<CheckoutKind, CheckoutState> = {
   "status:taken": open({ refusal: "taken" }),
   "status:unavailable": open({ refusal: "unavailable" }),
   "status:codes-only": open({ refusal: "codes-only" }),
+  "status:link-contact": open({ refusal: "link-contact" }),
+  "status:link-channel": open({ refusal: "link-channel" }),
 }
 
 describe("screenOf", () => {
@@ -58,6 +60,8 @@ describe("screenOf", () => {
     ["an order for a name registered meanwhile", STATES["status:taken"], "status:taken"],
     ["an order refused while its terms can't be read", STATES["status:unavailable"], "status:unavailable"],
     ["an order the service takes only with a code for now", STATES["status:codes-only"], "status:codes-only"],
+    ["an order whose contact link the service refused", STATES["status:link-contact"], "status:link-contact"],
+    ["an order whose channel link the service refused", STATES["status:link-channel"], "status:link-channel"],
   ]
   it.each(cases)("%s", (_, state, kind) => {
     expect(screenOf(state)).toBe(kind)
@@ -316,7 +320,7 @@ describe("initialState", () => {
 
 describe("a balance", () => {
   const BALANCE = { source: "reg-taken", amount: 1000, held: false, heldUntil: null }
-  const read = (amount: number, held = false) => ({ amount, held, heldUntil: held ? "2026-10-17T12:30:00Z" : null, refunded: 0 })
+  const read = (amount: number, held = false): Balance => ({ amount, hold: held ? { type: "open", heldUntil: "2026-10-17T12:30:00Z" } : null, refunded: 0 })
   it("pays what it holds of the price, and the rest is left to pay", () => {
     expect(split(checkout({ balance: BALANCE }))).toEqual({ fromBalance: 1000, rest: 500 })
     expect(covered(checkout({ balance: BALANCE }))).toBe(false)
