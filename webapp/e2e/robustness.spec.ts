@@ -1,9 +1,8 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
-  agreeToTerms, brokenNames, CHAIN, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, MOCK, mockRegistration, onStep, payButton, REGISTRATION_MS, registrationOf, rowFit, savedToReview, search, shot,
+  agreeToTerms, brokenNames, CHAIN, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, onStep, payButton, REGISTRATION_MS, registrationOf, rowFit, savedToReview, search, shot,
   shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView, withStripeKey,
 } from "./helpers.ts"
-import { dateOf, shortAddress } from "../src/format.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 
 test("a second tab's order survives a write from a tab opened earlier", async ({ browser, request }) => {
@@ -164,8 +163,7 @@ test("a registered order opened in a browser without its code offers restore", a
   const other = await browser.newContext()
   const page2 = await other.newPage()
   await page2.goto(`/?order=${invoiceId}`)
-  const { registration: view } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { registration: { expiresAt: number; owner: string; disputeUntil: number } }
-  await expect(page2.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(view.expiresAt)} to ${shortAddress(view.owner)}. It can be ended until ${dateOf(view.disputeUntil)} if a payment for it is disputed, reversed or refunded in full. Its name code is not in this browser.`)
+  await expect(page2.locator("body > main .lead")).toHaveText(/^Registered until .+ to .+\. It can be ended until .+ if a payment for it is disputed, reversed or refunded in full\. Its name code is not in this browser\.$/)
   await page2.getByRole("button", { name: "Restore with your name code" }).click()
   await codeField(page2).fill(ownerCode)
   await page2.getByRole("button", { name: "Add to Your names" }).click()

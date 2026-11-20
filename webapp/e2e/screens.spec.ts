@@ -2154,13 +2154,6 @@ screen(3006, "names-row-expired-no-expiry", async (r) => {
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toBeVisible()
 })
-screen(3007, "names-row-ended", async (r) => {
-  const { registrationId } = await codeOrder(r, r.id)
-  await waitRegistered(r.page, r.id)
-  await control(r.request, `unregister/${registrationId}`)
-  await r.page.goto("/#/names")
-  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Ended")
-})
 screen(3008, "names-balance-outpaid", async (r) => {
   await takenOrder(r.page, r.request, r.id)
   await r.page.goto("/#/names")
@@ -2190,6 +2183,13 @@ screen(3012, "names-list-config-unread-fresh", async (r) => {
   await r.page.goto("about:blank")
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id })).toBeVisible()
+})
+screen(3013, "names-row-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto("/#/names")
+  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Ended")
 })
 screen(3014, "names-list-config-unread-seen", async (r) => {
   await codeOrder(r, r.id)
