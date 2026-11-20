@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
+  allowedDays, ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
   communityAgreed, readerUrl, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
@@ -106,6 +106,13 @@ describe("retryDelay", () => {
   it("gives up on a refusal that asking again cannot change", () => {
     expect(retryDelay(new ApiError("not_found", 404, null, {}), USUAL)).toBeNull()
     expect(retryDelay(new ApiError("bad_signature", 400, null, {}), USUAL)).toBeNull()
+  })
+})
+
+describe("allowedDays", () => {
+  it("is the payment's own days, or a balance's when more; a balance alone allows the least, 14", () => {
+    expect([allowedDays("card", null), allowedDays("btc", null), allowedDays("xmr", null), allowedDays("code", null), allowedDays("balance", null)]).toEqual([120, 14, 14, 14, 14])
+    expect([allowedDays("btc", 120), allowedDays("card", 14), allowedDays("balance", 120), allowedDays("balance", 14)]).toEqual([120, 120, 120, 14])
   })
 })
 

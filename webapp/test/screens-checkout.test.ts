@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, FALLBACK_METHOD, initialState, reduce, screenOf, split, stepFor,
+  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, paymentOf, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, FALLBACK_METHOD, initialState, reduce, screenOf, split, stepFor,
 } from "../src/screens/checkout.ts"
 import { timeOf } from "../src/format.ts"
 import { BALANCE_READ_MS, CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../src/screens/balance.ts"
@@ -482,6 +482,18 @@ describe("codes-only mode", () => {
     expect(screenOf(refused)).toBe("status:codes-only")
     expect(refused).toMatchObject({ sending: false, busy: false, checkout: sent.checkout })
     expect(screenOf(reduce(refused, opened(refused))), "the review opened again").toBe("review")
+  })
+})
+
+describe("paymentOf", () => {
+  const BALANCE = { source: "reg-taken", amount: 1500, held: false, heldUntil: null, disputeDays: 14 }
+  it("is a code, taken or awaited in the field, a balance that covers the price, or the method that pays the rest", () => {
+    expect(paymentOf(checkout({ method: "card", code: CODE }), false)).toBe("code")
+    expect(paymentOf(checkout({ method: "card", codeHere: true }), false), "the code field opened").toBe("code")
+    expect(paymentOf(checkout({ method: "card" }), true), "codes-only mode").toBe("code")
+    expect(paymentOf(checkout({ method: "card", balance: BALANCE }), false)).toBe("balance")
+    expect(paymentOf(checkout({ method: "card", price: 3000, balance: BALANCE }), false)).toBe("card")
+    expect(paymentOf(checkout({ method: "card", price: 1520, balance: BALANCE }), false), "a difference below the card's least charge").toBe("btc")
   })
 })
 
