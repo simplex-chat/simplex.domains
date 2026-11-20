@@ -1356,7 +1356,7 @@ screen(2004, "order-registering-committing", async (r) => {
 
 const registeringAs = async (r: Reach, change: Record<string, unknown>) => {
   const order = await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
-  const view = registrationView(order, { phase: "committed", commitTx: "0x02", revealAfter: r.now + 600, revealBefore: r.now + 86400, ...change })
+  const view = registrationView(order, { phase: "committed", commitTx: "0x02", revealAfter: r.now + 60, revealBefore: r.now + 86400, ...change })
   const invoice = { invoiceId: `inv-${r.id}`, status: "paid", amount: 10000, currency: "usd", expiresAt: new Date((r.now + 3600) * 1000).toISOString(), kind: "name",
     registration: view, cryptoCurrency: "btc", cryptoAmount: "0.00156", cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true, address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s" }
   await r.page.route(`**/api/invoice/inv-${r.id}*`, (route) => route.fulfill({ json: invoice }))
