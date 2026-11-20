@@ -1872,6 +1872,14 @@ screen(2178, "order-registered-no-record", async (r) => {
   await heading(other, `${r.id}.simplex is yours`)
   return other
 })
+screen(2179, "order-ended", async (r) => {
+  const { invoiceId, registrationId } = await paid(r, r.id)
+  await control(r.request, `settle/${invoiceId}`)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.reload()
+  await heading(r.page, "Registration ended")
+})
 screen(2180, "order-taken-chain", async (r) => { await takenOrder(r.page, r.request, r.id) })
 screen(2182, "order-taken-reserved", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })

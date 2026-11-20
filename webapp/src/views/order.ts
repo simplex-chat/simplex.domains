@@ -1273,6 +1273,13 @@ function registeredLead(view: api.RegistrationView, record: store.OrderRecord | 
   return disputeUntil === null ? lead : `${lead} It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
 }
 
+function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
+  const label = labelOf(view!, record)
+  return outcome({ tone: "warn", icon: "alert", title: "Registration ended",
+    text: ["The registration of ", label ? nameText(label, view!.tld) : "the name", " was ended because a payment for it was disputed, reversed or refunded in full. Anyone can register the name now."],
+    action: btn("Search a name", "", () => go(searchLink(""))), reference: invoice?.invoiceId ?? view!.id })
+}
+
 function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HTMLElement {
   const reserved = nameStatus === "reserved"
   const view = taken!
@@ -1397,6 +1404,7 @@ const BUILDERS: Record<OrderKind, Builder<OrderState>> = {
   registering: buildRegistering,
   "links-refused": buildLinksRefused,
   registered: buildRegistered,
+  ended: buildEnded,
   taken: buildTaken,
   failed: buildFailed,
   "not-on-device": buildNotOnDevice,

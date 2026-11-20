@@ -146,6 +146,23 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await shot(page, "K5-code-used")
 })
 
+test("a registration ended in its dispute period says so on its order's page, is marked Ended in Your names, has no links to edit, and leaves the name available", async ({ page, request }) => {
+  const { registrationId, label } = await registerWithCode(page, request, "ended")
+  await waitRegistered(page, label)
+  await control(request, `unregister/${registrationId}`)
+  await page.reload()
+  await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
+  await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was ended because a payment for it was disputed, reversed or refunded in full. Anyone can register the name now.`)
+  expect((await searchName(request, label)).status).toBe("available")
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: `${label}.simplex` })
+  await expect(row.locator(".chip")).toHaveText("Ended")
+  await expect(row.getByRole("button", { name: /links$/ })).toHaveCount(0)
+  await page.goto(`/#/edit/${registrationId}`)
+  await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: "Save links" })).toHaveCount(0)
+})
+
 // These cases need a prepaid code alone, from /control/code, so they run against the service as well as the mock.
 test("a prepaid code registers a name with its links, which its records on chain then hold, its register recording the owner's acceptance of the general terms", async ({ page, request }) => {
   const links = { contact: contactLink("CL"), channel: channelLink("CL") }

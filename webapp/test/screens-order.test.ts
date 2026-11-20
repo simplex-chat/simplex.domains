@@ -70,6 +70,7 @@ const STATES: Record<OrderKind, OrderState> = {
   registering: read(null, registration({ phase: "committing" })),
   "links-refused": read(null, registration(committed), { record: record({ linksRefused: true }) }),
   registered: read(null, registration({ phase: "registered", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
+  ended: read(null, registration({ phase: "ended", label: "alice", registerTx: "0xe9", expiresAt: NOW / 1000 + 63072000 })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
   failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", error: "The registration ran out of gas" })),
   "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
@@ -100,6 +101,8 @@ describe("screenOf", () => {
     ["an expired invoice with nothing received", STATES["status:closed"], "status:closed"],
     ["a registration link of an unpaid order", STATES["status:paid-by-invoice"], "status:paid-by-invoice"],
     ["a registered order", STATES.registered, "registered"],
+    ["a registration ended in its dispute period", STATES.ended, "ended"],
+    ["a registration ended, seen without the name code", read(null, registration({ phase: "ended", label: "alice" }), { record: null }), "ended"],
     ["a name taken first", STATES.taken, "taken"],
     ["a failed registration", STATES.failed, "failed"],
     ["a failed registration whose links the service refused, as its view says", read(null, registration({ phase: "failed", linksRefused: true })), "links-refused"],
@@ -394,8 +397,9 @@ describe("finished", () => {
     const part = crypto({ status: "expired", cryptoAmountPaid: "0.0001" }, credited)
     expect(finished(part, part.registration)).toBe(false)
   })
-  it("stops at a registered name, and follows an open invoice and a taken or failed order", () => {
+  it("stops at a registered name or an ended registration, and follows an open invoice and a taken or failed order", () => {
     expect(finished(null, registration({ phase: "registered" }))).toBe(true)
+    expect(finished(null, registration({ phase: "ended" }))).toBe(true)
     expect(finished(crypto(), registration())).toBe(false)
     expect(finished(null, registration({ phase: "taken" }))).toBe(false)
   })

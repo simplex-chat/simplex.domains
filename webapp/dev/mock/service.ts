@@ -73,7 +73,7 @@ const SIGN_AGAIN = ["InvalidNonce", "TermsNotAccepted", "TermsMismatch"]
 const COMMUNITY_TEXT_MAX = 200
 const SECP256K1_HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n
 
-export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
+export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "ended" | "taken" | "failed"
 type Method = "card" | "btc" | "xmr"
 type Coin = Exclude<Method, "card">
 const isMethod = (v: unknown): v is Method => v === "card" || v === "btc" || v === "xmr"
@@ -652,7 +652,7 @@ const freshTimestamp = (timestamp: unknown) => { if (Math.abs(nowSeconds() - (ti
 // a registered order is not live either, so its wallet can order the name again once it lapses
 function live(reg: Registration): boolean {
   if (reg.phase === "unpaid") return reg.invoiceId !== null && invoices.get(reg.invoiceId)!.status === "open"
-  return reg.phase !== "taken" && reg.phase !== "registered"
+  return reg.phase !== "taken" && reg.phase !== "registered" && reg.phase !== "ended"
 }
 
 // The answer to an exact resend, or nothing; an overdue order of the same wallet and name with nothing received is closed
@@ -1497,6 +1497,17 @@ export function controlRegistration(action: string, registrationId: string): Rec
     reg.revealBefore = nowSeconds() - 1
     lapse(reg)
   } else throw badRequest()
+  return { ok: true }
+}
+
+export async function controlUnregister(registrationId: string): Promise<Record<string, unknown>> {
+  const reg = registrations.get(registrationId)
+  if (!reg) throw new HttpError(404, "not_found")
+  if (reg.phase !== "registered" || reg.disputeUntil === null) throw badRequest()
+  await send(controller, "unregister", [reg.label, BigInt(reg.disputeUntil)], undefined, contractsOwner)
+  reg.phase = "ended"
+  reg.disputeUntil = null
+  changed(reg)
   return { ok: true }
 }
 

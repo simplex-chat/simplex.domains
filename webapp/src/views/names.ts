@@ -645,6 +645,7 @@ const EDIT_BUILDERS: Record<EditKind, Builder<EditState>> = {
   "edit-no-code": (s) => editNotice(s, alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to edit this name's links.")),
   "edit-unreadable": buildUnreadable,
   "edit-expired": buildExpired,
+  "edit-ended": notice("alert", "The registration was ended", "A payment for it was disputed, reversed or refunded in full, so this page no longer edits its links."),
   "edit-in-app": notice("key", "This name has another owner", "Its owner changed, so this browser can no longer edit its links."),
   "edit-elsewhere": notice("link", "This name's links are kept elsewhere", "It points at another resolver, so its links are not edited here."),
   "edit-not-registered": notice("clock", "The name is not registered yet", "Its links can be edited once the registration is final."),
