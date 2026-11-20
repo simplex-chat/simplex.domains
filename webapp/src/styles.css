@@ -408,19 +408,13 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .preview .entity { flex: 1; }
 /* while the field is focused its link shows alone, from its start, at the field's whole width */
 .link-field .field:focus-within .preview { display: none; }
-.review { display: grid; gap: 14px; }
-/* a review holding a refusal's line is drawn tighter, so its fullest state, with a name of 63 wide letters, fits the frame */
-.review:has(.line) { gap: 8px; }
-.review:has(.line) .pay-with { --block-gap: 8px; }
-.review:has(.line) .trow { padding-block: 4px; }
-/* a name that breaks over lines takes room, so the review draws as tight as with a line */
-.review:has(.order .name:not(.whole)) { gap: 8px; }
-.review:has(.order .name:not(.whole)) .trow { padding-block: 4px; }
-.screen-body:has(> .review .line) { --body-gap: 8px; }
+.review { display: grid; gap: 8px; }
+.review .pay-with { --block-gap: 8px; }
+.review .trow { padding-block: 4px; }
+.screen-body:has(> .review) { --body-gap: 8px; }
 /* the balance's live region keeps its place in the review empty, taking no gap */
-.review > .balance-note:empty { margin-top: -14px; }
-.review:has(.line) > .balance-note:empty { margin-top: -8px; }
-.screen-body:has(> .review .line) > [role="status"]:empty { margin-top: -8px; }
+.review > .balance-note:empty { margin-top: -8px; }
+.screen-body:has(> .review) > [role="status"]:empty { margin-top: -8px; }
 /* the link to a code just under the payment choices, and the field it opens in their place */
 .have-code { display: grid; justify-items: center; font-size: var(--fs-small); }
 .have-code:has(> a) { margin-block: -8px; line-height: 1.2; }
