@@ -1,5 +1,5 @@
 // Deploys the .simplex contracts (ens-contracts PR #51) to a running local node for the names webapp,
-// with the registry and the registrar deployed directly, not behind proxies, and seeds names in every state search can answer.
+// with the controller and the name policy behind their proxies and the other contracts deployed directly, and seeds names in every state search can answer.
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {

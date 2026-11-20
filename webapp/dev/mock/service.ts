@@ -648,8 +648,6 @@ async function checkOrderSigner(o: OrderBody, body: Record<string, unknown>): Pr
 
 const freshTimestamp = (timestamp: unknown) => { if (Math.abs(nowSeconds() - (timestamp as number)) > SIGNED_REQUEST_SECONDS) throw badRequest() }
 
-// A registration is live while its invoice is open, or once paid until it is taken.
-// a registered order is not live either, so its wallet can order the name again once it lapses
 function live(reg: Registration): boolean {
   if (reg.phase === "unpaid") return reg.invoiceId !== null && invoices.get(reg.invoiceId)!.status === "open"
   return reg.phase !== "taken" && reg.phase !== "registered" && reg.phase !== "ended"
