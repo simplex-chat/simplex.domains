@@ -230,7 +230,8 @@ export const CODE_CHIPS: Record<CodeState, [string, string]> = {
 }
 
 export function editable(answer: SearchAnswer, owner: string): boolean {
-  if (answer.status !== "registered" || answer.owner === undefined) return true
+  if (answer.status !== "registered") return false
+  if (answer.owner === undefined) return true
   return answer.owner.toLowerCase() === owner.toLowerCase() && answer.records !== null
 }
 
@@ -356,6 +357,7 @@ export function screenOfEdit(s: EditState): EditKind {
   const { view, answer, now } = s.read
   if (view.phase === "ended") return "edit-ended"
   if (lapsed({ view, answer }, now)) return "edit-expired"
+  if (view.phase === "registered" && answer.status !== "registered") return "edit-unreadable"
   if (answer.status === "registered" && answer.owner !== undefined && !owns(answer, s.record.owner)) return "edit-in-app"
   if (answer.status === "registered" && owns(answer, s.record.owner) && answer.records === null) return "edit-elsewhere"
   if (view.phase !== "registered" || answer.status !== "registered" || !answer.records || answer.recordsNonce == null) return "edit-not-registered"
