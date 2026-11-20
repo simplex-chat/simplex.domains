@@ -503,7 +503,8 @@ function balanceView(registrationId: string): Record<string, unknown> | null {
   if (!b) return null
   const holder = heldBy(registrationId)
   const inv = holder === null ? null : invoices.get(registrations.get(holder)!.invoiceId!)!
-  return { amount: b.amount, held: inv !== null, heldUntil: inv !== null && inv.amountPaid === null ? inv.expiresAt : null, refunded: b.refunded }
+  return { amount: b.amount, held: inv !== null, heldUntil: inv !== null && inv.amountPaid === null ? inv.expiresAt : null, refunded: b.refunded,
+    disputeDays: balanceDisputeDays(registrations.get(registrationId)!) }
 }
 
 // What money on a closed unpaid order waits on before it is all in the order's balance: money received and not confirmed,
@@ -716,8 +717,13 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
 
 type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash"> & Partial<Pick<Registration, "fromBalance" | "balanceSource">>
 
-const DISPUTE_DAYS: Record<Registration["method"], number> = { card: 120, btc: 14, xmr: 14, code: 14, balance: 14 }
-const disputeDaysOf = ({ method, balanceSource }: NewRegistration) => Math.max(DISPUTE_DAYS[method], balanceSource ? registrations.get(balanceSource)!.disputeDays : 0)
+const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
+const balanceDisputeDays = (reg: Registration) => reg.phase === "unpaid" && isMethod(reg.method) ? DISPUTE_DAYS[reg.method] : reg.disputeDays
+
+function disputeDaysOf({ method, balanceSource }: NewRegistration): number {
+  const balance = balanceSource ? balanceDisputeDays(registrations.get(balanceSource)!) : 0
+  return method === "balance" ? balance : Math.max(DISPUTE_DAYS[method], balance)
+}
 
 function newRegistration(order: OrderBody, extra: NewRegistration): Registration {
   const reg: Registration = {
