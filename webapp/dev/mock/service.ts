@@ -14,6 +14,7 @@ import {
   baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, moveChainTo, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
 } from "./chain.ts"
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
+import { registerNameTypedData } from "../register-name.ts"
 import { savedTerms } from "../serve-terms.ts"
 import { addressFor } from "./addresses.ts"
 import { setClock } from "./clock.ts"
@@ -1080,14 +1081,7 @@ export async function reveal(registrationId: string, body: Record<string, unknow
   if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unavailable)) !== reg.commitment) throw badRequest()
   if (deadline < nowSeconds()) throw badRequest()
   const signer = await recoverTypedDataAddress({
-    domain: { name: "SimplexSponsor", version: "1", chainId: deployment.chainId, verifyingContract: deployment.sponsor },
-    types: {
-      RegisterName: [
-        { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-        { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-      ],
-    },
-    primaryType: "RegisterName",
+    ...registerNameTypedData(deployment.chainId, deployment.sponsor),
     message: { label, owner: reg.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(reg.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
     signature,
   })
@@ -1571,15 +1565,7 @@ async function registerForHolder(tuple: { label: string; owner: Address; duratio
   const nonce = await read<bigint>(sponsor, "nonces", [holder.address])
   const deadline = BigInt(nowSeconds() + 3600)
   const disputeDays = BigInt(DISPUTE_DAYS.card)
-  const signature = await holder.signTypedData({
-    domain: { name: "SimplexSponsor", version: "1", chainId: deployment.chainId, verifyingContract: deployment.sponsor },
-    types: { RegisterName: [
-      { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-      { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-    ] },
-    primaryType: "RegisterName",
-    message: { ...tuple, disputeDays, nonce, deadline },
-  })
+  const signature = await holder.signTypedData({ ...registerNameTypedData(deployment.chainId, deployment.sponsor), message: { ...tuple, disputeDays, nonce, deadline } })
   await send(sponsor, "registerWithCredit", [tuple, disputeDays, nonce, deadline, signature])
 }
 

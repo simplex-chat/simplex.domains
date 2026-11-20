@@ -10,6 +10,7 @@ import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
 import { durationFor } from "../src/crypto/registration.ts"
 import { BLOCK_POLL_MS, TERM_START_S, untilChainTime } from "./chain-time.ts"
+import { registerNameTypedData } from "./register-name.ts"
 import { savedTerms } from "./serve-terms.ts"
 
 const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8545"
@@ -119,14 +120,6 @@ await write(owner, namePolicy, "addCommunityNames", [COMMUNITY_NAMES])
 const chainId = await publicClient.getChainId()
 const holderAccount = privateKeyToAccount(holderKey)
 
-const REGISTER_TYPES = {
-  RegisterName: [
-    { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-    { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" },
-    { name: "deadline", type: "uint256" },
-  ],
-} as const
-
 // A name registered to the holder through the sponsor, as the store's service registers names.
 function seedRegistration(label: string, records: Record<string, string>, now: number) {
   const node = namehash(`${label}.${TLD}`)
@@ -165,9 +158,7 @@ for (const registration of seeds) {
   const nonce = await publicClient.readContract({ ...sponsor, functionName: "nonces", args: [holder.address] }) as bigint
   const deadline = (await publicClient.getBlock()).timestamp + 3600n
   const signature = await holderAccount.signTypedData({
-    domain: { name: "SimplexSponsor", version: "1", chainId, verifyingContract: sponsor.address },
-    types: REGISTER_TYPES,
-    primaryType: "RegisterName",
+    ...registerNameTypedData(chainId, sponsor.address),
     message: { ...registration, disputeDays: SEED_DISPUTE_DAYS, nonce, deadline },
   })
   await write(registrar, sponsor, "registerWithCredit", [registration, SEED_DISPUTE_DAYS, nonce, deadline, signature])
