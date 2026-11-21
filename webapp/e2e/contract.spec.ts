@@ -460,7 +460,11 @@ test("a code order taken first moves to a name its code allows, its code reserve
   const id = res.json.registrationId as string
   store.saveOrder(flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null }))
   const taken = await untilPhase(id, ["taken"])
-  expect([taken.payment, taken.balance, taken.price], "a code order has no balance").toEqual([{ type: "code" }, null, 0])
+  expect(Object.keys(taken).sort(), "the fields of the service's view of a taken code order (registration-taken-code.json)").toEqual([
+    "balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "moves", "owner", "payment", "phase", "price",
+    "registerTx", "sealed", "terms", "version", "years",
+  ])
+  expect([taken.phase, taken.payment, taken.balance, taken.price], "a code order has no balance").toEqual([{ type: "taken", heldUntil: expect.any(String) }, { type: "code" }, null, 0])
   expect((await call("POST", "/api/code/check", { code })).json, "released at the take").toMatchObject({ state: "unused" })
   const move = (to: string) => moveOf(store.orderByRegistration(id)!, to)
   await expect(move(shortLabel(7)), "a name shorter than the code allows").rejects.toMatchObject({ code: "code_not_covering" })

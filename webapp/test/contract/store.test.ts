@@ -27,6 +27,8 @@ async function refusal(name: string, send: () => Promise<unknown>): Promise<api.
 
 const HASH = `0x${"ab".repeat(32)}`
 const LABEL = "alicebakery"
+const VIEW_FIELDS = ["balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "moves", "owner", "payment", "phase", "price",
+  "registerTx", "sealed", "terms", "version", "years"]
 
 describe.skipIf(!DIR)("the names page reads the service's recorded answers", () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -157,6 +159,15 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
 
   it.each([["move-limit", "move_limit"], ["move-registration-changed", "registration_changed"]])("reads the move refusal %s as %s", async (name, code) => {
     expect((await refusal(name, () => api.retarget("r1", order, chainId()))).code).toBe(code)
+  })
+
+  it("reads a taken code order's view, which moves to another name for its code until heldUntil, with no balance or price", async () => {
+    answering("registration-taken-code")
+    const view = await api.readRegistration("registration")
+    expect(Object.keys(view).sort(), "the fields the mock's view of a taken code order has").toEqual(VIEW_FIELDS)
+    expect([view.phase, view.payment, view.price, view.balance]).toEqual([{ type: "taken", heldUntil: expect.any(String) }, { type: "code" }, 0, null])
+    const heldUntil = Date.parse((view.phase as { heldUntil: string }).heldUntil)
+    expect([api.movable(view, heldUntil - 1), api.movable(view, heldUntil)]).toEqual([true, false])
   })
 
   it("reads a move to a dearer name with its price", async () => {
