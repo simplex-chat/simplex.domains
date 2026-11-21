@@ -110,9 +110,10 @@ describe("retryDelay", () => {
 })
 
 describe("allowedDays", () => {
-  it("is the payment's own days, or a balance's when more; a balance alone allows the least, 14", () => {
-    expect([allowedDays("card", null), allowedDays("btc", null), allowedDays("xmr", null), allowedDays("code", null), allowedDays("balance", null)]).toEqual([120, 14, 14, 14, 14])
-    expect([allowedDays("btc", 120), allowedDays("card", 14), allowedDays("balance", 120), allowedDays("balance", 14)]).toEqual([120, 120, 120, 14])
+  it("is the way to pay's own days, or, paid from a balance, the balance's days, or the rest's way to pay's when more", () => {
+    expect([allowedDays("card"), allowedDays("btc"), allowedDays("xmr"), allowedDays("code")]).toEqual([120, 14, 14, 14])
+    expect([allowedDays({ balanceDays: 120, rest: "btc" }), allowedDays({ balanceDays: 14, rest: "card" }), allowedDays({ balanceDays: 120, rest: null }), allowedDays({ balanceDays: 14, rest: null })])
+      .toEqual([120, 120, 120, 14])
   })
 })
 
