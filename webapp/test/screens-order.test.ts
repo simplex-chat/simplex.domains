@@ -656,6 +656,7 @@ describe("reveal helpers", () => {
     expect(revealDue(declined)).toBe(false)
     expect(stalledAt(declined)).toBeNull()
     expect(revealDue({ ...declined, view: registration({ ...committed, intentNonce: 5 }) }), "another reveal").toBe(true)
+    expect(revealDue({ ...declined, view: registration({ ...committed, disputeDays: 14 }) }), "the service's days corrected").toBe(true)
   })
 })
 

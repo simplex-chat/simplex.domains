@@ -198,6 +198,22 @@ describe("revealOrder", () => {
     expect(calls, "nothing asked or sent").toEqual([])
   })
 
+  it.each([["btc", "inv1"], ["code", null]] as const)("keeps how this browser paid its %s order once its code reopens it, whatever balance the view and find name, and signs no more than that payment's days", async (method, invoiceId) => {
+    const { flow, store } = await modules()
+    const built = await flow.orderRequest(draft())
+    store.saveOrder(flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId }))
+    const reopened = view(built.request, { fromBalance: 10000, disputeDays: 120 })
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash,
+      sealed: built.request.sealed, balanceSource: "src", heldBy: null }] }
+    answers["GET /api/invoice/inv1"] = { invoiceId: "inv1", status: "paid", amount: 10000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name", cryptoCurrency: "btc", registration: reopened }
+    answers["GET /api/registration/reg1"] = reopened
+    answers["GET /api/registration/src"] = paying(built.request, 120)
+    answers["POST /api/registration/reg1/reveal"] = {}
+    const record = await flow.ownOrderFor(OWNER_CODE, built.request.labelHash)
+    expect([record?.method, record?.balanceSource]).toEqual([method, undefined])
+    await expect(flow.revealOrder(reopened as never, record!)).rejects.toMatchObject({ days: 120, allowed: 14 })
+  })
+
   it("signs an order paid from a balance alone at the least dispute days without reading that balance, whatever the view's fromBalance", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
