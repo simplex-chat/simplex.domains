@@ -201,7 +201,7 @@ export async function balanceHolder(source: BalanceSource): Promise<store.OrderR
 
 // The order whose balance paid part of the record's, as the code's find names it, kept with the record; null when none did.
 export async function balanceSourceOf(record: store.OrderRecord): Promise<string | null> {
-  const source = (await findOrders(walletOf(record.ownerCode)!)).find((r) => r.registrationId === record.registrationId)?.balanceSource ?? null
+  const source = (await foundOrder(record, record.registrationId))?.balanceSource ?? null
   if (source) store.updateOrder(record.registrationId, { balanceSource: source })
   return source
 }

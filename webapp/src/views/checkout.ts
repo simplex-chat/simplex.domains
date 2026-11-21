@@ -9,7 +9,7 @@ import type { LinkKind } from "../names.ts"
 import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
 import { RETRY_MS, REVEAL_HOURS } from "../screens/order.ts"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, paymentOf, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
+  awaitsCode, balanceHeld, changeOf, codeEntry, disputeDaysOf, heldForThisName, methodOf, methodsFor, paymentOf, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
@@ -35,8 +35,9 @@ const DAPP_URL = "https://app.simplex.domains"
 const SIGNED_WINDOW_S = 600
 
 const years = (c: session.Checkout) => api.termYears(c.community, c.code?.years ?? c.years)
+const paidByMethod = (c: session.Checkout, codesOnly: boolean) => !["code", "balance"].includes(paymentOf(c, codesOnly))
 // a card order waiting for Stripe holds a second paid order; a code or a balance that covers the price pays nothing, so it holds none
-const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || covered(checkout) || codesOnly ? null : waiting
+const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => paidByMethod(checkout, codesOnly) ? waiting : null
 function payLabel(c: session.Checkout, codesOnly: boolean): string {
   const payment = paymentOf(c, codesOnly)
   if (payment === "code") return "Register with your code"
@@ -471,7 +472,7 @@ function buildCommunity(s: CheckoutState): HTMLElement {
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
-  const paid = !["code", "balance"].includes(paymentOf(c, s.codesOnly))
+  const paid = paidByMethod(c, s.codesOnly)
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
@@ -541,7 +542,7 @@ async function submitOrder(): Promise<void> {
   if (!c) return go("/#/names")
   if (session.isSending(c) || holding() || awaitsCode(c, state.codesOnly)) return
   // a card payment awaiting confirmation, met since the page was drawn, blocks a second paid order; the page shows it
-  if (!c.code && !covered(c) && waitingCardOrder()) return refresh()
+  if (paidByMethod(c, state.codesOnly) && waitingCardOrder()) return refresh()
   session.startSending(c)
   try {
     await sendOrder()
