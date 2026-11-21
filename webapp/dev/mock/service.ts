@@ -485,6 +485,7 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
     case "registered": return { type: "registered", expiresAt: reg.expiresAt }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
+    case "taken": return { type: "taken", ...reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
 }

@@ -1179,7 +1179,7 @@ function buildTaken(s: OrderState): HTMLElement {
   const view = taken!
   if (!invoice) return buildTakenWithCode(s)
   const label = labelOf(view, record)
-  const uses = codesOnly() ? " You can ask for a refund." : " Choose another name, or ask for a refund."
+  const uses = codesOnly() || !api.movable(view, s.now) ? " You can ask for a refund." : " Choose another name, or ask for a refund."
   const note = api.paymentKept(view)
     ? el("div", { class: "notice plain" }, el("b", {}, "What you paid is kept as your balance."), uses, " Your names shows the balance.")
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been refunded since; Your names shows it.")
@@ -1195,12 +1195,12 @@ function buildTaken(s: OrderState): HTMLElement {
 
 const REFUND = "refund"
 
-// A taken order whose payment is kept is moved to another name of its price, and a closed one is given a new invoice for its
-// own name by `same`; support refunds the payment kept. Only the browser holding the code asks for either. Once the payment
-// is refunded, another name is searched as usual.
-function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
+// A taken order whose payment is kept is moved to another name of its price until the month from its payment ends, and a
+// closed one is given a new invoice for its own name by `same`; support refunds the payment kept. Only the browser holding
+// the code asks for either. Otherwise another name is searched as usual.
+function balanceActions({ view, invoice, record, now }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
   const kept = same !== undefined || api.paymentKept(view!)
-  const another = () => go(kept ? `/#/?retarget=${view!.id}` : searchLink(""))
+  const another = () => go(api.movable(view!, now) ? `/#/?retarget=${view!.id}` : searchLink(""))
   const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
   refund?.setAttribute("data-focus", REFUND)
   refund?.setAttribute("aria-haspopup", "dialog")

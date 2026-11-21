@@ -1678,6 +1678,10 @@ screen(2190, "order-taken-codes-only", async (r) => {
   await r.page.reload()
   await shown(r.page, "You can ask for a refund.")
 })
+screen(2192, "order-taken-month-ended", async (r) => {
+  await registeringAs(r, { phase: { type: "taken", heldUntil: new Date((r.now - 60) * 1000).toISOString() }, balance: BALANCE })
+  await heading(r.page, `${r.id}.simplex was taken`)
+})
 const codeTaken = async (r: Reach) => {
   const code = await issued(r)
   await control(r.request, "take", { label: r.id })

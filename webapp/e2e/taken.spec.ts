@@ -25,6 +25,16 @@ test("an order another buyer's paid order took first shows no stage done, as it 
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Committing")
 })
 
+test("a taken order past the month from its payment offers only a refund, and another name as a new order", async ({ page }) => {
+  await paidOrder(page, "month", { phase: { type: "taken", heldUntil: new Date(Date.now() - 60_000).toISOString() }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } })
+  await expect(onStep(page).locator(".notice", { hasText: "What you paid is kept as your balance." }))
+    .toHaveText("What you paid is kept as your balance. You can ask for a refund. Your names shows the balance.")
+  await expect(onStep(page).getByText("Get a refund")).toBeVisible()
+  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
+  await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
+  expect(page.url()).not.toContain("retarget")
+})
+
 test("a paid order whose signature the service refused says to contact support in a whole sentence", async ({ page }) => {
   await paidOrder(page, "refused", { phase: { type: "failed", reason: "signatureRefused" }, commitTx: "0x02" })
   await expect(onStep(page).locator(".notice", { hasText: "The name could not be registered" })).toContainText("and include order reference inv-refused.")

@@ -142,8 +142,7 @@ async function readOrder(record: store.OrderRecord): Promise<{ view: api.Registr
   return { view, synced: { ...synced, paid: view.price } }
 }
 
-// a paid order taken first is moved to another name while its payment is kept
-const movable = (view: api.RegistrationView) => view.phase.type === "taken" && view.payment.type === "invoice" && api.paymentKept(view)
+const movable = (view: api.RegistrationView) => api.movable(view, api.serviceNow())
 
 async function checkRetarget(record: store.OrderRecord): Promise<void> {
   const page = opens

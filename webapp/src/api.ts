@@ -193,7 +193,7 @@ export type PhaseView =
   | { type: "committed"; revealAfter: number; revealBefore: number; signature: Signing }
   | { type: "registering" }
   | { type: "registered"; expiresAt: number }
-  | { type: "taken" }
+  | { type: "taken"; heldUntil?: string }
   | { type: "failed"; reason: FailReason; heldUntil?: string }
 
 export interface AgreedTerms { communityName: boolean; termsHash: string }
@@ -265,6 +265,9 @@ export const reversedOrder = ({ phase }: RegistrationView) => phase.type === "cl
 export const takenByOrder = ({ phase, commitTx }: RegistrationView) => phase.type === "taken" && commitTx === null
 
 export const paymentKept = ({ balance, price }: RegistrationView) => balance !== null && balance.amount >= price
+
+export const movable = (view: RegistrationView, now: number) => view.phase.type === "taken" && view.payment.type === "invoice" && paymentKept(view)
+  && (view.phase.heldUntil === undefined || Date.parse(view.phase.heldUntil) > now)
 
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
@@ -427,6 +430,7 @@ const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isTo
 const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled" || v.closedBy === "reversed")
   && (v.type !== "committed" || (isAmount(v.revealAfter) && isAmount(v.revealBefore) && isSigning(v.signature)))
   && (v.type !== "registered" || isAmount(v.expiresAt)) && (v.type !== "failed" || (FAIL_REASONS.includes(v.reason as FailReason) && optional(v.heldUntil, isTime)))
+  && (v.type !== "taken" || optional(v.heldUntil, isTime))
 const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && isPhase(v.phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
   && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
