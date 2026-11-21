@@ -198,5 +198,5 @@ export function moveHint(record: OrderRecord, price: number): string | null {
 export function keptWords(record: OrderRecord): string {
   const cover = codeCover(record)
   if (!cover) return `You paid ${dollars(record.paid)}: choose another name at that price.`
-  return cover.minLength === null ? "You used a code: choose another name." : `You used a code: choose another name of ${cover.minLength} or more letters.`
+  return cover.minLength === null ? "Choose another name for your code." : `Choose another name of ${cover.minLength} or more letters for your code.`
 }

@@ -591,7 +591,7 @@ const retargetCode = async (r: Reach): Promise<void> => {
   await press(r.page, "Register with your code")
   await heading(r.page, `${r.id}.simplex was taken`)
   await press(r.page, "Choose another name")
-  await shown(r.page, "You used a code")
+  await shown(r.page, "for your code")
 }
 screen(214, "home-retarget-code-opening", (r) => retargetCode(r))
 screen(216, "home-retarget-code-opening-no-text", async (r) => {
@@ -600,7 +600,7 @@ screen(216, "home-retarget-code-opening-no-text", async (r) => {
     phase: { type: "taken", heldUntil: new Date((r.now + 86400) * 1000).toISOString() }, commitTx: "0x02", payment: { type: "code" }, price: 0,
   }) }))
   await r.page.goto(`/#/?retarget=reg-${r.id}`)
-  await shown(r.page, "You used a code")
+  await shown(r.page, "for your code")
 })
 const retargetTo = async (r: Reach, from: string, to: string) => {
   await retargetPaid(r, from)

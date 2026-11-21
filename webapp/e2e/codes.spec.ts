@@ -850,7 +850,7 @@ test("a code order taken first moves, as the same order of its name code, to ano
   await shot(page, "K9-code-taken")
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
   await expect(page).toHaveURL(new RegExp(`[?&]retarget=${registrationId}`))
-  await expect(page.getByText("You used a code: choose another name of 10 or more letters.")).toBeVisible()
+  await expect(page.getByText("Choose another name of 10 or more letters for your code.")).toBeVisible()
   // a name shorter than the code allows is barred before it is sent
   const short = sevenLetters()
   await page.getByLabel("Name", { exact: true }).fill(short)

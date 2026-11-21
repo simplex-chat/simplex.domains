@@ -347,7 +347,7 @@ describe("a move", () => {
     const restored = coded({ prepaidCode: undefined })
     expect(codeCover(restored)).toEqual({ minLength: null, years: 2 })
     expect(moveBar(restored, "alice2", 20000)).toBeNull()
-    expect(keptWords(restored)).toBe("You used a code: choose another name.")
+    expect(keptWords(restored)).toBe("Choose another name for your code.")
   })
   it("of a paid order is barred for a name of another price than the order is worth, whatever its length", () => {
     expect(moveBar(record(), "alice2", 1500)).toBeNull()
@@ -359,8 +359,8 @@ describe("a move", () => {
     expect(moveHint(record(), 1000)).toBe("This name costs less than the $15 you paid.")
     expect(moveHint(record(), 2000)).toBe("This name costs more than the $15 you paid.")
   })
-  it("opens saying what was used: a code and the length it allows, or the payment and its price", () => {
-    expect(keptWords(coded())).toBe("You used a code: choose another name of 9 or more letters.")
+  it("opens saying what the next name needs: the length for the code, or the price paid", () => {
+    expect(keptWords(coded())).toBe("Choose another name of 9 or more letters for your code.")
     expect(keptWords(record())).toBe("You paid $15: choose another name at that price.")
   })
 })
