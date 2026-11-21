@@ -6,10 +6,9 @@ import * as flow from "../flow.ts"
 import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } from "../format.ts"
 import { type Method, methodMark } from "../icons.ts"
 import type { LinkKind } from "../names.ts"
-import { CONFIRMING_READ_MS, heldWords, holderStill, holdWait } from "../screens/balance.ts"
 import { RETRY_MS } from "../screens/order.ts"
 import {
-  awaitsCode, balanceHeld, changeOf, codeEntry, heldForThisName, methodOf, methodsFor, payWaits, tookOwnOrder, type CheckoutEvent, type CheckoutKind, type CheckoutState, covered, initialState, reduce, screenOf, split, stepFor, type WaitingOrder,
+  awaitsCode, changeOf, codeEntry, type CheckoutEvent, type CheckoutKind, type CheckoutState, initialState, METHODS, reduce, screenOf, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
@@ -21,7 +20,6 @@ import { CHECKING_LINK, linkChat, linkFieldsFor, linksSettled } from "./links.ts
 import {
   asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, supportVia, whenLeaving,
 } from "./shell.ts"
-import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
 import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
@@ -35,10 +33,10 @@ const DAPP_URL = "https://app.simplex.domains"
 const SIGNED_WINDOW_S = 600
 
 const years = (c: session.Checkout) => api.termYears(c.community, c.code?.years ?? c.years)
-// a card order waiting for Stripe holds a second paid order; a code or a balance that covers the price pays nothing, so it holds none
-const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || covered(checkout) || codesOnly ? null : waiting
+// a card order waiting for Stripe holds a second paid order; a code pays nothing, so it holds none
+const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || codesOnly ? null : waiting
 const payLabel = (c: session.Checkout, codesOnly: boolean) => c.code || codeEntry(c, codesOnly) === "field" ? "Register with your code"
-  : covered(c) ? "Register with your balance" : `Pay ${dollars(split(c).rest)} with ${methodName(methodOf(c))}`
+  : `Pay ${dollars(c.price)} with ${methodName(c.method)}`
 
 function waitingCardOrder(): WaitingOrder | null {
   const order = store.orders().find((o) => o.method === "card" && o.cardSubmittedAt && o.invoiceId)
@@ -55,9 +53,7 @@ export function checkoutPage(asked: CheckoutStep): void {
   if (!stored) return redirect("/#/")
   const step = stepFor(stored, asked)
   if (step !== asked) return redirect(checkoutUrl(step))
-  // a balance pays nothing in codes-only mode, so a checkout started before it pays with a code
-  const unpaid = codesOnly() ? { balance: null, balanceChange: undefined } : {}
-  session.setCheckout({ ...stored, step, ownerCode: stored.ownerCode ?? (step === "code" ? flow.newOwnerCode() : null), ...unpaid })
+  session.setCheckout({ ...stored, step, ownerCode: stored.ownerCode ?? (step === "code" ? flow.newOwnerCode() : null) })
   const c = session.checkout()!
   // a name code that already has an order, as one ordered again, is no pending code
   if (c.ownerCode && !store.orders().some((o) => o.ownerCode === c.ownerCode)) store.addPending({ ownerCode: c.ownerCode, label: c.label, tld: c.chain.tld, createdAt: new Date().toISOString() })
@@ -74,58 +70,6 @@ export function checkoutPage(asked: CheckoutStep): void {
   if (step === "community") return void readTerms(c, reads.signal)
   if (state.waiting) void settleWaiting(state.waiting, reads.signal)
   else void showOpenOrder(reads.signal)
-  if (c.balance) void watchBalance(c.balance.source, reads.signal)
-}
-
-const pause = (ms: number, signal: AbortSignal) => new Promise<void>((done) => {
-  after(Math.max(0, ms), done, signal)
-  signal.addEventListener("abort", () => done(), { once: true })
-})
-
-// The balance as its order reads now, in the tab and on the review. While an invoice holds it, Pay waits: the holder,
-// as the code's find names it, is followed until its invoice closes; else the balance is read again when the hold can
-// end, or after a pause while the holder's payment is confirming. A find that names no holder of a balance read held
-// answered after the hold ended, so the balance is read again at once. Reads are never closer than the minimum, on the
-// service's clock, and find, which has a tight limit of its own, is asked again only after the wait a refusal names, or
-// after a pause once it named no holder.
-async function watchBalance(source: string, signal: AbortSignal): Promise<void> {
-  let holder: store.OrderRecord | null = null
-  let findAfter = 0
-  while (!signal.aborted) {
-    let unnamed = false
-    const readAt = api.serviceNow()
-    let balance: api.Balance | null
-    try {
-      balance = (await api.readRegistration(source, undefined, signal)).balance
-    } catch (e) {
-      await pause(api.retryDelay(e, RETRY_MS) ?? RETRY_MS, signal)
-      continue
-    }
-    if (signal.aborted) return
-    session.updateActiveBalance(source, session.appliedBalance(source, balance))
-    if (!act({ type: "balance-read", balance })) return
-    if (!balanceHeld(state.checkout)) return showOwnOrder()
-    const paying = store.orderByRegistration(source)
-    if (!holder && paying && api.serviceNow() >= findAfter) {
-      try {
-        holder = await flow.balanceHolder(paying)
-        if (!holder) {
-          unnamed = true
-          findAfter = api.serviceNow() + CONFIRMING_READ_MS
-        }
-      } catch (e) {
-        findAfter = api.serviceNow() + (api.retryDelay(e, RETRY_MS) ?? CONFIRMING_READ_MS)
-      }
-    }
-    if (signal.aborted) return
-    const seen = holder && { label: holder.label, tld: holder.tld, url: store.orderUrl(holder) }
-    if (JSON.stringify(seen) !== JSON.stringify(state.holder)) dispatch({ type: "holder-seen", holder: seen })
-    const followed = holder?.invoiceId != null
-    if (followed) await follow(holder!.invoiceId!, signal, (read) => holderStill(read, state.checkout.balance?.heldUntil ?? null))
-    // a holder whose invoice closed may be followed by another, which find names on the next turn
-    if (followed) holder = null
-    await pause(holdWait(state.checkout.balance?.heldUntil ?? null, followed || unnamed, readAt, api.serviceNow()), signal)
-  }
 }
 
 // the community terms' text for their step
@@ -229,61 +173,21 @@ function term(years: number, termStart: number, now: number): Kid {
 }
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
-// starts, its end, and what it costs; a name registered with a code costs nothing. Paid from a balance, its price takes
-// the chats' place and the table ends with what the balance pays and the rest. In codes-only mode a code pays for every order.
+// starts, its end, and what it costs; a name registered with a code costs nothing. In codes-only mode a code pays for every order.
 function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
-  const { fromBalance, rest } = split(c)
-  const side = c.balance ? el("b", { class: "price" }, dollars(c.price)) : chats.length ? el("span", { class: "chats" }, chats) : null
+  const side = chats.length ? el("span", { class: "chats" }, chats) : null
   return el("section", { class: "card order" },
     el("div", { class: "row" }, rowName(c.label, c.chain.tld, c.community, "community"), side),
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
       c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
-        : c.balance ? [row("From your balance", `\u2212${dollars(fromBalance)}`), row("To pay", dollars(rest), "total")]
         : row("Total", dollars(c.price), "total"),
       c.code && y < c.code.years ? el("p", { class: "hint" }, `A community name is registered for ${y} years, not your code's ${c.code.years}.`) : null))
-}
-
-const BALANCE_NOTE = "balance-note"
-const BALANCE_LINE = "balance-line"
-
-// The balance's line is said as it comes and goes, in a review paid from a balance. Pay, turned off by a hold, hands focus
-// to the line, which shares its key.
-function balanceNote(s: CheckoutState): HTMLElement | null {
-  if (!s.checkout.balance && !s.checkout.balanceChange) return null
-  const line = balanceChangeLine(s)
-  if (line) line.id = BALANCE_LINE
-  if (line && payWaits(s)) {
-    line.tabIndex = -1
-    line.dataset.focus = "pay"
-  }
-  return keptLive(BALANCE_NOTE, BALANCE_NOTE, line)
-}
-
-// The order whose invoice holds the balance, named and linked once find names it, and how long it holds it; else how the
-// balance changed since the search showed it.
-function balanceChangeLine(s: CheckoutState): HTMLElement | null {
-  const { checkout: c, holder } = s
-  if (holder && heldForThisName(s)) {
-    return line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), ` holds your balance ${heldWords(c.balance!.heldUntil)}.`,
-      ` Press ${payLabel(c, s.codesOnly)} to open it.`)
-  }
-  if (c.balance?.held) {
-    return line("warn", "wallet", "Your balance is in use by ", holder ? el("a", { href: holder.url }, nameText(holder.label, holder.tld)) : "another order",
-      ` ${heldWords(c.balance.heldUntil)}.`)
-  }
-  switch (c.balanceChange) {
-    case undefined: return null
-    case "gone": return holder && tookOwnOrder(s)
-      ? line("warn", "wallet", "Your order for ", el("a", { href: holder.url }, nameText(holder.label, holder.tld)), " already took your balance, with nothing more to pay.")
-      : line("warn", "wallet", "Your balance was spent or refunded meanwhile, so you pay the whole price.")
-    case "changed": return line("warn", "wallet", `Your balance changed to ${dollars(c.balance!.amount)} meanwhile. Check what is left to pay.`)
-  }
 }
 
 // an order on its way is sent as it is: its method and code stay as they are until it is answered
@@ -300,15 +204,15 @@ function chooseMethod(m: Method): void {
 function methodsBlock({ checkout: c, openOrder: order, sending }: CheckoutState): HTMLElement {
   // one Tab stop for the group, as a radio group has; arrows move between the methods open to choose
   const keyed = (e: KeyboardEvent, m: Method) => {
-    const open = methodsFor(state.checkout).filter((other) => other !== state.checkout.unavailable)
+    const open = METHODS.filter((other) => other !== state.checkout.unavailable)
     const by = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0
     if (e.key === "Enter" || e.key === " ") chooseMethod(m)
     else if (by) chooseMethod(open[(open.indexOf(m) + by + open.length) % open.length])
     else return
     e.preventDefault()
   }
-  const radios = methodsFor(c).map((m) => {
-    const [on, off] = [m === methodOf(c), m === c.unavailable]
+  const radios = METHODS.map((m) => {
+    const [on, off] = [m === c.method, m === c.unavailable]
     return el("div", { class: "method", role: "radio", "data-method": m, "data-focus": `method-${m}`, "aria-checked": String(on), "aria-disabled": off || sending ? "true" : undefined,
       tabindex: on ? "0" : "-1", onclick: () => chooseMethod(m), onkeydown: (e: Event) => keyed(e as KeyboardEvent, m) },
     methodMark(m), el("b", {}, methodName(m)))
@@ -375,11 +279,9 @@ const waitingNotice = (blocked: WaitingOrder) => el("section", { class: "pay-wit
 const actionLabel = (text: string, s: CheckoutState) => s.sending && !s.busy ? "Sending your order…" : text
 
 function payButton(s: CheckoutState, blocked: boolean): HTMLButtonElement {
-  const own = tookOwnOrder(s) ? s.holder!.url : null
-  const pay = own ? btn("Open your order", "", () => go(own)) : btn(actionLabel(payLabel(s.checkout, s.codesOnly), s), "", () => void submitOrder())
+  const pay = btn(actionLabel(payLabel(s.checkout, s.codesOnly), s), "", () => void submitOrder())
   pay.dataset.focus = "pay"
-  if (s.checkout.balance?.held || s.checkout.balanceChange) pay.setAttribute("aria-describedby", BALANCE_LINE)
-  return setAction(pay, s.busy, blocked || s.sending || s.hold !== null || !ticked(s.checkout) || payWaits(s) || awaitsCode(s.checkout, s.codesOnly))
+  return setAction(pay, s.busy, blocked || s.sending || s.hold !== null || !ticked(s.checkout) || awaitsCode(s.checkout, s.codesOnly))
 }
 
 function agreement({ checkout: c, sending }: CheckoutState): HTMLElement | null {
@@ -461,14 +363,13 @@ function buildCommunity(s: CheckoutState): HTMLElement {
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
-  const paid = !(c.code || codeEntry(c, s.codesOnly) === "field" || covered(c))
+  const paid = !(c.code || codeEntry(c, s.codesOnly) === "field")
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
     el("div", { class: "review" }, orderCard(c, s.codesOnly),
       !c.codeError ? null : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)
         : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
-      balanceNote(s),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
       !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, "After paying, keep this page open until the name is registered. ", eth))),
@@ -536,7 +437,7 @@ async function submitOrder(): Promise<void> {
   if (!c) return go("/#/names")
   if (session.isSending(c) || holding() || awaitsCode(c, state.codesOnly)) return
   // a card payment awaiting confirmation, met since the page was drawn, blocks a second paid order; the page shows it
-  if (!c.code && !covered(c) && waitingCardOrder()) return refresh()
+  if (!c.code && waitingCardOrder()) return refresh()
   session.startSending(c)
   try {
     await sendOrder()
@@ -549,14 +450,10 @@ async function sendOrder(): Promise<void> {
   const c = session.checkout()
   // a page left open while its order went through, in this tab or by Back and Forward, has nothing left to send
   if (!c) return go("/#/names")
-  // a balance pays under its order's name code; one whose order this browser no longer keeps pays nothing
-  const source = c.balance && store.orderByRegistration(c.balance.source)
-  if (c.balance && !source) return balanceChanged(c, null)
   dispatch({ type: "send-started" })
   const links = { contact: c.contact, channel: c.channel }
   const terms = api.termsFor(c.terms, c.community)
-  const draft: flow.Draft = source ? flow.spendDraft(source, c.label, links, { ...c.chain, price: c.price, years: c.years, termStart: c.termStart, community: c.community }, terms)
-    : { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms }
+  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms }
   // The order is kept whatever the buyer did meanwhile. Its checkout ends, and the order opens, only while this checkout
   // is still the tab's: the buyer may have started another name, by Back and Forward too.
   const mine = currentRoute()
@@ -570,22 +467,14 @@ async function sendOrder(): Promise<void> {
     if (location.hash.startsWith("#/checkout")) goFrom(c.searchAt, search, url)
     else go(url)
   }
-  const method = methodOf(c)
-  const chosen = c.code ? "code" : covered(c) ? "balance" : method
-  const of = JSON.stringify([draft, c.code?.display ?? method, c.price, c.balance && [c.balance.source, c.balance.amount]])
+  const method = c.method
+  const chosen = c.code ? "code" : method
+  const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
   try {
-    // a spend that reached the service, as its order holding the balance shows, is sent again as it was, however old
-    const fresh = c.sent?.of === of && (api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S || (c.sent.spend !== undefined && heldForThisName(state)))
-    const built = fresh ? c.sent! : { of, ...await (source ? flow.spendRequest(source, draft, c.price, c.balance!.amount, method) : flow.orderRequest(draft)) }
+    const fresh = c.sent?.of === of && api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S
+    const built = fresh ? c.sent! : { of, ...await flow.orderRequest(draft) }
     session.updateCheckout(c.label, { sent: built })
     try {
-      if (source) {
-        // a spend's `of` names its balance, so the order kept for it holds the spend
-        const next = await flow.sendSpend(source, draft, { request: built.request, owner: built.owner, spend: built.spend! }, c.years)
-        // the balance is spent, or held by the new order's invoice, so it pays for nothing more in this tab
-        session.updateActiveBalance(source.registrationId, null)
-        return done(store.orderUrl(next))
-      }
       if (c.code) {
         const res = await api.registerWithCode(built.request, c.code.display, c.chain.chainId)
         // the code is the order's now, so it pays for nothing more in this tab
@@ -619,26 +508,7 @@ async function sendOrder(): Promise<void> {
   }
 }
 
-// the balance as the service has it now, in the tab and on the review
-function balanceChanged(c: session.Checkout, balance: api.Balance | null): void {
-  if (c.balance) session.updateActiveBalance(c.balance.source, session.appliedBalance(c.balance.source, balance))
-  act({ type: "balance-changed", balance })
-  // the review opened again follows the invoice that holds it
-  if (balanceHeld(state.checkout)) refresh()
-  void showOwnOrder()
-}
-
-// A balance gone after this page sent a spend may have gone to that spend, whose answer was lost: the order of this name
-// that the code's find lists is the buyer's.
-async function showOwnOrder(): Promise<void> {
-  const c = state.checkout
-  if (c.balance || c.balanceChange !== "gone" || !c.sent?.spend) return
-  const own = await flow.ownOrderFor(c.ownerCode!, c.sent.request.labelHash).catch(() => null)
-  if (own && state.checkout.label === c.label) dispatch({ type: "holder-seen", holder: { label: own.label, tld: own.tld, url: store.orderUrl(own) } })
-}
-
 function orderError(e: unknown, c: session.Checkout): void {
-  if (e instanceof api.BalanceChanged) return balanceChanged(c, e.balance)
   if (e instanceof api.TermsChanged) {
     act({ type: "terms-changed", terms: e.terms, community: e.community })
     // community terms that changed are read and accepted again on their own step

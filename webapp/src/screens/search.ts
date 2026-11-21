@@ -1,9 +1,8 @@
 import { type Community, type FailReason, type InvoiceView, type Phase, type SearchAnswer, type Terms, termsFor } from "../api.ts"
 import { parseNameCode } from "../crypto/code.ts"
 import { dollars } from "../format.ts"
-import { heldWords } from "./balance.ts"
 import { foldLabel, type LabelProblem, labelProblem } from "../names.ts"
-import type { AppliedBalance, AppliedCode } from "../session.ts"
+import type { AppliedCode } from "../session.ts"
 import type { OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
 
@@ -17,9 +16,8 @@ export type Answer =
   | { kind: "unchecked" }
   | { kind: "checking" }
 
-export type CodeLoss = "used" | "reserved" | "expired" | "revoked"
-type RegisterRefusal = { why: "taken" | "failed" | "dearer" | "uncovered" | "unavailable" } | { why: "other"; url: string } | { why: "limit"; reference: string }
-  | { why: "code"; state: CodeLoss; reference: string }
+type RegisterRefusal = { why: "taken" | "failed" | "unavailable" } | { why: "price"; price: number } | { why: "code"; error: string } | { why: "other"; url: string }
+  | { why: "limit"; reference: string }
 
 export interface SearchState {
   opening: Opening
@@ -31,8 +29,6 @@ export interface SearchState {
   answer: Answer | null
   bad: boolean
   retarget: OrderRecord | null
-  // the tab's balance, which pays for a name searched here unless a paid order moves
-  balance: AppliedBalance | null
   hold: Hold | null
   paused: boolean
   ownOrder: string | null
@@ -43,8 +39,7 @@ export interface SearchState {
 }
 
 export type SearchEvent =
-  | { type: "opened"; opening: Opening; name: string; retarget: OrderRecord | null; balance: AppliedBalance | null; hold: Hold | null }
-  | { type: "balance-read"; balance: AppliedBalance | null }
+  | { type: "opened"; opening: Opening; name: string; retarget: OrderRecord | null; hold: Hold | null }
   | { type: "typed"; text: string }
   // minLength: the least letters the tab's code covers, where only a code registers names
   | { type: "searched"; label: string; hold: Hold | null; minLength: number | null }
@@ -66,7 +61,7 @@ export const REGISTER_LEAD = "Nothing changed. "
 
 export const initialSearch = (): SearchState => ({
   opening: "plain", name: "", typed: "", searched: null, seq: 0, searching: null, answer: null, bad: false,
-  retarget: null, balance: null, hold: null, paused: false, ownOrder: null, register: IDLE, agreed: false, accepted: false, termsChanged: false,
+  retarget: null, hold: null, paused: false, ownOrder: null, register: IDLE, agreed: false, accepted: false, termsChanged: false,
 })
 
 // An available name this browser has an order for, under its TLD, is checked again rather than offered while the order is read.
@@ -82,7 +77,7 @@ export const searchDue = (s: SearchState): boolean => !s.paused && s.name !== ""
 
 function opened(s: SearchState, e: Extract<SearchEvent, { type: "opened" }>): SearchState {
   const typed = e.name === s.name ? s.typed : e.name
-  const next = { ...s, opening: e.opening, name: e.name, typed, balance: e.balance, register: { ...s.register, refusal: null }, retarget: e.retarget }
+  const next = { ...s, opening: e.opening, name: e.name, typed, register: { ...s.register, refusal: null }, retarget: e.retarget }
   const dropped = unsearched(next) ? { answer: null, searching: null, bad: false, seq: s.seq + 1 } : {}
   if (s.hold || e.hold === null) return { ...next, ...dropped }
   return { ...next, answer: null, searching: null, bad: false, seq: s.seq + 1, hold: e.hold, paused: true }
@@ -121,7 +116,6 @@ function termsChanged(s: SearchState, e: Extract<SearchEvent, { type: "terms-cha
 export function reduce(s: SearchState, e: SearchEvent): SearchState {
   switch (e.type) {
     case "opened": return opened(s, e)
-    case "balance-read": return { ...s, balance: e.balance }
     case "typed": return { ...s, typed: e.text, bad: false }
     case "searched": return searched(s, e)
     case "answered": return answered(s, e)
@@ -165,15 +159,11 @@ export async function ownOrders(orders: OrderRecord[], read: (o: OrderRecord) =>
   return { open: null, closed }
 }
 
-// A balance pays under its own order's name code, which nothing overrides; else a new order keeps the code of the
-// name's closed order, which the buyer saved for it.
-export function orderCode(paying: string | null, closed: string | null): { ownerCode: string | null; saved: boolean } {
-  const ownerCode = paying ?? closed
-  return { ownerCode, saved: ownerCode !== null && ownerCode === closed }
-}
+// A new order keeps the code of the name's closed order, which the buyer saved for it.
+export const orderCode = (closed: string | null): { ownerCode: string | null; saved: boolean } => ({ ownerCode: closed, saved: closed !== null })
 
 // In codes-only mode a plain search opens only with the tab's prepaid code, and only for the names that code covers; a
-// code order's move to another name is bounded by its own code.
+// code order's move to another name is bounded by its own code, and a paid order's by its price.
 export const searchLocked = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" && code === null
 export const coverOf = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" ? code?.minLength ?? null : null
 
@@ -181,18 +171,8 @@ export function screenOf(s: SearchState): SearchKind {
   return `search:${s.opening}`
 }
 
-// What the tab's balance pays of an available name's price, in two sentences, the second kept on one line; a balance an
-// open invoice holds pays nothing until that invoice closes.
-export function balanceHint({ amount, held, heldUntil }: AppliedBalance, price: number): [string, string | null] {
-  if (held) return [`Your balance is in use by another order ${heldWords(heldUntil)}.`, null]
-  if (price > amount) return [`Your balance covers ${dollars(amount)}.`, `You pay ${dollars(price - amount)}.`]
-  return ["Paid from your balance.", price < amount ? `${dollars(amount - price)} stays in it.` : null]
-}
-
 // minLength is null for an order restored without its code text
 export interface CodeCover { minLength: number | null; years: number }
-
-const COVERED = "Covered by your code"
 
 export function codeCover(record: OrderRecord): CodeCover | null {
   if (record.method !== "code") return null
@@ -202,25 +182,21 @@ export function codeCover(record: OrderRecord): CodeCover | null {
 
 const tooShort = (cover: CodeCover, label: string) => cover.minLength !== null && label.length < cover.minLength
 
-export function moveBar(record: OrderRecord, label: string, price: number): "uncovered" | "dearer" | null {
+export function moveBar(record: OrderRecord, label: string, price: number): "uncovered" | "dearer" | "cheaper" | null {
   const cover = codeCover(record)
   if (cover) return tooShort(cover, label) ? "uncovered" : null
-  return price > record.paid ? "dearer" : null
+  return price > record.paid ? "dearer" : price < record.paid ? "cheaper" : null
 }
 
-export function moveHint(record: OrderRecord, label: string, price: number): [string, string | null] {
-  const cover = codeCover(record)
-  if (cover?.minLength === null) return [label.length >= record.label.length ? COVERED : "Free with your code, if it covers a name this long", null]
-  if (cover) return tooShort(cover, label) ? [`Your code pays for a name of ${cover.minLength} or more letters.`, `This name has ${label.length}.`] : [COVERED, null]
+export function moveHint(record: OrderRecord, price: number): string | null {
+  if (codeCover(record)) return null
   const paid = dollars(record.paid)
-  if (price > record.paid) return [`This name costs more than the ${paid} your order is worth.`, null]
-  return [price < record.paid ? `Uses ${dollars(price)} of your ${paid}; the rest stays as your balance.` : "Covered by your payment", null]
+  if (price > record.paid) return `This name costs more than the ${paid} you paid.`
+  return price < record.paid ? `This name costs less than the ${paid} you paid.` : "Covered by your payment"
 }
 
-export function keptWords(record: OrderRecord): [string, string] {
+export function keptWords(record: OrderRecord): string {
   const cover = codeCover(record)
-  if (cover?.minLength === null) return ["Your code is kept.", `It pays for another name of ${record.label.length} or more letters, for ${cover.years} years.`]
-  if (cover) return ["Your code is kept.", `It pays for another name of ${cover.minLength} or more letters, for ${cover.years} years.`]
-  const worth = dollars(record.paid)
-  return [`Your payment is kept: ${worth}.`, `Choose another name of up to ${worth}; nothing more is charged.`]
+  if (!cover) return `You paid ${dollars(record.paid)}: choose another name at that price.`
+  return cover.minLength === null ? "Choose another name for your code." : `Choose another name of ${cover.minLength} or more letters for your code.`
 }

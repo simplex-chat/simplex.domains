@@ -1,6 +1,6 @@
-// The order flows, between the views and the crypto: build an order, reveal it, retarget it, spend a balance, restore, edit links.
+// The order flows, between the views and the crypto: build an order, reveal it, retarget it, restore, edit links.
 import * as api from "./api.ts"
-import { type NamesSite, namesSite, readSite } from "./config.ts"
+import { namesSite, readSite } from "./config.ts"
 import { formatOwnerCode, parseNameCode } from "./crypto/code.ts"
 import {
   acceptTermsDigest, CHANNEL_KEY, CONTACT_KEY, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, registerIntentDigest, setTextDigest,
@@ -90,7 +90,7 @@ function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, t
   }
 }
 
-// what the order is worth, which for an invoice of a difference is more than the invoice
+// what the order is worth
 export const paidWith = (res: api.InvoiceView): { method: api.Method; paid: number } => ({ method: res.cryptoCurrency ?? "card", paid: res.registration.price })
 
 export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRecord["method"], paid: number, ids: { registrationId: string; invoiceId: string | null }): store.OrderRecord {
@@ -118,8 +118,7 @@ async function sha256Hex(text: string): Promise<string> {
   return hex(new Uint8Array(digest))
 }
 
-// Another name, or other links, for a failed order or one whose links were refused, on the same wallet so the same code
-// owns it, at the new name's price, which caps any later move.
+// Another name of the same price for an order whose name was taken first, on the same wallet so the same code owns it.
 export async function retargetOrder(record: store.OrderRecord, label: string, links: api.Links, quote: Pick<Quote, "community">, terms: string): Promise<api.RegistrationView> {
   const site = await namesSite()
   const draft: Draft = { label, links, chain: chainOf(site), years: api.termYears(quote.community, record.years), termStart: site.termStart, ownerCode: record.ownerCode, terms }
@@ -129,70 +128,8 @@ export async function retargetOrder(record: store.OrderRecord, label: string, li
   const { labelHash: lh, length, duration, commitment, sealed } = built.request
   const message = `simplex.domains name ${record.registrationId} ${lh} ${length} ${duration} ${commitment} ${await sha256Hex(sealed)} ${terms} ${timestamp}`
   const view = await api.retarget(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal }, site.chainId)
-  store.saveOrder({ ...record, label, ...links, paid: view.price, request: built.request, terms, linksRefused: undefined })
+  store.saveOrder({ ...record, label, ...links, paid: view.price, request: built.request, terms })
   return view
-}
-
-// what an order from a balance needs of the name's search answer and the deployment: its price and term, and the chain
-export type Priced = Pick<Quote, "price" | "years" | "community"> & Pick<NamesSite, "termStart"> & api.ChainInfo
-
-export type BuiltSpend = BuiltOrder & { spend: api.SpendRequest }
-// the order whose balance pays, and its name code, which signs the spend
-export type BalanceSource = Pick<store.OrderRecord, "registrationId" | "ownerCode">
-
-// the order of another name under the record's code, as the service makes the paying order's owner the new order's
-export const spendDraft = (record: BalanceSource, label: string, links: api.Links, quote: Priced, terms: string): Draft =>
-  ({ label, links, chain: chainOf(quote), years: api.termYears(quote.community, quote.years), termStart: quote.termStart, ownerCode: record.ownerCode, terms })
-
-// Another name paid from the record's balance as the page read it, `draft` being spendDraft's: the order and the spend,
-// signed by the record's code. When the balance does not cover the price, all of it pays and an invoice in `method` is
-// made for the rest.
-export async function spendRequest(record: BalanceSource, draft: Draft, price: number, balance: number, method: api.Method): Promise<BuiltSpend> {
-  const built = await orderRequest(draft)
-  const wallet = walletOf(record.ownerCode)!
-  const timestamp = now()
-  const { labelHash: lh, length, duration, commitment, sealed, terms } = built.request
-  const message = `simplex.domains spend ${record.registrationId} ${lh} ${length} ${duration} ${commitment} ${await sha256Hex(sealed)} ${terms} ${timestamp}`
-  const covered = price <= balance
-  return { ...built, spend: {
-    labelHash: lh, length, duration, commitment, sealed, price, balance, ...covered ? {} : { method }, terms, timestamp,
-    signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal,
-  } }
-}
-
-// The spend sent as it was built, so a resend after a lost answer is the same order; the new order is kept with the
-// record's code. A balance changed since it was read throws BalanceChanged.
-export async function sendSpend(record: BalanceSource, draft: Draft, built: BuiltSpend, years: number): Promise<store.OrderRecord> {
-  const res = await api.spend(record.registrationId, built.spend, draft.chain.chainId)
-  const paidBy = "invoiceId" in res
-    ? { ...paidWith(res), ids: { registrationId: res.registration.id, invoiceId: res.invoiceId } }
-    : { method: "balance" as const, paid: built.spend.price, ids: { registrationId: res.registrationId, invoiceId: null } }
-  const next = { ...recordFor(draft, built, paidBy.method, paidBy.paid, paidBy.ids), years, balanceSource: record.registrationId }
-  store.saveOrder(next)
-  return next
-}
-
-export async function spendBalance(record: BalanceSource, label: string, links: api.Links, quote: Priced, balance: number, method: api.Method, terms: string): Promise<store.OrderRecord> {
-  const draft = spendDraft(record, label, links, quote, terms)
-  return sendSpend(record, draft, await spendRequest(record, draft, quote.price, balance, method), quote.years)
-}
-
-// The order whose invoice holds a balance now, as the code's find names it, kept in this browser's records; null when
-// none holds it. A record of this browser is never taken for the holder on its own: its invoice may have closed.
-export async function balanceHolder(source: BalanceSource): Promise<store.OrderRecord | null> {
-  const wallet = walletOf(source.ownerCode)!
-  const found = await findOrders(wallet)
-  const heldBy = found.find((r) => r.registrationId === source.registrationId)?.heldBy
-  const entry = heldBy ? found.find((r) => r.registrationId === heldBy) : undefined
-  if (!entry) return null
-  return store.orderByRegistration(entry.registrationId) ?? (await reopen(wallet, source.ownerCode, entry)).record
-}
-
-// The order whose balance paid part of the record's, as the code's find names it, kept with the record; null when none did.
-export async function balanceSourceOf(record: store.OrderRecord): Promise<string | null> {
-  const source = (await findOrders(walletOf(record.ownerCode)!)).find((r) => r.registrationId === record.registrationId)?.balanceSource ?? null
-  if (source) store.updateOrder(record.registrationId, { balanceSource: source })
-  return source
 }
 
 type RestoreResult = { record: store.OrderRecord; view: api.RegistrationView }
@@ -218,7 +155,7 @@ export async function syncRecord(record: store.OrderRecord, view: api.Registrati
     return synced
   }
   try {
-    const synced = { ...record, ...await openOrder(walletOf(record.ownerCode)!, view), paid: view.price, linksRefused: undefined }
+    const synced = { ...record, ...await openOrder(walletOf(record.ownerCode)!, view), paid: view.price }
     store.saveOrder(synced)
     return synced
   } catch {
@@ -329,8 +266,8 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const known = store.orderByRegistration(view.id)
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
-    method: view.payment.type === "invoice" || view.payment.type === "difference" ? view.payment.method : view.payment.type, paid: view.price, years: view.years,
-    tld: readSite().tld, createdAt: chosen.createdAt, balanceSource: chosen.balanceSource ?? known?.balanceSource,
+    method: view.payment.type === "invoice" ? view.payment.method : view.payment.type, paid: view.price, years: view.years,
+    tld: readSite().tld, createdAt: chosen.createdAt,
   }
   store.saveOrder(record)
   return { record, view }

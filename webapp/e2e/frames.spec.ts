@@ -122,7 +122,7 @@ test("the purchase steps and other screens swap without a near-empty frame", asy
   })
 })
 
-test("a name taken first, its balance's search and Your names swap without a near-empty frame", async ({ page, request }) => {
+test("a name taken first, its move's search and Your names swap without a near-empty frame", async ({ page, request }) => {
   const label = uniqueLabel("frbal")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, "take", { label })
@@ -130,7 +130,7 @@ test("a name taken first, its balance's search and Your names swap without a nea
     await control(request, `settle/${invoiceId}`)
     await expect(page.getByRole("heading", { name: takenHeading(label) })).toBeVisible({ timeout: REGISTRATION_MS })
   })
-  await expectNoEmptyFrame(page, "taken to the search with the balance", async () => {
+  await expectNoEmptyFrame(page, "taken to the move's search", async () => {
     await onStep(page).getByRole("button", { name: "Choose another name" }).click()
     await heading(page, "Your SimpleX domain")
   })

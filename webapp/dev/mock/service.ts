@@ -86,7 +86,7 @@ interface Registration {
   sealed: string
   years: number
   paid: number
-  method: Method | "code" | "balance"
+  method: Method | "code"
   // the hash of the prepaid code that pays for it
   prepaidCode: string | null
   phase: Phase
@@ -109,19 +109,13 @@ interface Registration {
   staleNext: boolean
   // successful moves to another name or other links, at most MAX_ORDER_MOVES
   moves: number
-  // a reveal refused for its links, which only a move to other links can fix
-  linksRefused: LinkKind | null
   // what an exact resend of the order that made it must repeat: its fields, never its timestamp or signature
   orderHash: string
   // tries of a transaction that did not go out, since the last that did
   resends: number
-  // the cents another order's balance paid when this order was made, and that order
-  fromBalance: number
-  balanceSource: string | null
   // the terms the order signed when it was made or last moved
   terms: string
   paidAt: number | null
-  lastAttempt: { transaction: string; stage: string; reason: string; at: string } | null
 }
 
 interface Invoice {
@@ -149,12 +143,11 @@ interface Invoice {
   closedBy: "expired" | "cancelled" | null
 }
 
-// An order's balance, in cents; the holder is the order whose open invoice pays the rest of a dearer name.
+// An order's balance, in cents.
 interface Balance {
   amount: number
   credited: number
   refunded: number
-  holder: string | null
 }
 
 interface PrepaidCode {
@@ -176,16 +169,13 @@ const taking = new Map<string, Promise<void>>()
 // find has a rate limit of its own
 // until unsentUntil, no transaction goes out, as a chain that fails before the send; until unreadUntil, the view's own chain
 // reads fail; each write to a registration waits writeDelayMs before its check, so a test can race two
-// the next reveal finds its links refused, as the service's link check would if it no longer took what the page took;
 // a fetch of a link in fetchDelays takes that many milliseconds;
 // a late payment is credited at the lower of its invoice's rate and the coin's current rate in cents, when one is set;
 // in codes mode, as the service's [names] codes_only, names are registered only with prepaid codes
-const control: { mode: Mode; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; refuseLinks: boolean; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
-  { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, refuseLinks: false, fetchDelays: {}, rates: { btc: null, xmr: null } }
+const control: { mode: Mode; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
+  { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
-// Stripe's least charge in US dollars
-const MIN_CARD_CHARGE_CENTS = 50
 
 const INVOICE_ERRORS: Record<string, number> = { provider_unavailable: 503, rate_limited: 429, catalog_changed: 409, internal: 500 }
 // the raised price an injected catalog_changed reports, in cents
@@ -495,22 +485,21 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
     case "registered": return { type: "registered", expiresAt: reg.expiresAt }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
+    case "taken": return { type: "taken", ...reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
 }
 
 function paymentOf(reg: Registration): Record<string, unknown> {
   if (reg.method === "code") return { type: "code" }
-  if (reg.method === "balance") return { type: "balance", fromBalance: reg.fromBalance }
-  return reg.fromBalance > 0 ? { type: "difference", method: reg.method, fromBalance: reg.fromBalance } : { type: "invoice", method: reg.method }
+  return { type: "invoice", method: reg.method }
 }
 
 async function registrationView(reg: Registration): Promise<Record<string, unknown>> {
   return {
     id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
-    linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
-    lastAttempt: reg.lastAttempt,
+    community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
   }
 }
 
@@ -519,23 +508,10 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
 // An open invoice past its expiry with nothing received: its order is closed by whatever meets it next.
 const overdue = (inv: Invoice) => inv.status === "open" && inv.amountPaid === null && Date.parse(inv.expiresAt) <= Date.now()
 
-const holderInvoice = (b: Balance) => b.holder === null ? null : invoices.get(registrations.get(b.holder)!.invoiceId!)!
-
-// the order whose invoice holds a balance now; an overdue holder holds nothing
-function heldBy(registrationId: string): string | null {
-  const b = balances.get(registrationId)
-  const inv = b ? holderInvoice(b) : null
-  return inv !== null && !overdue(inv) ? b!.holder : null
-}
-
-// The holder is not named, so an order's link discloses no other order. Its end is said only while no money reached its
-// invoice: money that did holds the balance until it settles, whatever the time.
 function balanceView(registrationId: string): Record<string, unknown> | null {
   const b = balances.get(registrationId)
   if (!b) return null
-  const holder = heldBy(registrationId)
-  const inv = holder === null ? null : invoices.get(registrations.get(holder)!.invoiceId!)!
-  return { amount: b.amount, hold: inv === null ? null : inv.amountPaid === null ? { type: "open", heldUntil: inv.expiresAt } : { type: "funded" }, refunded: b.refunded }
+  return { amount: b.amount, refunded: b.refunded }
 }
 
 // What money on a closed unpaid order waits on before it is all in the order's balance: money received and not confirmed,
@@ -548,29 +524,18 @@ function latePayment(reg: Registration): "confirming" | "crediting" | "support" 
 }
 
 function credit(registrationId: string, cents: number): void {
-  const b = balances.get(registrationId) ?? { amount: 0, credited: 0, refunded: 0, holder: null }
+  const b = balances.get(registrationId) ?? { amount: 0, credited: 0, refunded: 0 }
   b.amount += cents
   b.credited += cents
   balances.set(registrationId, b)
 }
 
-// Whatever closes an unpaid order's invoice releases the balance it held.
 function close(inv: Invoice, by: "expired" | "cancelled" = "expired"): void {
   inv.status = "expired"
   inv.closedBy = by
   const reg = registrations.get(inv.registrationId)!
   clearReveal(reg)
-  const b = reg.balanceSource === null ? undefined : balances.get(reg.balanceSource)
-  if (b?.holder === reg.id) b.holder = null
   wake(reg)
-}
-
-// Settlement spends what the order held.
-function spendHold(reg: Registration): void {
-  const b = reg.balanceSource === null ? undefined : balances.get(reg.balanceSource)
-  if (b?.holder !== reg.id) return
-  b.amount -= reg.fromBalance
-  b.holder = null
 }
 
 const unitsOf = (decimal: string, decimals: number) => {
@@ -632,7 +597,7 @@ function orderBody(body: Record<string, unknown>): OrderBody {
   return { ...orderFields(body), owner }
 }
 
-// an order's fields but its owner, which a spend takes from the order whose balance pays
+// an order's fields but its owner
 function orderFields(body: Record<string, unknown>): Omit<OrderBody, "owner"> {
   const { labelHash, length, duration, commitment, sealed, terms } = body
   if (!isHash(labelHash) || !isHash(commitment) || !Number.isInteger(duration)) throw badRequest()
@@ -690,7 +655,7 @@ export function oneOrderAtATime<T>(f: () => Promise<T>): Promise<T> {
 }
 
 // An order's own fields, tagged by its kind, as an exact resend repeats them.
-const orderHashOf = (kind: "invoice" | "register" | "balance", o: OrderBody, extra: unknown[]) =>
+const orderHashOf = (kind: "invoice" | "register", o: OrderBody, extra: unknown[]) =>
   createHash("sha256").update(JSON.stringify([kind, o.labelHash, o.length, o.duration, o.owner, o.commitment, o.sealed, o.terms, ...extra])).digest("hex")
 
 // The owner signs every order, so nobody can place one in another wallet's name; its age is checked only for a new order.
@@ -730,7 +695,7 @@ async function injectedRefusal(length: number): Promise<void> {
   throw new HttpError(INVOICE_ERRORS[injected], injected, extra, injected === "rate_limited" ? RETRY_AFTER_SECONDS : null)
 }
 
-// in codes mode nothing is paid: no invoice for a name, and no spend of a balance
+// in codes mode nothing is paid: no invoice for a name
 function refuseWhenCodesOnly(): void {
   if (control.mode === "codes") throw new HttpError(403, CODES_ONLY)
 }
@@ -772,13 +737,13 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
   return inv
 }
 
-type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash"> & Partial<Pick<Registration, "fromBalance" | "balanceSource">>
+type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash">
 
 function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): Registration {
   const reg: Registration = {
-    id: id(), invoiceId: null, fromBalance: 0, balanceSource: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
-    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, moves: 0, linksRefused: null, resends: 0, version: 1,
-    paidAt: extra.phase === "queued" ? nowSeconds() : null, lastAttempt: null,
+    id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
+    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, moves: 0, resends: 0, version: 1,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -919,7 +884,7 @@ async function advance(reg: Registration): Promise<void> {
 const lapsed = (reg: Registration) => reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore
 
 function fail(reg: Registration, error: FailReason): void {
-  // a failed registration keeps its prepaid code reserved for a move
+  // a failed registration keeps its prepaid code reserved
   reg.phase = "failed"
   reg.error = error
   changed(reg)
@@ -1165,17 +1130,6 @@ export async function reveal(registrationId: string, body: Record<string, unknow
   if (!unread && (reg.phase !== "committed" || lapsed(reg))) throw badRequest()
   const version = reg.version
   const rv = await checkReveal(reg, body, nowSeconds(), unavailable)
-  // Refused links are the committed ones, as the commitment and the owner's signature passed: only a move fixes them.
-  if (reg.linksRefused) throw new HttpError(400, "invalid_link", { kind: reg.linksRefused })
-  const refuse = control.refuseLinks
-  control.refuseLinks = false
-  const kind = refusedLink(rv.records) ?? (refuse ? (rv.records.contact !== null ? "contact" : "channel") : null)
-  if (kind) {
-    await unchangedSince(reg, version)
-    reg.linksRefused = kind
-    changed(reg)
-    throw new HttpError(400, "invalid_link", { kind })
-  }
   await unchangedSince(reg, version)
   Object.assign(reg, rv, unread ? { phase: "queued", error: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null } : {})
   changed(reg)
@@ -1210,8 +1164,11 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
   freshTimestamp(sent.timestamp)
-  // a failed order, or one whose reveal was refused for its links; a paid order taken first keeps its price as its balance
-  const movable = reg.phase === "failed" || (reg.phase === "committed" && reg.linksRefused !== null)
+  // only an order taken first, within the month from its payment or its code's reservation: a code order whose code is
+  // checked again, or a paid order while its balance keeps its price, which goes back to it as it moves
+  const paid = reg.method !== "code"
+  const movable = reg.phase === "taken" && reg.paidAt !== null && nowSeconds() < monthAfter(reg.paidAt)
+    && (!paid || (balances.get(reg.id)?.amount ?? 0) >= reg.paid)
   if (!movable) throw badRequest()
   if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
   const version = reg.version
@@ -1219,79 +1176,23 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   checkDuration(order.duration, orderYears(order, reg.years))
   await checkTerms(order)
   await nameFree(order.labelHash, reg)
-  const price = reg.method === "code" ? 0 : await chainPrice(order.length, orderYears(order, reg.years))
-  if (price > reg.paid) throw new HttpError(409, "price_too_high", { price })
+  const price = paid ? await chainPrice(order.length, orderYears(order, reg.years)) : 0
+  // only a name of the order's price
+  if (price !== reg.paid) throw new HttpError(409, "price_too_high", { price })
   const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
   if (row) codeStillPays(row, reg, order.length)
   const rv = await orderReveal(order, revealBody)
   await unchangedSince(reg, version)
   if (row) Object.assign(row, { state: "reserved", registrationId: reg.id })
-  // a cheaper name keeps the rest as the order's balance
-  if (price < reg.paid) credit(reg.id, reg.paid - price)
-  // the order now has the new name's price, which caps any later move
+  if (paid) balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
-    labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms, paid: price,
-    moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, linksRefused: null, ...rv,
+    labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
+    moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, ...rv,
   })
   changed(reg)
   const view = await registrationView(reg)
   void advance(reg)
   return view
-}
-
-// The balance as the page read it, with no open order holding it: an overdue holder holds nothing and is returned, for the
-// spend to close.
-function spendable(source: Registration, seen: number): Invoice | null {
-  const b = balances.get(source.id)
-  const held = b ? holderInvoice(b) : null
-  if (!b || b.amount !== seen || (held !== null && !overdue(held))) throw new HttpError(409, "balance_changed", { balance: balanceView(source.id) })
-  return held
-}
-
-// Another name for the owner of the order at sourceId, paid from that order's balance: the price at once when it covers it,
-// else all of it, held until an invoice for the difference is paid.
-export async function spend(sourceId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  refuseWhenCodesOnly()
-  const { price, balance, method } = body
-  const sent = flatSigned(body.signed)
-  if (!Number.isInteger(price) || !Number.isInteger(balance) || (price as number) <= 0 || (balance as number) <= 0 || !Number.isInteger(sent.timestamp)) throw badRequest()
-  const difference = (price as number) > (balance as number)
-  if (difference ? !isMethod(method) : method !== undefined) throw badRequest()
-  const fields = orderFields(sent)
-  const source = registrations.get(sourceId)
-  if (!source) throw new HttpError(404, "not_found")
-  const order = { ...fields, owner: source.owner }
-  const message = `simplex.domains spend ${source.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`
-  if (await recoverMessageAddress({ message, signature: checkSignature(sent.signature) }) !== source.owner) throw badRequest()
-  const orderHash = orderHashOf("balance", order, [source.id, price, balance, method ?? ""])
-  const resent = existingOrder(order, orderHash)
-  if (resent) return resent.invoiceId ? invoiceView(invoices.get(resent.invoiceId)!) : { registrationId: resent.id }
-  freshTimestamp(sent.timestamp)
-  checkDuration(order.duration, YEARS)
-  await checkTerms(order)
-  spendable(source, balance as number)
-  await nameFree(order.labelHash)
-  const chain = await chainPrice(order.length, YEARS)
-  if (price !== chain) throw new HttpError(409, "catalog_changed", { price: chain })
-  const rv = await orderReveal(order, body.reveal)
-  if (difference) await injectedRefusal(order.length)
-  // the card provider charges no less than its minimum, so a smaller difference is paid in coin
-  if (difference && method === "card" && (price as number) - (balance as number) < MIN_CARD_CHARGE_CENTS) throw badRequest()
-  // checked again at the write: the awaits above let settlement, a cancel or a refund change the balance
-  const holder = spendable(source, balance as number)
-  if (holder) close(holder)
-  const reg = newRegistration(order, {
-    years: YEARS, paid: chain, method: difference ? method as Method : "balance", prepaidCode: null, phase: difference ? "unpaid" : "queued", orderHash,
-    fromBalance: difference ? balance as number : chain, balanceSource: source.id,
-  }, rv)
-  const b = balances.get(source.id)!
-  if (difference) {
-    b.holder = reg.id
-    return invoiceView(openInvoice(reg, method as Method, chain - (balance as number)))
-  }
-  b.amount -= chain
-  void advance(reg)
-  return { registrationId: reg.id }
 }
 
 // A code order's code pays again if it is still this order's, or was released and is still unused, and covers the name.
@@ -1304,8 +1205,8 @@ function codeStillPays(row: PrepaidCode, reg: Registration, length: number): voi
 export async function retry(registrationId: string): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  // only a commitment that lapsed unsigned is committed again; refused links stay in its commitment
-  if (!lapsed(reg) || reg.linksRefused !== null) throw badRequest()
+  // only a commitment that lapsed unsigned is committed again
+  if (!lapsed(reg)) throw badRequest()
   await unchangedSince(reg, reg.version)
   reg.phase = "queued"
   reg.commitTx = null
@@ -1329,8 +1230,7 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
   const all = [...registrations.values()].filter((r) => r.owner === address).reverse()
   // a balance never expires, so an older order holding one is listed after the newest
   const found = [...all.slice(0, FOUND_MAX), ...all.slice(FOUND_MAX).filter((r) => (balances.get(r.id)?.amount ?? 0) > 0)]
-  return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase === "unpaid" && closedOf(r) ? "closed" : r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed,
-    balanceSource: r.balanceSource, heldBy: heldBy(r.id) })) }
+  return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase === "unpaid" && closedOf(r) ? "closed" : r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed })) }
 }
 
 export async function previewLink(body: Record<string, unknown>): Promise<Preview> {
@@ -1512,7 +1412,6 @@ function settle(inv: Invoice, reg: Registration, paid: bigint): void {
     Object.assign(inv, { status: "paid", settledAt: iso(nowSeconds()), lateUnits: whole })
     reg.phase = "queued"
     reg.paidAt = nowSeconds()
-    spendHold(reg)
     changed(reg)
     void advance(reg)
   }
@@ -1541,7 +1440,7 @@ export function controlInvoice(action: string, invoiceId: string, body: Record<s
   return { ok: true, status: inv.status }
 }
 
-// A balance grown by money from elsewhere, as a later credit to the order (a late payment or a cheaper move) grows it.
+// A balance grown by money from elsewhere, as a later credit to the order (a late payment) grows it.
 export function controlCredit(registrationId: string, cents: unknown): Record<string, unknown> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
@@ -1567,28 +1466,13 @@ export function controlRegistration(action: string, registrationId: string): Rec
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   if (action === "fail") reg.failNext = true
-  else if (action === "fail-name") {
-    reg.failNext = true
-    reg.lastAttempt = { transaction: "register", stage: "dryRun", reason: "NameTooShort", at: iso(nowSeconds()) }
-  } else if (action === "stale") reg.staleNext = true
+  else if (action === "stale") reg.staleNext = true
   else if (action === "unread" && reg.phase === "committed" && reg.intent === null) fail(reg, "unread")
   else if (action === "lapse" && reg.phase === "committed") {
     reg.revealBefore = nowSeconds() - 1
     changed(reg)
   } else throw badRequest()
   return { ok: true }
-}
-
-// The order and those whose balances paid it, back to the first, as support pays a refund back by the methods that paid.
-// A closed unpaid order released the balance it held, so the chain stops there.
-function balanceChain(reg: Registration): Record<string, unknown>[] {
-  const inv = reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!
-  const entry = {
-    registrationId: reg.id, invoiceId: reg.invoiceId, method: reg.method, fromBalance: reg.fromBalance,
-    invoiced: inv !== null && reg.phase !== "unpaid" ? inv.amount : 0, late: inv?.lateCents ?? 0,
-  }
-  const source = reg.balanceSource !== null && reg.phase !== "unpaid" ? registrations.get(reg.balanceSource)! : null
-  return [entry, ...source ? balanceChain(source) : []]
 }
 
 // A refund support records, by the order's invoice id or registration id, of the whole balance: the cents given, else all of it.
@@ -1598,14 +1482,11 @@ export function controlRefund(reference: string, cents: unknown): Record<string,
   if (cents !== undefined && (!Number.isInteger(cents) || (cents as number) <= 0)) throw badRequest()
   const b = balances.get(reg.id)
   if (!b || b.amount === 0) throw new HttpError(409, "no_balance")
-  const held = holderInvoice(b)
-  // an overdue holder too: closing it is the poller's, which can cancel it at the provider
-  if (held) throw new HttpError(409, "balance_held", { holder: b.holder, expiresAt: held.expiresAt })
   const refund = (cents ?? b.amount) as number
   if (refund !== b.amount) throw new HttpError(409, "balance_changed", { balance: balanceView(reg.id) })
   b.amount = 0
   b.refunded += refund
-  return { registrationId: reg.id, cents: refund, chain: balanceChain(reg) }
+  return { registrationId: reg.id, cents: refund }
 }
 
 // The coins' current rates in whole dollars, for late payments; null goes back to the invoice's own rate.
@@ -1663,7 +1544,6 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
   if (typeof body.unsentSeconds === "number") control.unsentUntil = Date.now() + body.unsentSeconds * 1000
   if (typeof body.unreadSeconds === "number") control.unreadUntil = Date.now() + body.unreadSeconds * 1000
   if (typeof body.writeDelayMs === "number") control.writeDelayMs = body.writeDelayMs
-  if (typeof body.refuseLinks === "boolean") control.refuseLinks = body.refuseLinks
   const delays = body.fetchDelays
   if (typeof delays === "object" && delays !== null && Object.values(delays).every((ms) => Number.isInteger(ms) && ms >= 0)) control.fetchDelays = delays as Record<string, number>
   return { ok: true }

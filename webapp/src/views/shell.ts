@@ -326,12 +326,6 @@ export function showRefund(reference: string, key: string): void {
   ], copy)
 }
 
-// a balance this tab pays with from now on, for a name the search finds
-export function useBalance(balance: session.AppliedBalance): void {
-  session.setActiveBalance(balance)
-  go("/#/")
-}
-
 export const referenceLine = (reference: string) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference))
 
 // shown only before a document's first draw, placed as the screen after it will be, so its heading stays put

@@ -11,8 +11,7 @@ export interface OrderRecord {
   owner: string
   contact: string
   channel: string
-  // a balance alone paid when it covered the price; a difference is paid by its invoice's method
-  method: Method | "code" | "balance"
+  method: Method | "code"
   paid: number
   years: number
   // the request, kept to ask for a new invoice for the same commitment
@@ -28,10 +27,6 @@ export interface OrderRecord {
   codeRefusal?: CodeRefusal
   // the link of the order that replaced this one with a new invoice; its old link leads there
   replacedBy?: string
-  // the service refused the order's links at its reveal, which only a move to other links can fix
-  linksRefused?: boolean
-  // the order whose balance paid this one, which the service's views do not name
-  balanceSource?: string
   createdAt: string
 }
 

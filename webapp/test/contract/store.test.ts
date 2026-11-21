@@ -27,6 +27,8 @@ async function refusal(name: string, send: () => Promise<unknown>): Promise<api.
 
 const HASH = `0x${"ab".repeat(32)}`
 const LABEL = "alicebakery"
+const VIEW_FIELDS = ["balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "moves", "owner", "payment", "phase", "price",
+  "registerTx", "sealed", "terms", "version", "years"]
 
 describe.skipIf(!DIR)("the names page reads the service's recorded answers", () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -155,18 +157,17 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect((await refusal(name, () => api.registerWithCode(order, "code", chainId()))).code).toBe(code)
   })
 
-  it("reads a spend refused for its balance with the balance now, and for its price with the price now", async () => {
-    const spending = { ...order, price: 1, balance: 1 }
-    const e = await refusal("spend-balance-changed", () => api.spend("r1", spending, chainId()))
-    expect(e).toBeInstanceOf(api.BalanceChanged)
-    expect((e as api.BalanceChanged).balance).not.toBeNull()
-    const price = await refusal("spend-catalog-changed", () => api.spend("r1", spending, chainId()))
-    expect([price.code, price.body.price]).toEqual(["catalog_changed", 10000])
+  it.each([["move-limit", "move_limit"], ["move-registration-changed", "registration_changed"]])("reads the move refusal %s as %s", async (name, code) => {
+    expect((await refusal(name, () => api.retarget("r1", order, chainId()))).code).toBe(code)
   })
 
-  it.each([["move-limit", "move_limit"], ["move-registration-changed", "registration_changed"]])("reads the move refusal %s as %s with the order as it reads now", async (name, code) => {
-    const e = await refusal(name, () => api.retarget("r1", order, chainId()))
-    expect([e.code, api.changedView(e)?.id]).toEqual([code, "registration"])
+  it("reads a taken code order's view, which moves to another name for its code until heldUntil, with no balance or price", async () => {
+    answering("registration-taken-code")
+    const view = await api.readRegistration("registration")
+    expect(Object.keys(view).sort(), "the fields the mock's view of a taken code order has").toEqual(VIEW_FIELDS)
+    expect([view.phase, view.payment, view.price, view.balance, view.label]).toEqual([{ type: "taken", heldUntil: expect.any(String) }, { type: "code" }, 0, null, expect.any(String)])
+    const heldUntil = Date.parse((view.phase as { heldUntil: string }).heldUntil)
+    expect([api.movable(view, heldUntil - 1), api.movable(view, heldUntil)]).toEqual([true, false])
   })
 
   it("reads a move to a dearer name with its price", async () => {

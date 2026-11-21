@@ -1,5 +1,5 @@
 // This tab's checkout in progress, which ends with the tab.
-import type { Balance, ChainInfo, Community, Method, SignedOrder, SpendRequest, Terms } from "./api.ts"
+import type { ChainInfo, Community, Method, SignedOrder, Terms } from "./api.ts"
 import type { CheckoutStep } from "./screens/routes.ts"
 
 export interface AppliedCode {
@@ -7,22 +7,6 @@ export interface AppliedCode {
   minLength: number
   years: number
 }
-
-// an order's balance as last read: the order it belongs to, the cents left, whether an invoice holds them, and until when
-// (null while money that reached that invoice is being confirmed)
-export interface AppliedBalance {
-  source: string
-  amount: number
-  held: boolean
-  heldUntil: string | null
-}
-
-// a balance pays only while something is left of it
-export const appliedBalance = (source: string, balance: Balance | null): AppliedBalance | null =>
-  balance && balance.amount > 0 ? { source, amount: balance.amount, held: balance.hold !== null, heldUntil: balance.hold?.type === "open" ? balance.hold.heldUntil : null } : null
-
-// how the balance changed since the page took it: another amount left, or none
-export type BalanceChange = "changed" | "gone"
 
 export interface Checkout {
   label: string
@@ -39,9 +23,6 @@ export interface Checkout {
   code: AppliedCode | null
   // the code field opened on Check your order, whose code pays in place of the tab's, until it is removed
   codeHere?: boolean
-  // the balance that pays, under its order's name code, which owns the name too
-  balance: AppliedBalance | null
-  balanceChange?: BalanceChange
   ownerCode: string | null
   // the buyer ticked that they keep a copy of the name code, which the review waits for
   saved: boolean
@@ -58,12 +39,11 @@ export interface Checkout {
   // why the service refused the code this checkout carried
   codeError?: string
   // the order last sent and what it was made of, sent again exactly while that is unchanged, so a lost answer is safe to ask for again
-  sent?: { of: string; request: SignedOrder; owner: string; spend?: SpendRequest }
+  sent?: { of: string; request: SignedOrder; owner: string }
 }
 
 const CHECKOUT = "simplex-names-checkout"
 const ACTIVE_CODE = "simplex-names-code"
-const ACTIVE_BALANCE = "simplex-names-balance"
 const SCROLLED = "simplex-names-scrolled"
 const memory = new Map<string, string>()
 // keys whose last write did not reach sessionStorage, which then holds an older value
@@ -106,27 +86,14 @@ export const setScrolled = (at: number, y: number) => write(SCROLLED, { ...scrol
 // continue; one kept without its step opens the review, which sends it on
 export function checkout(): Checkout | null {
   const c = read<Checkout>(CHECKOUT)
-  return c?.label && c.chain && typeof c.terms?.hash === "string" && typeof c.termStart === "number" ? { ...c, step: c.step ?? "review", balance: c.balance ?? null } : null
+  return c?.label && c.chain && typeof c.terms?.hash === "string" && typeof c.termStart === "number" ? { ...c, step: c.step ?? "review" } : null
 }
 export const setCheckout = (c: Checkout | null) => write(CHECKOUT, c)
 
-// the prepaid code this tab pays with, chosen in Check your code or Your names, until it is taken off; a code and a
-// balance take each other's place
+// the prepaid code this tab pays with, chosen in Check your code or Your names, until it is taken off
 export const activeCode = () => read<AppliedCode>(ACTIVE_CODE)
 export function setActiveCode(code: AppliedCode | null): void {
   write(ACTIVE_CODE, code)
-  if (code) write(ACTIVE_BALANCE, null)
-}
-
-// the balance this tab pays with, chosen in Your names or on its order's page, until it is taken off or spent
-export const activeBalance = () => read<AppliedBalance>(ACTIVE_BALANCE)
-export function setActiveBalance(balance: AppliedBalance | null): void {
-  write(ACTIVE_BALANCE, balance)
-  if (balance) write(ACTIVE_CODE, null)
-}
-// a balance read again or spent changes the tab's only if it is still the one the tab pays with
-export function updateActiveBalance(source: string, balance: AppliedBalance | null): void {
-  if (activeBalance()?.source === source) write(ACTIVE_BALANCE, balance)
 }
 // a code an order took, or the service refused, stops paying only if it is still the one the tab pays with
 export function dropActiveCode(display: string): void {
