@@ -336,10 +336,12 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const opened = await openOrder(wallet, view)
   // what only this browser knew about the order (a card in confirmation, a cancel, the prepaid code that paid) is kept
   const known = store.orderByRegistration(view.id)
+  const paidBy: Pick<store.OrderRecord, "method" | "balanceSource"> = known
+    ?? { method: invoice ? invoice.cryptoCurrency ?? "card" : view.fromBalance > 0 ? "balance" : "code", balanceSource: chosen.balanceSource ?? undefined }
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
-    method: invoice ? invoice.cryptoCurrency ?? "card" : view.fromBalance > 0 ? "balance" : "code", paid: view.price, years: view.years,
-    tld: view.tld, createdAt: chosen.createdAt, balanceSource: chosen.balanceSource ?? known?.balanceSource,
+    method: paidBy.method, paid: view.price, years: view.years,
+    tld: view.tld, createdAt: chosen.createdAt, balanceSource: paidBy.balanceSource,
   }
   store.saveOrder(record)
   return { record, view }
