@@ -472,7 +472,7 @@ test.describe(() => {
     // a taken order seen in a browser without its code, which says where to add the code
     const elsewhere = await browser.newContext()
     const stranger = await elsewhere.newPage()
-    await stranger.route(`**/api/invoice/${FIT_INVOICE}*`, (route) => route.fulfill({ json: invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02" }) }))
+    await stranger.route(`**/api/invoice/${FIT_INVOICE}*`, (route) => route.fulfill({ json: invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } }) }))
     await stranger.goto(`/?order=${FIT_INVOICE}`)
     await expect(onStep(stranger).getByText("The name code is not in this browser")).toBeVisible()
     await fitsWindow(stranger, "o5-taken-without-code", frames)

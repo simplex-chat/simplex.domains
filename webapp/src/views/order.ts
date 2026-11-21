@@ -1199,7 +1199,7 @@ const REFUND = "refund"
 // own name by `same`; support refunds the payment kept. Only the browser holding the code asks for either. Once the payment
 // is refunded, another name is searched as usual.
 function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
-  const kept = api.paymentKept(view!)
+  const kept = same !== undefined || api.paymentKept(view!)
   const another = () => go(kept ? `/#/?retarget=${view!.id}` : searchLink(""))
   const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
   refund?.setAttribute("data-focus", REFUND)

@@ -1163,11 +1163,11 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
   freshTimestamp(sent.timestamp)
-  // only a paid order taken first, while its balance keeps its price, which goes back to it as it moves
-  const movable = reg.phase === "taken" && reg.method !== "code" && (balances.get(reg.id)?.amount ?? 0) >= reg.paid
+  // only a paid order taken first, within the month from its payment, while its balance keeps its price, which goes back to it as it moves
+  const movable = reg.phase === "taken" && reg.method !== "code" && reg.paidAt !== null && nowSeconds() <= monthAfter(reg.paidAt)
+    && (balances.get(reg.id)?.amount ?? 0) >= reg.paid
   if (!movable) throw badRequest()
   if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
-  const version = reg.version
   existingOrder(order, null, reg)
   checkDuration(order.duration, orderYears(order, reg.years))
   await checkTerms(order)
@@ -1176,7 +1176,6 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   // only a name of the order's price
   if (price !== reg.paid) throw new HttpError(409, "price_too_high", { price })
   const rv = await orderReveal(order, revealBody)
-  await unchangedSince(reg, version)
   balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
     labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
