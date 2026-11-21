@@ -1751,7 +1751,7 @@ screen(2198, "order-taken-code-no-record", async (r) => {
   const registrationId = await codeTaken(r)
   await heading(r.page, `${r.id}.simplex was taken`)
   const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, "Someone registered it first")
+  await heading(other, `${r.id}.simplex was taken`)
   return other
 })
 screen(2199, "order-taken-code-month-ended", async (r) => {

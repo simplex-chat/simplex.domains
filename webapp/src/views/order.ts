@@ -1174,11 +1174,11 @@ function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HT
 
 // The payment of an order taken first is kept: the order is moved to another name of its price, or support refunds the
 // payment; only the browser holding the code asks for either. An order refunded since is shown as such. A code order is
-// moved likewise until its window ends; after it, or in a browser without its name code, its released code is shown.
+// moved likewise until its window ends; after it, its released code is shown.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!
-  if (!invoice && !(record && api.movable(view, s.now))) return buildTakenWithCode(s)
+  if (!invoice && !api.movable(view, s.now)) return buildTakenWithCode(s)
   const label = labelOf(view, record)
   const uses = codesOnly() || !api.movable(view, s.now) ? " You can ask for a refund." : " Choose another name, or ask for a refund."
   const note = !invoice ? null : api.paymentKept(view)
@@ -1190,7 +1190,7 @@ function buildTaken(s: OrderState): HTMLElement {
     ...balanceActions(s) },
     api.takenByOrder(view) ? stages(["failed", "", ""]) : stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,
-    record ? null : alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to use the balance."),
+    record ? null : alertBox("info", "key", "The name code is not in this browser", `Add it in Check your code to ${invoice ? "use the balance" : "choose another name"}.`),
     referenceLine(invoice?.invoiceId ?? view.id))
 }
 

@@ -878,7 +878,7 @@ test("a code order whose name was reserved meanwhile says so, and moves to anoth
   await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toBeEnabled()
 })
 
-test("a code order taken first gives its code back after its window ends, or in a browser without its name code", async ({ page, browser, request }) => {
+test("a code order taken first asks a browser without its name code for the code within its window, and gives its code back after it", async ({ page, browser, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   const label = uniqueLabel("ctw")
   await control(request, "take", { label })
@@ -888,8 +888,11 @@ test("a code order taken first gives its code back after its window ends, or in 
   const other = await browser.newContext()
   const stranger = await other.newPage()
   await stranger.goto(`/?registration=${registrationId}`)
-  await expect(stranger.getByRole("heading", { name: "Someone registered it first" })).toBeVisible()
-  await expect(onStep(stranger).getByRole("button", { name: "Search another name" })).toBeVisible()
+  await expect(stranger.getByRole("heading", { name: takenHeading(label) })).toBeVisible()
+  await expect(onStep(stranger).locator(".notice", { hasText: "The name code is not in this browser" }))
+    .toHaveText("The name code is not in this browserAdd it in Check your code to choose another name.")
+  await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toBeDisabled()
+  await expect(onStep(stranger).getByRole("button", { name: "Search another name" })).toHaveCount(0)
   await other.close()
   // the window ended: the view's heldUntil is past
   await page.route(`**/api/registration/${registrationId}*`, async (route) => {
