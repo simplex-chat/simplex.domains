@@ -316,7 +316,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
     ? seen.answer.entities.map((e, i) => chatButton(e, `${label}.${tld}`, `${id}-chat-${i}`, community !== null)) : []
   const listed = seen ? community !== null : api.communityAgreed(o.terms)
   const state = rowChip(s, o, seen)
-  const title = rowName(label, tld, community, `${id}-community`, { listed })
+  const title = rowName(label, tld, community, `${id}-community`, listed)
   if (chats.length) opensFirstChat(title, chats[0])
   return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null, null), state && chipRoom(state),
     [chats.length ? el("span", { class: "chats" }, chats) : null, ...acts], shown ? rowCode(code) : null)

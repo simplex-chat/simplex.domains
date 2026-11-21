@@ -1,7 +1,7 @@
 // The checkout's steps: the links the name opens, its name code, a community name's community terms, and Check your order
 // with how it pays, and Pay.
 import * as api from "../api.ts"
-import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction, shortName, shortNameText } from "../dom.ts"
+import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction, shortNameText } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } from "../format.ts"
 import { type Method, methodMark } from "../icons.ts"
@@ -25,7 +25,7 @@ import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
 import { openedInstead } from "./order.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
-import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
+import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, shortRowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
 const CHECKOUT_NOTE = "checkout-note"
 const SAVED_LABEL = "I have saved my name code"
@@ -247,9 +247,8 @@ function orderCard(c: session.Checkout, codesOnly: boolean, disputeDays: number 
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
   const { fromBalance, rest } = split(c)
   const side = c.balance ? el("b", { class: "price" }, dollars(c.price)) : chats.length ? el("span", { class: "chats" }, chats) : null
-  const short = shortName(c.label, c.chain.tld)
   return el("section", { class: "card order" },
-    el("div", { class: "row" }, short.whole, rowName(c.label, c.chain.tld, c.community, "community", { name: short }), side),
+    el("div", { class: "row" }, shortRowName(c.label, c.chain.tld, c.community, "community"), side),
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),

@@ -1,5 +1,5 @@
 import * as api from "../api.ts"
-import { el, icon, line, nameText, nameTitle, type ShortName } from "../dom.ts"
+import { drawnOf, el, icon, type Kid, line, nameText, nameTitle, shortName, type ShortName } from "../dom.ts"
 import { blocksOf, spansOf } from "../markdown.ts"
 import { POPUP_TITLE, showPopup } from "./shell.ts"
 
@@ -42,12 +42,16 @@ function showTerms(terms: api.Terms, chainId: number, key: string): void {
 }
 
 // `listed` marks a community name whose entry is not read yet, so the marker takes its place before the entry comes
-export function rowName(label: string, tld: string, community: api.Community | null, key: string, { listed = community !== null, name }: { listed?: boolean; name?: ShortName } = {}): HTMLDivElement {
-  const shown = name?.shown ?? label
-  if (!listed) return nameTitle(shown, "name", tld, name?.drawn)
+export function rowName(label: string, tld: string, community: api.Community | null, key: string, listed = community !== null, name: ShortName = { shown: label, whole: null }): HTMLDivElement {
+  if (!listed) return nameTitle(name.shown, "name", tld, drawnOf(name))
   const marker = el("button", { class: "cmark", type: "button", "aria-label": "Community name: about it", "aria-haspopup": "dialog", "data-focus": key,
     onclick: () => showCommunity(label, tld, community, key) }, "Community", icon("info"))
-  return nameTitle(shown, "name comm", tld, name?.drawn, " ", marker)
+  return nameTitle(name.shown, "name comm", tld, drawnOf(name), " ", marker)
+}
+
+export function shortRowName(label: string, tld: string, community: api.Community | null, key: string): Kid {
+  const name = shortName(label, tld)
+  return [name.whole, rowName(label, tld, community, key, community !== null, name)]
 }
 
 export interface Agreement {

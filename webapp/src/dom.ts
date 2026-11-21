@@ -109,16 +109,18 @@ export function nameTitle(label: string, cls = "name", tld = "simplex", drawn = 
   return el("div", { class: cls }, drawn(nameHead(label)), el("span", { class: "nowrap" }, drawn(nameTail(label), el("span", { class: "tld" }, `.${tld}`)), ...after))
 }
 
-export interface ShortName { shown: string; whole: Kid; drawn: Drawn }
+export interface ShortName { shown: string; whole: HTMLElement | null }
 
 export function shortName(label: string, tld: string, after = ""): ShortName {
   const shown = shortLabel(label)
-  return shown === label ? { shown, whole: null, drawn: asIs } : { shown, whole: el("span", { class: "sr-only" }, `${label}.${tld}${after}`), drawn: unread }
+  return { shown, whole: shown === label ? null : el("span", { class: "sr-only" }, `${label}.${tld}${after}`) }
 }
 
+export const drawnOf = ({ whole }: ShortName): Drawn => whole ? unread : asIs
+
 export function shortNameText(label: string, tld: string, after = ""): Kid {
-  const { shown, whole, drawn } = shortName(label, tld, after)
-  return [drawn(nameText(shown, tld, after)), whole]
+  const name = shortName(label, tld, after)
+  return [drawnOf(name)(nameText(name.shown, tld, after)), name.whole]
 }
 
 export function gradName(label: string, tld = "simplex"): HTMLSpanElement {
