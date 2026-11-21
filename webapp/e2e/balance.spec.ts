@@ -1,9 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test"
-import { walletOf } from "../src/flow.ts"
-import { checksumAddress } from "../src/crypto/wallet.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import {
-  addNameCode, agreeToTerms, control, FIT_SIZES, keepOrder, onStep, registrationOf, searchName, sevenLetters, shot, takenOrder, registrationView, test, uniqueLabel, waitRegistered,
+  addNameCode, control, FIT_SIZES, keepOrder, onStep, sevenLetters, shot, takenOrder, registrationView, test, uniqueLabel,
 } from "./helpers.ts"
 
 const balanceRow = (page: Page) => onStep(page).locator(".list-row[data-key^='balance-']")
@@ -35,9 +33,9 @@ const ROW_SIZES = [{ width: 1280, height: 800 }, { width: 390, height: 844 }, { 
 // the room a list row keeps between its parts (styles.css .list-row .acts)
 const ROW_GAP = 14
 
-test("a paid order taken first keeps its price as its balance, which support refunds, and which goes back to the order as it moves to a cheaper name, the rest kept", async ({ page, request }) => {
+test("a paid order taken first keeps its price as its balance, which support refunds", async ({ page, request }) => {
   const label = sevenLetters()
-  const { invoiceId, ownerCode } = await takenOrder(page, request, label)
+  const { invoiceId } = await takenOrder(page, request, label)
   await yourNames(page)
   await expect(balanceRow(page)).toHaveCount(1)
   await expect(balanceRow(page).locator(".main")).toHaveText(`$200From ${label}.simplex, registered by someone else first`)
@@ -60,23 +58,6 @@ test("a paid order taken first keeps its price as its balance, which support ref
   await shot(page, "B2-refund")
   await popup.getByRole("button", { name: "Close" }).click()
   await expect(balanceRow(page).getByRole("button", { name: "Refund" })).toBeFocused()
-
-  await page.goto(`/?order=${invoiceId}`)
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(page).toHaveURL(new RegExp(`[?&]retarget=${await registrationOf(request, invoiceId)}`))
-  const cheaper = uniqueLabel("bcheap")
-  await page.getByLabel("Name", { exact: true }).fill(cheaper)
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await expect(page.locator(".answer .line", { hasText: "Uses" })).toHaveText("Uses $100 of your $200; the rest stays as your balance.")
-  await shot(page, "B3-home-move")
-  await agreeToTerms(page)
-  await page.getByRole("button", { name: "Register with your payment" }).click()
-  await waitRegistered(page, cheaper)
-  expect((await searchName(request, cheaper)).owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
-
-  await yourNames(page)
-  await expect(balanceRow(page).locator(".main")).toHaveText(`$100From ${cheaper}.simplex, left after a cheaper name`)
-  await expect(onStep(page).locator(".list-row:not([data-key^='balance-'])", { hasText: `${cheaper}.simplex` }).locator(".sub")).toContainText("Until")
 })
 
 test("the name code shows the balance in another browser, and a refund support records shows as refunded, after which the order moves no more", async ({ page, browser, request }) => {

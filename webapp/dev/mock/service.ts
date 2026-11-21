@@ -883,7 +883,7 @@ async function advance(reg: Registration): Promise<void> {
 const lapsed = (reg: Registration) => reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore
 
 function fail(reg: Registration, error: FailReason): void {
-  // a failed registration keeps its prepaid code reserved for a move
+  // a failed registration keeps its prepaid code reserved
   reg.phase = "failed"
   reg.error = error
   changed(reg)
@@ -1163,9 +1163,8 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
   freshTimestamp(sent.timestamp)
-  // a failed order, or a paid order taken first while its balance keeps its price, which goes back to it as it moves
-  const taken = reg.phase === "taken" && reg.method !== "code"
-  const movable = reg.phase === "failed" || (taken && (balances.get(reg.id)?.amount ?? 0) >= reg.paid)
+  // only a paid order taken first, while its balance keeps its price, which goes back to it as it moves
+  const movable = reg.phase === "taken" && reg.method !== "code" && (balances.get(reg.id)?.amount ?? 0) >= reg.paid
   if (!movable) throw badRequest()
   if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
   const version = reg.version
@@ -1173,32 +1172,20 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   checkDuration(order.duration, orderYears(order, reg.years))
   await checkTerms(order)
   await nameFree(order.labelHash, reg)
-  const price = reg.method === "code" ? 0 : await chainPrice(order.length, orderYears(order, reg.years))
-  if (price > reg.paid) throw new HttpError(409, "price_too_high", { price })
-  const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
-  if (row) codeStillPays(row, reg, order.length)
+  const price = await chainPrice(order.length, orderYears(order, reg.years))
+  // only a name of the order's price
+  if (price !== reg.paid) throw new HttpError(409, "price_too_high", { price })
   const rv = await orderReveal(order, revealBody)
   await unchangedSince(reg, version)
-  if (row) Object.assign(row, { state: "reserved", registrationId: reg.id })
-  if (taken) balances.get(reg.id)!.amount -= reg.paid
-  // a cheaper name keeps the rest as the order's balance
-  if (price < reg.paid) credit(reg.id, reg.paid - price)
-  // the order now has the new name's price, which caps any later move
+  balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
-    labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms, paid: price,
+    labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
     moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, ...rv,
   })
   changed(reg)
   const view = await registrationView(reg)
   void advance(reg)
   return view
-}
-
-// A code order's code pays again if it is still this order's, or was released and is still unused, and covers the name.
-function codeStillPays(row: PrepaidCode, reg: Registration, length: number): void {
-  const error = row.state !== "unused" && row.registrationId !== reg.id ? CODE_ERRORS[row.state] : undefined
-  if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
-  if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
 
 export async function retry(registrationId: string): Promise<Record<string, unknown>> {
@@ -1439,7 +1426,7 @@ export function controlInvoice(action: string, invoiceId: string, body: Record<s
   return { ok: true, status: inv.status }
 }
 
-// A balance grown by money from elsewhere, as a later credit to the order (a late payment or a cheaper move) grows it.
+// A balance grown by money from elsewhere, as a later credit to the order (a late payment) grows it.
 export function controlCredit(registrationId: string, cents: unknown): Record<string, unknown> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")

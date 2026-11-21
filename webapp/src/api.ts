@@ -264,6 +264,8 @@ export const reversedOrder = ({ phase }: RegistrationView) => phase.type === "cl
 
 export const takenByOrder = ({ phase, commitTx }: RegistrationView) => phase.type === "taken" && commitTx === null
 
+export const paymentKept = ({ balance }: RegistrationView) => balance === null || balance.amount > 0
+
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
 // All of a closed invoice's amount arrived after it closed and is credited, or waits on support alone. BTCPay keeps such an

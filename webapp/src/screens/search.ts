@@ -161,7 +161,7 @@ export async function ownOrders(orders: OrderRecord[], read: (o: OrderRecord) =>
 export const orderCode = (closed: string | null): { ownerCode: string | null; saved: boolean } => ({ ownerCode: closed, saved: closed !== null })
 
 // In codes-only mode a plain search opens only with the tab's prepaid code, and only for the names that code covers; a
-// paid order's move to another name is bounded by its own payment.
+// paid order is moved only to another name of its price.
 export const searchLocked = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" && code === null
 export const coverOf = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" ? code?.minLength ?? null : null
 
@@ -169,15 +169,15 @@ export function screenOf(s: SearchState): SearchKind {
   return `search:${s.opening}`
 }
 
-export const moveBar = (record: OrderRecord, price: number): "dearer" | null => price > record.paid ? "dearer" : null
+export const moveBar = (record: OrderRecord, price: number): "dearer" | "cheaper" | null => price > record.paid ? "dearer" : price < record.paid ? "cheaper" : null
 
 export function moveHint(record: OrderRecord, price: number): string {
   const paid = dollars(record.paid)
   if (price > record.paid) return `This name costs more than the ${paid} your order is worth.`
-  return price < record.paid ? `Uses ${dollars(price)} of your ${paid}; the rest stays as your balance.` : "Covered by your payment"
+  return price < record.paid ? `This name costs less than the ${paid} your order is worth.` : "Covered by your payment"
 }
 
 export function keptWords(record: OrderRecord): [string, string] {
   const worth = dollars(record.paid)
-  return [`Your payment is kept: ${worth}.`, `Choose another name of up to ${worth}; nothing more is charged.`]
+  return [`Your payment is kept: ${worth}.`, `Choose another name of ${worth}; nothing more is charged.`]
 }

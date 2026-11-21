@@ -118,8 +118,7 @@ async function sha256Hex(text: string): Promise<string> {
   return hex(new Uint8Array(digest))
 }
 
-// Another name for an order whose name was taken first, on the same wallet so the same code owns it, at the new name's
-// price, which caps any later move.
+// Another name of the same price for an order whose name was taken first, on the same wallet so the same code owns it.
 export async function retargetOrder(record: store.OrderRecord, label: string, links: api.Links, quote: Pick<Quote, "community">, terms: string): Promise<api.RegistrationView> {
   const site = await namesSite()
   const draft: Draft = { label, links, chain: chainOf(site), years: api.termYears(quote.community, record.years), termStart: site.termStart, ownerCode: record.ownerCode, terms }

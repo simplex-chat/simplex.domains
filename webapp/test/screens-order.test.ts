@@ -343,9 +343,6 @@ describe("costOf", () => {
   it("is the invoice's amount for an order paid by its invoice", () => {
     expect(costOf(registration(), crypto())).toBe(1500)
   })
-  it("is the cheaper name's price after a move", () => {
-    expect(costOf(registration({ price: 1000 }), crypto({ status: "paid" }))).toBe(1000)
-  })
   it("is null for a code order, which costs nothing", () => {
     expect(costOf(registration({ price: 0 }), null)).toBeNull()
   })

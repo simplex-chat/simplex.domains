@@ -1172,16 +1172,15 @@ function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HT
     reference: view.id })
 }
 
-// A paid order taken first keeps what it is worth as its balance, which moves with the order to another name of its code,
-// or which support refunds; only the browser holding the code does either. One refunded since says so.
+// The payment of an order taken first is kept: the order is moved to another name of its price, or support refunds the
+// payment; only the browser holding the code asks for either. An order refunded since is shown as such.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!
   if (!invoice) return buildTakenWithCode(s)
   const label = labelOf(view, record)
-  const balance = view.balance?.amount ? view.balance : null
   const uses = codesOnly() ? " You can ask for a refund." : " Choose another name, or ask for a refund."
-  const note = balance || view.balance === null
+  const note = api.paymentKept(view)
     ? el("div", { class: "notice plain" }, el("b", {}, "What you paid is kept as your balance."), uses, " Your names shows the balance.")
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been refunded since; Your names shows it.")
   const reserved = s.nameStatus === "reserved"
@@ -1196,13 +1195,13 @@ function buildTaken(s: OrderState): HTMLElement {
 
 const REFUND = "refund"
 
-// A taken order with its balance left moves to another name of its code, and a closed one gets a new invoice for its own
-// name from `same`; support refunds the balance. Only the browser holding the code does either. Without a balance left,
-// another name is searched as usual.
+// A taken order whose payment is kept is moved to another name of its price, and a closed one is given a new invoice for its
+// own name by `same`; support refunds the payment kept. Only the browser holding the code asks for either. Once the payment
+// is refunded, another name is searched as usual.
 function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
-  const balance = view!.balance?.amount ? view!.balance : null
-  const another = () => go(balance ? `/#/?retarget=${view!.id}` : searchLink(""))
-  const refund = record && balance ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
+  const kept = api.paymentKept(view!)
+  const another = () => go(kept ? `/#/?retarget=${view!.id}` : searchLink(""))
+  const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
   refund?.setAttribute("data-focus", REFUND)
   refund?.setAttribute("aria-haspopup", "dialog")
   if (codesOnly()) return { action: codeAction(), alt: refund }

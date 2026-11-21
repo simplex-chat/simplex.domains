@@ -331,17 +331,18 @@ describe("returnedTo", () => {
 })
 
 describe("a move", () => {
-  it("of a paid order is barred only for a name dearer than the order is worth", () => {
+  it("of a paid order is barred for a name of another price than the order is worth", () => {
     expect(moveBar(record(), 1500)).toBeNull()
     expect(moveBar(record(), 1501)).toBe("dearer")
+    expect(moveBar(record(), 1499)).toBe("cheaper")
   })
   it("of a paid order says what its payment covers", () => {
     expect(moveHint(record(), 1500)).toBe("Covered by your payment")
-    expect(moveHint(record(), 1000)).toBe("Uses $10 of your $15; the rest stays as your balance.")
+    expect(moveHint(record(), 1000)).toBe("This name costs less than the $15 your order is worth.")
     expect(moveHint(record(), 2000)).toBe("This name costs more than the $15 your order is worth.")
   })
   it("opens saying what the order keeps: its payment", () => {
-    expect(keptWords(record())).toEqual(["Your payment is kept: $15.", "Choose another name of up to $15; nothing more is charged."])
+    expect(keptWords(record())).toEqual(["Your payment is kept: $15.", "Choose another name of $15; nothing more is charged."])
   })
 })
 

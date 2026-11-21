@@ -138,8 +138,7 @@ export function listedOrders(s: ListState): OrderRecord[] {
 }
 
 // An order's balance as Your names lists it: what is left, what support refunded from it,
-// and what made it: its name registered by someone else first, money after its invoice closed, or the rest
-// after a move to a cheaper name.
+// and what made it: its name registered by someone else first, money after its invoice closed, or money paid over its price.
 export interface BalanceRow { id: string; amount: number; refunded: number; from: "taken" | "outpaid" | "ended" | "late" | "rest" }
 
 export function balanceRows(s: ListState): BalanceRow[] {

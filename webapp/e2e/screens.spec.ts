@@ -592,7 +592,7 @@ screen(218, "home-retarget-paid-cheaper", (r) => retargetTo(r, "hrchea7", r.id))
 screen(220, "home-retarget-paid-same", (r) => retargetTo(r, `${r.id}-from`, r.id))
 screen(222, "home-retarget-paid-dearer", (r) => retargetTo(r, r.id, "hrdear7"))
 const retargetTicked = async (r: Reach) => {
-  await retargetTo(r, seven(r.id), r.id)
+  await retargetTo(r, `${r.id}-from`, r.id)
   await agreeToTerms(r.page)
 }
 const MOVE = /\/api\/registration\/[^/]+\/name$/

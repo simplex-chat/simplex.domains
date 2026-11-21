@@ -275,7 +275,7 @@ const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() +
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
 function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
-  // what was paid, from the invoice; the record's amount is the order's worth, lower after a move to a cheaper name
+  // what was paid, from the invoice, else the record's amount
   const paid = paidLine(o, view, invoice)
   const expiresAt = api.expiresAtOf(view)
   if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
@@ -368,7 +368,7 @@ function pendingRow(p: store.PendingCode, s: ListState, open: session.Checkout |
 }
 
 const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
-  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "left after a cheaper name",
+  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "paid over its price",
 }
 
 // Support refunds a balance.
