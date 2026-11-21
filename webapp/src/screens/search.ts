@@ -173,11 +173,8 @@ export const moveBar = (record: OrderRecord, price: number): "dearer" | "cheaper
 
 export function moveHint(record: OrderRecord, price: number): string {
   const paid = dollars(record.paid)
-  if (price > record.paid) return `This name costs more than the ${paid} your order is worth.`
-  return price < record.paid ? `This name costs less than the ${paid} your order is worth.` : "Covered by your payment"
+  if (price > record.paid) return `This name costs more than the ${paid} you paid.`
+  return price < record.paid ? `This name costs less than the ${paid} you paid.` : "Covered by your payment"
 }
 
-export function keptWords(record: OrderRecord): [string, string] {
-  const worth = dollars(record.paid)
-  return [`Your payment is kept: ${worth}.`, `Choose another name of ${worth}; nothing more is charged.`]
-}
+export const keptWords = (record: OrderRecord) => `You paid ${dollars(record.paid)}: choose another name at that price.`

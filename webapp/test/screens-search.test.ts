@@ -338,11 +338,11 @@ describe("a move", () => {
   })
   it("of a paid order says what its payment covers", () => {
     expect(moveHint(record(), 1500)).toBe("Covered by your payment")
-    expect(moveHint(record(), 1000)).toBe("This name costs less than the $15 your order is worth.")
-    expect(moveHint(record(), 2000)).toBe("This name costs more than the $15 your order is worth.")
+    expect(moveHint(record(), 1000)).toBe("This name costs less than the $15 you paid.")
+    expect(moveHint(record(), 2000)).toBe("This name costs more than the $15 you paid.")
   })
-  it("opens saying what the order keeps: its payment", () => {
-    expect(keptWords(record())).toEqual(["Your payment is kept: $15.", "Choose another name of $15; nothing more is charged."])
+  it("opens saying what was paid, the price of the name to choose", () => {
+    expect(keptWords(record())).toBe("You paid $15: choose another name at that price.")
   })
 })
 

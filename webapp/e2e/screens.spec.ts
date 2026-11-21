@@ -579,7 +579,7 @@ screen(210, "home-retarget-unknown", async ({ page }) => {
 const retargetPaid = async (r: Reach, name: string): Promise<string> => {
   const { registrationId } = await takenFirst(r, name)
   await r.page.goto(`/#/?retarget=${registrationId}`)
-  await shown(r.page, "Your payment is kept")
+  await shown(r.page, "choose another name at that price")
   return registrationId
 }
 screen(212, "home-retarget-paid-opening", async (r) => { await retargetPaid(r, r.id) })

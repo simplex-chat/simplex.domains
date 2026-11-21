@@ -300,8 +300,7 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
 
 function openingLine(s: SearchState): HTMLElement | null {
   if (!s.retarget) return null
-  const [kept, choose] = keptWords(s.retarget)
-  return alertBox("info", "wallet", kept, choose)
+  return alertBox("info", "wallet", null, keptWords(s.retarget))
 }
 
 function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
@@ -377,7 +376,7 @@ function registerNote({ hold, register: { refusal } }: SearchState, signal: Abor
   if (!refusal) return null
   if (refusal.why === "limit") return noteBox(moveLimitNote(refusal.reference))
   const words = refusal.why === "taken" ? "This name is no longer available. Search another one."
-    : refusal.why === "dearer" ? "This name now costs more than your order is worth. Search another one."
+    : refusal.why === "dearer" ? "This name now costs more than you paid. Search another one."
     : refusal.why === "unavailable" ? `${NO_ORDERS}. Nothing changed. Try again later.` : "Nothing changed. Try again in a moment."
   return alertBox("danger", "alert", "That did not go through", words)
 }

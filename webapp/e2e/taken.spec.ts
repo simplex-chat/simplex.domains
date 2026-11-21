@@ -81,7 +81,7 @@ test("a taken order offers another name for it without searching its own name", 
   page.on("request", (r) => { if (r.url().includes(`/api/name/${hex(labelHash(label))}`)) searched.push(r.url()) })
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
   await expect(page).toHaveURL(new RegExp(`[?&]retarget=${registrationId}`))
-  await expect(page.getByText("Your payment is kept: $100.")).toBeVisible()
+  await expect(page.getByText("You paid $100: choose another name at that price.")).toBeVisible()
   expect(searched).toEqual([])
 })
 
@@ -282,11 +282,11 @@ test("a late payment to a replaced invoice is kept by a restored browser after t
 test("a taken order is offered no name of another price, cheaper or dearer", async ({ page, request }) => {
   const { invoiceId } = await takenOrder(page, request, sevenLetters())
   await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
-  await expect(page.getByText(/Your payment is kept: \$200\./)).toBeVisible()
+  await expect(page.getByText("You paid $200: choose another name at that price.")).toBeVisible()
   for (const [label, words] of [[uniqueLabel("cheap"), "less"], [`q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`, "more"]]) {
     await page.getByLabel("Name", { exact: true }).fill(label)
     await page.getByLabel("Name", { exact: true }).press("Enter")
-    await expect(page.locator(".answer .line", { hasText: "This name costs" })).toHaveText(`This name costs ${words} than the $200 your order is worth.`)
+    await expect(page.locator(".answer .line", { hasText: "This name costs" })).toHaveText(`This name costs ${words} than the $200 you paid.`)
     await expect(page.getByRole("button", { name: "Register with your payment" })).toBeDisabled()
   }
 })

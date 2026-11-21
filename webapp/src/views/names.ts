@@ -367,8 +367,8 @@ function pendingRow(p: store.PendingCode, s: ListState, open: session.Checkout |
   return node
 }
 
-const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
-  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "paid over its price",
+const BALANCE_FROM: Record<Exclude<BalanceRow["from"], "rest">, string | null> = {
+  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed",
 }
 
 // Support refunds a balance.
@@ -376,7 +376,7 @@ function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
   const { view } = s.seen[b.id]
   const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
-  const from = BALANCE_FROM[b.from]
+  const from = b.from === "rest" ? `you paid ${dollars(b.amount + b.refunded)} more than the price` : BALANCE_FROM[b.from]
   const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, null, acts)
