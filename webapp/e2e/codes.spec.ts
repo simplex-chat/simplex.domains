@@ -903,6 +903,7 @@ test("a code order taken first gives its code back after its window ends, or in 
   await expect(onStep(page).getByRole("button", { name: "Search another name" })).toBeVisible()
   await page.goto("/#/names")
   await expect(page.locator(".list-row", { hasText: code }).locator(".chip")).toHaveText("Unused")
+  await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
 test("a code order's move refused for its code says why in that refusal's words", async ({ page, request }) => {
