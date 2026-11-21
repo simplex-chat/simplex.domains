@@ -578,8 +578,8 @@ describe("reveal helpers", () => {
   const view = registration(committed)
   const waiting = read(null, view)
   it("revealKey names the commit a reveal is signed for", () => {
-    expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600}`)
-    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 0x3 ${CHANGED} 0`)
+    expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 120`)
+    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 120 0x3 ${CHANGED} 0`)
   })
   it("a stored reveal ends its sending, so one the service clears is signed again under the same key", () => {
     const sent = reduce(waiting, { type: "reveal-sent", key: revealKey(view) })
