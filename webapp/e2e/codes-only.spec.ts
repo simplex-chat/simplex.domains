@@ -51,17 +51,15 @@ function apiCalls(page: Page): string[] {
   return calls
 }
 
-const PAYMENT_CALL = /^POST \/api\/(invoice$|registration\/[^/]+\/spend$)/
+const PAYMENT_CALL = /^POST \/api\/invoice$/
 
-// No control of the page's that pays or chooses how: methods, Pay, a new invoice, Pay with ETH or a balance to use.
+// No control of the page's that pays or chooses how: methods, Pay, a new invoice or Pay with ETH.
 async function noPaymentUi(page: Page): Promise<void> {
   const main = page.locator("body > main")
   await expect(main.getByRole("radio")).toHaveCount(0)
-  await expect(main.getByRole("button", { name: /^Pay |^Get a new invoice$|^Register with your balance$|^Order the name again$/ })).toHaveCount(0)
-  await expect(main.locator(".balance-row").getByRole("button", { name: "Use", exact: true })).toHaveCount(0)
+  await expect(main.getByRole("button", { name: /^Pay |^Get a new invoice$|^Order the name again$/ })).toHaveCount(0)
   await expect(main.getByRole("link", { name: /^Pay with / })).toHaveCount(0)
   await expect(main.getByRole("button", { name: /^Pay with / })).toHaveCount(0)
-  await expect(chip(page).filter({ hasText: "Balance" })).toHaveCount(0)
 }
 
 test("the service's mode is at /api/config: open by default, codes once the mock takes codes only, the page the same in both", async ({ page, request }) => {
@@ -78,9 +76,6 @@ test("the mock refuses every payment in codes-only mode, as the service does", a
   const invoice = await request.post(`${MOCK}/api/invoice`, { data: { kind: "name" } })
   expect(invoice.status()).toBe(FORBIDDEN)
   expect(await invoice.json()).toEqual({ type: "codes_only" })
-  const spend = await request.post(`${MOCK}/api/registration/reg-none/spend`, { data: {} })
-  expect(spend.status()).toBe(FORBIDDEN)
-  expect(await spend.json()).toEqual({ type: "codes_only" })
   await setMode(request, "open")
   expect((await request.post(`${MOCK}/api/invoice`, { data: { kind: "name" } })).status(), "open mode takes the order to its checks").not.toBe(FORBIDDEN)
 })
@@ -237,23 +232,14 @@ test("a code taken off on Check your order leaves the code field in place of pay
   await page.waitForURL(/\?registration=/)
 })
 
-test("an order paid before codes only shows no new invoice or balance to spend, only Register with code and the refund", async ({ page, request }) => {
+test("an order paid before codes only shows no new invoice or other name, only Register with code and the refund", async ({ page, request }) => {
   const label = uniqueLabel("was")
   const { invoiceId } = await takenOrder(page, request, label)
   const expired = await startOrder(page, uniqueLabel("exp"), { method: "btc" })
   await control(request, `expire/${expired.invoiceId}`)
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
-  // the tab was paying with the taken order's balance
-  await page.goto(`/?order=${invoiceId}`)
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(chip(page)).toContainText("Balance")
 
   await setMode(request, "codes")
-  await page.reload()
-  await expect(chip(page)).toBeHidden()
-  await expect(page.locator("body > header").getByRole("link", { name: "Check your code" })).toBeVisible()
-  await expect(nameField(page), "the balance opens no search").toBeDisabled()
-
   await page.goto(`/?order=${invoiceId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex was taken` })).toBeVisible()
   await expect(onStep(page).getByText("What you paid is kept as your balance. You can ask for a refund. Your names shows the balance.")).toBeVisible()

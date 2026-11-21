@@ -155,18 +155,8 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect((await refusal(name, () => api.registerWithCode(order, "code", chainId()))).code).toBe(code)
   })
 
-  it("reads a spend refused for its balance with the balance now, and for its price with the price now", async () => {
-    const spending = { ...order, price: 1, balance: 1 }
-    const e = await refusal("spend-balance-changed", () => api.spend("r1", spending, chainId()))
-    expect(e).toBeInstanceOf(api.BalanceChanged)
-    expect((e as api.BalanceChanged).balance).not.toBeNull()
-    const price = await refusal("spend-catalog-changed", () => api.spend("r1", spending, chainId()))
-    expect([price.code, price.body.price]).toEqual(["catalog_changed", 10000])
-  })
-
-  it.each([["move-limit", "move_limit"], ["move-registration-changed", "registration_changed"]])("reads the move refusal %s as %s with the order as it reads now", async (name, code) => {
-    const e = await refusal(name, () => api.retarget("r1", order, chainId()))
-    expect([e.code, api.changedView(e)?.id]).toEqual([code, "registration"])
+  it.each([["move-limit", "move_limit"], ["move-registration-changed", "registration_changed"]])("reads the move refusal %s as %s", async (name, code) => {
+    expect((await refusal(name, () => api.retarget("r1", order, chainId()))).code).toBe(code)
   })
 
   it("reads a move to a dearer name with its price", async () => {

@@ -991,9 +991,9 @@ test("an overpaid invoice registers its name, even where the service reads its d
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
-const KEPT_LATE = "kept as your balance for this name or another, or refunded on request; Your names shows it."
+const KEPT_LATE = "kept as your balance, or refunded on request; Your names shows it."
 
-test("a part payment on a closed invoice, once credited, says so and gets an invoice for the rest of the same name in the main button's place", async ({ page, request }) => {
+test("a part payment on a closed invoice, once credited, says so and gets an invoice for the whole price of the same name in the main button's place", async ({ page, request }) => {
   const label = uniqueLabel("rest")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `partial/${invoiceId}`)
@@ -1005,30 +1005,28 @@ test("a part payment on a closed invoice, once credited, says so and gets an inv
   await expect(page.getByText(`0.00078 BTC arrived, which is not the full amount. It is ${KEPT_LATE}`)).toBeVisible()
   await expect(actions.locator(".btn"), "one main action").toHaveText(["Get a new invoice"])
   expect(await actions.locator(".btn").boundingBox(), "the main button stays where it was").toEqual(place)
-  await expect(actions.locator(".alt a")).toHaveText(["Choose another name", "Get a refund"])
+  await expect(actions.locator(".alt a")).toHaveText(["Get a refund"])
   await shot(page, "N4g-part-credited")
   await actions.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
   const invoice = async (id: string) => (await request.get(`${MOCK}/api/invoice/${id}`)).json()
-  const [closed, rest] = [await invoice(invoiceId), await invoice(second)]
-  expect([rest.amount, rest.registration.price, rest.registration.payment.fromBalance, rest.registration.labelHash], "the difference, for the same name")
-    .toEqual([5000, 10000, 5000, closed.registration.labelHash])
+  const [closed, whole] = [await invoice(invoiceId), await invoice(second)]
+  expect([whole.amount, whole.registration.price, whole.registration.payment, whole.registration.labelHash], "the whole price, for the same name")
+    .toEqual([10000, 10000, { type: "invoice", method: "btc" }, closed.registration.labelHash])
   await control(request, `settle/${second}`)
   await waitRegistered(page, label)
 })
 
-test("a whole payment after the close, once credited, says so and registers the same name with the balance", async ({ page, request }) => {
+test("a whole payment after the close, once credited, says so and offers a new invoice beside the refund", async ({ page, request }) => {
   const label = uniqueLabel("whole")
   const { invoiceId } = await startOrder(page, label, { method: "xmr" })
   await control(request, `expire/${invoiceId}`)
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByText(`The payment arrived after this invoice had closed, so nothing was registered. It is ${KEPT_LATE}`)).toBeVisible()
   await expect(onStep(page).getByText(/Once confirmed|not the full amount/)).toHaveCount(0)
-  await expect(onStep(page).locator(".actions-row .alt a")).toHaveText(["Choose another name", "Get a refund"])
-  await onStep(page).getByRole("button", { name: "Register with your balance" }).click()
-  await page.waitForURL(/\?registration=/)
-  await waitRegistered(page, label)
+  await expect(onStep(page).locator(".actions-row .alt a")).toHaveText(["Get a refund"])
+  await expect(onStep(page).getByRole("button", { name: "Get a new invoice" })).toBeVisible()
 })
 
 const INVOICE_EXPIRED = "The invoice expired before the full amount arrived. Don't send more; what you sent is kept as your balance."

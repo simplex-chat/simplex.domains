@@ -1,4 +1,4 @@
-// Contract Appendix C: the order, name and spend messages with `terms`, as the service records them in its vectors. The
+// Contract Appendix C: the order and name messages with `terms`, as the service records them in its vectors. The
 // page's message format is checked against them, and its builders sign the same inputs, which only the same message bytes
 // give the same signatures for.
 import { readFileSync } from "node:fs"
@@ -16,7 +16,7 @@ const ENTROPY = fromHex("6f2d1c9a4b7e3f80d15a2c6e9b04f7a3")
 const WALLET = walletFromEntropy(ENTROPY)
 const OWNER_CODE = "SN-DWPHS-6JBFR-ZR1MA-T5HQ9-P17QM-F5GM5"
 
-type Kind = "order" | "name" | "spend"
+type Kind = "order" | "name"
 type Vector = { kind: Kind; terms: string; text: string; digest: Hex; signature: Hex }
 interface Recorded {
   owner: string
@@ -33,7 +33,7 @@ const VECTORS: Vector[] = (RECORDED?.messages ?? []).flatMap((m) => m.kind === "
 const PLAIN = VECTORS.find((v) => !v.terms.startsWith("community/"))?.terms ?? ""
 
 // The contract's formats: `simplex.domains order <labelHash> <length> <duration> <commitment> <sha256(sealed)> <terms> <timestamp>`,
-// and for name and spend the registration id after the kind.
+// and for name the registration id after the kind.
 function messageText(kind: Kind, terms: string): string {
   const fields = `${LABEL_HASH} ${LABEL.length} ${DURATION} ${COMMITMENT} ${SEALED_HASH} ${terms} ${TIMESTAMP}`
   return kind === "order" ? `simplex.domains order ${fields}` : `simplex.domains ${kind} ${REGISTRATION_ID} ${fields}`
@@ -106,7 +106,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
       sent.push(body)
       return new Response(JSON.stringify({
         id: REGISTRATION_ID, version: 2, moves: 1, phase: { type: "queued" }, label: null, owner: OWNER, years: YEARS, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null,
-        latePayment: null, commitTx: null, registerTx: null, linksRefused: null, community: null, ...body.fields as Record<string, unknown>,
+        latePayment: null, commitTx: null, registerTx: null, community: null, ...body.fields as Record<string, unknown>,
       }), { status: 200 })
     })
     vi.resetModules()
@@ -140,13 +140,5 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     const { reveal, ...name } = sent[0]
     expect(name).toEqual({ fields: { labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, terms: agreed }, timestamp: TIMESTAMP, signature: vector("name", terms).signature })
     expect(reveal).toMatchObject({ label: LABEL })
-  })
-
-  it.each(TERMS)("spend with terms %s", async (terms) => {
-    const { flow } = await builders()
-    const source = { registrationId: REGISTRATION_ID, ownerCode: OWNER_CODE }
-    const { spend: { reveal, ...spend } } = await flow.spendRequest(source, flow.spendDraft(source, LABEL, NO_LINKS, { ...quote, ...CHAIN, termStart: TERM_START }, terms), 10000, 20000, "btc")
-    expect(reveal.label).toBe(LABEL)
-    expect(spend).toEqual({ labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, price: 10000, balance: 20000, terms, timestamp: TIMESTAMP, signature: vector("spend", terms).signature })
   })
 })

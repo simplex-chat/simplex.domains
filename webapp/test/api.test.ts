@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
+  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, TermsChanged,
   communityAgreed, readerUrl, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
@@ -269,8 +269,8 @@ describe("service errors", () => {
 
   const REGISTRATION = {
     id: "r1", version: 4, moves: 0, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
-    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, linksRefused: null, latePayment: null,
-    community: null, terms: { communityName: false, termsHash: TERMS.hash }, lastAttempt: null,
+    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, latePayment: null,
+    community: null, terms: { communityName: false, termsHash: TERMS.hash },
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -291,7 +291,7 @@ describe("service errors", () => {
   it("takes an overpaid invoice's negative due as nothing left to pay, from every request that answers an invoice", async () => {
     const overpaid = { ...INVOICE, cryptoAmountPaid: "0.00256", cryptoAmountDue: "-0.001", paidInFull: true }
     const reads: [string, () => Promise<unknown>][] = [
-      ["a read", () => readInvoice("inv1")], ["a cancel", () => cancelInvoice("inv1")], ["a spend", () => spend("r1", SPEND, 31337)],
+      ["a read", () => readInvoice("inv1")], ["a cancel", () => cancelInvoice("inv1")],
     ]
     for (const [name, read] of reads) {
       answerWith(200, JSON.stringify(overpaid))
@@ -304,20 +304,7 @@ describe("service errors", () => {
     }
   })
 
-  const BALANCE = { amount: 10000, hold: { type: "open", heldUntil: "2026-10-16T12:00:00Z" }, refunded: 2500 }
-
-  it("passes an order's last failed attempt, and takes one it cannot read as no answer", async () => {
-    const attempt = { transaction: "register", stage: "dryRun", reason: "NameTooShort", at: "2026-10-16T12:00:00Z" }
-    for (const lastAttempt of [attempt, null, undefined]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, lastAttempt }))
-      expect((await readRegistration("r1")).lastAttempt, JSON.stringify(lastAttempt)).toEqual(lastAttempt)
-    }
-    for (const lastAttempt of ["NameTooShort", {}, { ...attempt, reason: 5 }]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, lastAttempt }))
-      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(lastAttempt)).toBe("network")
-    }
-  })
+  const BALANCE = { amount: 10000, refunded: 2500 }
 
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {
@@ -350,77 +337,21 @@ describe("service errors", () => {
     }
   })
 
-  it("passes find's paying order and holder of each order, and takes a malformed one as no answer", async () => {
-    const entry = { registrationId: "r2", invoiceId: null, phase: "unpaid", createdAt: "2026-10-16T12:00:00Z", labelHash: "0x01", sealed: "s", balanceSource: "r1", heldBy: null }
-    answerWith(200, JSON.stringify({ registrations: [entry] }))
-    expect((await findRegistrations("0xowner", 1, "0x")).registrations).toEqual([entry])
-    for (const change of [{ balanceSource: undefined }, { heldBy: 5 }]) {
-      answerWith(200, JSON.stringify({ registrations: [{ ...entry, ...change }] }))
-      const e = await findRegistrations("0xowner", 1, "0x").then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
-    }
-  })
-
-  it("passes an order's balance and what a balance paid of it, and takes either malformed as no answer", async () => {
-    const difference = { type: "difference", method: "btc", fromBalance: 4000 }
-    for (const [payment, balance] of [[difference, BALANCE], [{ type: "balance", fromBalance: 10000 }, { ...BALANCE, hold: { type: "funded" } }], [{ type: "code" }, { ...BALANCE, hold: null }]]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, payment, balance }))
-      expect(await readRegistration("r1"), JSON.stringify(payment)).toMatchObject({ payment, balance })
+  it("passes an order's balance and how it was paid, and takes either malformed as no answer", async () => {
+    for (const payment of [{ type: "invoice", method: "btc" }, { type: "code" }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, payment, balance: BALANCE }))
+      expect(await readRegistration("r1"), JSON.stringify(payment)).toMatchObject({ payment, balance: BALANCE })
     }
     for (const change of [
-      { payment: undefined }, { payment: { type: "invoice" } }, { payment: { type: "invoice", method: "eth" } }, { payment: { ...difference, fromBalance: -1 } },
+      { payment: undefined }, { payment: { type: "invoice" } }, { payment: { type: "invoice", method: "eth" } },
       { payment: { type: "balance" } }, { payment: { type: "gift" } }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
-      { balance: { ...BALANCE, hold: undefined } }, { balance: { ...BALANCE, hold: { type: "open" } } }, { balance: { ...BALANCE, hold: { type: "open", heldUntil: 5 } } },
-      { balance: { ...BALANCE, hold: { type: "overdue", heldUntil: "2026-10-16T12:00:00Z" } } }, { balance: { ...BALANCE, refunded: null } },
-      { linksRefused: undefined }, { linksRefused: "no" }, { latePayment: undefined }, { latePayment: {} }, { latePayment: "later" },
+      { balance: { ...BALANCE, refunded: null } },
+      { latePayment: undefined }, { latePayment: {} }, { latePayment: "later" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
     }
-  })
-
-  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: TERMS.hash.slice(2), timestamp: 1, signature: "0x", reveal: REVEAL }
-  const SPEND_SENT = {
-    signed: {
-      fields: { labelHash: SPEND.labelHash, length: 8, duration: SPEND.duration, commitment: SPEND.commitment, sealed: "sealed", terms: { communityName: false, termsHash: TERMS.hash } },
-      timestamp: 1, signature: "0x",
-    },
-    price: 20000, balance: 10000, method: "btc", reveal: REVEAL,
-  }
-
-  it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
-    const fetched = vi.fn(async () => new Response(JSON.stringify({ registrationId: "r2" }), { status: 200 }))
-    vi.stubGlobal("fetch", fetched)
-    expect(await spend("r/1", SPEND, 31337)).toEqual({ registrationId: "r2" })
-    const [path, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
-    expect([path, init.method, JSON.parse(String(init.body))]).toEqual(["/api/registration/r%2F1/spend", "POST", SPEND_SENT])
-    const invoice = { ...INVOICE, amount: 10000, registration: { ...REGISTRATION, price: 20000, payment: { type: "difference", method: "btc", fromBalance: 10000 } } }
-    answerWith(200, JSON.stringify(invoice))
-    expect(await spend("r1", SPEND, 31337)).toEqual(invoice)
-    for (const body of [{}, { registrationId: 5 }, { ...invoice, registration: undefined }, { registrationId: "r2", invoiceId: "inv1" }]) {
-      answerWith(200, JSON.stringify(body))
-      const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(body).slice(0, 80)).toBe("network")
-    }
-  })
-
-  it("gives a refusal for a changed balance the balance as it is now, or null, and takes one it cannot read as no answer", async () => {
-    for (const balance of [BALANCE, null]) {
-      answerWith(409, JSON.stringify({ type: "balance_changed", balance }))
-      const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-      expect(e, JSON.stringify(balance)).toBeInstanceOf(BalanceChanged)
-      expect(e).toMatchObject({ code: "balance_changed", status: 409, balance })
-    }
-    for (const body of [{ type: "balance_changed" }, { type: "balance_changed", balance: { amount: "lots" } }]) {
-      answerWith(409, JSON.stringify(body))
-      const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
-    }
-    answerWith(409, JSON.stringify({ type: "order_exists" }))
-    const other = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-    expect(other).not.toBeInstanceOf(BalanceChanged)
-    expect((other as ApiError).code).toBe("order_exists")
   })
 
   it("holds a poll on the registration's version and the payment marks it has seen", async () => {
@@ -554,7 +485,6 @@ describe("service errors", () => {
       ["an order", () => createOrder(ORDER, "btc", 10000, 31337)],
       ["a code order", () => registerWithCode(ORDER, "SN6-X", 31337)],
       ["a move", () => retarget("r1", ORDER, 31337)],
-      ["a spend", () => spend("r1", { ...SPEND, terms: ORDER.terms }, 31337)],
     ]
 
     it.each(SENDS)("sends %s with the terms the buyer agreed to and the reveal", async (_, send) => {
@@ -563,7 +493,7 @@ describe("service errors", () => {
       await send().catch(() => undefined)
       const [, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
       const body = JSON.parse(String(init.body))
-      expect((body.order ?? body.signed ?? body).fields.terms).toEqual({ communityName: true, termsHash: COMMUNITY_TERMS.hash })
+      expect((body.order ?? body).fields.terms).toEqual({ communityName: true, termsHash: COMMUNITY_TERMS.hash })
       expect(body.reveal).toEqual(REVEAL)
     })
 

@@ -7,10 +7,9 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, movable, supportCase, type SupportCase, newInvoiceBy, spendCovers, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, sameStep, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
+  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
-import { heldWords } from "../screens/balance.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import type { LinkKind } from "../names.ts"
@@ -26,7 +25,7 @@ import { loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
   asStep, type Builder, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
-  searchLink, showRefund, useBalance, whenDropped, whenLeaving,
+  searchLink, showRefund, whenDropped, whenLeaving,
 } from "./shell.ts"
 
 // the count stays with its word on one line; a payment taken on first sight waits for no confirmation at all
@@ -120,7 +119,6 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
   // siblings that could not be read are asked again even when the order's own answer has not changed
   let again = false
   let codeChecked = false
-  let sourceRead = false
   let unreadReads = 0
   let status: api.Found["type"] | null | undefined
   // forgetting the last answer makes the next read answer at once
@@ -216,11 +214,6 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       record = { ...record, cardSubmittedAt: undefined }
     }
     record = (record && store.orderByRegistration(record.registrationId)) ?? record
-    // links refused at another browser's reveal are kept with this browser's record, which a move then leaves out
-    if (record && view.linksRefused && !record.linksRefused) {
-      store.updateOrder(record.registrationId, { linksRefused: true })
-      record = { ...record, linksRefused: true }
-    }
     const recorded = JSON.stringify(record ?? null)
     if (answered !== drawn || recorded !== drawnRecord) {
       drawn = answered
@@ -230,13 +223,6 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
         if (!isRoute(mine)) return
       }
       dispatch({ type: "answered", seq, now: api.serviceNow(), invoice, view, record: record ?? null, cardSubmittedAt: cardSubmittedAt(invoice, record), nameStatus: status ?? null })
-    }
-    // a closed order that a balance paid part of reads that balance once, for what its new invoice will pay
-    if (!sourceRead && closedCase(state) !== null && record?.balanceSource) {
-      sourceRead = true
-      const balance = await api.readRegistration(record.balanceSource).then((v) => v.balance, () => null)
-      if (!isRoute(mine)) return
-      dispatch({ type: "source-read", balance })
     }
     // A failed order is drawn before its code is checked, saying nothing of the code until the check answers; a rate
     // limit is waited out, counting down, as often as it is met.
@@ -303,7 +289,7 @@ async function adoptSibling(view: api.RegistrationView, invoice: api.InvoiceView
   const next = closed ? await nextOrder(view, invoice) : undefined
   const record: store.OrderRecord = { ...sibling, registrationId: view.id, invoiceId: invoice.invoiceId,
     method: invoice.cryptoCurrency ?? "card", paid: view.price,
-    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, balanceSource: undefined, replacedBy: next && store.orderUrl(next),
+    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, replacedBy: next && store.orderUrl(next),
     // a replaced invoice came just before its replacement; otherwise the code asks the service when the order was made,
     // which a later search for a newer order compares against
     createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : await flow.createdAtOf(sibling, view.id).catch(() => null) ?? new Date(api.serviceNow()).toISOString() }
@@ -328,14 +314,6 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
-    // links the service refuses are in the commitment, so signing again cannot fix them: the order has to move
-    if (e instanceof api.ApiError && e.code === "invalid_link") {
-      store.updateOrder(record.registrationId, { linksRefused: true })
-      // the record is changed first, so the reveal's end does not send it again
-      if (isRoute(pageRoute) && state.reference === reference) dispatch({ type: "record-changed", record: { ...record, linksRefused: true }, cardSubmittedAt: state.cardSubmittedAt })
-      dispatch({ type: "reveal-failed", key })
-      return
-    }
     const refused = e instanceof api.ApiError && e.code === "bad_request"
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
@@ -430,12 +408,10 @@ const UNKNOWN_NAME = "The name shows once it is registered"
 
 // what the order is for and what it cost, after its name where the screen has not said it already
 function termLine({ view, invoice }: OrderState): Kid[] {
-  const paid = costOf(view!, invoice)
+  const cost = costOf(view!, invoice)
   const years = api.termYears(view!.community, view!.years)
-  if (!paid) return [el("span", { class: "nowrap" }, `${years} years`), SEP, "With a code"]
-  const { cost, fromBalance } = paid
-  return [el("span", { class: "nowrap" }, `${dollars(cost)} / ${years} years`),
-    fromBalance ? [SEP, el("span", { class: "nowrap" }, fromBalance === cost ? "Paid from your balance" : `${dollars(fromBalance)} from your balance`)] : null]
+  if (cost === null) return [el("span", { class: "nowrap" }, `${years} years`), SEP, "With a code"]
+  return [el("span", { class: "nowrap" }, `${dollars(cost)} / ${years} years`)]
 }
 
 // the order in one line, the lead of each screen that pays or registers it
@@ -452,7 +428,7 @@ let instead: { invoiceId: string; had: string; chosen: string } | null = null
 export const openedInstead = (opened: typeof instead) => { instead = opened }
 const methodWord = (method: string) => method === "card" ? "card" : methodName(method)
 const insteadWords = (invoice: api.InvoiceView) => instead?.invoiceId !== invoice.invoiceId ? null
-  : `This name already has a ${methodWord(instead.had)} invoice from an earlier try, so it opened instead of ${instead.chosen === "code" ? "using your code" : instead.chosen === "balance" ? "using your balance" : `a new ${methodWord(instead.chosen)} one`}.`
+  : `This name already has a ${methodWord(instead.had)} invoice from an earlier try, so it opened instead of ${instead.chosen === "code" ? "using your code" : `a new ${methodWord(instead.chosen)} one`}.`
 const insteadLine = (invoice: api.InvoiceView) => {
   const words = insteadWords(invoice)
   return words && el("p", { class: "note" }, words)
@@ -730,11 +706,11 @@ function cardStandIn(form: HTMLElement): void {
 const withoutRecord = (cls: string, text = "Enter your name code") => btn(text, cls, () => go(CODE_FROM_ORDER_URL))
 // in codes-only mode a prepaid code is the only way to a name: nothing here orders or pays again
 const codeAction = () => btn("Register with code", "", () => go(CODE_URL))
-// a page opened before the service took codes only, refused a new invoice or a spend
+// a page opened before the service took codes only, refused a new invoice
 const CODES_ONLY_NOTE: Note = { tone: "warn", icon: "key", title: CODES_ONLY_TITLE, text: "Nothing was charged. ", link: { text: "Enter a code", href: CODE_URL, after: "." } }
 
 const CLOSED_TITLE = "Invoice closed"
-const KEPT_LATE = "kept as your balance for this name or another, or refunded on request; Your names shows it."
+const KEPT_LATE = "kept as your balance, or refunded on request; Your names shows it."
 const partlyPaid = (invoice: api.InvoiceView) => Number(invoice.cryptoAmountPaid ?? "0") > 0
 
 function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
@@ -744,10 +720,10 @@ function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
     action: btn("Search a name", "quiet", () => go(searchLink(""))) })
   const [tone, text] = closedWords(closed, inv, s.view!)
   const kept = closedBalance(s)
-  // only a new invoice is held for the tab's wait; the balance kept pays for one of the same name
+  // only a new invoice is held for the tab's wait
   const reorders = !codesOnly() && (kept === "offer" || ((closed === "received" || closed === "expired") && s.record !== null && !s.record.replacedBy))
   holdEnds(signal)(s.hold !== null)
-  const replaced = kept === "replaced" ? el("p", { class: "note" }, "What reached this invoice is kept as your balance: you can cancel the new invoice and use the balance instead.") : null
+  const replaced = kept === "replaced" ? el("p", { class: "note" }, "What reached this invoice is kept as your balance.") : null
   return outcome({ tone, icon: "alert", title: CLOSED_TITLE, text, reference: inv.invoiceId,
     extra: [replaced, actionNote(s, reorders ? signal : null)], agreement: reorders ? agreement(s, "reorder") : null,
     ...kept === "offer" ? balanceActions(s, newInvoiceButton(s, "", reorder)) : { action: closedAction(s, closed) } })
@@ -778,24 +754,11 @@ function termsOrAsk(gen: number, record: store.OrderRecord, signed: string | nul
   return terms
 }
 
-async function signsHere(record: store.OrderRecord, invoice: api.InvoiceView): Promise<boolean> {
-  const by = newInvoiceBy(record, invoice)
-  if (by === "order") return true
-  const source = await sourceOf(by, record, invoice)
-  return source != null && await balanceOf(source) !== null
-}
-
-// the order whose balance a new invoice of a closed one spends
-async function sourceOf(by: "spend" | "find" | "own", record: store.OrderRecord, invoice: api.InvoiceView): Promise<string | null | undefined> {
-  if (by === "own") return invoice.registration.id
-  return by === "find" ? await flow.balanceSourceOf(record) : record.balanceSource
-}
-
 // nothing is cancelled before the buyer has agreed to the terms the new invoice would sign
 async function agreedFirst(gen: number, record: store.OrderRecord, invoice: api.InvoiceView): Promise<boolean> {
   try {
     const quote = await flow.quoteOf(record.label)
-    if (!quote || !await signsHere(record, invoice)) return true
+    if (!quote) return true
     return termsOrAsk(gen, record, api.signedTermsOf(invoice.registration.terms), quote) !== null
   } catch (e) {
     if (!holdOn(e, "The invoice is still open. ", gen)) {
@@ -839,38 +802,29 @@ function closedAction(s: OrderState, closed: ClosedCase): HTMLButtonElement {
   return newInvoiceButton(s, closed === "received" && !record.cancelled ? "quiet" : "", reorder)
 }
 
-// The balance that paid part of an order, as its own order reads now; null when none is left.
-async function balanceOf(source: string): Promise<session.AppliedBalance | null> {
-  return session.appliedBalance(source, (await api.readRegistration(source)).balance)
-}
-
-// A cancelled order is ordered again on Check your order, with the same name code, saved already, the same links, and
-// the balance that paid part of it, if any is left.
+// A cancelled order is ordered again on Check your order, with the same name code, saved already, and the same links.
 async function orderAgain(record: store.OrderRecord): Promise<void> {
   const gen = opened
   dispatch({ type: "reorder-started" })
   let quote: Awaited<ReturnType<typeof flow.quoteOf>>
-  let balance: session.AppliedBalance | null
   try {
     quote = await flow.quoteOf(record.label)
-    balance = record.balanceSource ? await balanceOf(record.balanceSource) : null
   } catch (e) {
     if (holdOn(e, "Nothing was charged. ", gen)) return
     return answer(gen, { type: "reorder-failed", note: termsUnavailable(e) ? noOrders("Nothing was charged. ") : warning("The name could not be checked now. Try again in a moment.") })
   }
   if (!isOpen(gen)) return
   if (!quote) return go(searchLink(record.label))
-  if (balance) session.setActiveBalance(balance)
   session.setCheckout({
     label: record.label, price: quote.price, years: quote.years, termStart: readSite().termStart, chain: flow.chainOf(readSite()), contact: record.contact, channel: record.channel,
     terms: quote.terms, community: quote.community,
-    method: record.method === "code" || record.method === "balance" ? "btc" : record.method, code: null, balance, ownerCode: record.ownerCode, saved: true, agreed: false, searchAt: historyPlace(), step: "review",
+    method: record.method === "code" ? "btc" : record.method, code: null, ownerCode: record.ownerCode, saved: true, agreed: false, searchAt: historyPlace(), step: "review",
   })
   go(checkoutUrl("review"))
 }
 
 function newInvoiceButton(s: OrderState, cls: string, get: () => void): HTMLButtonElement {
-  const again = setAction(btn(spendCovers(s) ? "Register with your balance" : "Get a new invoice", cls, get), s.busy === "reorder", s.hold !== null || unagreed(s))
+  const again = setAction(btn("Get a new invoice", cls, get), s.busy === "reorder", s.hold !== null || unagreed(s))
   again.dataset.focus = "reorder"
   return again
 }
@@ -1017,16 +971,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
       if (isOpen(gen)) go(searchLink(record.label))
       return
     }
-    // part of the price came from a balance, which pays again, or money on the invoice became the order's own; a browser
-    // that adopted the order asks find which balance
-    const by = newInvoiceBy(record, now)
     const signed = api.signedTermsOf(now.registration.terms)
-    if (by !== "order") {
-      const source = await sourceOf(by, record, now)
-      if (source) return await spendAgain(record, source, quote, gen, method, signed)
-      if (isOpen(gen)) go(searchLink(record.label))
-      return
-    }
     const terms = termsOrAsk(gen, record, signed, quote)
     if (terms === null) return
     const built = await flow.orderRequest(flow.draftAgain(record, quote, terms))
@@ -1050,7 +995,6 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     if (e instanceof api.ApiError && e.code === "catalog_changed" && typeof e.body.price === "number") return dispatch({ type: "price-changed", price: e.body.price })
     if (e instanceof api.TermsChanged) return askTerms(gen, record.label, e, true)
     if (termsUnavailable(e)) return dispatch({ type: "reorder-failed", note: noOrders("Nothing was charged. ") })
-    if (e instanceof api.BalanceChanged) return dispatch({ type: "reorder-failed", note: warning("Your balance changed meanwhile. Nothing was charged. Try again.") })
     if (e instanceof api.ApiError && e.code === CODES_ONLY) {
       loadNextRouteAfresh()
       return dispatch({ type: "reorder-failed", note: CODES_ONLY_NOTE })
@@ -1062,37 +1006,6 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     if (holdOn(e, "Nothing was charged. ", gen)) return
     dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: "That did not go through", text: "Nothing was charged. Try again in a moment." } })
   }
-}
-
-// An invoice for the rest of a price that a balance paid part of is made again by a new spend of that balance as it is
-// now; once the balance is spent or refunded, the name's search opens instead, with the name's price.
-async function spendAgain(record: store.OrderRecord, source: string, quote: flow.Quote, gen: number, method: api.Method, signed: string | null | undefined): Promise<void> {
-  const read = (await api.readRegistration(source)).balance
-  const balance = session.appliedBalance(source, read)
-  if (!isOpen(gen)) return
-  if (!balance) return go(searchLink(record.label))
-  // a balance grown to the price since the button was labelled registers the name: the button says so first, for a second press
-  if (!balance.held && balance.amount >= quote.price && !spendCovers(state)) return dispatch({ type: "source-read", balance: read })
-  // the balance's order has the same name code as this one, which signs the spend
-  const paying = { registrationId: source, ownerCode: record.ownerCode }
-  if (balance.held) {
-    // an earlier press whose answer was lost made the order that holds it, which is this name's new invoice
-    const holder = await flow.balanceHolder(paying).catch(() => null)
-    if (!isOpen(gen)) return
-    if (holder && holder.registrationId !== record.registrationId && holder.label === record.label) return replacedWith(record, store.orderUrl(holder), gen)
-    const by = holder ? `${holder.label}.${holder.tld}` : "another order"
-    return dispatch({ type: "reorder-failed", note: warning(`Your balance is in use by ${by} ${heldWords(balance.heldUntil)}. Nothing was charged.`) })
-  }
-  const terms = termsOrAsk(gen, record, signed, quote)
-  if (terms === null) return
-  const next = await flow.spendBalance(paying, record.label, { contact: record.contact, channel: record.channel }, { ...quote, ...readSite() }, balance.amount, method, terms)
-  replacedWith(record, store.orderUrl(next), gen)
-}
-
-// the old record leads to the order that replaced it, which opens
-function replacedWith(record: store.OrderRecord, url: string, gen: number): void {
-  store.updateOrder(record.registrationId, { replacedBy: url })
-  if (isOpen(gen)) go(url)
 }
 
 type StageState = "done" | "active" | "failed" | ""
@@ -1204,21 +1117,6 @@ function onTheSecond(left: () => number, f: () => void, signal: AbortSignal): vo
   next()
 }
 
-// The order cannot register with the links it committed to, waiting to be signed or failed since; it moves to the same
-// name without them, or to another name.
-function buildLinksRefused(s: OrderState, signal: AbortSignal): HTMLElement {
-  const view = s.view!
-  const move = setAction(btn("Register without links", "", () => void moveWithoutLinks()), s.busy === "move", s.hold !== null || unagreed(s))
-  move.dataset.focus = "move"
-  holdEnds(signal)(s.hold !== null)
-  const title = view.phase.type === "failed" ? s.invoice ? "Paid, not registered" : "Not registered" : headingOf(s)
-  return screen({ title, lead: orderLine(s), action: move, alt: link("Choose another name", () => go(`/#/?retarget=${view.id}`)) },
-    alertBox("warn", "alert", REFUSED_LINK[view.linksRefused ?? "contact"], REPLACE_LINK),
-    actionNote(s, signal),
-    referenceLine(s.invoice?.invoiceId ?? view.id),
-    agreement(s, "move"))
-}
-
 export const REFUSED_LINK: Record<LinkKind, string> = {
   contact: "The contact link is not a SimpleX short link to a contact.",
   channel: "The channel link is not a SimpleX short link to a channel.",
@@ -1229,33 +1127,6 @@ export const REPLACE_LINK = "Replace or remove it to register the name."
 // what a move refused for good says: the service bounds how often an order moves, and support settles it from there
 export const moveLimitNote = (reference: string): Note => ({ tone: "warn", icon: "alert", title: "This order cannot move again",
   text: "", link: { support: reference } })
-
-async function moveWithoutLinks(): Promise<void> {
-  if (unagreed(state)) return
-  const gen = opened
-  const record = state.record!
-  const view = state.view!
-  const reference = state.invoice?.invoiceId ?? view.id
-  dispatch({ type: "move-started" })
-  try {
-    const ask = state.ask?.label === record.label && ticked(state.ask) ? state.ask : null
-    const terms = ask ? api.currentTerms(ask) : api.signedTermsOf(view.terms)
-    await flow.retargetOrder(record, record.label, { contact: "", channel: "" }, { community: ask ? ask.community : view.community }, terms)
-    reread(gen)
-  } catch (e) {
-    if (holdOn(e, "Nothing changed. ", gen)) return
-    const limit = e instanceof api.ApiError && e.code === "move_limit"
-    if (e instanceof api.TermsChanged) return askTerms(gen, record.label, e, true)
-    const now = e instanceof api.ApiError && e.code === "registration_changed" ? api.changedView(e) : null
-    if (now && !sameStep(view, now)) {
-      answer(gen, { type: "answered", seq: ++reads, now: api.serviceNow(), invoice: state.invoice && { ...state.invoice, registration: now },
-        view: now, record: state.record, cardSubmittedAt: state.cardSubmittedAt, nameStatus: state.nameStatus })
-      return answer(gen, { type: "move-failed", note: null })
-    }
-    answer(gen, { type: "move-failed", note: limit ? moveLimitNote(reference) : termsUnavailable(e) ? noOrders("Nothing changed. ") : warning("That did not go through. Nothing changed. Try again in a moment.") })
-    if (now) reread(gen)
-  }
-}
 
 function buildNotOnDevice({ view, invoice }: OrderState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser",
@@ -1301,18 +1172,18 @@ function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HT
     reference: view.id })
 }
 
-// A paid order taken first keeps what it is worth as its balance, which pays for another name of its code, or which
-// support refunds; only the browser holding the code spends it. One spent or refunded since says so.
+// A paid order taken first keeps what it is worth as its balance, which moves with the order to another name of its code,
+// or which support refunds; only the browser holding the code does either. One refunded since says so.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!
-  if (!invoice && api.fromBalanceOf(view) === 0) return buildTakenWithCode(s)
+  if (!invoice) return buildTakenWithCode(s)
   const label = labelOf(view, record)
-  const balance = session.appliedBalance(view.id, view.balance)
-  const uses = codesOnly() ? " You can ask for a refund." : " Choose another name and pay only the difference, or ask for a refund."
+  const balance = view.balance?.amount ? view.balance : null
+  const uses = codesOnly() ? " You can ask for a refund." : " Choose another name, or ask for a refund."
   const note = balance || view.balance === null
     ? el("div", { class: "notice plain" }, el("b", {}, "What you paid is kept as your balance."), uses, " Your names shows the balance.")
-    : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been spent or refunded since; Your names shows it.")
+    : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been refunded since; Your names shows it.")
   const reserved = s.nameStatus === "reserved"
   const title = label ? [gradName(label, readSite().tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
   return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : api.takenByOrder(view) ? "Another buyer paid for it first." : "Someone registered it before your order could.",
@@ -1325,31 +1196,28 @@ function buildTaken(s: OrderState): HTMLElement {
 
 const REFUND = "refund"
 
-// An order's balance pays for another name of its code, or the same name when `same` gets its invoice, or support refunds it
-// while no open invoice holds it; only the browser holding the code does any. Without a balance left, another name is
-// searched as usual.
+// A taken order with its balance left moves to another name of its code, and a closed one gets a new invoice for its own
+// name from `same`; support refunds the balance. Only the browser holding the code does either. Without a balance left,
+// another name is searched as usual.
 function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
-  const balance = session.appliedBalance(view!.id, view!.balance)
-  const another = () => balance ? useBalance(balance) : go(searchLink(""))
-  const refund = record && balance && !balance.held ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
+  const balance = view!.balance?.amount ? view!.balance : null
+  const another = () => go(balance ? `/#/?retarget=${view!.id}` : searchLink(""))
+  const refund = record && balance ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
   refund?.setAttribute("data-focus", REFUND)
   refund?.setAttribute("aria-haspopup", "dialog")
   if (codesOnly()) return { action: codeAction(), alt: refund }
   if (!same) return { action: setAction(btn("Choose another name", "", another), false, record === null), alt: refund }
-  return { action: same, alt: el("span", {}, link("Choose another name", another), refund && SEP, refund) }
+  return { action: same, alt: refund }
 }
 
 function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   const { view: failed, invoice } = s
   const view = failed!
-  // a code refused for good leaves no other name to move to, so the page offers another search as the other endings do
-  const another = setAction(btn("Choose another name", "", () => go(`/#/?retarget=${view.id}`)), false, s.hold !== null)
-  another.dataset.focus = "move"
   const settled = supportCase(s)
   const continued = setAction(btn("Continue", "", () => void continueOrder()), s.busy === "move", s.hold !== null)
-  // links the service refused, or a failure another name can register, need the browser with the code
+  // a code refused for good leaves no other name to move to, so the page offers another search as the other endings do
   const action = settled === "unread" ? (s.record ? continued : withoutRecord(""))
-    : view.linksRefused || (movable(s) && !s.record) ? withoutRecord("") : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : movable(s) ? another : null
+    : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : null
   holdEnds(signal)(s.hold !== null)
   const failedAt: StageState[] = view.commitTx === null ? ["failed", "", ""] : ["done", "done", "failed"]
   const reference = invoice?.invoiceId ?? view.id
@@ -1372,7 +1240,7 @@ function supportText(settled: SupportCase, view: api.RegistrationView, reference
   }
   return code
     ? ["Your code is released. If it has not expired, use it for another name. Otherwise, ", ...contact, "."]
-    : ["The money paid for this order has been added to its balance. Spend it on another name, or ", ...contact, ", to have it refunded."]
+    : ["The money paid for this order has been added to its balance. To have it refunded, ", ...contact, "."]
 }
 
 async function continueOrder(): Promise<void> {
@@ -1409,7 +1277,6 @@ const BUILDERS: Record<OrderKind, Builder<OrderState>> = {
   "pay-card": buildPayCard,
   confirming: buildConfirming,
   registering: buildRegistering,
-  "links-refused": buildLinksRefused,
   registered: buildRegistered,
   taken: buildTaken,
   failed: buildFailed,

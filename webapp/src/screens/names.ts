@@ -1,4 +1,4 @@
-import { fromBalanceOf, holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, reversedOrder, type SearchAnswer, takenByOrder } from "../api.ts"
+import { holdsPayment, type CodeState, type Found, type InvoiceView, type LateWait, LINK_KINDS, type Links, paidLate, type Phase, type RecordEdits, type RegistrationView, reversedOrder, type SearchAnswer, takenByOrder } from "../api.ts"
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
 import { type CodeRecord, type OrderRecord, orderUrl, type PendingCode } from "../store.ts"
@@ -137,10 +137,10 @@ export function listedOrders(s: ListState): OrderRecord[] {
     .sort((a, b) => a.slot - b.slot || a.at - b.at).map(({ o }) => o)
 }
 
-// An order's balance as Your names lists it: what is left, what support refunded from it, until when an open invoice
-// holds it, and what made it: its name registered by someone else first, money after its invoice closed, or the rest
+// An order's balance as Your names lists it: what is left, what support refunded from it,
+// and what made it: its name registered by someone else first, money after its invoice closed, or the rest
 // after a move to a cheaper name.
-export interface BalanceRow { id: string; amount: number; refunded: number; held: boolean; heldUntil: string | null; from: "taken" | "outpaid" | "ended" | "late" | "rest" }
+export interface BalanceRow { id: string; amount: number; refunded: number; from: "taken" | "outpaid" | "ended" | "late" | "rest" }
 
 export function balanceRows(s: ListState): BalanceRow[] {
   return listedOrders(s).flatMap((o) => {
@@ -150,16 +150,9 @@ export function balanceRows(s: ListState): BalanceRow[] {
     const from = view.phase.type === "taken" ? takenByOrder(view) ? "outpaid" : "taken"
       : view.phase.type === "failed" && view.phase.reason === "monthEnded" ? "ended"
       : view.phase.type === "unpaid" || view.phase.type === "closed" ? "late" : "rest"
-    return [{ id: o.registrationId, amount: b.amount, refunded: b.refunded, held: b.hold !== null, heldUntil: b.hold?.type === "open" ? b.hold.heldUntil : null, from }]
+    return [{ id: o.registrationId, amount: b.amount, refunded: b.refunded, from }]
   })
 }
-
-// The order of this browser whose invoice, as last read, is open and holds the balance of order `source`: never one
-// that expired, was cancelled or was paid since; undefined when this browser holds none such.
-export const holderOf = (s: ListState, source: string) => s.orders.find((o) => {
-  const seen = s.seen[o.registrationId]
-  return o.balanceSource === source && seen?.invoice?.status === "open" && seen.view.phase.type === "unpaid"
-})
 
 // the orders listed as names: a name registered by someone else first is listed by its balance alone
 export function nameRows(s: ListState): OrderRecord[] {
@@ -198,15 +191,10 @@ export function phaseChip(view: RegistrationView, invoice: InvoiceView | null, o
   return PHASE_CHIPS.unpaid
 }
 
-// What paid the order: its invoice, with what another order's balance paid besides, a balance alone, or a free name's code. Before
+// What paid the order: its invoice, or a free name's code. Before
 // the order is read, its record's method and worth.
 export function paidLine(o: OrderRecord, view: RegistrationView | null, invoice: InvoiceView | null): string {
-  const fromBalance = view ? fromBalanceOf(view) : 0
-  if (invoice) {
-    const paid = `${dollars(invoice.amount)} ${methodName(invoice.cryptoCurrency ?? "card")}`
-    return fromBalance ? `${paid} and ${dollars(fromBalance)} from your balance` : paid
-  }
-  if (fromBalance || o.method === "balance") return "Paid from your balance"
+  if (invoice) return `${dollars(invoice.amount)} ${methodName(invoice.cryptoCurrency ?? "card")}`
   // a code carries no money: it registers a free name, and a name taken first gives it back
   if (o.method === "code") return view?.phase.type === "taken" ? "Free name with a code; the code was released for another name" : "Registered with a code"
   return `${dollars(o.paid)} ${methodName(o.method)}`

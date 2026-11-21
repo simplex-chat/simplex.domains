@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto"
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test"
 import {
-  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, contactLink, control, failedOrder, MOCK, onStep, payButton, previewsShown, REGISTRATION_MS, registrationOf, restoreOrder, savedToReview, search, sevenLetters,
+  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, control, MOCK, onStep, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search,
   SAVED, startOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, waitRegistered, withStripeKey, acceptedOnChain, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, PLAIN_TERMS,
 } from "./helpers.ts"
 import { keccak256, toHex } from "viem"
@@ -265,8 +265,8 @@ test("a name put on the list meanwhile is refused for the community terms, which
   })
 })
 
-test("a failed order moved through the search to another name asks for that name's terms first, a community name's own box in place of the general terms' one, whose words open the terms, and signs them anew after they changed", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("cm"))
+test("a taken order moved through the search to another name asks for that name's terms first, a community name's own box in place of the general terms' one, whose words open the terms, and signs them anew after they changed", async ({ page, request }) => {
+  const registrationId = await registrationOf(request, (await takenOrder(page, request, uniqueLabel("cm"))).invoiceId)
   const target = uniqueLabel("cmt")
   await listed(request, [target], async () => {
     await page.goto(`/#/?retarget=${registrationId}`)
@@ -353,34 +353,6 @@ test("a card form that did not load asks for changed terms before cancelling its
   })
 })
 
-test("a new invoice paid partly from a balance asks for changed terms before spending it again, and asks nothing when the balance is gone and the search opens", async ({ page, request }) => {
-  const taken = await takenOrder(page, request, uniqueLabel("cb"))
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  const dearer = sevenLetters()
-  await search(page, dearer)
-  await toReview(page)
-  await payButton(page).click()
-  await page.waitForURL(/\?order=/)
-  const first = new URL(page.url()).searchParams.get("order")!
-  await control(request, `expire/${first}`)
-  const again = onStep(page).getByRole("button", { name: "Get a new invoice" })
-  await withGeneralTerms(request, `the general terms, changed for ${dearer}`, async (hash) => {
-    await again.click()
-    await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
-    await agreeToTerms(page)
-    await again.click()
-    await page.waitForURL((url) => url.searchParams.get("order") !== first)
-    const second = new URL(page.url()).searchParams.get("order")!
-    expect(await invoiceViewOf(request, second)).toMatchObject({ terms: { communityName: false, termsHash: hash }, payment: { fromBalance: 10000 } })
-    await control(request, `expire/${second}`)
-    await control(request, `refund/${taken.invoiceId}`)
-    await control(request, "general-terms", { text: `the general terms, changed again for ${dearer}` })
-    // asking would keep the page; the search opening at once shows it asked nothing
-    await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
-    await page.waitForURL((url) => url.hash.includes(`name=${dearer}`))
-  })
-})
-
 test("Your names draws a community name's row with its marker on the name's last line, its popup saying what the name is for", async ({ page, context, request }) => {
   const long = longLabel()
   await listed(request, [long], async () => {
@@ -402,39 +374,6 @@ test("Your names draws a community name's row with its marker on the name's last
       expect(Math.abs((await markerPlace(name)).baseline), `the marker on the name's last line at ${width} px`).toBeLessThanOrEqual(PIXEL)
       await fresh.close()
     }
-  })
-})
-
-test("Register without links asks for the terms once they changed, and the order registers under the new ones", async ({ page, request }) => {
-  const label = uniqueLabel("cw")
-  await search(page, label)
-  await onStep(page).getByRole("button", { name: "Register" }).click()
-  await onStep(page).getByRole("textbox", { name: "Link", exact: true }).fill(contactLink("CW"))
-  await previewsShown(page)
-  await onStep(page).getByRole("button", { name: "Continue" }).click()
-  await savedToReview(page)
-  await payButton(page).click()
-  await page.waitForURL(/\?order=/)
-  const invoiceId = new URL(page.url()).searchParams.get("order")!
-  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
-  await control(request, "search", { refuseLinks: true })
-  try {
-    await control(request, `settle/${invoiceId}`)
-    await expect(page.getByText("The contact link is not a SimpleX short link to a contact.")).toBeVisible({ timeout: REGISTRATION_MS })
-  } finally {
-    await control(request, "search", { refuseLinks: false })
-  }
-  const move = onStep(page).getByRole("button", { name: "Register without links" })
-  await withGeneralTerms(request, `the general terms, changed for ${label}`, async (hash) => {
-    await move.click()
-    await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
-    await expect(move).toBeDisabled()
-    await agreeToTerms(page)
-    await move.click()
-    await waitRegistered(page, label)
-    const view = await viewOf(request, await registrationOf(request, invoiceId))
-    expect(api.signedTermsOf(view.terms)).toBe(hash.slice(2))
-    expect((await acceptedOnChain(view.registerTx as string))?.termsHash, "the register recorded the new general terms").toBe(hash)
   })
 })
 

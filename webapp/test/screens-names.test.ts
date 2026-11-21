@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import type { Found, InvoiceView, Links, Phase, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
+import type { Found, InvoiceView, Links, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
-  balanceRows, changesOf, CODE_CHIPS, holderOf, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
+  balanceRows, changesOf, CODE_CHIPS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
   initialList, initialRestore, lapsed, lateLine, listedOrders, nameRows, ORDER_CHIP_WORDS, rowShown, rowsDrawn, unanswered, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit, reduceList, reduceRestore, REFUSALS,
   againLine, ranOut, registrableAgain, screenOfEdit, type Stored, waitsToSign,
 } from "../src/screens/names.ts"
@@ -18,7 +18,7 @@ const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 
 const registration = (change: ShortView = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
-  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, linksRefused: null, latePayment: null,
+  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, latePayment: null,
   community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` },
 }, change)
 
@@ -192,7 +192,7 @@ describe("list helpers", () => {
 })
 
 describe("balances", () => {
-  const BALANCE = { amount: 10000, hold: null, refunded: 0 }
+  const BALANCE = { amount: 10000, refunded: 0 }
   const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-outpaid", invoiceId: "inv-5" }), record({ registrationId: "reg-ended", invoiceId: "inv-6" }),
     record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }), record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
   // a registered name's row is complete with its name's answer
@@ -206,23 +206,23 @@ describe("balances", () => {
     s = read(s, "reg-outpaid", registration({ id: "reg-outpaid", phase: "taken", balance: BALANCE }))
     s = read(s, "reg-ended", registration({ id: "reg-ended", phase: "failed", reason: "monthEnded", commitTx: "0xc0", balance: BALANCE }))
     s = read(s, "reg-late", registration({ id: "reg-late", balance: { ...BALANCE, amount: 2500, refunded: 7500 } }), invoice({ invoiceId: "inv-2", status: "paid" }))
-    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000, hold: { type: "open", heldUntil: "2026-10-17T12:30:00Z" } } }))
+    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000 } }))
     return read(s, "reg-plain", registration({ id: "reg-plain", phase: "registered" }))
   }
-  it("lists each order's balance with what made it, what support refunded, and the open invoice that holds it", () => {
+  it("lists each order's balance with what made it and what support refunded", () => {
     expect(balanceRows(all())).toEqual([
-      { id: "reg-taken", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "taken" },
-      { id: "reg-outpaid", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "outpaid" },
-      { id: "reg-ended", amount: 10000, refunded: 0, held: false, heldUntil: null, from: "ended" },
-      { id: "reg-late", amount: 2500, refunded: 7500, held: false, heldUntil: null, from: "late" },
-      { id: "reg-moved", amount: 5000, refunded: 0, held: true, heldUntil: "2026-10-17T12:30:00Z", from: "rest" },
+      { id: "reg-taken", amount: 10000, refunded: 0, from: "taken" },
+      { id: "reg-outpaid", amount: 10000, refunded: 0, from: "outpaid" },
+      { id: "reg-ended", amount: 10000, refunded: 0, from: "ended" },
+      { id: "reg-late", amount: 2500, refunded: 7500, from: "late" },
+      { id: "reg-moved", amount: 5000, refunded: 0, from: "rest" },
     ])
   })
   it("lists a balance support refunded whole, with nothing left, and no balance spent whole or not read yet", () => {
     let s = list({ orders })
     s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", commitTx: "0xc0", balance: { ...BALANCE, amount: 0, refunded: 10000 } }))
     s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 0 } }))
-    expect(balanceRows(s)).toEqual([{ id: "reg-taken", amount: 0, refunded: 10000, held: false, heldUntil: null, from: "taken" }])
+    expect(balanceRows(s)).toEqual([{ id: "reg-taken", amount: 0, refunded: 10000, from: "taken" }])
   })
   it("lists a name taken first by its balance alone, a month-ended order as a name beside its balance, and every other order as a name", () => {
     expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-ended", "reg-late", "reg-moved", "reg-plain"])
@@ -232,30 +232,10 @@ describe("balances", () => {
   })
 })
 
-describe("holderOf", () => {
-  const orders = [record({ registrationId: "expired", invoiceId: "inv-e", balanceSource: "src" }), record({ registrationId: "paid", invoiceId: "inv-p", balanceSource: "src" }),
-    record({ registrationId: "open", invoiceId: "inv-o", balanceSource: "src" }), record({ registrationId: "other", invoiceId: "inv-x", balanceSource: "src2" })]
-  const read = (s: ListState, id: string, status: InvoiceView["status"], phase: Phase = "unpaid") =>
-    reduceList(s, { type: "row-read", id, view: registration({ id, phase }), invoice: invoice({ invoiceId: `inv-${id}`, status }), now: NOW })
-  it("is the order whose invoice is open and holds the balance, never one that expired or was paid", () => {
-    let s = read(read(list({ orders }), "expired", "expired"), "paid", "paid", "queued")
-    expect(holderOf(s, "src"), "none open").toBeUndefined()
-    s = read(read(s, "open", "open"), "other", "open")
-    expect(holderOf(s, "src")?.registrationId).toBe("open")
-  })
-})
-
 describe("paidLine", () => {
   it("names the invoice's amount and method", () => {
     expect(paidLine(record(), registration(), invoice())).toBe("$15 Bitcoin")
     expect(paidLine(record(), registration(), invoice({ cryptoCurrency: undefined }))).toBe("$15 Card")
-  })
-  it("adds what a balance paid beside a difference invoice", () => {
-    expect(paidLine(record(), registration({ price: 2500, fromBalance: 1000 }), invoice())).toBe("$15 Bitcoin and $10 from your balance")
-  })
-  it("says a balance alone paid an order it covered, read or not", () => {
-    expect(paidLine(record({ invoiceId: null, method: "balance" }), null, null)).toBe("Paid from your balance")
-    expect(paidLine(record({ invoiceId: null, method: "code" }), registration({ fromBalance: 1500 }), null)).toBe("Paid from your balance")
   })
   it("words a code order as a free name, never as a payment, and a taken one's code as released", () => {
     expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0 }), null)).toBe("Registered with a code")

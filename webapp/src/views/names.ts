@@ -6,12 +6,10 @@ import * as flow from "../flow.ts"
 import { dateOf, dollars, SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import {
-  balanceRows, type BalanceRow, CODE_CHIPS, holderOf, EDIT_RETRY_MS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
+  balanceRows, type BalanceRow, CODE_CHIPS, EDIT_RETRY_MS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
   againLine, initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
   reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
 } from "../screens/names.ts"
-import { codesOnly } from "../mode.ts"
-import { heldWords } from "../screens/balance.ts"
 import { checkoutUrl, CODE_URL, editUrl } from "../screens/routes.ts"
 import * as session from "../session.ts"
 import type { AppliedCode } from "../session.ts"
@@ -21,7 +19,7 @@ import { codeField, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, type LinkFields, linkFieldsFor, linksSettled } from "./links.ts"
 import {
   asStep, type Builder, CONTACT_EMAIL, contactSupport, currentRoute, draw, drawLoading, focusHeading, focusOn, go, isRedraw, isRoute, kept, keptLive, redirect, screen, showRefund,
-  useBalance, whenLeaving,
+  whenLeaving,
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, secondsLeft, tabHold } from "./hold.ts"
@@ -373,20 +371,15 @@ const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
   taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "left after a cheaper name",
 }
 
-// A balance pays for another name, or support refunds it; while an open invoice holds it, neither, and the order that
-// holds it, which only this browser's records name, is a link away.
+// Support refunds a balance.
 function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
   const { view } = s.seen[b.id]
-  const holder = b.held ? holderOf(s, b.id) : undefined
-  const acts = b.held ? [holder ? small("Open that order", `${b.id}-holder`, () => go(store.orderUrl(holder))) : null]
-    : b.amount > 0 ? [codesOnly() ? null : small("Use", `${b.id}-use`, () => useBalance({ source: b.id, amount: b.amount, held: false, heldUntil: null })),
-      small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
+  const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
   const from = BALANCE_FROM[b.from]
   const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
-    b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null,
-    b.held ? `${SEP}in use by another order ${heldWords(b.heldUntil)}` : null]
-  const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, b.held ? chip("In use", "brand", true) : null, acts)
+    b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null]
+  const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, null, acts)
   if (from) node.classList.add("balance-row")
   return node
 }

@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
-  agreeToTerms, brokenNames, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, rowFit, savedToReview, search, shot,
-  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registeredPhase, registrationView, withStripeKey,
+  agreeToTerms, brokenNames, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, rowFit, savedToReview, search, shot,
+  shownCode, startOrder, restoreOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registeredPhase, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 
@@ -175,8 +175,8 @@ test("a registered order opened in a browser without its code offers restore", a
 })
 
 test("a failed retarget shows one message below the result, however often it is tried", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("rtf"))
-  await page.goto(`/#/?retarget=${registrationId}`)
+  const { invoiceId } = await takenOrder(page, request, uniqueLabel("rtf"))
+  await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { type: "provider_unavailable" } }))
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtf2"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
@@ -198,35 +198,14 @@ test("a failed retarget shows one message below the result, however often it is 
 })
 
 test("a retarget refused for a name taken meanwhile says the name is no longer available", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("rtt"))
-  await page.goto(`/#/?retarget=${registrationId}`)
+  const { invoiceId } = await takenOrder(page, request, uniqueLabel("rtt"))
+  await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { type: "name_taken" } }))
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtt2"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
   await agreeToTerms(page)
   await page.getByRole("button", { name: "Register with your payment" }).click()
   await expect(page.getByText("This name is no longer available. Search another one.")).toBeVisible()
-})
-
-test("a move refused for its code says what happened to the code and where to write, never to try again", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("rtc"))
-  const cases: [string, number, string][] = [
-    ["code_used", 409, "This code was already used"], ["code_reserved", 409, "This code is being used for a name now"],
-    ["code_expired", 409, "This code has expired"], ["code_invalid", 400, "This code is not valid: SimpleX withdrew it"],
-  ]
-  for (const [error, status, title] of cases) {
-    await page.unrouteAll({ behavior: "wait" })
-    await page.route("**/api/registration/*/name", (route) => route.fulfill({ status, json: { type: error } }))
-    await page.goto(`/#/?retarget=${registrationId}`)
-    await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtc2"))
-    await page.getByLabel("Name", { exact: true }).press("Enter")
-    await agreeToTerms(page)
-    await page.getByRole("button", { name: "Register with your payment" }).click()
-    const note = page.locator(".answer .notice", { hasText: title })
-    await expect(note, error).toContainText(`Contact support via chat@simplex.chat or SimpleX, and include order reference `)
-    await expect(note.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
-    await expect(page.getByText("Try again in a moment"), error).toHaveCount(0)
-  }
 })
 
 test("a partly paid invoice offers no cancel", async ({ page, request }) => {
@@ -293,7 +272,7 @@ test("Forget everything also drops the tab's unfinished checkout", async ({ page
   await expect(page.getByText("No names in this browser yet", { exact: true })).toBeVisible()
 })
 
-test("a payment that arrives after expiry turns the open page into the late page, whose balance buys another name, and no new invoice is made", async ({ page, request }) => {
+test("a payment that arrives after expiry turns the open page into the late page, whose balance support refunds, and no new invoice is made", async ({ page, request }) => {
   const label = uniqueLabel("late")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
@@ -301,10 +280,10 @@ test("a payment that arrives after expiry turns the open page into the late page
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByText("The payment arrived after this invoice had closed")).toBeVisible()
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
-  // credited to the order's balance, the late money offers another name and a refund, as a taken order's does
+  // credited to the order's balance, the late money offers a refund beside a new invoice
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(page.locator(".code-chip")).toContainText("Balance: $100")
+  await expect(onStep(page).getByRole("button", { name: "Get a new invoice" })).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await page.goto("/#/names")
   const order = page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` })
   await expect(order).toHaveCount(1)
