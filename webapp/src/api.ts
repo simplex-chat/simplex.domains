@@ -266,7 +266,7 @@ export const takenByOrder = ({ phase, commitTx }: RegistrationView) => phase.typ
 
 export const paymentKept = ({ balance, price }: RegistrationView) => balance !== null && balance.amount >= price
 
-export const movable = (view: RegistrationView, now: number) => view.phase.type === "taken" && view.payment.type === "invoice" && paymentKept(view)
+export const movable = (view: RegistrationView, now: number) => view.phase.type === "taken" && (view.payment.type === "code" || paymentKept(view))
   && (view.phase.heldUntil === undefined || Date.parse(view.phase.heldUntil) > now)
 
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true

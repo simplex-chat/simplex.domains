@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { SearchAnswer, Terms } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
-  coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, orderCode, type OrderRead, ownOrders, reduce, REGISTER_LEAD, returnedTo, searchDue, type SearchEvent,
+  codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, orderCode, type OrderRead, ownOrders, reduce, REGISTER_LEAD, returnedTo, searchDue, type SearchEvent,
   searchLocked, type SearchKind, type SearchState, screenOf,
 } from "../src/screens/search.ts"
 import type { OrderRecord } from "../src/store.ts"
@@ -331,17 +331,36 @@ describe("returnedTo", () => {
 })
 
 describe("a move", () => {
-  it("of a paid order is barred for a name of another price than the order is worth", () => {
-    expect(moveBar(record(), 1500)).toBeNull()
-    expect(moveBar(record(), 1501)).toBe("dearer")
-    expect(moveBar(record(), 1499)).toBe("cheaper")
+  const PREPAID = "SN9-BJTBP-29596-R3HJ8-25YM5"
+  const coded = (change: Partial<OrderRecord> = {}) => record({ invoiceId: null, method: "code", paid: 0, prepaidCode: PREPAID, label: "alice1bakes", ...change })
+  it("of a code order is bounded by its code: names of the code's length or more, for the order's years", () => {
+    expect(codeCover(coded())).toEqual({ minLength: 9, years: 2 })
+    expect(codeCover(coded({ years: 5 }))).toEqual({ minLength: 9, years: 5 })
+    expect(codeCover(record()), "a paid order").toBeNull()
+  })
+  it("of a code order is barred only for a name shorter than its code allows, whatever the name costs, with no hint of money", () => {
+    expect(moveBar(coded(), "alice1bak", 10000)).toBeNull()
+    expect(moveBar(coded(), "alice1ba", 1)).toBe("uncovered")
+    expect(moveHint(coded(), 10000)).toBeNull()
+  })
+  it("of a code order restored without its code states no length and leaves the code's check to the service", () => {
+    const restored = coded({ prepaidCode: undefined })
+    expect(codeCover(restored)).toEqual({ minLength: null, years: 2 })
+    expect(moveBar(restored, "alice2", 20000)).toBeNull()
+    expect(keptWords(restored)).toBe("You used a code: choose another name.")
+  })
+  it("of a paid order is barred for a name of another price than the order is worth, whatever its length", () => {
+    expect(moveBar(record(), "alice2", 1500)).toBeNull()
+    expect(moveBar(record(), "alice2", 1501)).toBe("dearer")
+    expect(moveBar(record(), "alice2", 1499)).toBe("cheaper")
   })
   it("of a paid order says what its payment covers", () => {
     expect(moveHint(record(), 1500)).toBe("Covered by your payment")
     expect(moveHint(record(), 1000)).toBe("This name costs less than the $15 you paid.")
     expect(moveHint(record(), 2000)).toBe("This name costs more than the $15 you paid.")
   })
-  it("opens saying what was paid, the price of the name to choose", () => {
+  it("opens saying what was used: a code and the length it allows, or the payment and its price", () => {
+    expect(keptWords(coded())).toBe("You used a code: choose another name of 9 or more letters.")
     expect(keptWords(record())).toBe("You paid $15: choose another name at that price.")
   })
 })

@@ -1,4 +1,5 @@
 import { type Community, type FailReason, type InvoiceView, type Phase, type SearchAnswer, type Terms, termsFor } from "../api.ts"
+import { parseNameCode } from "../crypto/code.ts"
 import { dollars } from "../format.ts"
 import { foldLabel, type LabelProblem, labelProblem } from "../names.ts"
 import type { AppliedCode } from "../session.ts"
@@ -15,7 +16,8 @@ export type Answer =
   | { kind: "unchecked" }
   | { kind: "checking" }
 
-type RegisterRefusal = { why: "taken" | "failed" | "unavailable" } | { why: "price"; price: number } | { why: "other"; url: string } | { why: "limit"; reference: string }
+type RegisterRefusal = { why: "taken" | "failed" | "unavailable" } | { why: "price"; price: number } | { why: "code"; error: string } | { why: "other"; url: string }
+  | { why: "limit"; reference: string }
 
 export interface SearchState {
   opening: Opening
@@ -161,7 +163,7 @@ export async function ownOrders(orders: OrderRecord[], read: (o: OrderRecord) =>
 export const orderCode = (closed: string | null): { ownerCode: string | null; saved: boolean } => ({ ownerCode: closed, saved: closed !== null })
 
 // In codes-only mode a plain search opens only with the tab's prepaid code, and only for the names that code covers; a
-// paid order is moved only to another name of its price.
+// code order's move to another name is bounded by its own code, and a paid order's by its price.
 export const searchLocked = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" && code === null
 export const coverOf = (codesOnly: boolean, s: SearchState, code: AppliedCode | null) => codesOnly && s.opening === "plain" ? code?.minLength ?? null : null
 
@@ -169,12 +171,32 @@ export function screenOf(s: SearchState): SearchKind {
   return `search:${s.opening}`
 }
 
-export const moveBar = (record: OrderRecord, price: number): "dearer" | "cheaper" | null => price > record.paid ? "dearer" : price < record.paid ? "cheaper" : null
+// minLength is null for an order restored without its code text
+export interface CodeCover { minLength: number | null; years: number }
 
-export function moveHint(record: OrderRecord, price: number): string {
+export function codeCover(record: OrderRecord): CodeCover | null {
+  if (record.method !== "code") return null
+  const code = record.prepaidCode ? parseNameCode(record.prepaidCode) : null
+  return { minLength: code?.kind === "prepaid" ? code.minLength : null, years: record.years }
+}
+
+const tooShort = (cover: CodeCover, label: string) => cover.minLength !== null && label.length < cover.minLength
+
+export function moveBar(record: OrderRecord, label: string, price: number): "uncovered" | "dearer" | "cheaper" | null {
+  const cover = codeCover(record)
+  if (cover) return tooShort(cover, label) ? "uncovered" : null
+  return price > record.paid ? "dearer" : price < record.paid ? "cheaper" : null
+}
+
+export function moveHint(record: OrderRecord, price: number): string | null {
+  if (codeCover(record)) return null
   const paid = dollars(record.paid)
   if (price > record.paid) return `This name costs more than the ${paid} you paid.`
   return price < record.paid ? `This name costs less than the ${paid} you paid.` : "Covered by your payment"
 }
 
-export const keptWords = (record: OrderRecord) => `You paid ${dollars(record.paid)}: choose another name at that price.`
+export function keptWords(record: OrderRecord): string {
+  const cover = codeCover(record)
+  if (!cover) return `You paid ${dollars(record.paid)}: choose another name at that price.`
+  return cover.minLength === null ? "You used a code: choose another name." : `You used a code: choose another name of ${cover.minLength} or more letters.`
+}

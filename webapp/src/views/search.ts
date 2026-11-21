@@ -12,7 +12,7 @@ import type { Hold } from "../screens/hold.ts"
 import { againLine, ranOut } from "../screens/names.ts"
 import { checkoutUrl, CODE_URL } from "../screens/routes.ts"
 import {
-  type Answer, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
+  type Answer, codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
   orderCode, type OrderRead, ownOrders, type OwnOrders, type SearchKind, searchLocked, type SearchState,
 } from "../screens/search.ts"
 import { ticked } from "../screens/terms.ts"
@@ -20,7 +20,7 @@ import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, throughHistory } from "./shell.ts"
 import { chatButton } from "./chats.ts"
-import { CODES_ONLY_LINE } from "./codes.ts"
+import { CODE_ERRORS, CODES_ONLY_LINE } from "./codes.ts"
 import { moveLimitNote, noteBox } from "./order.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
 import { NO_ORDERS, rowName, termsChangedLine, termsChecks } from "./terms.ts"
@@ -223,6 +223,7 @@ async function retarget(record: store.OrderRecord, label: string, quote: flow.Qu
     const code = e instanceof api.ApiError ? e.code : null
     const reference = record.invoiceId ?? record.registrationId
     if (code === "move_limit") return dispatch({ type: "register-refused", refusal: { why: "limit", reference } })
+    if (code && code in CODE_ERRORS) return dispatch({ type: "register-refused", refusal: { why: "code", error: CODE_ERRORS[code] } })
     if (e instanceof api.ApiError && e.code === "price_too_high" && typeof e.body.price === "number") return dispatch({ type: "register-refused", refusal: { why: "price", price: e.body.price } })
     // the code's own order for the new name is the one the move met
     const other = code === "order_exists" ? await flow.ownOrderFor(record.ownerCode, hex(labelHash(label))).catch(() => null) : null
@@ -300,7 +301,7 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
 
 function openingLine(s: SearchState): HTMLElement | null {
   if (!s.retarget) return null
-  return alertBox("info", "wallet", null, keptWords(s.retarget))
+  return alertBox("info", codeCover(s.retarget) ? "key" : "wallet", null, keptWords(s.retarget))
 }
 
 function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
@@ -330,7 +331,7 @@ function pauseLine(hold: Hold, signal: AbortSignal): HTMLElement {
   return node
 }
 
-// the tab's active code registers a name it covers for free; a paid order's move pays its own way
+// the tab's active code registers a name it covers for free; a moved order keeps its own code or payment
 const usesCode = (s: SearchState) => s.retarget === null
 const codeFor = (s: SearchState, label: string) => {
   const code = session.activeCode()
@@ -339,21 +340,23 @@ const codeFor = (s: SearchState, label: string) => {
 
 function availableAnswer(s: SearchState, label: string, answer: flow.Available, signal: AbortSignal): Kid[] {
   const retarget = s.retarget
-  const unpayable = retarget !== null && moveBar(retarget, answer.price) !== null
+  const cover = retarget && codeCover(retarget)
+  const unpayable = retarget !== null && moveBar(retarget, label, answer.price) !== null
   const hint = retarget && moveHint(retarget, answer.price)
   const own = ownOrderOf(s)
   const code = codeFor(s, label)
-  const short = usesCode(s) ? session.activeCode() : null
+  const free = code ?? (cover && !unpayable ? cover : null)
+  const short = usesCode(s) ? session.activeCode() : cover
   const orderable = flow.orderable(answer)
   const asks = retarget !== null && !unpayable && own === null && orderable
-  const words = !retarget ? "Register" : "Register with your payment"
+  const words = !retarget ? "Register" : cover ? "Register with your code" : "Register with your payment"
   const button = setAction(btn(words, "small", () => void register()), s.register.busy, unpayable || own !== null || s.hold !== null || !orderable || (asks && !ticked({ ...s, community: answer.community })))
   button.dataset.focus = "register"
-  const deal = code ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, code.years)} years`)]
+  const deal = free ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, free.years)} years`)]
     : [el("b", { class: "price" }, dollars(answer.price)), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, answer.years)} years`)]
   return [
     el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
-    !code && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
+    !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
     hint ? line("", "wallet", hint) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
@@ -377,6 +380,7 @@ function registerNote({ hold, retarget, register: { refusal } }: SearchState, si
   if (refusal.why === "limit") return noteBox(moveLimitNote(refusal.reference))
   const words = refusal.why === "taken" ? "This name is no longer available. Search another one."
     : refusal.why === "price" ? `This name now costs ${refusal.price > retarget!.paid ? "more" : "less"} than the ${dollars(retarget!.paid)} you paid. Search another one.`
+    : refusal.why === "code" ? refusal.error
     : refusal.why === "unavailable" ? `${NO_ORDERS}. Nothing changed. Try again later.` : "Nothing changed. Try again in a moment."
   return alertBox("danger", "alert", "That did not go through", words)
 }

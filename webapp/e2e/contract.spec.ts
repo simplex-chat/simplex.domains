@@ -449,6 +449,26 @@ test("another name: only for a paid order taken first, at its own price; a repea
   await expect(move(shortLabel(7))).rejects.toMatchObject({ code: "move_limit", body: { registration: { id, moves: 3, phase: { type: "taken" } } } })
 })
 
+test("a code order taken first moves to a name its code allows, its code reserved again, while a shorter name is code_not_covering", async ({ request }) => {
+  const label = uniqueLabel("cc")
+  const { code } = await control(request, "code", { minLength: 10 }) as { code: string }
+  const draft = await draftOf(label)
+  const built = await flow.orderRequest(draft)
+  await control(request, "take", { label })
+  const res = await call("POST", "/api/name/register", codeBody(built.request, code))
+  expect(res.status, JSON.stringify(res.json)).toBe(200)
+  const id = res.json.registrationId as string
+  store.saveOrder(flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null }))
+  const taken = await untilPhase(id, ["taken"])
+  expect([taken.payment, taken.balance, taken.price], "a code order has no balance").toEqual([{ type: "code" }, null, 0])
+  expect((await call("POST", "/api/code/check", { code })).json, "released at the take").toMatchObject({ state: "unused" })
+  const move = (to: string) => moveOf(store.orderByRegistration(id)!, to)
+  await expect(move(shortLabel(7)), "a name shorter than the code allows").rejects.toMatchObject({ code: "code_not_covering" })
+  const moved = await move(uniqueLabel("cc2"))
+  expect([moved.moves, moved.price, moved.payment]).toEqual([1, 0, { type: "code" }])
+  expect((await call("POST", "/api/code/check", { code })).json, "reserved again by the move").toMatchObject({ state: "reserved" })
+})
+
 // the /name body of the registration's current fields, under its own terms or `terms`, signed anew
 async function nameBody(record: store.OrderRecord, view: api.RegistrationView, terms = api.signedTermsOf(view.terms), timestamp = Math.floor(Date.now() / 1000)): Promise<Json> {
   const sealedHash = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(view.sealed))))

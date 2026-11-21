@@ -1173,14 +1173,15 @@ function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HT
 }
 
 // The payment of an order taken first is kept: the order is moved to another name of its price, or support refunds the
-// payment; only the browser holding the code asks for either. An order refunded since is shown as such.
+// payment; only the browser holding the code asks for either. An order refunded since is shown as such. A code order is
+// moved likewise until its window ends; after it, or in a browser without its name code, its released code is shown.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!
-  if (!invoice) return buildTakenWithCode(s)
+  if (!invoice && !(record && api.movable(view, s.now))) return buildTakenWithCode(s)
   const label = labelOf(view, record)
   const uses = codesOnly() || !api.movable(view, s.now) ? " You can ask for a refund." : " Choose another name, or ask for a refund."
-  const note = api.paymentKept(view)
+  const note = !invoice ? null : api.paymentKept(view)
     ? el("div", { class: "notice plain" }, el("b", {}, "What you paid is kept as your balance."), uses, " Your names shows the balance.")
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been refunded since; Your names shows it.")
   const reserved = s.nameStatus === "reserved"
@@ -1204,7 +1205,7 @@ function balanceActions({ view, invoice, record, now }: OrderState, same?: HTMLB
   const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
   refund?.setAttribute("data-focus", REFUND)
   refund?.setAttribute("aria-haspopup", "dialog")
-  if (codesOnly()) return { action: codeAction(), alt: refund }
+  if (codesOnly() && invoice) return { action: codeAction(), alt: refund }
   if (!same) return { action: setAction(btn("Choose another name", "", another), false, record === null), alt: refund }
   return { action: same, alt: refund }
 }

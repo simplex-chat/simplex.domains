@@ -485,7 +485,7 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
     case "registered": return { type: "registered", expiresAt: reg.expiresAt }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
-    case "taken": return { type: "taken", ...reg.method !== "code" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
+    case "taken": return { type: "taken", ...reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
 }
@@ -1164,9 +1164,11 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
   freshTimestamp(sent.timestamp)
-  // only a paid order taken first, within the month from its payment, while its balance keeps its price, which goes back to it as it moves
-  const movable = reg.phase === "taken" && reg.method !== "code" && reg.paidAt !== null && nowSeconds() < monthAfter(reg.paidAt)
-    && (balances.get(reg.id)?.amount ?? 0) >= reg.paid
+  // only an order taken first, within the month from its payment or its code's reservation: a code order whose code is
+  // checked again, or a paid order while its balance keeps its price, which goes back to it as it moves
+  const paid = reg.method !== "code"
+  const movable = reg.phase === "taken" && reg.paidAt !== null && nowSeconds() < monthAfter(reg.paidAt)
+    && (!paid || (balances.get(reg.id)?.amount ?? 0) >= reg.paid)
   if (!movable) throw badRequest()
   if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
   const version = reg.version
@@ -1174,12 +1176,15 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   checkDuration(order.duration, orderYears(order, reg.years))
   await checkTerms(order)
   await nameFree(order.labelHash, reg)
-  const price = await chainPrice(order.length, orderYears(order, reg.years))
+  const price = paid ? await chainPrice(order.length, orderYears(order, reg.years)) : 0
   // only a name of the order's price
   if (price !== reg.paid) throw new HttpError(409, "price_too_high", { price })
+  const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
+  if (row) codeStillPays(row, reg, order.length)
   const rv = await orderReveal(order, revealBody)
   await unchangedSince(reg, version)
-  balances.get(reg.id)!.amount -= reg.paid
+  if (row) Object.assign(row, { state: "reserved", registrationId: reg.id })
+  if (paid) balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
     labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
     moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, ...rv,
@@ -1188,6 +1193,13 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   const view = await registrationView(reg)
   void advance(reg)
   return view
+}
+
+// A code order's code pays again if it is still this order's, or was released and is still unused, and covers the name.
+function codeStillPays(row: PrepaidCode, reg: Registration, length: number): void {
+  const error = row.state !== "unused" && row.registrationId !== reg.id ? CODE_ERRORS[row.state] : undefined
+  if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
+  if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
 
 export async function retry(registrationId: string): Promise<Record<string, unknown>> {

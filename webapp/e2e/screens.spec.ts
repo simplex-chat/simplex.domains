@@ -583,6 +583,25 @@ const retargetPaid = async (r: Reach, name: string): Promise<string> => {
   return registrationId
 }
 screen(212, "home-retarget-paid-opening", async (r) => { await retargetPaid(r, r.id) })
+const retargetCode = async (r: Reach): Promise<void> => {
+  await withCode(r, 10)
+  await control(r.request, "take", { label: r.id })
+  await searchHere(r.page, r.id)
+  await toReview(r.page)
+  await press(r.page, "Register with your code")
+  await heading(r.page, `${r.id}.simplex was taken`)
+  await press(r.page, "Choose another name")
+  await shown(r.page, "You used a code")
+}
+screen(214, "home-retarget-code-opening", (r) => retargetCode(r))
+screen(216, "home-retarget-code-opening-no-text", async (r) => {
+  const order = await kept(r, `reg-${r.id}`, null, r.id)
+  await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: registrationView(order, {
+    phase: { type: "taken", heldUntil: new Date((r.now + 86400) * 1000).toISOString() }, commitTx: "0x02", payment: { type: "code" }, price: 0,
+  }) }))
+  await r.page.goto(`/#/?retarget=reg-${r.id}`)
+  await shown(r.page, "You used a code")
+})
 const retargetTo = async (r: Reach, from: string, to: string) => {
   await retargetPaid(r, from)
   await searchHere(r.page, to)
@@ -620,6 +639,16 @@ screen(232, "home-retarget-community-terms-unreadable-popup", async (r) => {
   await press(r.page, "Names Conditions")
   await expect(r.page.getByRole("dialog").getByText("can't be shown now")).toBeVisible()
 })
+screen(234, "home-retarget-code-covered", async (r) => {
+  await retargetCode(r)
+  await searchHere(r.page, `${r.id}-next`)
+  await answerRow(r.page)
+})
+screen(236, "home-retarget-code-short", async (r) => {
+  await retargetCode(r)
+  await searchHere(r.page, "hrcsht7")
+  await answerRow(r.page)
+})
 screen(240, "home-retarget-terms-changed", async (r) => {
   await retargetTicked(r)
   await control(r.request, "general-terms", { text: TERMS_TEXT })
@@ -639,6 +668,23 @@ for (const [slot, id, status, error, extra] of moveRefusals) {
     await retargetTicked(r)
     await moveAnswer(r.page, (route) => answer(route, status, error, undefined, extra))
     await press(r.page, "Register with your payment")
+    await expect(onStep(r.page).locator(".notice").last()).toBeVisible()
+  })
+}
+const codeMoveRefusals: [number, string, number, string][] = [
+  [254, "home-retarget-refused-code-used", 409, "code_used"],
+  [256, "home-retarget-refused-code-reserved", 409, "code_reserved"],
+  [258, "home-retarget-refused-code-expired", 409, "code_expired"],
+  [260, "home-retarget-refused-code-revoked", 400, "code_invalid"],
+  [261, "home-retarget-refused-uncovered", 409, "code_not_covering"],
+]
+for (const [slot, id, status, error] of codeMoveRefusals) {
+  screen(slot, id, async (r) => {
+    await retargetCode(r)
+    await searchHere(r.page, `${r.id}-next`)
+    await agreeToTerms(r.page)
+    await moveAnswer(r.page, (route) => answer(route, status, error))
+    await press(r.page, "Register with your code")
     await expect(onStep(r.page).locator(".notice").last()).toBeVisible()
   })
 }
@@ -1694,19 +1740,30 @@ const codeTaken = async (r: Reach) => {
 }
 screen(2194, "order-taken-code", async (r) => {
   await codeTaken(r)
-  await heading(r.page, "Someone registered it first")
+  await heading(r.page, `${r.id}.simplex was taken`)
 })
 screen(2196, "order-taken-code-reserved", async (r) => {
   await codeTaken(r)
   await answersReserved(r.page, r.id)
-  await heading(r.page, "The name was reserved meanwhile")
+  await heading(r.page, `${r.id}.simplex is reserved`)
 })
 screen(2198, "order-taken-code-no-record", async (r) => {
   const registrationId = await codeTaken(r)
-  await heading(r.page, "Someone registered it first")
+  await heading(r.page, `${r.id}.simplex was taken`)
   const other = await elsewhere(r, `/?registration=${registrationId}`)
   await heading(other, "Someone registered it first")
   return other
+})
+screen(2199, "order-taken-code-month-ended", async (r) => {
+  const registrationId = await codeTaken(r)
+  await heading(r.page, `${r.id}.simplex was taken`)
+  await r.page.route(`**/api/registration/${registrationId}*`, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    await route.fulfill({ response: res, json: { ...json, phase: { ...json.phase, heldUntil: new Date((r.now - 60) * 1000).toISOString() } } })
+  })
+  await r.page.reload()
+  await heading(r.page, "Someone registered it first")
 })
 const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
   const { invoiceId } = await startOrder(r.page, r.id, { method })
@@ -2092,7 +2149,7 @@ screen(3044, "names-rows-progress", async (r) => {
   await searchHere(r.page, "rows-taken-code")
   await toReview(r.page)
   await press(r.page, "Register with your code")
-  await heading(r.page, "Someone registered it first")
+  await heading(r.page, "rows-taken-code.simplex was taken")
   await control(r.request, "search", { unsentSeconds: 120 })
   await useCode(r.page, await issued(r))
   await searchHere(r.page, "rows-committing")
