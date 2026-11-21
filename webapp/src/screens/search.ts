@@ -15,7 +15,7 @@ export type Answer =
   | { kind: "unchecked" }
   | { kind: "checking" }
 
-type RegisterRefusal = { why: "taken" | "failed" | "dearer" | "unavailable" } | { why: "other"; url: string } | { why: "limit"; reference: string }
+type RegisterRefusal = { why: "taken" | "failed" | "unavailable" } | { why: "price"; price: number } | { why: "other"; url: string } | { why: "limit"; reference: string }
 
 export interface SearchState {
   opening: Opening

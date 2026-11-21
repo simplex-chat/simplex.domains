@@ -626,17 +626,18 @@ screen(240, "home-retarget-terms-changed", async (r) => {
   await press(r.page, "Register with your payment")
   await shown(r.page, "The Names Conditions changed.")
 })
-const moveRefusals: [number, string, number, string][] = [
+const moveRefusals: [number, string, number, string, Record<string, unknown>?][] = [
   [242, "home-retarget-refused-taken", 409, "name_taken"],
-  [244, "home-retarget-refused-dearer", 409, "price_too_high"],
+  [244, "home-retarget-refused-dearer", 409, "price_too_high", { price: 20000 }],
+  [246, "home-retarget-refused-cheaper", 409, "price_too_high", { price: 5000 }],
   [248, "home-retarget-refused-unavailable", 503, "terms_unavailable"],
   [250, "home-retarget-refused-failed", 503, "provider_unavailable"],
   [252, "home-retarget-refused-limit", 409, "move_limit"],
 ]
-for (const [slot, id, status, error] of moveRefusals) {
+for (const [slot, id, status, error, extra] of moveRefusals) {
   screen(slot, id, async (r) => {
     await retargetTicked(r)
-    await moveAnswer(r.page, (route) => answer(route, status, error))
+    await moveAnswer(r.page, (route) => answer(route, status, error, undefined, extra))
     await press(r.page, "Register with your payment")
     await expect(onStep(r.page).locator(".notice").last()).toBeVisible()
   })

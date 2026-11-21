@@ -224,6 +224,7 @@ async function retarget(record: store.OrderRecord, label: string, quote: flow.Qu
     const code = e instanceof api.ApiError ? e.code : null
     const reference = record.invoiceId ?? record.registrationId
     if (code === "move_limit") return dispatch({ type: "register-refused", refusal: { why: "limit", reference } })
+    if (e instanceof api.ApiError && e.code === "price_too_high" && typeof e.body.price === "number") return dispatch({ type: "register-refused", refusal: { why: "price", price: e.body.price } })
     // the code's own order for the new name is the one the move met
     const other = code === "order_exists" ? await flow.ownOrderFor(record.ownerCode, hex(labelHash(label))).catch(() => null) : null
     if (!onPage(page)) return
@@ -231,7 +232,7 @@ async function retarget(record: store.OrderRecord, label: string, quote: flow.Qu
   }
 }
 
-const REFUSALS: Record<string, "taken" | "dearer" | "unavailable"> = { name_taken: "taken", price_too_high: "dearer", terms_unavailable: "unavailable" }
+const REFUSALS: Record<string, "taken" | "unavailable"> = { name_taken: "taken", terms_unavailable: "unavailable" }
 
 const BUILDERS: Record<SearchKind, Builder<SearchState>> = {
   "search:plain": buildSearch,
@@ -371,12 +372,12 @@ function moveAgreement(s: SearchState, label: string, answer: flow.Quote): HTMLE
   return termsChecks({ terms: answer.terms, community: answer.community, agreed: s.agreed, accepted: s.accepted, changed: s.termsChanged, label, tld: readSite().tld, chainId: readSite().chainId, disabled: s.register.busy }, agree, accept)
 }
 
-function registerNote({ hold, register: { refusal } }: SearchState, signal: AbortSignal): HTMLElement | null {
+function registerNote({ hold, retarget, register: { refusal } }: SearchState, signal: AbortSignal): HTMLElement | null {
   if (hold) return holdNotice(hold, signal)
   if (!refusal) return null
   if (refusal.why === "limit") return noteBox(moveLimitNote(refusal.reference))
   const words = refusal.why === "taken" ? "This name is no longer available. Search another one."
-    : refusal.why === "dearer" ? "This name now costs more than you paid. Search another one."
+    : refusal.why === "price" ? `This name now costs ${refusal.price > retarget!.paid ? "more" : "less"} than the ${dollars(retarget!.paid)} you paid. Search another one.`
     : refusal.why === "unavailable" ? `${NO_ORDERS}. Nothing changed. Try again later.` : "Nothing changed. Try again in a moment."
   return alertBox("danger", "alert", "That did not go through", words)
 }
