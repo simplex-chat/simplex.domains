@@ -6,7 +6,7 @@ import { timeOf } from "../format.ts"
 export const BALANCE_READ_MS = 3000
 export const CONFIRMING_READ_MS = 15_000
 
-// how long a balance stays held: until its holder's invoice expires, or while money that reached it is being confirmed
+// how long a balance stays held: until its holder's invoice expires, or while the payment that reached it is being completed
 export const heldWords = (heldUntil: string | null) => heldUntil ? `until ${timeOf(Date.parse(heldUntil))}` : "while its payment is being completed"
 
 // The holder's invoice is followed while it is open and says nothing new of the hold: money reaching it ends the hold's
