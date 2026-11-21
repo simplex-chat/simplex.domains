@@ -485,7 +485,7 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
     case "registered": return { type: "registered", expiresAt: reg.expiresAt }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
-    case "taken": return { type: "taken", ...reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
+    case "taken": return { type: "taken", ...reg.method !== "code" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
 }
@@ -1165,7 +1165,7 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   if (current) return registrationView(reg)
   freshTimestamp(sent.timestamp)
   // only a paid order taken first, within the month from its payment, while its balance keeps its price, which goes back to it as it moves
-  const movable = reg.phase === "taken" && reg.method !== "code" && reg.paidAt !== null && nowSeconds() <= monthAfter(reg.paidAt)
+  const movable = reg.phase === "taken" && reg.method !== "code" && reg.paidAt !== null && nowSeconds() < monthAfter(reg.paidAt)
     && (balances.get(reg.id)?.amount ?? 0) >= reg.paid
   if (!movable) throw badRequest()
   if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
