@@ -4,7 +4,7 @@ import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
   cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, createInvoice, currentTerms, dump, editRecords, find, findLimited,
-  HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retry, reveal, search, signFor, siteConfig,
+  HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retry, reveal, search, selectName, signFor, siteConfig,
 } from "./mock/service.ts"
 
 const PORT = Number(process.env.MOCK_PORT ?? "8099")
@@ -45,7 +45,7 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/api\/registration\/find$/, (_, b) => find(b), findLimited],
   ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], versionOf(q))],
   ["POST", /^\/api\/registration\/([^/]+)\/reveal$/, (m, b) => reveal(m[1], b)],
-  ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => retarget(m[1], b))],
+  ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => selectName(m[1], b))],
   ["POST", /^\/api\/registration\/([^/]+)\/retry$/, (m) => retry(m[1])],
   ["POST", /^\/control\/(settle|partial|confirming|expire|overdue)\/([^/]+)$/, (m, b) => controlInvoice(m[1], m[2], b)],
   ["POST", /^\/control\/(fail|stale|unread|lapse)\/([^/]+)$/, (m) => controlRegistration(m[1], m[2])],
