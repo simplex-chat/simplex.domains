@@ -60,7 +60,7 @@ test("a paid order taken first keeps its price as its balance, which support ref
   await expect(balanceRow(page).getByRole("button", { name: "Refund" })).toBeFocused()
 })
 
-test("the name code shows the balance in another browser, and a refund support records shows as refunded, after which the order moves no more", async ({ page, browser, request }) => {
+test("the name code shows the balance in another browser, and a refund support records shows as refunded, after which no name is selected for the order", async ({ page, browser, request }) => {
   const label = uniqueLabel("bref")
   const { invoiceId, ownerCode } = await takenOrder(page, request, label)
   const kept = `$100From ${label}.simplex, registered by someone else first`
@@ -81,7 +81,7 @@ test("the name code shows the balance in another browser, and a refund support r
   await expect(onStep(page).getByText("Get a refund")).toHaveCount(0)
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
   await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
-  expect(page.url()).not.toContain("retarget")
+  expect(page.url()).not.toContain("order=")
 })
 
 // the service worker of a production build answers these pages before Playwright's routes in WebKit

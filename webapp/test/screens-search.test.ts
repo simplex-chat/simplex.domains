@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { SearchAnswer, Terms } from "../src/api.ts"
 import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
 import {
-  codeCover, coverOf, initialSearch, keptWords, moveBar, moveHint, type Opening, orderCode, type OrderRead, ownOrders, reduce, REGISTER_LEAD, returnedTo, searchDue, type SearchEvent,
+  codeCover, coverOf, initialSearch, type Opening, orderCode, type OrderRead, ownOrders, reduce, returnedTo, searchDue, type SearchEvent,
   searchLocked, type SearchKind, type SearchState, screenOf,
 } from "../src/screens/search.ts"
 import type { OrderRecord } from "../src/store.ts"
@@ -11,8 +11,6 @@ const NOW = Date.parse("2026-10-17T12:00:00Z")
 const OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
 const termsOf = (hash: string) => ({ hash: `0x${hash}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
 const TERMS = termsOf("21".repeat(32))
-const NEWER = termsOf("f6".repeat(32))
-const BAKERS = { for: "bakers and pastry chefs", years: 2 }
 const available = (terms: Terms | null = TERMS): SearchAnswer => ({ found: { type: "available", price: 1500, years: 2, terms }, community: null })
 const AVAILABLE = available()
 const TAKEN: SearchAnswer = { found: { type: "registered", entities: [], owner: OWNER, resolver: OWNER, expiresAt: 1830297600, gracePeriod: 7776000, records: { type: "other" } }, community: null }
@@ -26,9 +24,8 @@ function record(change: Partial<OrderRecord> = {}): OrderRecord {
 }
 
 const openedEvent = (change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}): Extract<SearchEvent, { type: "opened" }> =>
-  ({ type: "opened", opening: "plain", name: "", retarget: null, hold: null, ...change })
+  ({ type: "opened", opening: "plain", name: "", order: null, hold: null, ...change })
 const open = (change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}) => reduce(initialSearch(), openedEvent(change))
-const run = (s: SearchState, ...events: SearchEvent[]) => events.reduce(reduce, s)
 const wait = (until: number): Hold => ({ until, lead: NO_LEAD })
 const searchedEvent = (label: string, hold: Hold | null = null, minLength: number | null = null): SearchEvent => ({ type: "searched", label, hold, minLength })
 const answered = (s: SearchState, answer: SearchAnswer = AVAILABLE, label = s.searching!.label): SearchEvent => ({ type: "answered", seq: s.seq, label, answer, mine: false, now: NOW })
@@ -39,7 +36,7 @@ function shown(label = "alice1", answer: SearchAnswer = AVAILABLE, change: Parti
 }
 
 describe("screenOf", () => {
-  const cases: [Opening, SearchKind][] = [["plain", "search:plain"], ["retarget", "search:retarget"]]
+  const cases: [Opening, SearchKind][] = [["plain", "search:plain"], ["order", "search:order"]]
   it.each(cases)("a page opened %s shows %s", (opening, kind) => {
     expect(screenOf(open({ opening }))).toBe(kind)
   })
@@ -68,8 +65,8 @@ describe("reduce: opened", () => {
     const s = open({ name: "alice1" })
     expect(s).toMatchObject({ opening: "plain", name: "alice1", typed: "alice1", searched: null, answer: null, hold: null, paused: false })
   })
-  it("keeps the order a retarget search moves", () => {
-    expect(open({ opening: "retarget", retarget: record() }).retarget).toEqual(record())
+  it("keeps the order a name is selected for", () => {
+    expect(open({ opening: "order", order: record() }).order).toEqual(record())
   })
   it("drawn again, a name searched keeps its answer and the field its name", () => {
     const s = shown()
@@ -88,22 +85,17 @@ describe("reduce: opened", () => {
     expect(next).toMatchObject({ seq: s.seq, searching: { label: "alice1" } })
     expect(reduce(next, answered(s)).answer).toMatchObject({ kind: "found", label: "alice1" })
   })
-  it("drawn again, the refusal its register showed is done with, and a register under way goes on", () => {
-    const s = run(shown(), { type: "register-started" })
-    expect(reduce(s, openedEvent({ name: "alice1" })).register).toEqual({ busy: true, refusal: null })
-    const refused = reduce(s, { type: "register-refused", refusal: { why: "failed" } })
-    expect(reduce(refused, openedEvent({ name: "alice1" })).register).toEqual({ busy: false, refusal: null })
-  })
   it("a wait met elsewhere in the tab pauses the search, dropping what was shown", () => {
     const s = open({ name: "alice1", hold: wait(NOW + 5000) })
     expect(s).toMatchObject({ hold: { until: NOW + 5000, lead: NO_LEAD }, paused: true, answer: null })
     const later = reduce(shown(), openedEvent({ name: "alice1", hold: wait(NOW + 5000) }))
     expect(later).toMatchObject({ paused: true, answer: null, searching: null })
   })
-  it("a wait the page knows of keeps what the page shows, and ends only by its own event", () => {
-    const held = reduce(shown(), { type: "register-held", until: NOW + 5000 })
-    expect(reduce(held, openedEvent({ name: "alice1", hold: wait(NOW + 5000) }))).toMatchObject({ paused: false, answer: held.answer, hold: held.hold })
-    expect(reduce(held, openedEvent({ name: "alice1", hold: null }))).toMatchObject({ hold: held.hold })
+  it("a wait the page knows of goes on, and ends only by its own event", () => {
+    const searching = reduce(shown(), searchedEvent("bobby1"))
+    const held = reduce(searching, { type: "search-held", seq: searching.seq, until: NOW + 5000 })
+    expect(reduce(held, openedEvent({ name: "bobby1", hold: wait(NOW + 9000) }))).toMatchObject({ paused: true, seq: held.seq, hold: held.hold })
+    expect(reduce(held, openedEvent({ name: "bobby1", hold: null }))).toMatchObject({ paused: true, hold: held.hold })
   })
   it("a new name in the link, drawn again, goes into the field", () => {
     expect(reduce(shown(), openedEvent({ name: "carol1" }))).toMatchObject({ name: "carol1", typed: "carol1" })
@@ -141,10 +133,6 @@ describe("reduce: typing and searching", () => {
   it("searched during a wait met elsewhere in the tab pauses the search instead", () => {
     const s = shown()
     expect(reduce(s, searchedEvent("bobby1", wait(NOW + 9000)))).toMatchObject({ paused: true, hold: { until: NOW + 9000, lead: NO_LEAD }, answer: null, searching: null, searched: "alice1" })
-  })
-  it("searched ends the refusal the last register showed", () => {
-    const refused = run(shown(), { type: "register-refused", refusal: { why: "taken" } })
-    expect(reduce(refused, searchedEvent("bobby1")).register).toEqual({ busy: false, refusal: null })
   })
 })
 
@@ -194,13 +182,6 @@ describe("reduce: answers", () => {
     const later = reduce(s, searchedEvent("carol1"))
     expect(reduce(later, { type: "search-held", seq: s.seq, until: NOW })).toBe(later)
   })
-  it("a shorter wait met meanwhile does not cut a longer one", () => {
-    const held = reduce(shown(), { type: "register-held", until: NOW + 30_000 })
-    expect(reduce(held, searchedEvent("bobby1", wait(NOW + 1000))).hold!.until).toBe(NOW + 30_000)
-    const s = reduce(held, { type: "hold-ended" })
-    const searching = reduce(s, searchedEvent("bobby1"))
-    expect(reduce(run(searching, { type: "register-held", until: NOW + 60_000 }), { type: "search-held", seq: searching.seq, until: NOW + 1000 }).hold!.until).toBe(NOW + 60_000)
-  })
   it("hold-ended lifts the pause and the wait", () => {
     const s = open({ name: "alice1", hold: wait(NOW + 5000) })
     expect(reduce(s, { type: "hold-ended" })).toMatchObject({ hold: null, paused: false })
@@ -214,10 +195,6 @@ describe("reduce: answers", () => {
     expect(reduce(searching, { type: "search-held", seq: searching.seq, until: NOW + 9000 })).toMatchObject({ answer: null, paused: true })
     expect(reduce(open({ hold: wait(NOW + 5000) }), { type: "hold-ended" }).answer).toBeNull()
   })
-  it("a wait on Register that ends keeps the answer shown", () => {
-    const held = reduce(shown(), { type: "register-held", until: NOW + 30_000 })
-    expect(reduce(held, { type: "hold-ended" }).answer).toEqual(held.answer)
-  })
   it("own-order-seen points at the order for the name shown, and not for another", () => {
     const s = shown()
     expect(reduce(s, { type: "own-order-seen", label: "alice1", url: "/?order=inv-1" }).ownOrder).toBe("/?order=inv-1")
@@ -226,62 +203,16 @@ describe("reduce: answers", () => {
   })
 })
 
-describe("reduce: retargets", () => {
-  it("retarget-read takes the order as the service has it", () => {
-    const s = open({ opening: "retarget", retarget: record() })
-    expect(reduce(s, { type: "retarget-read", record: record({ paid: 2500 }) }).retarget).toEqual(record({ paid: 2500 }))
+describe("reduce: the order a name is selected for", () => {
+  it("order-read takes the order as the service has it", () => {
+    const s = open({ opening: "order", order: record() })
+    expect(reduce(s, { type: "order-read", record: record({ paid: 2500 }) }).order).toEqual(record({ paid: 2500 }))
   })
-  it("retarget-read for another order, or on a page with none, changes nothing", () => {
-    const s = open({ opening: "retarget", retarget: record() })
-    expect(reduce(s, { type: "retarget-read", record: record({ registrationId: "reg-2" }) })).toBe(s)
+  it("order-read for another order, or on a page with none, changes nothing", () => {
+    const s = open({ opening: "order", order: record() })
+    expect(reduce(s, { type: "order-read", record: record({ registrationId: "reg-2" }) })).toBe(s)
     const plain = open()
-    expect(reduce(plain, { type: "retarget-read", record: record() })).toBe(plain)
-  })
-})
-
-describe("reduce: the terms of a move", () => {
-  const moving = () => shown("alice1", AVAILABLE, { opening: "retarget", retarget: record() })
-
-  it("agreed ticks and unticks the terms box a move to another name waits for", () => {
-    const ticked = reduce(moving(), { type: "agreed", agreed: true })
-    expect(ticked.agreed).toBe(true)
-    expect(reduce(ticked, { type: "agreed", agreed: false }).agreed).toBe(false)
-  })
-  it("accepted ticks and unticks a community name's own box beside it", () => {
-    const ticked = reduce(moving(), { type: "accepted", accepted: true })
-    expect(ticked.accepted).toBe(true)
-    expect(reduce(ticked, { type: "accepted", accepted: false }).accepted).toBe(false)
-  })
-  it("terms-changed takes the terms and community entry the service gave into the answer, unticks the boxes and says so, ending the move", () => {
-    const s = run(moving(), { type: "agreed", agreed: true }, { type: "accepted", accepted: true }, { type: "register-started" })
-    const changed = reduce(s, { type: "terms-changed", label: "alice1", terms: NEWER, community: BAKERS })
-    expect(changed).toMatchObject({ agreed: false, accepted: false, termsChanged: true, register: { busy: false, refusal: null }, answer: { kind: "found", label: "alice1", answer: { ...available(NEWER), community: BAKERS } } })
-  })
-  it("terms-changed for a name no longer shown changes nothing", () => {
-    const s = moving()
-    expect(reduce(s, { type: "terms-changed", label: "bob123", terms: NEWER, community: null })).toBe(s)
-  })
-  it("an answer for another name, or with other terms, unticks the boxes and ends the notice; the same answer again keeps them", () => {
-    const ticked = run(moving(), { type: "agreed", agreed: true }, { type: "accepted", accepted: true })
-    const again = run(ticked, searchedEvent("alice1"))
-    expect(reduce(again, answered(again))).toMatchObject({ agreed: true, accepted: true })
-    const other = run(ticked, searchedEvent("carol1"))
-    expect(reduce(other, answered(other))).toMatchObject({ agreed: false, accepted: false, termsChanged: false })
-    const changed = run(moving(), { type: "terms-changed", label: "alice1", terms: NEWER, community: null }, searchedEvent("alice1"))
-    expect(reduce({ ...changed, agreed: true }, answered(changed, available(termsOf("d8".repeat(32)))))).toMatchObject({ agreed: false })
-    expect(reduce({ ...changed, agreed: true }, answered(changed, available(null))), "terms that can't be read now").toMatchObject({ agreed: false })
-  })
-})
-
-describe("reduce: register", () => {
-  it("register-started works, and a refusal ends it", () => {
-    const s = reduce(shown(), { type: "register-started" })
-    expect(s.register).toEqual({ busy: true, refusal: null })
-    expect(reduce(s, { type: "register-refused", refusal: { why: "other", url: "/?order=inv-9" } }).register).toEqual({ busy: false, refusal: { why: "other", url: "/?order=inv-9" } })
-  })
-  it("register-held holds the tab, saying nothing changed, and keeps the answer shown", () => {
-    const s = reduce(shown(), { type: "register-started" })
-    expect(reduce(s, { type: "register-held", until: NOW + 5000 })).toMatchObject({ register: { busy: false, refusal: null }, hold: { until: NOW + 5000, lead: REGISTER_LEAD }, paused: false, answer: s.answer })
+    expect(reduce(plain, { type: "order-read", record: record() })).toBe(plain)
   })
 })
 
@@ -293,16 +224,16 @@ describe("returnedTo", () => {
     expect(searchDue(reduce(back, openedEvent({ name: "alice1" })))).toBe(false)
     expect(reduce(back, openedEvent({ name: "alice1" })).answer).toEqual(s.answer)
   })
-  it("what was under way on the page left ended with it: a search, and a register at work", () => {
+  it("a search under way on the page left ended with it", () => {
     const s = shown()
-    const left = { ...reduce(reduce(s, { type: "register-started" }), searchedEvent("bobby1")), name: "alice1" }
+    const left = { ...reduce(s, searchedEvent("bobby1")), name: "alice1" }
     expect(left.searching).not.toBeNull()
-    expect(returnedTo(left, "plain", "alice1", "simplex", [])).toEqual({ ...left, searching: null, register: { busy: false, refusal: null } })
+    expect(returnedTo(left, "plain", "alice1", "simplex", [])).toEqual({ ...left, searching: null })
   })
   it("starts anew for another name, another way of opening, or a page that showed no answer", () => {
     const s = shown()
     expect(returnedTo(s, "plain", "bobby1", "simplex", [])).toEqual(initialSearch())
-    expect(returnedTo(s, "retarget", "alice1", "simplex", [])).toEqual(initialSearch())
+    expect(returnedTo(s, "order", "alice1", "simplex", [])).toEqual(initialSearch())
     expect(returnedTo(open({ name: "alice1" }), "plain", "alice1", "simplex", [])).toEqual(initialSearch())
     const ruled = reduce(open({ name: "abc" }), searchedEvent("abc"))
     expect(returnedTo(ruled, "plain", "abc", "simplex", [])).toEqual(initialSearch())
@@ -330,38 +261,24 @@ describe("returnedTo", () => {
   })
 })
 
-describe("a move", () => {
+describe("a name selected for a code order", () => {
   const PREPAID = "SN9-BJTBP-29596-R3HJ8-25YM5"
   const coded = (change: Partial<OrderRecord> = {}) => record({ invoiceId: null, method: "code", paid: 0, prepaidCode: PREPAID, label: "alice1bakes", ...change })
-  it("of a code order is bounded by its code: names of the code's length or more, for the order's years", () => {
+  it("is bounded by the order's code: names of the code's length or more, for the order's years", () => {
     expect(codeCover(coded())).toEqual({ minLength: 9, years: 2 })
     expect(codeCover(coded({ years: 5 }))).toEqual({ minLength: 9, years: 5 })
     expect(codeCover(record()), "a paid order").toBeNull()
   })
-  it("of a code order is barred only for a name shorter than its code allows, whatever the name costs, with no hint of money", () => {
-    expect(moveBar(coded(), "alice1bak", 10000)).toBeNull()
-    expect(moveBar(coded(), "alice1ba", 1)).toBe("uncovered")
-    expect(moveHint(coded(), 10000)).toBeNull()
+  it("is searched only among the names its code covers, in either mode, while the tab's code bounds nothing", () => {
+    const selecting = open({ opening: "order", order: coded() })
+    expect(coverOf(false, selecting, null)).toBe(9)
+    expect(coverOf(true, selecting, { display: "SN7-AAAAA-BBBBB-CCCCC", minLength: 7, years: 2 })).toBe(9)
+    expect(reduce(selecting, searchedEvent("alice1ba", null, 9)).answer).toEqual({ kind: "uncovered", label: "alice1ba", minLength: 9 })
   })
-  it("of a code order restored without its code states no length and leaves the code's check to the service", () => {
+  it("restored without its code states no length and leaves the code's check to the service", () => {
     const restored = coded({ prepaidCode: undefined })
     expect(codeCover(restored)).toEqual({ minLength: null, years: 2 })
-    expect(moveBar(restored, "alice2", 20000)).toBeNull()
-    expect(keptWords(restored)).toBe("Choose another name for your code.")
-  })
-  it("of a paid order is barred for a name of another price than the order is worth, whatever its length", () => {
-    expect(moveBar(record(), "alice2", 1500)).toBeNull()
-    expect(moveBar(record(), "alice2", 1501)).toBe("dearer")
-    expect(moveBar(record(), "alice2", 1499)).toBe("cheaper")
-  })
-  it("of a paid order says what its payment covers", () => {
-    expect(moveHint(record(), 1500)).toBe("Covered by your payment")
-    expect(moveHint(record(), 1000)).toBe("This name costs less than the $15 you paid.")
-    expect(moveHint(record(), 2000)).toBe("This name costs more than the $15 you paid.")
-  })
-  it("opens saying what the next name needs: the length for the code, or the price paid", () => {
-    expect(keptWords(coded())).toBe("Choose another name of 9 or more letters for your code.")
-    expect(keptWords(record())).toBe("You paid $15: choose another name at that price.")
+    expect(coverOf(false, open({ opening: "order", order: restored }), null)).toBeNull()
   })
 })
 
@@ -445,10 +362,10 @@ describe("codes-only mode", () => {
     expect(searchLocked(true, open(), CODE)).toBe(false)
     expect(searchLocked(false, open(), null), "open mode searches without a code").toBe(false)
   })
-  it("leaves a paid order's move to another name open, which its own payment covers", () => {
-    const moving = open({ opening: "retarget", retarget: record() })
-    expect(searchLocked(true, moving, null)).toBe(false)
-    expect(coverOf(true, moving, CODE), "the move's own payment bounds its names").toBeNull()
+  it("leaves the search for a paid order's name open, which its own payment registers", () => {
+    const selecting = open({ opening: "order", order: record() })
+    expect(searchLocked(true, selecting, null)).toBe(false)
+    expect(coverOf(true, selecting, CODE), "the tab's code bounds none of its names").toBeNull()
   })
   it("bounds a plain search by the letters the tab's code covers, in codes-only mode only", () => {
     expect(coverOf(true, open(), CODE)).toBe(7)

@@ -18,7 +18,7 @@ const WARN: Note = { tone: "warn", icon: "alert", title: null, text: "The invoic
 
 const registration = (change: Short = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
-  price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, latePayment: null, community: null, terms: { communityName: false, termsHash: SIGNED },
+  price: 1500, balance: null, commitTx: null, registerTx: null, latePayment: null, community: null, terms: { communityName: false, termsHash: SIGNED },
 }, change)
 
 const crypto = (change: Partial<InvoiceView> = {}, reg: Short = {}): InvoiceView => ({
@@ -238,7 +238,7 @@ describe("reduce", () => {
       ["cancel-started", "cancel-failed", { ...paying, note: WARN }, "cancel"],
       ["reorder-started", "reorder-failed", { ...STATES["status:closed"], note: WARN }, "reorder"],
       ["retry-started", "retry-ended", { ...LAPSED, note: WARN }, "retry"],
-      ["move-started", "move-failed", { ...STATES.failed, note: WARN }, "move"],
+      ["continue-started", "continue-failed", { ...STATES.failed, note: WARN }, "continue"],
     ]
     it.each(cases)("%s marks the action at work and clears the note; %s ends it with its note", (started, failed, s, busy) => {
       const working = reduce(s, { type: started } as OrderEvent)
@@ -256,11 +256,11 @@ describe("reduce", () => {
       expect(opened).toMatchObject({ note: USED, codeRefused: true })
       expect(reduce(STATES.failed, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ note: USED, codeRefused: true })
     })
-    it("a kept refusal belongs to the failed page and waits out a move at work", () => {
+    it("a kept refusal belongs to the failed page and waits out a Continue at work", () => {
       const kept = record({ codeRefusal: "code_used" })
       expect(reduce(STATES.registering, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ codeRefused: false, note: null })
-      const working = reduce(STATES.failed, { type: "move-started" })
-      expect(reduce(working, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ busy: "move", codeRefused: false })
+      const working = reduce(STATES.failed, { type: "continue-started" })
+      expect(reduce(working, { type: "record-changed", record: kept, cardSubmittedAt: null })).toMatchObject({ busy: "continue", codeRefused: false })
       const refused = reduce(STATES.failed, { type: "record-changed", record: kept, cardSubmittedAt: null })
       expect(reduce(refused, { type: "tick", now: NOW + 1000 })).toMatchObject({ codeRefused: true, note: USED })
     })
@@ -298,7 +298,7 @@ describe("reduce", () => {
       const refused = { ...STATES.failed, codeRefused: true }
       expect(reduce(refused, answered(refused, STATES.registering)).codeRefused).toBe(false)
     })
-    it.each([["cancel-failed"], ["reorder-failed"], ["retry-ended"], ["move-failed"]])("%s of an action no longer at work changes nothing", (failed) => {
+    it.each([["cancel-failed"], ["reorder-failed"], ["retry-ended"], ["continue-failed"]])("%s of an action no longer at work changes nothing", (failed) => {
       expect(reduce(paying, { type: failed, note: WARN } as OrderEvent)).toBe(paying)
     })
     it("cancel-answered ends the cancel and leaves no note", () => {
@@ -603,8 +603,8 @@ describe("the terms of the same name again", () => {
   const TERMS = termsOf(`0x${"f6".repeat(32)}`)
   const BAKERS = communityEntry("bakers and pastry chefs")
 
-  it("terms-asked ends a new invoice's or a move's work and asks for the name's terms, unticked", () => {
-    for (const started of ["reorder-started", "move-started"] as const) {
+  it("terms-asked ends a new invoice's or a Continue's work and asks for the name's terms, unticked", () => {
+    for (const started of ["reorder-started", "continue-started"] as const) {
       const s = reduce(STATES["status:closed"], { type: started })
       expect(reduce(s, { type: "terms-asked", label: "alice", terms: TERMS, community: BAKERS, changed: false }), started).toMatchObject({ busy: null, ask: { label: "alice", terms: TERMS, community: BAKERS, agreed: false, changed: false } })
     }
@@ -629,11 +629,11 @@ describe("the terms of the same name again", () => {
     const s = reduce(STATES["status:closed"], { type: "terms-asked", label: "alice", terms: TERMS, community: null, changed: false })
     expect(reduce(s, answered(s, STATES["status:closed"])).ask).toEqual(s.ask)
   })
-  it("an order moved to another name meanwhile drops the ask, ticked or not, so the next press asks for that name's terms", () => {
+  it("an order read with another name meanwhile drops the ask, ticked or not, so the next press asks for that name's terms", () => {
     const asked = reduce(STATES["status:closed"], { type: "terms-asked", label: "alice", terms: TERMS, community: null, changed: false })
     const ticked = reduce(asked, { type: "terms-agreed", agreed: true, now: NOW })
-    const moved = { ...STATES["status:closed"], record: record({ label: "bob123" }) }
-    expect(reduce(ticked, answered(ticked, moved)).ask).toBeNull()
+    const renamed = { ...STATES["status:closed"], record: record({ label: "bob123" }) }
+    expect(reduce(ticked, answered(ticked, renamed)).ask).toBeNull()
     expect(reduce(ticked, { type: "record-changed", record: record({ label: "bob123" }), cardSubmittedAt: null }).ask).toBeNull()
     expect(reduce(ticked, { type: "record-changed", record: record(), cardSubmittedAt: null }).ask).toEqual(ticked.ask)
   })

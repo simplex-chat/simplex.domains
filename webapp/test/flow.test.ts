@@ -79,7 +79,7 @@ afterEach(() => vi.unstubAllGlobals())
 const draft = (label = "dynamis", terms = SIGNED) => ({ label, links: LINKS, chain: CHAIN, years: 2, termStart: TERM_START, ownerCode: OWNER_CODE, terms })
 
 const view = (request: { labelHash: string; duration: number; commitment: string; sealed: string }, extra: ShortView = {}) => viewOf({
-  id: "reg1", version: 1, moves: 0, labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
+  id: "reg1", version: 1, labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
   years: 2, duration: request.duration, price: 20000, balance: null, commitTx: "0x01", registerTx: null, latePayment: null,
   community: null, terms: { communityName: false, termsHash: TERMS.hash },
 }, { phase: "committed", revealAfter: 1000, revealBefore: 87400, intentNonce: 3, ...extra })
@@ -174,14 +174,15 @@ describe("revealOrder", () => {
   })
 })
 
-describe("retargetOrder", () => {
+describe("selectName", () => {
   it("signs the new name's request and the terms agreed for it with the order's key, and keeps the record's wallet", async () => {
     const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     store.saveOrder(record)
     answers["POST /api/registration/reg1/name"] = view(built.request)
-    await flow.retargetOrder(record, "another", LINKS, QUOTE, COMMUNITY_SIGNED)
+    const another = draft("another", COMMUNITY_SIGNED)
+    await flow.selectName(record, another, await flow.orderRequest(another))
     const body = calls[0].body as { fields: { labelHash: string; length: number; duration: number; commitment: string; sealed: string; terms: unknown }; timestamp: number; signature: Hex }
     const { fields } = body
     expect(fields.labelHash).toBe(hex(labelHash("another")))
@@ -192,21 +193,18 @@ describe("retargetOrder", () => {
     expect(store.orderByRegistration("reg1")).toMatchObject({ label: "another", owner: OWNER, request: { labelHash: fields.labelHash }, terms: COMMUNITY_SIGNED })
   })
 
-  it("moves an order for its own years, kept with its record, or a community name for the community's", async () => {
+  it("sends the request built for the name, and keeps the record's own years for a community name's shorter term", async () => {
     const { flow, store } = await modules()
     const fiveYears = { ...draft(), years: 5 }
-    const built = await flow.orderRequest(fiveYears)
-    const record = flow.recordFor(fiveYears, built, "code", 0, { registrationId: "reg1", invoiceId: null })
+    const record = flow.recordFor(fiveYears, await flow.orderRequest(fiveYears), "code", 0, { registrationId: "reg1", invoiceId: null })
     store.saveOrder(record)
+    const community = { ...draft("another", COMMUNITY_SIGNED), years: 2 }
+    const built = await flow.orderRequest(community)
     answers["POST /api/registration/reg1/name"] = view(built.request)
-    const community = { ...QUOTE, community: { years: 2 } }
-    await flow.retargetOrder(record, "another", LINKS, community, COMMUNITY_SIGNED)
-    expect(Math.floor((calls[0].body as { fields: { duration: number } }).fields.duration / YEAR_S)).toBe(2)
+    await flow.selectName(record, community, built)
+    const { fields, reveal } = calls[0].body as { fields: { duration: number; commitment: string }; reveal: unknown }
+    expect([Math.floor(fields.duration / YEAR_S), fields.commitment, reveal]).toEqual([2, built.request.commitment, built.request.reveal])
     expect(store.orderByRegistration("reg1")?.years).toBe(5)
-    const paid = { ...flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg2", invoiceId: "inv2" }), years: 3 }
-    answers["POST /api/registration/reg2/name"] = view(built.request)
-    await flow.retargetOrder(paid, "another", LINKS, QUOTE, SIGNED)
-    expect(Math.floor((calls[1].body as { fields: { duration: number } }).fields.duration / YEAR_S)).toBe(3)
   })
 
   it("drafts a new invoice for the answer's years, or a community name's own", async () => {
@@ -345,19 +343,19 @@ describe("ownOrderFor", () => {
 })
 
 describe("syncRecord", () => {
-  it("reads an order moved to another name elsewhere back into the record", async () => {
+  it("reads a name selected for the order elsewhere back into the record", async () => {
     const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     store.saveOrder(record)
     expect(await flow.syncRecord(record, view(built.request))).toBe(record)
-    const moved = await flow.orderRequest({ ...draft("another"), links: { contact: "", channel: "" } })
-    const synced = await flow.syncRecord(record, view(moved.request))
-    expect(synced).toMatchObject({ label: "another", contact: "", channel: "", request: { commitment: moved.request.commitment } })
+    const selected = await flow.orderRequest({ ...draft("another"), links: { contact: "", channel: "" } })
+    const synced = await flow.syncRecord(record, view(selected.request))
+    expect(synced).toMatchObject({ label: "another", contact: "", channel: "", request: { commitment: selected.request.commitment } })
     expect(store.orderByRegistration("reg1")?.label).toBe("another")
   })
 
-  it("takes the terms the order signed from the view, which a move with other terms changes", async () => {
+  it("takes the terms the order signed from the view, which other terms alone change", async () => {
     const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })

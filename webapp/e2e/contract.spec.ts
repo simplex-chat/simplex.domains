@@ -61,11 +61,12 @@ async function draftOf(label: string, links = { contact: "", channel: "" }): Pro
   return { label, links, chain: flow.chainOf(readSite()), years: q.years, termStart: readSite().termStart, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q) }
 }
 
-// the order moved to another name, or the same with other links, under the terms the service has for that name now
-async function moveOf(record: store.OrderRecord, to: string, links = NO_LINKS): Promise<api.RegistrationView> {
-  if (to === record.label) return flow.retargetOrder(record, to, links, { community: null }, api.signedTermsOf((await viewOf(record.registrationId)).terms))
+// a name selected for the order, under the terms the service has for that name now or `terms`
+async function selectionOf(record: store.OrderRecord, to: string, terms?: string): Promise<api.RegistrationView> {
   const q = await quote(to)
-  return flow.retargetOrder(record, to, links, q, api.currentTerms(q))
+  const draft: flow.Draft = { label: to, links: NO_LINKS, chain: flow.chainOf(readSite()), years: api.termYears(q.community, record.years), termStart: readSite().termStart, ownerCode: record.ownerCode,
+    terms: terms ?? api.currentTerms(q) }
+  return flow.selectName(record, draft, await flow.orderRequest(draft))
 }
 
 // the order signed again by its owner at another time
@@ -159,7 +160,7 @@ async function failedOrder(request: APIRequestContext, label: string) {
   return { ...order, view: await failAtRegister(request, order.id) }
 }
 
-// A paid order whose name a rival registered first: an order to move.
+// A paid order whose name a rival registered first: an order to select a name for.
 async function takenPaid(request: APIRequestContext, label: string) {
   const draft = await draftOf(label)
   const built = await flow.orderRequest(draft)
@@ -412,9 +413,9 @@ test("a held poll wakes on a new version, and of two retries at once of a lapsed
   expect(woken.version).toBeGreaterThan(view.version)
 })
 
-test("another name: only for a paid order taken first, at its own price; a repeat changes nothing, and the fourth move is move_limit", async ({ request }) => {
+test("a name is selected only for a paid order taken first, at its own price, again after each take with no limit; a repeat changes nothing", async ({ request }) => {
   const failed = await failedOrder(request, uniqueLabel("cmf"))
-  await expect(moveOf(store.orderByRegistration(failed.id)!, uniqueLabel("cmf2")), "a failed order").rejects.toMatchObject({ code: "bad_request" })
+  await expect(selectionOf(store.orderByRegistration(failed.id)!, uniqueLabel("cmf2")), "a failed order").rejects.toMatchObject({ code: "bad_request" })
   const label = shortLabel(7)
   const draft = await draftOf(label)
   const built = await flow.orderRequest(draft)
@@ -423,33 +424,32 @@ test("another name: only for a paid order taken first, at its own price; a repea
   store.saveOrder(flow.recordFor(draft, built, "btc", PRICE.seven, { registrationId: id, invoiceId: paid.json.invoiceId as string }))
   await control(request, `stale/${id}`)
   await control(request, `settle/${paid.json.invoiceId}`)
-  const move = async (to: string) => moveOf(store.orderByRegistration(id)!, to)
+  const select = async (to: string) => selectionOf(store.orderByRegistration(id)!, to)
   await untilPhase(id, ["committed"])
-  await expect(move(shortLabel(7)), "a committed order").rejects.toMatchObject({ code: "bad_request" })
+  await expect(select(shortLabel(7)), "a committed order").rejects.toMatchObject({ code: "bad_request" })
   await control(request, "take", { label })
   await flow.revealOrder(await untilRevealable(id), store.orderByRegistration(id)!)
   await untilPhase(id, ["taken"])
-  await expect(move(shortLabel(6)), "a dearer name").rejects.toMatchObject({ code: "price_too_high", body: { price: PRICE.six } })
-  await expect(move(uniqueLabel("cm")), "a cheaper name").rejects.toMatchObject({ code: "price_too_high", body: { price: PRICE.long } })
+  await expect(select(shortLabel(6)), "a dearer name").rejects.toMatchObject({ code: "catalog_changed", body: { price: PRICE.six } })
+  await expect(select(uniqueLabel("cm")), "a cheaper name").rejects.toMatchObject({ code: "catalog_changed", body: { price: PRICE.long } })
   const takenAgain = async () => {
     await control(request, "take", { label: store.orderByRegistration(id)!.label })
     await untilPhase(id, ["taken"])
   }
-  // names of the same price, each registered first by a rival: three moves in all
-  let view = await move(shortLabel(7))
-  expect([view.moves, view.phase, view.price]).toEqual([1, { type: "queued" }, PRICE.seven])
-  for (let n = 2; n <= 3; n++) {
+  // names of the same price, each registered first by a rival: four selections in all
+  let view = await select(shortLabel(7))
+  expect([view.phase, view.price, view.balance]).toEqual([{ type: "queued" }, PRICE.seven, free(0)])
+  for (let n = 2; n <= 4; n++) {
     await takenAgain()
-    view = await move(shortLabel(7))
-    expect(view.moves).toBe(n)
+    view = await select(shortLabel(7))
+    expect([view.phase, view.balance], `selection ${n}`).toEqual([{ type: "queued" }, free(0)])
   }
   await takenAgain()
   const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(store.orderByRegistration(id)!, view))
-  expect([repeat.status, (repeat.json as unknown as api.RegistrationView).moves], "a repeat of the current fields").toEqual([200, 3])
-  await expect(move(shortLabel(7))).rejects.toMatchObject({ code: "move_limit", body: { registration: { id, moves: 3, phase: { type: "taken" } } } })
+  expect([repeat.status, (repeat.json.phase as Json).type], "a repeat of the current fields").toEqual([200, "taken"])
 })
 
-test("a code order taken first moves to a name its code allows, its code reserved again, while a shorter name is code_not_covering", async ({ request }) => {
+test("a name selected for a code order taken first is one its code allows, its code reserved again, while a shorter name is code_not_covering", async ({ request }) => {
   const label = uniqueLabel("cc")
   const { code } = await control(request, "code", { minLength: 10 }) as { code: string }
   const draft = await draftOf(label)
@@ -461,16 +461,16 @@ test("a code order taken first moves to a name its code allows, its code reserve
   store.saveOrder(flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null }))
   const taken = await untilPhase(id, ["taken"])
   expect(Object.keys(taken).sort(), "the fields of the service's view of a taken code order (registration-taken-code.json)").toEqual([
-    "balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "moves", "owner", "payment", "phase", "price",
+    "balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
     "registerTx", "sealed", "terms", "version", "years",
   ])
-  expect([taken.phase, taken.payment, taken.balance, taken.price, taken.label], "a code order has no balance").toEqual([{ type: "taken", heldUntil: expect.any(String) }, { type: "code" }, null, 0, label])
+  expect([taken.phase, taken.payment, taken.balance, taken.price, taken.label], "a code order has no balance").toEqual([{ type: "taken" }, { type: "code" }, null, 0, label])
   expect((await call("POST", "/api/code/check", { code })).json, "released at the take").toMatchObject({ state: "unused" })
-  const move = (to: string) => moveOf(store.orderByRegistration(id)!, to)
-  await expect(move(shortLabel(7)), "a name shorter than the code allows").rejects.toMatchObject({ code: "code_not_covering" })
-  const moved = await move(uniqueLabel("cc2"))
-  expect([moved.moves, moved.price, moved.payment]).toEqual([1, 0, { type: "code" }])
-  expect((await call("POST", "/api/code/check", { code })).json, "reserved again by the move").toMatchObject({ state: "reserved" })
+  const select = (to: string) => selectionOf(store.orderByRegistration(id)!, to)
+  await expect(select(shortLabel(7)), "a name shorter than the code allows").rejects.toMatchObject({ code: "code_not_covering" })
+  const selected = await select(uniqueLabel("cc2"))
+  expect([selected.phase, selected.price, selected.payment]).toEqual([{ type: "queued" }, 0, { type: "code" }])
+  expect((await call("POST", "/api/code/check", { code })).json, "reserved again by the selection").toMatchObject({ state: "reserved" })
 })
 
 // the /name body of the registration's current fields, under its own terms or `terms`, signed anew
@@ -644,11 +644,11 @@ test("support's refund takes the whole balance by invoice id or registration id,
   expect(await refund(src.id)).toEqual({ status: 409, json: { type: "no_balance" } })
 })
 
-test("a paid order taken first keeps its whole price as its balance until support refunds it, after which it is moved no more", async ({ request }) => {
+test("a paid order taken first keeps its whole price as its balance until support refunds it, after which no name is selected for it", async ({ request }) => {
   const { id, view } = await takenPaid(request, shortLabel(7))
   expect(view.balance).toEqual(free(PRICE.seven))
   expect((await call("POST", `/control/refund/${id}`, {})).json).toEqual({ registrationId: id, cents: PRICE.seven })
-  await expect(moveOf(store.orderByRegistration(id)!, shortLabel(7)), "a refunded order").rejects.toMatchObject({ code: "bad_request" })
+  await expect(selectionOf(store.orderByRegistration(id)!, shortLabel(7)), "a refunded order").rejects.toMatchObject({ code: "bad_request" })
 })
 
 test("a late payment is credited once settled, each confirmed figure once, at the lower of its invoice's rate and the current one", async ({ request }) => {
@@ -891,26 +891,26 @@ test("a code order meets changed terms before the code's state", async ({ reques
   expect([coded.status, coded.json]).toEqual([409, termsChanged(TERMS, null)])
 })
 
-test("a move signs the new name's terms: a community name needs the community terms, which are stored; the same body again is a repeat, also after the terms changed", async ({ request }) => {
+test("a selection signs the new name's terms: a community name needs the community terms, which are stored; the same body again is a repeat, also after the terms changed", async ({ request }) => {
   const label = uniqueLabel("tf")
   await listed(request, label, async () => {
     const { id, view } = await takenPaid(request, uniqueLabel("tg"))
     expect([api.signedTermsOf(view.terms), view.community]).toEqual([PLAIN_TERMS, null])
     const q = await quote(label)
     expect(q.community).toEqual(communityEntry("test bakers"))
-    await expect(flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, PLAIN_TERMS)).rejects.toMatchObject({ code: "terms_changed", terms: LISTED_TERMS, community: { for: "test bakers" } })
-    const moved = await flow.retargetOrder(store.orderByRegistration(id)!, label, NO_LINKS, q, COMMUNITY_TERMS)
+    await expect(selectionOf(store.orderByRegistration(id)!, label, PLAIN_TERMS)).rejects.toMatchObject({ code: "terms_changed", terms: LISTED_TERMS, community: { for: "test bakers" } })
+    const selected = await selectionOf(store.orderByRegistration(id)!, label, COMMUNITY_TERMS)
     await control(request, "take", { label })
-    expect([moved.moves, api.signedTermsOf(moved.terms), moved.community]).toEqual([1, COMMUNITY_TERMS, communityEntry("test bakers")])
+    expect([api.signedTermsOf(selected.terms), selected.community]).toEqual([COMMUNITY_TERMS, communityEntry("test bakers")])
     const record = store.orderByRegistration(id)!
     expect(record.terms).toBe(COMMUNITY_TERMS)
-    const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, moved))
-    expect([repeat.status, repeat.json.moves, repeat.json.version], "a repeat answers the view unchanged").toEqual([200, 1, (await viewOf(id)).version])
+    const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, selected))
+    expect([repeat.status, repeat.json.version], "a repeat answers the view unchanged").toEqual([200, (await viewOf(id)).version])
     const taken = await untilPhase(id, ["taken"])
     await withTerms(request, "community-terms", `the community terms, changed for ${label}`, async () => {
       // the current fields under the terms they were signed with are still a repeat, answered before the terms
       const again = await call("POST", `/api/registration/${id}/name`, await nameBody(record, taken))
-      expect([again.status, again.json.moves, (again.json.phase as Json).type]).toEqual([200, 1, "taken"])
+      expect([again.status, (again.json.phase as Json).type]).toEqual([200, "taken"])
     })
   })
 })
@@ -949,12 +949,12 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
 })
 
-test("a move repeat is answered however old its signature, while a move signed too long ago is bad_request", async ({ request }) => {
+test("a selection repeat is answered however old its signature, while a selection signed too long ago is bad_request", async ({ request }) => {
   const { id, view } = await takenPaid(request, uniqueLabel("th"))
   const record = store.orderByRegistration(id)!
   const old = Math.floor(Date.now() / 1000) - 2 * SIGNED_WINDOW_S
   const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, view, api.signedTermsOf(view.terms), old))
-  expect([repeat.status, repeat.json.moves, repeat.json.version]).toEqual([200, 0, view.version])
+  expect([repeat.status, repeat.json.version]).toEqual([200, view.version])
   const stale = await call("POST", `/api/registration/${id}/name`, await nameBody(record, view, COMMUNITY_TERMS, old))
   expect([stale.status, stale.json]).toEqual([400, { type: "bad_request" }])
 })

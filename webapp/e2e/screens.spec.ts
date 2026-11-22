@@ -9,7 +9,7 @@ import {
   addNameCode, agreeToTerms, answersReserved, CHAIN, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, COMMUNITY_HEADING, contactLink, contractsOwnerLists, control, fillLinks,
   keepOrder, type KeptOrder, LINKS_HEADING, MOCK, mockRegistration, newClient, okPreview, onStep, ownerSetsResolver, ownerSetsText, payButton, previewsShown, registeredAnswer, registeredPhase,
   REGISTRATION_MS, registrationOf, registrationView, SAVED,
-  savedToReview, search, searchName, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey,
+  savedToReview, search, searchName, selectedToReview, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey,
 } from "./helpers.ts"
 
 const START_S = Date.UTC(2026, 10, 2, 8) / 1000
@@ -294,55 +294,52 @@ screen(114, "home-taken-kind-mismatch", async ({ page, id }) => {
   await expect(page.locator(".answer > *").first()).toBeVisible()
 })
 
-screen(116, "home-retarget-failed-other-cause", async (r) => {
+screen(116, "home-select-failed-order", async (r) => {
   const { registrationId } = await failed(r, label(r.id))
-  await r.page.goto(`/#/?retarget=${registrationId}`)
+  await r.page.goto(`/#/?order=${registrationId}`)
   await heading(r.page, "Paid, not registered")
 })
 
-const movedElsewhere = async (r: Reach, retarget: string) => {
+const invoicePage = (url: URL) => url.searchParams.has("order")
+const selectedElsewhere = async (r: Reach, selecting: string) => {
   const other = await r.page.context().newPage()
-  await other.goto(retarget)
-  await other.getByLabel("Name", { exact: true }).fill(`${r.id}-z`)
-  await other.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(other)
+  await other.goto(selecting)
+  await selectedToReview(other, `${r.id}-z`)
   await control(r.request, "search", { unsentSeconds: 120 })
   await press(other, "Register with your payment")
-  await other.waitForURL(/\?order=/)
+  await other.waitForURL(invoicePage)
   await other.close()
 }
 
-screen(118, "home-retarget-moved", async (r) => {
+screen(118, "home-select-selected-elsewhere", async (r) => {
   const { registrationId } = await takenFirst(r, label(r.id))
-  const retarget = `/#/?retarget=${registrationId}`
-  await movedElsewhere(r, retarget)
-  await r.page.goto(retarget)
-  await r.page.waitForURL(/\?order=/)
+  const selecting = `/#/?order=${registrationId}`
+  await selectedElsewhere(r, selecting)
+  await r.page.goto(selecting)
+  await r.page.waitForURL(invoicePage)
   await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
 })
 
-screen(119, "home-retarget-unpaid", async (r) => {
+screen(119, "home-select-unpaid", async (r) => {
   const { invoiceId } = await ordered(r, label(r.id))
-  await r.page.goto(`/#/?retarget=${await registrationOf(r.request, invoiceId)}`)
+  await r.page.goto(`/#/?order=${await registrationOf(r.request, invoiceId)}`)
   await heading(r.page, "Pay with Bitcoin")
 })
 
-screen(120, "home-retarget-moved-after-refusal", async (r) => {
+screen(120, "checkout-select-selected-elsewhere", async (r) => {
   const { registrationId } = await takenFirst(r, label(r.id))
-  const retarget = `/#/?retarget=${registrationId}`
-  await r.page.goto(retarget)
-  await r.page.getByLabel("Name", { exact: true }).fill(`${r.id}-y`)
-  await r.page.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(r.page)
-  await movedElsewhere(r, retarget)
+  const selecting = `/#/?order=${registrationId}`
+  await r.page.goto(selecting)
+  await selectedToReview(r.page, `${r.id}-y`)
+  await selectedElsewhere(r, selecting)
   await press(r.page, "Register with your payment")
-  await r.page.waitForURL(/\?order=/)
+  await r.page.waitForURL(invoicePage)
   await expect(r.page.locator(".stage.active", { hasText: "Committing" })).toBeVisible()
 })
 
-screen(122, "home-retarget-own-name", async (r) => {
+screen(122, "home-select-own-name", async (r) => {
   const { registrationId } = await takenFirst(r, label(r.id))
-  await r.page.goto(`/#/?retarget=${registrationId}`)
+  await r.page.goto(`/#/?order=${registrationId}`)
   await r.page.getByLabel("Name", { exact: true }).fill(label(r.id))
   await r.page.getByLabel("Name", { exact: true }).press("Enter")
   await expect(onStep(r.page).locator(".answer .card.row")).toBeVisible()
@@ -572,18 +569,17 @@ screen(208, "home-trademarks", async ({ page }) => {
   await page.goto("/#/trademarks")
   await heading(page, "Trademark owners")
 })
-screen(210, "home-retarget-unknown", async ({ page }) => {
-  await page.goto("/#/?retarget=reg-unknown")
+screen(210, "home-select-unknown", async ({ page }) => {
+  await page.goto("/#/?order=reg-unknown")
   await expect(nameField(page)).toBeVisible()
 })
-const retargetPaid = async (r: Reach, name: string): Promise<string> => {
+const selectPaid = async (r: Reach, name: string): Promise<string> => {
   const { registrationId } = await takenFirst(r, name)
-  await r.page.goto(`/#/?retarget=${registrationId}`)
-  await shown(r.page, "choose another name at that price")
+  await press(r.page, "Choose another name")
+  await expect(nameField(r.page)).toBeVisible()
   return registrationId
 }
-screen(212, "home-retarget-paid-opening", async (r) => { await retargetPaid(r, r.id) })
-const retargetCode = async (r: Reach): Promise<void> => {
+const selectCode = async (r: Reach): Promise<void> => {
   await withCode(r, 10)
   await control(r.request, "take", { label: r.id })
   await searchHere(r.page, r.id)
@@ -591,128 +587,111 @@ const retargetCode = async (r: Reach): Promise<void> => {
   await press(r.page, "Register with your code")
   await heading(r.page, `${r.id}.simplex was taken`)
   await press(r.page, "Choose another name")
-  await shown(r.page, "for your code")
+  await expect(nameField(r.page)).toBeVisible()
 }
-screen(214, "home-retarget-code-opening", (r) => retargetCode(r))
-screen(216, "home-retarget-code-opening-no-text", async (r) => {
-  const order = await kept(r, `reg-${r.id}`, null, r.id)
-  await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: registrationView(order, {
-    phase: { type: "taken", heldUntil: new Date((r.now + 86400) * 1000).toISOString() }, commitTx: "0x02", payment: { type: "code" }, price: 0,
-  }) }))
-  await r.page.goto(`/#/?retarget=reg-${r.id}`)
-  await shown(r.page, "for your code")
-})
-const retargetTo = async (r: Reach, from: string, to: string) => {
-  await retargetPaid(r, from)
+const selectTo = async (r: Reach, from: string, to: string) => {
+  await selectPaid(r, from)
   await searchHere(r.page, to)
   await answerRow(r.page)
 }
-screen(218, "home-retarget-paid-cheaper", (r) => retargetTo(r, "hrchea7", r.id))
-screen(220, "home-retarget-paid-same", (r) => retargetTo(r, `${r.id}-from`, r.id))
-screen(222, "home-retarget-paid-dearer", (r) => retargetTo(r, r.id, "hrdear7"))
-const retargetTicked = async (r: Reach) => {
-  await retargetTo(r, `${r.id}-from`, r.id)
-  await agreeToTerms(r.page)
-}
-const MOVE = /\/api\/registration\/[^/]+\/name$/
-const moveAnswer = (page: Page, f: (route: Route) => Promise<unknown>) => page.route("**/api/registration/*/name", posting(MOVE, f))
-screen(224, "home-retarget-ticked", (r) => retargetTicked(r))
-screen(226, "home-retarget-busy", async (r) => {
-  await retargetTicked(r)
-  await moveAnswer(r.page, held)
-  await press(r.page, "Register with your payment")
-  await expect(onStep(r.page).getByRole("button", { name: "Register with your payment" })).toHaveAttribute("aria-busy", "true")
-})
-const retargetCommunity = async (r: Reach) => {
-  await control(r.request, "community", { label: r.id, for: "bakers and pastry chefs" })
-  await retargetTo(r, `${r.id}-from`, r.id)
-}
-screen(228, "home-retarget-community", (r) => retargetCommunity(r))
-screen(230, "home-retarget-community-terms-popup", async (r) => {
-  await retargetCommunity(r)
-  await press(r.page, "Names Conditions")
-  await expect(r.page.getByRole("dialog").locator(".terms-text")).toBeVisible()
-})
-screen(232, "home-retarget-community-terms-unreadable-popup", async (r) => {
-  await r.page.route("**/api/terms/**", (route) => answer(route, 503, "unavailable"))
-  await retargetCommunity(r)
-  await press(r.page, "Names Conditions")
-  await expect(r.page.getByRole("dialog").getByText("can't be shown now")).toBeVisible()
-})
-screen(234, "home-retarget-code-covered", async (r) => {
-  await retargetCode(r)
+screen(212, "home-select-paid", (r) => selectTo(r, `${r.id}-from`, r.id))
+screen(214, "home-select-code", async (r) => {
+  await selectCode(r)
   await searchHere(r.page, `${r.id}-next`)
   await answerRow(r.page)
 })
-screen(236, "home-retarget-code-short", async (r) => {
-  await retargetCode(r)
-  await searchHere(r.page, "hrcsht7")
+screen(216, "home-select-code-no-text", async (r) => {
+  const order = await kept(r, `reg-${r.id}`, null, r.id)
+  await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: registrationView(order, {
+    phase: { type: "taken" }, commitTx: "0x02", payment: { type: "code" }, price: 0,
+  }) }))
+  await r.page.goto(`/#/?order=reg-${r.id}`)
+  await searchHere(r.page, `${r.id}-next`)
   await answerRow(r.page)
 })
-screen(240, "home-retarget-terms-changed", async (r) => {
-  await retargetTicked(r)
+screen(236, "home-select-code-short", async (r) => {
+  await selectCode(r)
+  await searchHere(r.page, "hscsht7")
+  await answerLine(r.page)
+})
+const selectReview = async (r: Reach) => {
+  await selectPaid(r, `${r.id}-from`)
+  await selectedToReview(r.page, r.id)
+}
+const codeReview = async (r: Reach) => {
+  await selectCode(r)
+  await selectedToReview(r.page, `${r.id}-next`)
+}
+const SELECTION = /\/api\/registration\/[^/]+\/name$/
+const selectionAnswer = (page: Page, f: (route: Route) => Promise<unknown>) => page.route("**/api/registration/*/name", posting(SELECTION, f))
+screen(224, "checkout-select-paid", (r) => selectReview(r))
+screen(234, "checkout-select-code", (r) => codeReview(r))
+screen(226, "checkout-select-busy", async (r) => {
+  await selectReview(r)
+  await selectionAnswer(r.page, held)
+  await press(r.page, "Register with your payment")
+  await expect(onStep(r.page).getByRole("button", { name: "Register with your payment" })).toHaveAttribute("aria-busy", "true")
+})
+screen(240, "checkout-select-terms-changed", async (r) => {
+  await selectReview(r)
   await control(r.request, "general-terms", { text: TERMS_TEXT })
   await press(r.page, "Register with your payment")
   await shown(r.page, "The Names Conditions changed.")
 })
-const moveRefusals: [number, string, number, string, Record<string, unknown>?][] = [
-  [242, "home-retarget-refused-taken", 409, "name_taken"],
-  [244, "home-retarget-refused-dearer", 409, "price_too_high", { price: 20000 }],
-  [246, "home-retarget-refused-cheaper", 409, "price_too_high", { price: 5000 }],
-  [248, "home-retarget-refused-unavailable", 503, "terms_unavailable"],
-  [250, "home-retarget-refused-failed", 503, "provider_unavailable"],
-  [252, "home-retarget-refused-limit", 409, "move_limit"],
+const selectionRefusals: [number, string, number, string, Record<string, unknown>?][] = [
+  [242, "checkout-select-refused-taken", 409, "name_taken"],
+  [244, "checkout-select-refused-price", 409, "catalog_changed", { price: 20000 }],
+  [248, "checkout-select-refused-unavailable", 503, "terms_unavailable"],
+  [250, "checkout-select-refused-failed", 503, "name_check_unavailable"],
 ]
-for (const [slot, id, status, error, extra] of moveRefusals) {
+for (const [slot, id, status, error, extra] of selectionRefusals) {
   screen(slot, id, async (r) => {
-    await retargetTicked(r)
-    await moveAnswer(r.page, (route) => answer(route, status, error, undefined, extra))
+    await selectReview(r)
+    await selectionAnswer(r.page, (route) => answer(route, status, error, undefined, extra))
     await press(r.page, "Register with your payment")
-    await expect(onStep(r.page).locator(".notice").last()).toBeVisible()
+    await expect(onStep(r.page).getByRole("heading", { name: "Check your order" })).toHaveCount(0)
   })
 }
-const codeMoveRefusals: [number, string, number, string][] = [
-  [254, "home-retarget-refused-code-used", 409, "code_used"],
-  [256, "home-retarget-refused-code-reserved", 409, "code_reserved"],
-  [258, "home-retarget-refused-code-expired", 409, "code_expired"],
-  [260, "home-retarget-refused-code-revoked", 400, "code_invalid"],
-  [261, "home-retarget-refused-uncovered", 409, "code_not_covering"],
+const codeSelectionRefusals: [number, string, number, string][] = [
+  [254, "checkout-select-refused-code-used", 409, "code_used"],
+  [256, "checkout-select-refused-code-reserved", 409, "code_reserved"],
+  [258, "checkout-select-refused-code-expired", 409, "code_expired"],
+  [260, "checkout-select-refused-code-revoked", 400, "code_invalid"],
+  [261, "checkout-select-refused-uncovered", 409, "code_not_covering"],
 ]
-for (const [slot, id, status, error] of codeMoveRefusals) {
+for (const [slot, id, status, error] of codeSelectionRefusals) {
   screen(slot, id, async (r) => {
-    await retargetCode(r)
-    await searchHere(r.page, `${r.id}-next`)
-    await agreeToTerms(r.page)
-    await moveAnswer(r.page, (route) => answer(route, status, error))
+    await codeReview(r)
+    await selectionAnswer(r.page, (route) => answer(route, status, error))
     await press(r.page, "Register with your code")
-    await expect(onStep(r.page).locator(".notice").last()).toBeVisible()
+    await expect(onStep(r.page).locator(".review .line.bad")).toBeVisible()
   })
 }
-screen(262, "home-retarget-refused-other-order", async (r) => {
-  await retargetTicked(r)
+screen(262, "checkout-select-refused-other-order", async (r) => {
+  await selectReview(r)
   const hash = hex(labelHash(r.id))
   await r.page.route("**/api/registration/find", async (route) => {
     const res = await route.fetch()
     const json = await res.json() as { registrations: Record<string, unknown>[] }
     await route.fulfill({ response: res, json: { registrations: json.registrations.map((found) => ({ ...found, labelHash: hash })) } })
   })
-  await moveAnswer(r.page, (route) => answer(route, 409, "order_exists"))
+  await selectionAnswer(r.page, (route) => answer(route, 409, "order_exists"))
   await press(r.page, "Register with your payment")
-  await expect(onStep(r.page).locator(".notice").last()).toBeVisible()
+  await heading(r.page, "That did not go through")
 })
-screen(264, "home-retarget-held", async (r) => {
-  await retargetTicked(r)
-  await moveAnswer(r.page, (route) => answer(route, 429, "rate_limited", 30))
+screen(264, "checkout-select-held", async (r) => {
+  await selectReview(r)
+  await selectionAnswer(r.page, (route) => answer(route, 429, "rate_limited", 30))
   await press(r.page, "Register with your payment")
   await shown(r.page, "Too many attempts")
 })
-screen(266, "home-retarget-own-open-order", async (r) => {
+screen(266, "home-select-own-open-order", async (r) => {
   await startOrder(r.page, r.id, { method: "btc" })
-  await retargetTo(r, `${r.id}-from`, r.id)
+  await selectTo(r, `${r.id}-from`, r.id)
   await shown(r.page, "You already have an order for this name.")
 })
-screen(268, "home-retarget-terms-unreadable", async (r) => {
-  await retargetPaid(r, `${r.id}-from`)
+screen(268, "home-select-terms-unreadable", async (r) => {
+  await selectPaid(r, `${r.id}-from`)
   await control(r.request, "general-terms", { link: UNREADABLE_TERMS })
   await searchHere(r.page, r.id)
   await shown(r.page, "Names can't be ordered right now.")
@@ -1724,10 +1703,6 @@ screen(2190, "order-taken-codes-only", async (r) => {
   await r.page.reload()
   await shown(r.page, "You can ask for a refund.")
 })
-screen(2192, "order-taken-month-ended", async (r) => {
-  await registeringAs(r, { phase: { type: "taken", heldUntil: new Date((r.now - 60) * 1000).toISOString() }, balance: BALANCE })
-  await heading(r.page, `${r.id}.simplex was taken`)
-})
 const codeTaken = async (r: Reach) => {
   const code = await issued(r)
   await control(r.request, "take", { label: r.id })
@@ -1753,17 +1728,6 @@ screen(2198, "order-taken-code-no-record", async (r) => {
   const other = await elsewhere(r, `/?registration=${registrationId}`)
   await heading(other, `${r.id}.simplex was taken`)
   return other
-})
-screen(2199, "order-taken-code-month-ended", async (r) => {
-  const registrationId = await codeTaken(r)
-  await heading(r.page, `${r.id}.simplex was taken`)
-  await r.page.route(`**/api/registration/${registrationId}*`, async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, phase: { ...json.phase, heldUntil: new Date((r.now - 60) * 1000).toISOString() } } })
-  })
-  await r.page.reload()
-  await heading(r.page, "Someone registered it first")
 })
 const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
   const { invoiceId } = await startOrder(r.page, r.id, { method })

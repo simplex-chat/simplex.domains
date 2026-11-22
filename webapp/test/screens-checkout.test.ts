@@ -241,6 +241,13 @@ describe("a code entered on the review", () => {
     expect(codeEntry(checkout({ codeError: "This code was already used." }), false), "after the service refused a code").toBe("link")
     expect(codeEntry(checkout({ code: CODE }), false)).toBeNull()
   })
+  it("is never offered for a name selected for a taken order, which its own payment or code registers, in either mode", () => {
+    for (const method of ["btc", "code"] as const) {
+      const selecting = checkout({ order: { registrationId: "reg-1", method } })
+      expect([codeEntry(selecting, false), codeEntry(selecting, true), awaitsCode(selecting, true)], method).toEqual([null, null, false])
+      expect(changeOf(open({ checkout: selecting }), { type: "code-opened" }), method).toBeNull()
+    }
+  })
   it("opens its field in place of the link, which stays open in the stored checkout and waits for a code", () => {
     expect(changeOf(open(), { type: "code-opened" })).toEqual({ codeHere: true })
     expect(codeEntry(opened.checkout, false)).toBe("field")

@@ -4,8 +4,8 @@ import { labelHash } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
 import {
-  addNameCode, answersReserved, agreeToTerms, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, REGISTRATION_MS, registrationOf,
-  registrationView, offCentre, search, searchName, sevenLetters, shot, startOrder, takenHeading, takenOrder, test, uniqueLabel, waitRegistered,
+  addNameCode, answersReserved, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, REGISTRATION_MS, registrationOf,
+  registrationView, offCentre, search, searchName, selectedToReview, sevenLetters, shot, startOrder, takenHeading, takenOrder, test, uniqueLabel, waitRegistered,
 } from "./helpers.ts"
 
 // an order this browser keeps, answered paid with the registration given
@@ -25,29 +25,19 @@ test("an order another buyer's paid order took first shows no stage done, as it 
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Committing")
 })
 
-test("a taken order past the month from its payment offers only a refund, and another name as a new order", async ({ page }) => {
-  await paidOrder(page, "month", { phase: { type: "taken", heldUntil: new Date(Date.now() - 60_000).toISOString() }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } })
-  await expect(onStep(page).locator(".notice", { hasText: "What you paid is kept as your balance." }))
-    .toHaveText("What you paid is kept as your balance. You can ask for a refund. Your names shows the balance.")
-  await expect(onStep(page).getByText("Get a refund")).toBeVisible()
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
-  expect(page.url()).not.toContain("retarget")
-})
-
 test("a paid order whose signature the service refused says to contact support in a whole sentence", async ({ page }) => {
   await paidOrder(page, "refused", { phase: { type: "failed", reason: "signatureRefused" }, commitTx: "0x02" })
   await expect(onStep(page).locator(".notice", { hasText: "The name could not be registered" })).toContainText("and include order reference inv-refused.")
 })
 
-test("a name taken first keeps its payment as its balance, with which the order moves to another name owned by the same code", async ({ page, request }) => {
+test("a name taken first keeps its payment as its balance, with which a name selected for the order is registered, owned by the same code", async ({ page, request }) => {
   const label = uniqueLabel("tk")
   const { invoiceId, ownerCode } = await takenOrder(page, request, label)
   await expect(onStep(page).locator(".notice", { hasText: "What you paid is kept as your balance." })).toBeVisible()
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Taken")
   await expect(page.getByText(`Reference ${invoiceId}`)).toBeVisible()
   await shot(page, "N8-taken")
-  // a browser without the order's code says where to add it, and offers neither the move nor the refund
+  // a browser without the order's code says where to add it, and offers neither the selection nor the refund
   const elsewhere = await page.context().browser()!.newContext()
   const stranger = await elsewhere.newPage()
   await stranger.goto(`/?order=${invoiceId}`)
@@ -57,17 +47,17 @@ test("a name taken first keeps its payment as its balance, with which the order 
   await elsewhere.close()
 
   await page.getByRole("button", { name: "Choose another name" }).click()
-  await expect(page).toHaveURL(new RegExp(`[?&]retarget=${await registrationOf(request, invoiceId)}`))
+  await expect(page).toHaveURL(new RegExp(`[?&]order=${await registrationOf(request, invoiceId)}`))
   const next = uniqueLabel("tk2")
-  await page.getByLabel("Name", { exact: true }).fill(next)
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await expect(page.locator(".answer .line", { hasText: "Covered by your payment" })).toBeVisible()
+  await selectedToReview(page, next)
+  await expect(onStep(page).locator(".pay-with"), "the order's payment, no other").toHaveCount(0)
+  await expect(onStep(page).getByText("I have a code")).toHaveCount(0)
   await shot(page, "N8a-another-name")
-  await agreeToTerms(page)
-  await page.getByRole("button", { name: "Register with your payment" }).click()
+  await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
   await waitRegistered(page, next)
   const answer = await searchName(request, next)
   expect(answer.owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
+  expect((await mockRegistration(request, invoiceId)).phase, "the same order").toBe("registered")
 })
 
 test("a paid order whose name was reserved meanwhile says so, and keeps its payment as its balance", async ({ page, request }) => {
@@ -90,44 +80,10 @@ test("a taken order offers another name for it without searching its own name", 
   const searched: string[] = []
   page.on("request", (r) => { if (r.url().includes(`/api/name/${hex(labelHash(label))}`)) searched.push(r.url()) })
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(page).toHaveURL(new RegExp(`[?&]retarget=${registrationId}`))
-  await expect(page.getByText("You paid $100: choose another name at that price.")).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
+  await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("")
   expect(searched).toEqual([])
-})
-
-// a wait on moving the payment that ends while the search gone back to is still out, and that search's answer
-const MOVE_WAIT_S = 3
-const SEARCH_RTT_MS = 5_000
-
-test("a wait on moving the payment that ends while Back checks the name again sends no second search", async ({ page, request }) => {
-  const { invoiceId } = await takenOrder(page, request, uniqueLabel("tw"))
-  await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
-  const next = uniqueLabel("tw2")
-  // an order this browser made for the name before, which has Back check the name again
-  await page.evaluate(({ label, hash }) => localStorage.setItem("simplex-names:order:reg-before", JSON.stringify({
-    registrationId: "reg-before", invoiceId: null, label, ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
-    contact: "", channel: "", method: "code", paid: 0, years: 2, tld: "simplex", createdAt: new Date().toISOString(),
-    request: { labelHash: hash, length: label.length, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: "0x01", sealed: "sealed" },
-  })), { label: next, hash: hex(labelHash(next)) })
-  await page.getByLabel("Name", { exact: true }).fill(next)
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await expect(page.getByText("Covered by your payment")).toBeVisible()
-  await page.route("**/name", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": String(MOVE_WAIT_S) }, json: { type: "rate_limited" } }) : route.continue())
-  await agreeToTerms(page)
-  await page.getByRole("button", { name: "Register with your payment" }).click()
-  await expect(page.getByText("Too many attempts")).toBeVisible()
-  let searches = 0
-  await page.route("**/api/name/**", async (route) => {
-    searches++
-    await new Promise((answered) => setTimeout(answered, SEARCH_RTT_MS))
-    await route.continue()
-  })
-  await page.locator("body > footer").getByRole("link", { name: "Trademark owners" }).click()
-  await expect(page.getByRole("heading", { name: "Trademark owners" })).toBeVisible()
-  await page.goBack()
-  await expect(page.locator(".answer .line", { hasText: "Checking the name…" })).toBeVisible()
-  await expect(page.getByText("Covered by your payment")).toBeVisible({ timeout: 2 * SEARCH_RTT_MS })
-  expect(searches, "searches sent since Back").toBe(1)
 })
 
 test("a name an order holds is searched as that order in its browser, and as taken with nothing more in another", async ({ page, browser, request }) => {
@@ -245,7 +201,7 @@ test("a chain that sends nothing for longer than its resends fails the order in 
   await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
 })
 
-test("a late payment to a replaced invoice is kept by a restored browser after the order moved to another name", async ({ page, browser, request }) => {
+test("a late payment to a replaced invoice is kept by a restored browser after another name was selected for the order", async ({ page, browser, request }) => {
   const label = `${uniqueLabel("adopt")}-${"long-name".repeat(4)}`
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
@@ -259,13 +215,11 @@ test("a late payment to a replaced invoice is kept by a restored browser after t
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   await page.getByRole("button", { name: "Choose another name" }).click()
   const next = uniqueLabel("adopt2")
-  await page.getByLabel("Name", { exact: true }).fill(next)
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(page)
-  await page.getByRole("button", { name: "Register with your payment" }).click()
+  await selectedToReview(page, next)
+  await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
   await waitRegistered(page, next)
 
-  // another browser restores the code, which finds the name it registered, and opens the moved order
+  // another browser restores the code, which finds the name it registered, and opens the order
   const other = await browser.newContext()
   const restored = await other.newPage()
   await addNameCode(restored, ownerCode)
@@ -289,14 +243,16 @@ test("a late payment to a replaced invoice is kept by a restored browser after t
 })
 
 
-test("a taken order is offered no name of another price, cheaper or dearer", async ({ page, request }) => {
+test("a name of another price than a taken order's is refused as the price changed, and its search goes on for the order", async ({ page, request }) => {
   const { invoiceId } = await takenOrder(page, request, sevenLetters())
-  await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
-  await expect(page.getByText("You paid $200: choose another name at that price.")).toBeVisible()
-  for (const [label, words] of [[uniqueLabel("cheap"), "less"], [`q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`, "more"]]) {
-    await page.getByLabel("Name", { exact: true }).fill(label)
-    await page.getByLabel("Name", { exact: true }).press("Enter")
-    await expect(page.locator(".answer .line", { hasText: "This name costs" })).toHaveText(`This name costs ${words} than the $200 you paid.`)
-    await expect(page.getByRole("button", { name: "Register with your payment" })).toBeDisabled()
+  const registrationId = await registrationOf(request, invoiceId)
+  for (const label of [uniqueLabel("cheap"), `q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`]) {
+    await page.goto(`/#/?order=${registrationId}`)
+    await selectedToReview(page, label)
+    await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
+    await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
+    await onStep(page).getByRole("button", { name: "Search again" }).click()
+    await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
   }
+  expect((await mockRegistration(request, invoiceId)).phase, "nothing selected").toBe("taken")
 })
