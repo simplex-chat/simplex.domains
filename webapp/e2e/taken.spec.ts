@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test"
+import { type APIRequestContext, expect } from "@playwright/test"
 import { walletOf } from "../src/flow.ts"
 import { labelHash } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
@@ -17,6 +17,8 @@ async function paidOrder(page: Parameters<typeof keepOrder>[0], id: string, reg:
   await page.route(`**/api/registration/reg-${id}*`, (route) => route.fulfill({ json: invoice.registration }))
   await page.goto(`/?order=inv-${id}`)
 }
+
+const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()) as { registration: { phase: { type: string } } }).registration.phase.type
 
 test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
   await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, refunded: 0 } })
@@ -57,7 +59,7 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   await waitRegistered(page, next)
   const answer = await searchName(request, next)
   expect(answer.owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
-  expect((await mockRegistration(request, invoiceId)).phase, "the same order").toBe("registered")
+  expect(await phaseOf(request, invoiceId), "the same order").toBe("registered")
 })
 
 test("a paid order whose name was reserved meanwhile says so, and keeps its payment as its balance", async ({ page, request }) => {
@@ -254,5 +256,5 @@ test("a name of another price than a taken order's is refused as the price chang
     await onStep(page).getByRole("button", { name: "Search again" }).click()
     await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
   }
-  expect((await mockRegistration(request, invoiceId)).phase, "nothing selected").toBe("taken")
+  expect(await phaseOf(request, invoiceId), "nothing selected").toBe("taken")
 })
