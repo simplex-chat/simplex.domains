@@ -38,7 +38,7 @@ test("a paid order taken first keeps its price as its balance, which support ref
   const { invoiceId } = await takenOrder(page, request, label)
   await yourNames(page)
   await expect(balanceRow(page)).toHaveCount(1)
-  await expect(balanceRow(page).locator(".main")).toHaveText(`$200From ${label}.simplex, someone has taken this name`)
+  await expect(balanceRow(page).locator(".main")).toHaveText(`$200From ${label}.simplex, registered by someone else first`)
   // the order taken first is no name of this browser's: its balance alone stands for it
   await expect(onStep(page).locator(".list-row", { hasText: `${label}.simplex` })).toHaveCount(1)
   await shot(page, "B1-names-balance")
@@ -63,7 +63,7 @@ test("a paid order taken first keeps its price as its balance, which support ref
 test("the name code shows the balance in another browser, and a refund support records shows as refunded, after which no name is selected for the order", async ({ page, browser, request }) => {
   const label = uniqueLabel("bref")
   const { invoiceId, ownerCode } = await takenOrder(page, request, label)
-  const kept = `$100From ${label}.simplex, someone has taken this name`
+  const kept = `$100From ${label}.simplex, registered by someone else first`
   const other = await browser.newContext()
   const restored = await other.newPage()
   await addNameCode(restored, ownerCode)
@@ -73,7 +73,7 @@ test("the name code shows the balance in another browser, and a refund support r
 
   await control(request, `refund/${invoiceId}`)
   await yourNames(page)
-  await expect(balanceRow(page).locator(".main")).toHaveText(`$0From ${label}.simplex, someone has taken this name · refunded $100 by support`)
+  await expect(balanceRow(page).locator(".main")).toHaveText(`$0From ${label}.simplex, registered by someone else first · refunded $100 by support`)
   await expect(balanceRow(page).getByRole("button")).toHaveCount(0)
 
   await page.goto(`/?order=${invoiceId}`)
