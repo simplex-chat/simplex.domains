@@ -276,7 +276,7 @@ const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono
 
 function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
   // what was paid, from the invoice, else the record's amount, or a free name with a code
-  const paid = paidLine(o, view, invoice)
+  const paid = paidLine(o, invoice)
   const expiresAt = api.expiresAtOf(view)
   if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
   if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
@@ -325,7 +325,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const state = rowChip(s, o, seen)
   const title = rowName(label, tld, community, `${id}-community`, listed)
   if (chats.length) opensFirstChat(title, chats[0])
-  return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null, null), state && chipRoom(state),
+  return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null), state && chipRoom(state),
     [chats.length ? el("span", { class: "chats" }, chats) : null, ...acts], shown ? rowCode(code) : null)
 }
 

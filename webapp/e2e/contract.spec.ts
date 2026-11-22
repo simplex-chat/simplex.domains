@@ -174,6 +174,19 @@ async function takenPaid(request: APIRequestContext, label: string) {
   return { id, view: await untilPhase(id, ["taken"]) }
 }
 
+// A code order whose name a rival registered first, with its code.
+async function takenCode(request: APIRequestContext, label: string, minLength: number) {
+  const { code } = await control(request, "code", { minLength }) as { code: string }
+  const draft = await draftOf(label)
+  const built = await flow.orderRequest(draft)
+  await control(request, "take", { label })
+  const res = await call("POST", "/api/name/register", codeBody(built.request, code))
+  expect(res.status, JSON.stringify(res.json)).toBe(200)
+  const id = res.json.registrationId as string
+  store.saveOrder(flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null }))
+  return { id, code, view: await untilPhase(id, ["taken"]) }
+}
+
 test("an order is answered again only for an exact resend, at any age of its signature; anything else meeting it is order_exists", async () => {
   const label = uniqueLabel("cx")
   const draft = await draftOf(label)
@@ -449,28 +462,29 @@ test("a name is selected only for a paid order taken first, at its own price, ag
   expect([repeat.status, (repeat.json.phase as Json).type], "a repeat of the current fields").toEqual([200, "taken"])
 })
 
-test("a name selected for a code order taken first is one its code allows, its code reserved again, while a shorter name is code_not_covering", async ({ request }) => {
+test("a name selected for a code order taken first is one its code allows, its code kept reserved, while a shorter name is code_not_covering", async ({ request }) => {
   const label = uniqueLabel("cc")
-  const { code } = await control(request, "code", { minLength: 10 }) as { code: string }
-  const draft = await draftOf(label)
-  const built = await flow.orderRequest(draft)
-  await control(request, "take", { label })
-  const res = await call("POST", "/api/name/register", codeBody(built.request, code))
-  expect(res.status, JSON.stringify(res.json)).toBe(200)
-  const id = res.json.registrationId as string
-  store.saveOrder(flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null }))
-  const taken = await untilPhase(id, ["taken"])
+  const { id, code, view: taken } = await takenCode(request, label, 10)
   expect(Object.keys(taken).sort(), "the fields of the service's view of a taken code order (registration-taken-code.json)").toEqual([
     "balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
     "registerTx", "sealed", "terms", "version", "years",
   ])
   expect([taken.phase, taken.payment, taken.balance, taken.price, taken.label], "a code order has no balance").toEqual([{ type: "taken" }, { type: "code" }, null, 0, label])
-  expect((await call("POST", "/api/code/check", { code })).json, "released at the take").toMatchObject({ state: "unused" })
+  expect((await call("POST", "/api/code/check", { code })).json, "kept at the take").toMatchObject({ state: "reserved" })
   const select = (to: string) => selectionOf(store.orderByRegistration(id)!, to)
   await expect(select(shortLabel(7)), "a name shorter than the code allows").rejects.toMatchObject({ code: "code_not_covering" })
   const selected = await select(uniqueLabel("cc2"))
   expect([selected.phase, selected.price, selected.payment]).toEqual([{ type: "queued" }, 0, { type: "code" }])
-  expect((await call("POST", "/api/code/check", { code })).json, "reserved again by the selection").toMatchObject({ state: "reserved" })
+  expect((await call("POST", "/api/code/check", { code })).json, "still reserved by the selection").toMatchObject({ state: "reserved" })
+})
+
+test("a taken code order's own code is accepted past its expiry within the month after the take, and refused once revoked", async ({ request }) => {
+  const expired = await takenCode(request, uniqueLabel("cx"), 6)
+  await control(request, "code/state", { code: expired.code, state: "expired" })
+  expect((await selectionOf(store.orderByRegistration(expired.id)!, uniqueLabel("cx2"))).phase, "an expired code within the month").toEqual({ type: "queued" })
+  const revoked = await takenCode(request, uniqueLabel("cr"), 6)
+  await control(request, "code/state", { code: revoked.code, state: "revoked" })
+  await expect(selectionOf(store.orderByRegistration(revoked.id)!, uniqueLabel("cr2")), "a revoked code").rejects.toMatchObject({ code: "code_invalid" })
 })
 
 // the /name body of the registration's current fields, under its own terms or `terms`, signed anew

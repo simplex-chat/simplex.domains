@@ -82,7 +82,7 @@ Tests and manual checks advance orders with `POST` requests to the mock:
 | `/control/overdue/<invoice>` | the invoice's rate window ends now; the next request that meets it expires it, unless money reached it |
 | `/control/fail/<registration>` | the next commit fails |
 | `/control/lapse/<registration>` | a committed order not signed yet runs out of time for its reveal and fails |
-| `/control/take` `{"label"}` | a rival registers the name before the waiting order, whose name is then not selected: a paid order keeps its price as its balance, and a code order's code is released, until a name selected for the order, with a new order's checks, spends the balance or reserves the code again |
+| `/control/take` `{"label"}` | a rival registers the name before the waiting order, whose name is then not selected: a paid order keeps its price as its balance, and a code order keeps its code reserved, until a name is selected for the order, with a new order's checks, and paid from the balance or registered with the code; the code is accepted past its expiry until a calendar month after the take, and refused once revoked |
 | `/control/refund/<invoice or registration>` `{"cents"}` | support refunds the order's whole balance, the cents given or all of it, answering the refund, or why not: `no_balance` or `balance_changed` |
 | `/control/credit/<registration>` `{"cents"}` | the order's balance grows by the cents, as a later credit (a late payment) grows it |
 | `/control/late/<invoice>` `{"waiting"}` | a late payment's credit waits (`crediting`, `support`), as the view's `latePayment` then says; `null` lets it go, crediting what is confirmed |

@@ -158,7 +158,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   })
 
   it.each([
-    ["select-registration-changed", "registration_changed"], ["select-code-expired", "code_expired"], ["select-code-invalid", "code_invalid"], ["select-code-reserved", "code_reserved"],
+    ["select-registration-changed", "registration_changed"], ["select-code-expired", "code_expired"], ["select-code-invalid", "code_invalid"],
   ])("reads the selection refusal %s as %s", async (name, code) => {
     expect((await refusal(name, () => api.selectName("r1", order, chainId()))).code).toBe(code)
   })

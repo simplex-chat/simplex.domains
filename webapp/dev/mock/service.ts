@@ -112,6 +112,7 @@ interface Registration {
   // the terms the order signed when it was made or its name last selected
   terms: string
   paidAt: number | null
+  takenAt: number | null
 }
 
 interface Invoice {
@@ -738,7 +739,7 @@ function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): 
   const reg: Registration = {
     id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, resends: 0, version: 1,
-    paidAt: extra.phase === "queued" ? nowSeconds() : null,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -792,8 +793,10 @@ export function checkCode(body: Record<string, unknown>): Record<string, unknown
   if (typeof body.code !== "string") throw badRequest()
   const { row } = prepaidOf(body.code)
   if (!row) throw new HttpError(400, "code_invalid")
-  return { minLength: row.minLength, years: row.years, state: row.state }
+  return { minLength: row.minLength, years: row.years, state: stateOf(row) }
 }
+
+const stateOf =(row: PrepaidCode) => row.registrationId !== null && row.state === "expired" ? "reserved" : row.state
 
 const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code_used", reserved: "code_reserved", expired: "code_expired", unpaid: "payment_pending", revoked: "code_invalid" }
 
@@ -811,7 +814,7 @@ export async function registerWithCode(body: Record<string, unknown>): Promise<R
   checkDuration(order.duration, orderYears(order, row.years))
   await checkTerms(order)
   await nameFree(order.labelHash)
-  const error = CODE_ERRORS[row.state]
+  const error = CODE_ERRORS[stateOf(row)]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (order.length < row.minLength) throw new HttpError(409, "code_not_covering")
   const rv = await orderReveal(order, body.reveal)
@@ -979,9 +982,9 @@ async function register(reg: Registration): Promise<void> {
     const available = await read<boolean>(controller, "available", [reg.label])
     if (!available) {
       reg.phase = "taken"
-      // a paid order keeps what it is worth as its balance; a code carries no money
-      if (reg.prepaidCode) releaseCode(reg)
-      else credit(reg.id, reg.paid)
+      reg.takenAt = nowSeconds()
+      // a paid order keeps what it is worth as its balance; a code order keeps its code reserved
+      if (!reg.prepaidCode) credit(reg.id, reg.paid)
       return changed(reg)
     }
     return fail(reg, "registryRefused")
@@ -1019,14 +1022,6 @@ async function registered(reg: Registration): Promise<void> {
     if (row) row.state = "used"
   }
   changed(reg)
-}
-
-function releaseCode(reg: Registration): void {
-  const row = codes.get(reg.prepaidCode!)
-  if (row && row.registrationId === reg.id && row.state === "reserved") {
-    row.state = "unused"
-    row.registrationId = null
-  }
 }
 
 // --- the reveal
@@ -1175,7 +1170,7 @@ export async function selectName(registrationId: string, body: Record<string, un
   if (row) codeReservable(row, reg, order.length)
   if (paid && (balances.get(reg.id)?.amount ?? 0) < reg.paid) throw badRequest()
   await unchangedSince(reg, version)
-  if (row) Object.assign(row, { state: "reserved", registrationId: reg.id })
+  if (row?.state === "unused") Object.assign(row, { state: "reserved", registrationId: reg.id })
   if (paid) balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
     labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
@@ -1187,9 +1182,11 @@ export async function selectName(registrationId: string, body: Record<string, un
   return view
 }
 
-// A code order's code is reserved again if it is still this order's, or was released and is still unused, and covers the name.
+// A code order's code is accepted at a selection while this order holds it, past its expiry until a calendar month after
+// the take, or while it is unused, and as long as it covers the name; a revoked code never is.
 function codeReservable(row: PrepaidCode, reg: Registration, length: number): void {
-  const error = row.state !== "unused" && row.registrationId !== reg.id ? CODE_ERRORS[row.state] : undefined
+  const held = row.registrationId === reg.id && (row.state === "reserved" || (row.state === "expired" && reg.takenAt !== null && nowSeconds() < monthAfter(reg.takenAt)))
+  const error = row.state === "revoked" ? "code_invalid" : held || row.state === "unused" ? undefined : CODE_ERRORS[row.state]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
@@ -1406,6 +1403,7 @@ function settle(inv: Invoice, reg: Registration, paid: bigint): void {
     const taken = held(reg.labelHash, reg)
     reg.phase = taken ? "taken" : "queued"
     reg.paidAt = nowSeconds()
+    if (taken) reg.takenAt = nowSeconds()
     if (taken) credit(reg.id, reg.paid)
     changed(reg)
     if (!taken) void advance(reg)

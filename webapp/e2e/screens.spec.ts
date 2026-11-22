@@ -653,8 +653,6 @@ for (const [slot, id, status, error, extra] of selectionRefusals) {
   })
 }
 const codeSelectionRefusals: [number, string, number, string][] = [
-  [254, "checkout-select-refused-code-used", 409, "code_used"],
-  [256, "checkout-select-refused-code-reserved", 409, "code_reserved"],
   [258, "checkout-select-refused-code-expired", 409, "code_expired"],
   [260, "checkout-select-refused-code-revoked", 400, "code_invalid"],
   [261, "checkout-select-refused-uncovered", 409, "code_not_covering"],

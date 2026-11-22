@@ -1,7 +1,6 @@
 // An order's page (?order=<invoice>) or a code registration's (?registration=<id>): payment, registration, and every ending.
 import * as api from "../api.ts"
 import { namesSite, readSite } from "../config.ts"
-import { parseNameCode } from "../crypto/code.ts"
 import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
@@ -85,7 +84,6 @@ function dispatch(event: OrderEvent): void {
   if (revealDue(state)) reveal(state.view!, state.record!)
   else if (askAgainDue(state) && askingAgain !== opened) askAgain(state.record!)
   else if (retryDue(state)) retryLapsed(state.view!)
-  if (kind !== screenOf(before) || state.record !== before.record) keepCodes(state)
   wakeOnTime()
 }
 
@@ -357,18 +355,6 @@ function askAgain(record: store.OrderRecord): void {
     if (active === document.body || active?.closest("body > main")) focusOn("reveal")
   // a refusal is no answer about the name, so the search is made again after a pause as well
   }, (e) => later(api.retryDelay(e, RETRY_MS) ?? RETRY_MS, tick))
-}
-
-function keepCodes(s: OrderState): void {
-  const { view, record, invoice } = s
-  if (!view || !record) return
-  const released = screenOf(s) === "taken" && !invoice ? releasedCode(view, record) : null
-  if (released && !store.codes().some((c) => c.code === released.code)) store.addCode({ ...released, addedAt: new Date().toISOString() })
-}
-
-function releasedCode(view: api.RegistrationView, record: store.OrderRecord | null): Omit<store.CodeRecord, "addedAt"> | null {
-  const parsed = record?.prepaidCode ? parseNameCode(record.prepaidCode) : null
-  return parsed?.kind === "prepaid" ? { code: parsed.display, minLength: parsed.minLength, years: view.years } : null
 }
 
 // holdsFor is the screen's signal where the screen holds an action for the tab's wait
@@ -1155,8 +1141,8 @@ function registeredLead(view: api.RegistrationView, record: store.OrderRecord | 
   return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
 }
 
-// An order taken first keeps its payment, and a code order's code is released: a name is selected for the order, or support
-// refunds the payment; only the browser holding the code asks for either. An order refunded since is shown as such.
+// An order taken first keeps its payment or its code: a name is selected for the order, or support refunds the payment;
+// only the browser holding the code asks for either. An order refunded since is shown as such.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!

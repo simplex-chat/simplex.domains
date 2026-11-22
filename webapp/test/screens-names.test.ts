@@ -234,19 +234,14 @@ describe("balances", () => {
 
 describe("paidLine", () => {
   it("names the invoice's amount and method", () => {
-    expect(paidLine(record(), registration(), invoice())).toBe("$15 Bitcoin")
-    expect(paidLine(record(), registration(), invoice({ cryptoCurrency: undefined }))).toBe("$15 Card")
+    expect(paidLine(record(), invoice())).toBe("$15 Bitcoin")
+    expect(paidLine(record(), invoice({ cryptoCurrency: undefined }))).toBe("$15 Card")
   })
-  it("words a code order as a free name, never as a payment, and a taken one's code as released", () => {
-    for (const phase of ["queued", "committing", "committed", "registering", "failed"] as const) {
-      expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0, phase }), null), phase).toBe("Free name with a code")
-    }
-    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), null, null), "before the order is read").toBe("Free name with a code")
-    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0, phase: "taken" }), null))
-      .toBe("Free name with a code; the code was released for another name")
+  it("words a code order as a free name with a code, never as a payment, in every phase, a taken one too, as it keeps its code", () => {
+    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), null)).toBe("Free name with a code")
   })
   it("names the record's worth and method before the order is read", () => {
-    expect(paidLine(record({ method: "xmr", paid: 2500 }), null, null)).toBe("$25 Monero")
+    expect(paidLine(record({ method: "xmr", paid: 2500 }), null)).toBe("$25 Monero")
   })
 })
 

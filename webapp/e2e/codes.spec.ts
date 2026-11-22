@@ -903,7 +903,7 @@ test("a code order whose name was reserved meanwhile says so, and offers selecti
   await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toBeEnabled()
 })
 
-test("a code order taken first asks a browser without its name code for the code, and lists its released code in Your names", async ({ page, browser, request }) => {
+test("a code order taken first asks a browser without its name code for the code, and Your names lists its code as in use, kept for the order", async ({ page, browser, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   const label = uniqueLabel("ctw")
   await control(request, "take", { label })
@@ -920,7 +920,8 @@ test("a code order taken first asks a browser without its name code for the code
   await expect(onStep(stranger).getByRole("button", { name: "Search another name" })).toHaveCount(0)
   await other.close()
   await page.goto("/#/names")
-  await expect(page.locator(".list-row", { hasText: code }).locator(".chip")).toHaveText("Unused")
+  await expect(page.locator(".list-row", { hasText: code }).locator(".chip")).toHaveText("In use")
+  await expect(page.locator(".list-row", { hasText: `${label}.simplex` }).locator(".sub")).toHaveText("Free name with a code")
 })
 
 test("a code order's selection refused for its code says why in that refusal's words", async ({ page, request }) => {
@@ -931,10 +932,10 @@ test("a code order's selection refused for its code says why in that refusal's w
   await expect(page.getByRole("heading", { name: takenHeading(label) })).toBeVisible({ timeout: 120_000 })
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
   await selectedToReview(page, uniqueLabel("ctr2"))
-  // the code was used for another name meanwhile
-  await control(request, "code/state", { code, state: "used" })
+  // SimpleX withdrew the code meanwhile
+  await control(request, "code/state", { code, state: "revoked" })
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
-  await expect(onStep(page).locator(".review .line.bad")).toHaveText("This code was already used.")
+  await expect(onStep(page).locator(".review .line.bad")).toHaveText("This code is not valid.")
   await expect(total(page), "the order's code, no other payment").toHaveText(FREE_TOTAL)
   await expect(onStep(page).locator(".pay-with")).toHaveCount(0)
 })
