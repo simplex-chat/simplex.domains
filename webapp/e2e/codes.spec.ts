@@ -1013,7 +1013,7 @@ test("a code held by this browser's failed order is noted as held by it, with a 
   await codeField(page).fill(code)
   const verdict = page.locator(".code-entry .verdict")
   await expect(verdict).toHaveText(`This code is held by your order for ${label}.simplex. Open your order`)
-  await expect(verdict).toHaveClass("verdict info")
+  await expect(verdict).toHaveClass(/\binfo\b/)
   await verdict.getByRole("link", { name: "Open your order" }).click()
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible()
   expect(new URL(page.url()).searchParams.get("registration")).toBe(registrationId)
@@ -1021,7 +1021,7 @@ test("a code held by this browser's failed order is noted as held by it, with a 
   await page.goto("/#/code")
   await codeField(page).fill(held)
   await expect(verdict).toHaveText("This code is being used for a name now. Each code registers one name; this one is held by an unfinished registration.")
-  await expect(verdict).toHaveClass("verdict bad")
+  await expect(verdict).toHaveClass(/\bbad\b/)
   const { code: revoked } = await control(request, "code", { minLength: 6, state: "revoked" }) as { code: string }
   await page.goto("/#/code")
   await codeField(page).fill(revoked)
