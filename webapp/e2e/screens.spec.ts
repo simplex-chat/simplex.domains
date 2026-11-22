@@ -609,7 +609,7 @@ screen(216, "home-select-code-no-text", async (r) => {
   await searchHere(r.page, `${r.id}-next`)
   await answerRow(r.page)
 })
-screen(236, "home-select-code-short", async (r) => {
+screen(218, "home-select-code-short", async (r) => {
   await selectCode(r)
   await searchHere(r.page, "hscsht7")
   await answerLine(r.page)
@@ -625,13 +625,13 @@ const codeReview = async (r: Reach) => {
 const SELECTION = /\/api\/registration\/[^/]+\/name$/
 const selectionAnswer = (page: Page, f: (route: Route) => Promise<unknown>) => page.route("**/api/registration/*/name", posting(SELECTION, f))
 screen(224, "checkout-select-paid", (r) => selectReview(r))
-screen(234, "checkout-select-code", (r) => codeReview(r))
 screen(226, "checkout-select-busy", async (r) => {
   await selectReview(r)
   await selectionAnswer(r.page, held)
   await press(r.page, "Register with your payment")
   await expect(onStep(r.page).getByRole("button", { name: "Register with your payment" })).toHaveAttribute("aria-busy", "true")
 })
+screen(234, "checkout-select-code", (r) => codeReview(r))
 screen(240, "checkout-select-terms-changed", async (r) => {
   await selectReview(r)
   await control(r.request, "general-terms", { text: TERMS_TEXT })
