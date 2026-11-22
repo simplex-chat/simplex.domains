@@ -7,8 +7,8 @@ import { checksumAddress } from "../src/crypto/wallet.ts"
 import { walletOf } from "../src/flow.ts"
 import { dateOf } from "../src/format.ts"
 import {
-  agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, offCentre, onStep,
-  payButton, previewsShown, qrText, savedToReview, search, searchName, selectedToReview, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, takenHeading, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
+  agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, LINKS_HEADING, MOCK, offCentre, onStep,
+  payButton, previewsShown, qrText, registrationView, savedToReview, search, searchName, selectedToReview, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, takenHeading, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
   useCode, waitRegistered,
   acceptedOnChain, COMMUNITY_TERMS_HASH, contractsOwnerLists, GENERAL_TERMS_HASH,
 } from "./helpers.ts"
@@ -868,6 +868,28 @@ test("a name selected for a code order taken first is registered with its code, 
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
   await waitRegistered(page, next)
   expect((await searchName(request, next)).owner, "the order's name code owns the name selected").toBe(checksumAddress(walletOf(ownerCode)!.address))
+})
+
+test("Your names words a code order before its registration as a free name with a code, never as paid", async ({ page }) => {
+  const queued = await keepOrder(page, "reg-code-queued", null, uniqueLabel("cq"))
+  const committing = await keepOrder(page, "reg-code-committing", null, uniqueLabel("cm"))
+  for (const [o, phase] of [[queued, "queued"], [committing, "committing"]] as const) {
+    await page.route(`**/api/registration/${o.registrationId}*`, (route) => route.fulfill({ json: registrationView(o, { phase: { type: phase }, payment: { type: "code" }, price: 0 }) }))
+  }
+  await page.goto("/#/names")
+  await expect(page.locator(".list-row", { hasText: `${queued.label}.simplex` }).locator(".sub")).toHaveText("Waiting to commit · free name with a code")
+  await expect(page.locator(".list-row", { hasText: `${committing.label}.simplex` }).locator(".sub")).toHaveText("Committing · free name with a code")
+  await page.unrouteAll({ behavior: "ignoreErrors" })
+})
+
+test("a code order opened in a browser without its name code says it was ordered, not bought, in another", async ({ page }) => {
+  const order = { registrationId: "reg-code-elsewhere", invoiceId: null, label: uniqueLabel("ce"), ownerCode: "", owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+    request: { labelHash: `0x${"ab".repeat(32)}`, commitment: `0x${"01".repeat(32)}` } }
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { label: null, phase: { type: "queued" }, payment: { type: "code" }, price: 0 }) }))
+  await page.goto(`/?registration=${order.registrationId}`)
+  await expect(onStep(page).getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
+  await expect(onStep(page).locator(".notice")).toContainText("Its code was made in the browser it was ordered in.")
+  await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
 test("a code order whose name was reserved meanwhile says so, and offers selecting another name", async ({ page, request }) => {

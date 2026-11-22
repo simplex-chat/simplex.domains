@@ -238,7 +238,10 @@ describe("paidLine", () => {
     expect(paidLine(record(), registration(), invoice({ cryptoCurrency: undefined }))).toBe("$15 Card")
   })
   it("words a code order as a free name, never as a payment, and a taken one's code as released", () => {
-    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0 }), null)).toBe("Registered with a code")
+    for (const phase of ["queued", "committing", "committed", "registering", "failed"] as const) {
+      expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0, phase }), null), phase).toBe("Free name with a code")
+    }
+    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), null, null), "before the order is read").toBe("Free name with a code")
     expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0, phase: "taken" }), null))
       .toBe("Free name with a code; the code was released for another name")
   })

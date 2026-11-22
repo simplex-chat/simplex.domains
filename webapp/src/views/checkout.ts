@@ -174,7 +174,7 @@ function term(years: number, termStart: number, now: number): Kid {
 }
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
-// starts, its end, and what it costs; a name registered with a code costs nothing. In codes-only mode a code pays for every order.
+// starts, its end, and what it costs; a name registered with a code costs nothing. In codes-only mode every order is registered with a code.
 function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
@@ -489,7 +489,7 @@ async function sendOrder(): Promise<void> {
       }
       if (c.code) {
         const res = await api.registerWithCode(built.request, c.code.display, c.chain.chainId)
-        // the code is the order's now, so it pays for nothing more in this tab
+        // the code is the order's now, so this tab registers no other name with it
         session.dropActiveCode(c.code.display)
         store.saveOrder({ ...flow.recordFor(draft, built, "code", 0, { registrationId: res.registrationId, invoiceId: null }), years: c.code.years, prepaidCode: c.code.display })
         return done(store.orderUrl({ invoiceId: null, registrationId: res.registrationId }))

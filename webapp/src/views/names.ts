@@ -268,14 +268,14 @@ const PROGRESS: Partial<Record<api.Phase, string>> = {
   registering: "Registering on chain",
 }
 
-// a row's line goes on after a separator in lower case, as "registered with a code" after the date
+// a row's line goes on after a separator in lower case, as "free name with a code" after a step
 const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() + text.slice(1) : text
 
 // the reference support asks for, in a face where l and I differ
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
 function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
-  // what was paid, from the invoice, else the record's amount
+  // what was paid, from the invoice, else the record's amount, or a free name with a code
   const paid = paidLine(o, view, invoice)
   const expiresAt = api.expiresAtOf(view)
   if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
@@ -290,7 +290,7 @@ function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: 
   }
   if (view.phase.type === "taken" && o.method === "code") return paid
   if (waitsToSign(view, now)) return `Open the order so this browser can sign it${SEP}${continued(paid)}`
-  const progress = PROGRESS[view.phase.type]
+  const progress = view.phase.type === "queued" && o.method === "code" ? "Waiting to commit" : PROGRESS[view.phase.type]
   return progress ? `${progress}${SEP}${continued(paid)}` : paid
 }
 

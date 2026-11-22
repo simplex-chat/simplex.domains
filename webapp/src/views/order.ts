@@ -1126,7 +1126,7 @@ export const REPLACE_LINK = "Replace or remove it to register the name."
 
 function buildNotOnDevice({ view, invoice }: OrderState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser",
-    text: ["This order registers a name to ", el("span", { class: "nowrap" }, shortAddress(view!.owner)), ". Its code was made in the browser it was bought in. Enter the code you saved to carry on here."],
+    text: ["This order registers a name to ", el("span", { class: "nowrap" }, shortAddress(view!.owner)), `. Its code was made in the browser it was ${view!.payment.type === "code" ? "ordered" : "bought"} in. Enter the code you saved to carry on here.`],
     action: btn("Enter your name code", "", () => go(CODE_FROM_ORDER_URL)), reference: invoice?.invoiceId ?? view!.id })
 }
 
@@ -1155,8 +1155,8 @@ function registeredLead(view: api.RegistrationView, record: store.OrderRecord | 
   return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
 }
 
-// The payment or code of an order taken first is kept: a name is selected for the order, or support refunds the payment;
-// only the browser holding the code asks for either. An order refunded since is shown as such.
+// An order taken first keeps its payment, and a code order's code is released: a name is selected for the order, or support
+// refunds the payment; only the browser holding the code asks for either. An order refunded since is shown as such.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!
@@ -1177,7 +1177,7 @@ function buildTaken(s: OrderState): HTMLElement {
 
 const REFUND = "refund"
 
-// A name is selected for a taken order whose payment or code is kept, and a closed one is given a new invoice for its own
+// A name is selected for a taken code order, or a taken paid order whose payment is kept, and a closed one is given a new invoice for its own
 // name by `same`; support refunds the payment kept. Only the browser holding the code asks for either. Otherwise another
 // name is searched as usual.
 function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {

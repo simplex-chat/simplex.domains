@@ -290,7 +290,7 @@ function pauseLine(hold: Hold, signal: AbortSignal): HTMLElement {
   return node
 }
 
-// the tab's active code registers a name it covers for free; a name selected for an order uses the order's own code or payment
+// a name the tab's active code covers is registered with it for free; a name selected for an order uses the order's own code or payment
 const usesCode = (s: SearchState) => s.order === null
 const codeFor = (s: SearchState, label: string) => {
   const code = session.activeCode()

@@ -190,12 +190,12 @@ export function phaseChip(view: RegistrationView, invoice: InvoiceView | null, o
   return PHASE_CHIPS.unpaid
 }
 
-// What paid the order: its invoice, or a free name's code. Before
+// The order's payment, by its invoice, or its free name with a code. Before
 // the order is read, its record's method and worth.
 export function paidLine(o: OrderRecord, view: RegistrationView | null, invoice: InvoiceView | null): string {
   if (invoice) return `${dollars(invoice.amount)} ${methodName(invoice.cryptoCurrency ?? "card")}`
-  // a code carries no money: it registers a free name, and a name taken first gives it back
-  if (o.method === "code") return view?.phase.type === "taken" ? "Free name with a code; the code was released for another name" : "Registered with a code"
+  // a code has no money value: a person registers a free name with it, and a take releases it
+  if (o.method === "code") return view?.phase.type === "taken" ? "Free name with a code; the code was released for another name" : "Free name with a code"
   return `${dollars(o.paid)} ${methodName(o.method)}`
 }
 

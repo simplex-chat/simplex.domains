@@ -21,7 +21,7 @@ export interface OrderRecord {
   cardSubmittedAt?: string
   cancelled?: boolean
   tld: string
-  // the prepaid code that paid, shown again if the name is taken first and the code is released
+  // the prepaid code the name was registered with, shown again if the name is taken first and the code is released
   prepaidCode?: string
   // the service's error for that code once it can no longer pay for a failed registration
   codeRefusal?: CodeRefusal
