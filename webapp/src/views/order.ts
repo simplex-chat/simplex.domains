@@ -1167,7 +1167,7 @@ function buildTaken(s: OrderState): HTMLElement {
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been refunded since; Your names shows it.")
   const reserved = s.nameStatus === "reserved"
   const title = label ? [gradName(label, readSite().tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
-  return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : api.takenByOrder(view) ? "Another buyer paid for it first." : "Someone registered it before your order could.",
+  return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : "Someone has taken this name.",
     ...balanceActions(s) },
     api.takenByOrder(view) ? stages(["failed", "", ""]) : stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,

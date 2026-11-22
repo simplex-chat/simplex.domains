@@ -20,7 +20,7 @@ async function paidOrder(page: Parameters<typeof keepOrder>[0], id: string, reg:
 
 test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
   await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, refunded: 0 } })
-  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Another buyer paid for it first.")
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Someone has taken this name.")
   await expect(onStep(page).locator(".stage.done")).toHaveCount(0)
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Committing")
 })

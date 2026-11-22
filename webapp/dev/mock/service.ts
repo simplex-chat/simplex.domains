@@ -1390,8 +1390,9 @@ function settledUnits(inv: Invoice, paid: unknown): bigint {
   return unitsOf(paid, decimals)
 }
 
-// As BTCPay settles: an open invoice paid in full, or past its amount, registers its name and credits what is past it; a
-// closed one stays closed, its money credited to the order's balance.
+// As BTCPay settles: an open invoice paid in full, or past its amount, registers its name and credits what is past it, and
+// one whose name another paid order holds is taken, its price credited; a closed one stays closed, its money credited to
+// the order's balance.
 function settle(inv: Invoice, reg: Registration, paid: bigint): void {
   const decimals = inv.method === "card" ? null : UNIT_DECIMALS[inv.method]
   const whole = decimals === null ? BigInt(inv.amount) : unitsOf(inv.cryptoAmount!, decimals)
@@ -1402,10 +1403,12 @@ function settle(inv: Invoice, reg: Registration, paid: bigint): void {
   if (decimals !== null) Object.assign(inv, { cryptoAmountPaid: decimalOf(paid, decimals), cryptoAmountDue: decimalOf(paid >= whole ? 0n : whole - paid, decimals) })
   if (open && reg.phase === "unpaid") {
     Object.assign(inv, { status: "paid", settledAt: iso(nowSeconds()), lateUnits: whole })
-    reg.phase = "queued"
+    const taken = held(reg.labelHash, reg)
+    reg.phase = taken ? "taken" : "queued"
     reg.paidAt = nowSeconds()
+    if (taken) credit(reg.id, reg.paid)
     changed(reg)
-    void advance(reg)
+    if (!taken) void advance(reg)
   }
   if (inv.lateWait === null) creditLate(inv)
 }

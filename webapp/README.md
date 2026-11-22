@@ -75,7 +75,7 @@ Tests and manual checks advance orders with `POST` requests to the mock:
 
 | Request | Effect |
 |---|---|
-| `/control/settle/<invoice>` `{"paid"}` | the money that reached the invoice is confirmed: its whole amount, or the coin given in `paid`. An open invoice is paid and registration starts, and coin past the amount is credited to the order's balance; less than the amount is refused (`/control/partial` sends part). On a closed invoice the payment is late, as BTCPay keeps it: the invoice stays expired, with `paidInFull` once all of the amount arrived, the order stays unpaid, and each confirmed figure is credited to its balance once. Credit is the price's share of the coin, at the lower of the invoice's rate and the current one |
+| `/control/settle/<invoice>` `{"paid"}` | the money that reached the invoice is confirmed: its whole amount, or the coin given in `paid`. An open invoice is paid and registration starts, and coin past the amount is credited to the order's balance; while another paid order holds the name, the order is taken instead and its price credited, as the service does; less than the amount is refused (`/control/partial` sends part). On a closed invoice the payment is late, as BTCPay keeps it: the invoice stays expired, with `paidInFull` once all of the amount arrived, the order stays unpaid, and each confirmed figure is credited to its balance once. Credit is the price's share of the coin, at the lower of the invoice's rate and the current one |
 | `/control/partial/<invoice>` | half the crypto amount arrives |
 | `/control/confirming/<invoice>` | the full amount is seen, not yet confirmed |
 | `/control/expire/<invoice>` | the invoice expires |

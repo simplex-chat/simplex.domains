@@ -1324,7 +1324,14 @@ const codeOrderAs = async (r: Reach, change: Record<string, unknown>) => {
   }) }))
   await r.page.goto(`/?registration=reg-${r.id}`)
 }
-screen(2056, "order-taken-outpaid", async (r) => { await takenOrder(r.page, r.request, r.id) })
+const outpaid = async (r: Reach) => {
+  const { invoiceId: first } = await startOrder(await elsewhere(r, "/"), r.id, { method: "btc" })
+  const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
+  await control(r.request, `settle/${first}`)
+  await control(r.request, `settle/${invoiceId}`)
+  await heading(r.page, `${r.id}.simplex was taken`)
+}
+screen(2056, "order-taken-outpaid", (r) => outpaid(r))
 screen(2057, "order-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })
   await heading(r.page, `${r.id}.simplex was taken`)
@@ -1893,9 +1900,9 @@ screen(3002, "names-row-registered-unparsed-link", async (r) => {
 })
 
 screen(3008, "names-balance-outpaid", async (r) => {
-  await takenOrder(r.page, r.request, r.id)
+  await outpaid(r)
   await r.page.goto("/#/names")
-  await shown(r.page, "registered by someone else first")
+  await shown(r.page, "someone has taken this name")
 })
 screen(3009, "names-balance-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })
