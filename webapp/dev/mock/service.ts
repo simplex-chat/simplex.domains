@@ -1189,8 +1189,8 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   // only a commitment that lapsed unsigned is committed again
+  if (control.writeDelayMs) await sleep(control.writeDelayMs)
   if (!lapsed(reg)) throw badRequest()
-  await unchangedSince(reg, reg.version)
   reg.phase = "queued"
   reg.commitTx = null
   reg.registerTx = null

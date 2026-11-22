@@ -404,7 +404,7 @@ test("find lists an owner's orders newest first, each with its label hash and se
     .toEqual({ status: 200, json: { registrations: [] } })
 })
 
-test("a held poll wakes on a new version, and of two retries at once of a lapsed order one wins and the other is registration_changed with the view", async ({ request }) => {
+test("a held poll wakes on a new version, and of two retries at once of a lapsed order one wins and the other is bad_request, as the order is no longer lapsed", async ({ request }) => {
   const { id } = await codeOrder(request, uniqueLabel("cv"))
   await signAgain(request, id)
   await control(request, `lapse/${id}`)
@@ -418,10 +418,8 @@ test("a held poll wakes on a new version, and of two retries at once of a lapsed
   } finally {
     await control(request, "search", { writeDelayMs: 0 })
   }
-  expect(answers.map((a) => a.status).sort()).toEqual([200, 409])
-  const lost = answers.find((a) => a.status === 409)!.json
-  expect(lost.type).toBe("registration_changed")
-  expect((lost.registration as Json).version).toBeGreaterThan(view.version)
+  expect(answers.map((a) => a.status).sort()).toEqual([200, 400])
+  expect(answers.find((a) => a.status === 400)!.json.type).toBe("bad_request")
   const woken = await held
   expect(woken.version).toBeGreaterThan(view.version)
 })
