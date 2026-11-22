@@ -393,6 +393,17 @@ export async function toReview(page: Page, agree = true): Promise<void> {
   await savedToReview(page, agree)
 }
 
+export async function selectedToReview(page: Page, label: string): Promise<void> {
+  await page.getByLabel("Name", { exact: true }).fill(label)
+  await page.getByLabel("Name", { exact: true }).press("Enter")
+  await expect(onStep(page).locator(".answer .row .name")).toHaveText(`${label}.simplex`)
+  await onStep(page).getByRole("button", { name: "Register" }).click()
+  await expect(onStep(page).getByRole("heading", { name: LINKS_HEADING })).toBeVisible()
+  await onStep(page).getByRole("button", { name: "Skip for now" }).click()
+  await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
+  await agreeToTerms(page)
+}
+
 // a link fetch the mock is told to slow down, long enough to act on the page while it runs
 export const SLOW_FETCH_MS = 1500
 
@@ -571,7 +582,7 @@ export async function keepOrder(page: Page, registrationId: string, invoiceId: s
 
 // The service's view of a kept order's registration, as its API answers it.
 export const registrationView = (o: KeptOrder, change: Record<string, unknown> = {}) => ({
-  id: o.registrationId, version: 1, moves: 0, phase: { type: "unpaid" }, labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
+  id: o.registrationId, version: 1, phase: { type: "unpaid" }, labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
   years: 2, duration: 2 * YEAR_S, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, latePayment: null,
   community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, ...change,
 })

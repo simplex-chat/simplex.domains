@@ -89,7 +89,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   let sent: Record<string, unknown>[]
   const TO_SIGN = { type: "read", intentNonce: 0, acceptance: { community: false, policy: CHAIN.sponsor, termsHash: `0x${PLAIN}`, nonce: 0 } }
 
-  // the vector's clock and zero IV, storage for the order kept, and a service that answers a move with its view
+  // the vector's clock and zero IV, storage for the order kept, and a service that answers a selection with its view
   async function builders() {
     vi.useFakeTimers({ toFake: ["Date"], now: TIMESTAMP * 1000 })
     vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => array)
@@ -105,7 +105,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       sent.push(body)
       return new Response(JSON.stringify({
-        id: REGISTRATION_ID, version: 2, moves: 1, phase: { type: "queued" }, label: null, owner: OWNER, years: YEARS, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null,
+        id: REGISTRATION_ID, version: 2, phase: { type: "queued" }, label: null, owner: OWNER, years: YEARS, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null,
         latePayment: null, commitTx: null, registerTx: null, community: null, ...body.fields as Record<string, unknown>,
       }), { status: 200 })
     })
@@ -118,10 +118,6 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   })
 
   const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, chain: CHAIN, years: YEARS, termStart: TERM_START, ownerCode: OWNER_CODE, terms })
-  const quote = { type: "available" as const, price: 10000, years: YEARS, community: null, terms: {
-    hash: `0x${PLAIN}`,
-    link: "https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/5fb3fb63fa5a059abf6e397621ba4d7c3618c702/docs/terms.md#sha256=8b6cf03192081aa7b2cd3a82fd665fdd0f28c1ced65792837a5ac2492e6a8070",
-  } }
 
   it.each(TERMS)("order with terms %s", async (terms) => {
     const { flow } = await builders()
@@ -135,7 +131,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     const built = await flow.orderRequest(draft(terms))
     const record = flow.recordFor(draft(terms), built, "btc", 10000, { registrationId: REGISTRATION_ID, invoiceId: "inv" })
     store.saveOrder(record)
-    await flow.retargetOrder(record, LABEL, NO_LINKS, quote, terms)
+    await flow.selectName(record, draft(terms), built)
     const agreed = { communityName: terms.startsWith("community/"), termsHash: `0x${terms.replace("community/", "")}` }
     const { reveal, ...name } = sent[0]
     expect(name).toEqual({ fields: { labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, commitment: COMMITMENT, sealed: SEALED, terms: agreed }, timestamp: TIMESTAMP, signature: vector("name", terms).signature })

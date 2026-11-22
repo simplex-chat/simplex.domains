@@ -18,7 +18,7 @@ const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 
 const registration = (change: ShortView = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
-  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, moves: 0, latePayment: null,
+  duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, latePayment: null,
   community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` },
 }, change)
 
@@ -194,7 +194,7 @@ describe("list helpers", () => {
 describe("balances", () => {
   const BALANCE = { amount: 10000, refunded: 0 }
   const orders = [record({ registrationId: "reg-taken" }), record({ registrationId: "reg-outpaid", invoiceId: "inv-5" }), record({ registrationId: "reg-ended", invoiceId: "inv-6" }),
-    record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-moved", invoiceId: "inv-3" }), record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
+    record({ registrationId: "reg-late", invoiceId: "inv-2" }), record({ registrationId: "reg-overpaid", invoiceId: "inv-3" }), record({ registrationId: "reg-plain", invoiceId: "inv-4" })]
   // a registered name's row is complete with its name's answer
   const read = (s: ListState, id: string, view: RegistrationView, inv: InvoiceView | null = null) => {
     const r = reduceList(s, { type: "row-read", id, view, invoice: inv, now: NOW })
@@ -206,7 +206,7 @@ describe("balances", () => {
     s = read(s, "reg-outpaid", registration({ id: "reg-outpaid", phase: "taken", balance: BALANCE }))
     s = read(s, "reg-ended", registration({ id: "reg-ended", phase: "failed", reason: "monthEnded", commitTx: "0xc0", balance: BALANCE }))
     s = read(s, "reg-late", registration({ id: "reg-late", balance: { ...BALANCE, amount: 2500, refunded: 7500 } }), invoice({ invoiceId: "inv-2", status: "paid" }))
-    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 5000 } }))
+    s = read(s, "reg-overpaid", registration({ id: "reg-overpaid", phase: "registered", balance: { ...BALANCE, amount: 5000 } }))
     return read(s, "reg-plain", registration({ id: "reg-plain", phase: "registered" }))
   }
   it("lists each order's balance with what made it and what support refunded", () => {
@@ -215,17 +215,17 @@ describe("balances", () => {
       { id: "reg-outpaid", amount: 10000, refunded: 0, from: "outpaid" },
       { id: "reg-ended", amount: 10000, refunded: 0, from: "ended" },
       { id: "reg-late", amount: 2500, refunded: 7500, from: "late" },
-      { id: "reg-moved", amount: 5000, refunded: 0, from: "rest" },
+      { id: "reg-overpaid", amount: 5000, refunded: 0, from: "rest" },
     ])
   })
   it("lists a balance support refunded whole, with nothing left, and no balance spent whole or not read yet", () => {
     let s = list({ orders })
     s = read(s, "reg-taken", registration({ id: "reg-taken", phase: "taken", commitTx: "0xc0", balance: { ...BALANCE, amount: 0, refunded: 10000 } }))
-    s = read(s, "reg-moved", registration({ id: "reg-moved", phase: "registered", balance: { ...BALANCE, amount: 0 } }))
+    s = read(s, "reg-overpaid", registration({ id: "reg-overpaid", phase: "registered", balance: { ...BALANCE, amount: 0 } }))
     expect(balanceRows(s)).toEqual([{ id: "reg-taken", amount: 0, refunded: 10000, from: "taken" }])
   })
   it("lists a name taken first by its balance alone, a month-ended order as a name beside its balance, and every other order as a name", () => {
-    expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-ended", "reg-late", "reg-moved", "reg-plain"])
+    expect(nameRows(all()).map((o) => o.registrationId)).toEqual(["reg-ended", "reg-late", "reg-overpaid", "reg-plain"])
     let spent = list({ orders })
     spent = read(spent, "reg-taken", registration({ id: "reg-taken", phase: "taken", balance: { ...BALANCE, amount: 0 } }))
     expect(nameRows(spent).map((o) => o.registrationId), "a taken order whose balance is spent stays a name").toContain("reg-taken")
@@ -234,16 +234,14 @@ describe("balances", () => {
 
 describe("paidLine", () => {
   it("names the invoice's amount and method", () => {
-    expect(paidLine(record(), registration(), invoice())).toBe("$15 Bitcoin")
-    expect(paidLine(record(), registration(), invoice({ cryptoCurrency: undefined }))).toBe("$15 Card")
+    expect(paidLine(record(), invoice())).toBe("$15 Bitcoin")
+    expect(paidLine(record(), invoice({ cryptoCurrency: undefined }))).toBe("$15 Card")
   })
-  it("words a code order as a free name, never as a payment, and a taken one's code as released", () => {
-    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0 }), null)).toBe("Registered with a code")
-    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), registration({ price: 0, phase: "taken" }), null))
-      .toBe("Free name with a code; the code was released for another name")
+  it("words a code order as a free name with a code, never as a payment, in every phase, a taken one too, as it keeps its code", () => {
+    expect(paidLine(record({ invoiceId: null, method: "code", paid: 0 }), null)).toBe("Free name with a code")
   })
   it("names the record's worth and method before the order is read", () => {
-    expect(paidLine(record({ method: "xmr", paid: 2500 }), null, null)).toBe("$25 Monero")
+    expect(paidLine(record({ method: "xmr", paid: 2500 }), null)).toBe("$25 Monero")
   })
 })
 

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, TermsChanged,
-  communityAgreed, movable, readerUrl, type RegistrationView, signedHash, termsFor, termsLink, termsText, termYears,
+  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
+  communityAgreed, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
 const HASH = "ab".repeat(32)
@@ -101,20 +101,18 @@ describe("termsText", () => {
   })
 })
 
-describe("movable", () => {
-  const NOW = Date.parse("2026-11-21T12:00:00Z")
-  const view = (change: Partial<RegistrationView>) => ({ phase: { type: "taken", heldUntil: "2026-12-21T12:00:00Z" }, price: 10000, payment: { type: "invoice", method: "btc" },
+describe("selectable", () => {
+  const view = (change: Partial<RegistrationView>) => ({ phase: { type: "taken" }, price: 10000, payment: { type: "invoice", method: "btc" },
     balance: { amount: 10000, refunded: 0 }, ...change }) as RegistrationView
   const coded = (change: Partial<RegistrationView> = {}) => view({ payment: { type: "code" }, price: 0, balance: null, ...change })
-  it("is a taken order before its window ends: a paid one while its balance holds its price, a code one", () => {
-    expect(movable(view({}), NOW)).toBe(true)
-    expect(movable(coded(), NOW)).toBe(true)
-    expect(movable(view({ balance: { amount: 0, refunded: 10000 } }), NOW), "a paid order refunded").toBe(false)
+  it("is a taken order: a paid one while its balance holds its price, a code one", () => {
+    expect(selectable(view({}))).toBe(true)
+    expect(selectable(coded())).toBe(true)
+    expect(selectable(view({ balance: { amount: 0, refunded: 10000 } })), "a paid order refunded").toBe(false)
   })
-  it("is no order at or after its window's end, nor one in another phase", () => {
-    expect(movable(view({ phase: { type: "taken", heldUntil: "2026-11-21T12:00:00Z" } }), NOW)).toBe(false)
-    expect(movable(coded({ phase: { type: "taken", heldUntil: "2026-11-20T12:00:00Z" } }), NOW)).toBe(false)
-    expect(movable(coded({ phase: { type: "failed", reason: "registryRefused" } }), NOW)).toBe(false)
+  it("is no order in another phase", () => {
+    expect(selectable(coded({ phase: { type: "failed", reason: "registryRefused" } }))).toBe(false)
+    expect(selectable(view({ phase: { type: "queued" } }))).toBe(false)
   })
 })
 
@@ -285,7 +283,7 @@ describe("service errors", () => {
   })
 
   const REGISTRATION = {
-    id: "r1", version: 4, moves: 0, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
+    id: "r1", version: 4, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, latePayment: null,
     community: null, terms: { communityName: false, termsHash: TERMS.hash },
   }
@@ -501,7 +499,7 @@ describe("service errors", () => {
     const SENDS: [string, () => Promise<unknown>][] = [
       ["an order", () => createOrder(ORDER, "btc", 10000, 31337)],
       ["a code order", () => registerWithCode(ORDER, "SN6-X", 31337)],
-      ["a move", () => retarget("r1", ORDER, 31337)],
+      ["a selection", () => selectName("r1", ORDER, 31337)],
     ]
 
     it.each(SENDS)("sends %s with the terms the buyer agreed to and the reveal", async (_, send) => {

@@ -102,10 +102,11 @@ export function reduce(s: CheckoutState, e: CheckoutEvent): CheckoutState {
 
 export const METHODS: Method[] = ["card", "btc", "xmr"]
 
-// The review's code field, once opened, or the link that opens it, offered where the order is paid: not where the tab's
-// code pays it, which the header takes off. In codes-only mode nothing else pays, so the field is open
-// whenever no code pays.
+// The review's code field, once opened, or the link that opens it, offered where the order is paid: not where the name
+// is registered for free with the tab's code, which the header takes off, nor for a name selected for a taken order. In
+// codes-only mode a name is registered only with a code, so the field is open whenever no code applies.
 export function codeEntry(c: Checkout, codesOnly: boolean): "field" | "link" | null {
+  if (c.order) return null
   if (c.codeHere || (codesOnly && c.code === null)) return "field"
   return c.code ? null : "link"
 }

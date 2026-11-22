@@ -47,8 +47,6 @@ const SIGNED_REQUEST_SECONDS = 600
 const SIGNATURE_SECONDS = 7 * 86400
 // find lists an owner's newest orders, at most this many
 const FOUND_MAX = 50
-// the service's max_order_moves: an order moves to another name or other links at most this often
-const MAX_ORDER_MOVES = 3
 // how long a register with no answer is followed on chain before it counts as failed: 12 × 5 s
 const PENDING_CHECKS = 12
 const PENDING_CHECK_MS = 5000
@@ -107,15 +105,14 @@ interface Registration {
   createdAt: string
   failNext: boolean
   staleNext: boolean
-  // successful moves to another name or other links, at most MAX_ORDER_MOVES
-  moves: number
   // what an exact resend of the order that made it must repeat: its fields, never its timestamp or signature
   orderHash: string
   // tries of a transaction that did not go out, since the last that did
   resends: number
-  // the terms the order signed when it was made or last moved
+  // the terms the order signed when it was made or its name last selected
   terms: string
   paidAt: number | null
+  takenAt: number | null
 }
 
 interface Invoice {
@@ -428,7 +425,7 @@ async function termsText(terms: Terms): Promise<string | null> {
 // the entry of the community terms an order signed, which the view shows without reading the chain
 const signedCommunity = (reg: Registration) => communityAgreed(reg.terms) ? communityEntry(reg.labelHash) : null
 
-// an order or a move signs the terms of the name's kind the service has now, which it takes no order without
+// an order or a selection signs the terms of the name's kind the service has now, which it takes no order without
 async function checkTerms(o: Pick<OrderBody, "labelHash" | "terms">): Promise<void> {
   const { listed, terms } = await nameTerms(o.labelHash).catch((): never => { throw new HttpError(503, "name_check_unavailable") })
   if (!terms || await termsText(terms) === null) throw new HttpError(503, "terms_unavailable")
@@ -485,7 +482,6 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
     case "registered": return { type: "registered", expiresAt: reg.expiresAt }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
-    case "taken": return { type: "taken", ...reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
 }
@@ -497,7 +493,7 @@ function paymentOf(reg: Registration): Record<string, unknown> {
 
 async function registrationView(reg: Registration): Promise<Record<string, unknown>> {
   return {
-    id: reg.id, version: reg.version, moves: reg.moves, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
+    id: reg.id, version: reg.version, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
     community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
   }
@@ -645,7 +641,7 @@ async function nameFree(labelHash: Hex, except: Registration | null = null): Pro
   if (found.type !== "available" || held(labelHash, except)) throw new HttpError(409, "name_taken")
 }
 
-// Orders and retargets check state, await the chain, then write: run one at a time so two at once cannot both pass.
+// Orders and selections check state, await the chain, then write: run one at a time so two at once cannot both pass.
 let orderTurn: Promise<unknown> = Promise.resolve()
 
 export function oneOrderAtATime<T>(f: () => Promise<T>): Promise<T> {
@@ -742,8 +738,8 @@ type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaid
 function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): Registration {
   const reg: Registration = {
     id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
-    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, moves: 0, resends: 0, version: 1,
-    paidAt: extra.phase === "queued" ? nowSeconds() : null,
+    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, resends: 0, version: 1,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -797,8 +793,10 @@ export function checkCode(body: Record<string, unknown>): Record<string, unknown
   if (typeof body.code !== "string") throw badRequest()
   const { row } = prepaidOf(body.code)
   if (!row) throw new HttpError(400, "code_invalid")
-  return { minLength: row.minLength, years: row.years, state: row.state }
+  return { minLength: row.minLength, years: row.years, state: stateOf(row) }
 }
+
+const stateOf = (row: PrepaidCode) => row.registrationId !== null && row.state === "expired" ? "reserved" : row.state
 
 const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code_used", reserved: "code_reserved", expired: "code_expired", unpaid: "payment_pending", revoked: "code_invalid" }
 
@@ -816,7 +814,7 @@ export async function registerWithCode(body: Record<string, unknown>): Promise<R
   checkDuration(order.duration, orderYears(order, row.years))
   await checkTerms(order)
   await nameFree(order.labelHash)
-  const error = CODE_ERRORS[row.state]
+  const error = CODE_ERRORS[stateOf(row)]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (order.length < row.minLength) throw new HttpError(409, "code_not_covering")
   const rv = await orderReveal(order, body.reveal)
@@ -984,9 +982,9 @@ async function register(reg: Registration): Promise<void> {
     const available = await read<boolean>(controller, "available", [reg.label])
     if (!available) {
       reg.phase = "taken"
-      // a paid order keeps what it is worth as its balance; a code carries no money
-      if (reg.prepaidCode) releaseCode(reg)
-      else credit(reg.id, reg.paid)
+      reg.takenAt = nowSeconds()
+      // a paid order keeps what it is worth as its balance; a code order keeps its code reserved
+      if (!reg.prepaidCode) credit(reg.id, reg.paid)
       return changed(reg)
     }
     return fail(reg, "registryRefused")
@@ -1024,14 +1022,6 @@ async function registered(reg: Registration): Promise<void> {
     if (row) row.state = "used"
   }
   changed(reg)
-}
-
-function releaseCode(reg: Registration): void {
-  const row = codes.get(reg.prepaidCode!)
-  if (row && row.registrationId === reg.id && row.state === "reserved") {
-    row.state = "unused"
-    row.registrationId = null
-  }
 }
 
 // --- the reveal
@@ -1152,7 +1142,7 @@ async function checkSigned(owner: Address, message: string, timestamp: unknown, 
 
 const sha256Hex = (text: string) => "0x" + createHash("sha256").update(text, "ascii").digest("hex")
 
-export async function retarget(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function selectName(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   const sent = flatSigned(body)
@@ -1163,31 +1153,28 @@ export async function retarget(registrationId: string, body: Record<string, unkn
     && reg.terms === order.terms
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
-  freshTimestamp(sent.timestamp)
-  // only an order taken first, within the month from its payment or its code's reservation: a code order whose code is
-  // checked again, or a paid order while its balance keeps its price, which goes back to it as it moves
-  const paid = reg.method !== "code"
-  const movable = reg.phase === "taken" && reg.paidAt !== null && nowSeconds() < monthAfter(reg.paidAt)
-    && (!paid || (balances.get(reg.id)?.amount ?? 0) >= reg.paid)
-  if (!movable) throw badRequest()
-  if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
+  // only an order taken first, with a new order's checks in a new order's sequence: a code order whose code is checked
+  // again, or a paid order while its balance keeps its price
+  if (reg.phase !== "taken") throw badRequest()
   const version = reg.version
   existingOrder(order, null, reg)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, orderYears(order, reg.years))
   await checkTerms(order)
   await nameFree(order.labelHash, reg)
+  const paid = reg.method !== "code"
   const price = paid ? await chainPrice(order.length, orderYears(order, reg.years)) : 0
-  // only a name of the order's price
-  if (price !== reg.paid) throw new HttpError(409, "price_too_high", { price })
-  const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
-  if (row) codeStillPays(row, reg, order.length)
+  if (price !== reg.paid) throw new HttpError(409, "catalog_changed", { price })
   const rv = await orderReveal(order, revealBody)
+  const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
+  if (row) codeReservable(row, reg, order.length)
+  if (paid && (balances.get(reg.id)?.amount ?? 0) < reg.paid) throw badRequest()
   await unchangedSince(reg, version)
-  if (row) Object.assign(row, { state: "reserved", registrationId: reg.id })
+  if (row?.state === "unused") Object.assign(row, { state: "reserved", registrationId: reg.id })
   if (paid) balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
     labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
-    moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, ...rv,
+    phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, paidAt: nowSeconds(), ...rv,
   })
   changed(reg)
   const view = await registrationView(reg)
@@ -1195,9 +1182,11 @@ export async function retarget(registrationId: string, body: Record<string, unkn
   return view
 }
 
-// A code order's code pays again if it is still this order's, or was released and is still unused, and covers the name.
-function codeStillPays(row: PrepaidCode, reg: Registration, length: number): void {
-  const error = row.state !== "unused" && row.registrationId !== reg.id ? CODE_ERRORS[row.state] : undefined
+// A code order's code is accepted at a selection while this order holds it, past its expiry until a calendar month after
+// the take, or while it is unused, and as long as it covers the name; a revoked code never is.
+function codeReservable(row: PrepaidCode, reg: Registration, length: number): void {
+  const held = row.registrationId === reg.id && (row.state === "reserved" || (row.state === "expired" && reg.takenAt !== null && nowSeconds() < monthAfter(reg.takenAt)))
+  const error = row.state === "revoked" ? "code_invalid" : held || row.state === "unused" ? undefined : CODE_ERRORS[row.state]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
@@ -1398,8 +1387,9 @@ function settledUnits(inv: Invoice, paid: unknown): bigint {
   return unitsOf(paid, decimals)
 }
 
-// As BTCPay settles: an open invoice paid in full, or past its amount, registers its name and credits what is past it; a
-// closed one stays closed, its money credited to the order's balance.
+// As BTCPay settles: an open invoice paid in full, or past its amount, registers its name and credits what is past it, and
+// one whose name another paid order holds is taken, its price credited; a closed one stays closed, its money credited to
+// the order's balance.
 function settle(inv: Invoice, reg: Registration, paid: bigint): void {
   const decimals = inv.method === "card" ? null : UNIT_DECIMALS[inv.method]
   const whole = decimals === null ? BigInt(inv.amount) : unitsOf(inv.cryptoAmount!, decimals)
@@ -1410,10 +1400,13 @@ function settle(inv: Invoice, reg: Registration, paid: bigint): void {
   if (decimals !== null) Object.assign(inv, { cryptoAmountPaid: decimalOf(paid, decimals), cryptoAmountDue: decimalOf(paid >= whole ? 0n : whole - paid, decimals) })
   if (open && reg.phase === "unpaid") {
     Object.assign(inv, { status: "paid", settledAt: iso(nowSeconds()), lateUnits: whole })
-    reg.phase = "queued"
+    const taken = held(reg.labelHash, reg)
+    reg.phase = taken ? "taken" : "queued"
     reg.paidAt = nowSeconds()
+    if (taken) reg.takenAt = nowSeconds()
+    if (taken) credit(reg.id, reg.paid)
     changed(reg)
-    void advance(reg)
+    if (!taken) void advance(reg)
   }
   if (inv.lateWait === null) creditLate(inv)
 }

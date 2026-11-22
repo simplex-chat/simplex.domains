@@ -268,15 +268,15 @@ const PROGRESS: Partial<Record<api.Phase, string>> = {
   registering: "Registering on chain",
 }
 
-// a row's line goes on after a separator in lower case, as "registered with a code" after the date
+// a row's line goes on after a separator in lower case, as "free name with a code" after a step
 const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() + text.slice(1) : text
 
 // the reference support asks for, in a face where l and I differ
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
 function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
-  // what was paid, from the invoice, else the record's amount
-  const paid = paidLine(o, view, invoice)
+  // what was paid, from the invoice, else the record's amount, or a free name with a code
+  const paid = paidLine(o, invoice)
   const expiresAt = api.expiresAtOf(view)
   if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
   if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
@@ -290,7 +290,7 @@ function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: 
   }
   if (view.phase.type === "taken" && o.method === "code") return paid
   if (waitsToSign(view, now)) return `Open the order so this browser can sign it${SEP}${continued(paid)}`
-  const progress = PROGRESS[view.phase.type]
+  const progress = view.phase.type === "queued" && o.method === "code" ? "Waiting to commit" : PROGRESS[view.phase.type]
   return progress ? `${progress}${SEP}${continued(paid)}` : paid
 }
 
@@ -307,7 +307,7 @@ const rowCode = (code: string) => el("div", { class: "row-code" },
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId
   const seen = s.seen[id]
-  // the order may have moved to another name since it was stored
+  // another name may have been selected for the order since it was stored
   const label = seen?.view.label ?? o.label
   const tld = o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
@@ -325,7 +325,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const state = rowChip(s, o, seen)
   const title = rowName(label, tld, community, `${id}-community`, listed)
   if (chats.length) opensFirstChat(title, chats[0])
-  return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null, null), state && chipRoom(state),
+  return row(id, title, seen ? subLine(o, seen, s.now) : paidLine(o, null), state && chipRoom(state),
     [chats.length ? el("span", { class: "chats" }, chats) : null, ...acts], shown ? rowCode(code) : null)
 }
 
@@ -368,7 +368,7 @@ function pendingRow(p: store.PendingCode, s: ListState, open: session.Checkout |
 }
 
 const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
-  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "you paid more than the price",
+  taken: "someone has taken this name", outpaid: "someone has taken this name", ended: null, late: "paid after its invoice closed", rest: "you paid more than the price",
 }
 
 // Support refunds a balance.

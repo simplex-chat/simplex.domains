@@ -22,6 +22,7 @@ import {
 } from "./shell.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
 import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
+import { readOrder } from "./search.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
@@ -33,10 +34,10 @@ const DAPP_URL = "https://app.simplex.domains"
 const SIGNED_WINDOW_S = 600
 
 const years = (c: session.Checkout) => api.termYears(c.community, c.code?.years ?? c.years)
-// a card order waiting for Stripe holds a second paid order; a code pays nothing, so it holds none
-const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || codesOnly ? null : waiting
-const payLabel = (c: session.Checkout, codesOnly: boolean) => c.code || codeEntry(c, codesOnly) === "field" ? "Register with your code"
-  : `Pay ${dollars(c.price)} with ${methodName(c.method)}`
+// a card order waiting for Stripe holds a second paid order; an order with a code, or with a taken order's payment, is no second charge, so it holds none
+const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || checkout.order || codesOnly ? null : waiting
+const payLabel = (c: session.Checkout, codesOnly: boolean) => c.code || c.order?.method === "code" || codeEntry(c, codesOnly) === "field" ? "Register with your code"
+  : c.order ? "Register with your payment" : `Pay ${dollars(c.price)} with ${methodName(c.method)}`
 
 function waitingCardOrder(): WaitingOrder | null {
   const order = store.orders().find((o) => o.method === "card" && o.cardSubmittedAt && o.invoiceId)
@@ -173,7 +174,7 @@ function term(years: number, termStart: number, now: number): Kid {
 }
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
-// starts, its end, and what it costs; a name registered with a code costs nothing. In codes-only mode a code pays for every order.
+// starts, its end, and what it costs; a name registered with a code costs nothing. In codes-only mode every order is registered with a code.
 function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
@@ -185,8 +186,8 @@ function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
-      c.code || codesOnly ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
-        : row("Total", dollars(c.price), "total"),
+      c.code || codesOnly || c.order?.method === "code" ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
+        : row("Total", c.order?.paid === c.price ? "Paid" : dollars(c.price), "total"),
       c.code && y < c.code.years ? el("p", { class: "hint" }, `A community name is registered for ${y} years, not your code's ${c.code.years}.`) : null))
 }
 
@@ -326,7 +327,7 @@ function buildLinks(s: CheckoutState): HTMLElement {
   const linked = hasLinks(c)
   const skip = linked ? null : link("Skip for now", () => go(checkoutUrl("review")))
   skip?.setAttribute("data-focus", "skip")
-  return screen({ title: "Your name's links", back: searchLink(c.label),
+  return screen({ title: "Your name's links", back: searchLink(c.label, c.order?.registrationId),
     lead: ["Paste your SimpleX contact address or channel link. ", el("span", { class: "nowrap" }, "You can change it later.")],
     alt: skip, action: continueButton(() => void linksDone(links.fields()), !linked, awaitingChecks) },
     el("span", { class: "label" }, "Link"), links.node)
@@ -363,12 +364,12 @@ function buildCommunity(s: CheckoutState): HTMLElement {
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
-  const paid = !(c.code || codeEntry(c, s.codesOnly) === "field")
+  const paid = !(c.code || c.order || codeEntry(c, s.codesOnly) === "field")
   // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
     el("div", { class: "review" }, orderCard(c, s.codesOnly),
-      !c.codeError ? null : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)
+      !c.codeError ? null : c.order ? line("bad", "alert", c.codeError) : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)
         : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
@@ -380,17 +381,17 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
 function buildPriceChanged({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "warn", icon: "alert", title: "The price changed",
     text: [nameText(c.label, c.chain.tld), ` costs ${dollars(c.price)} now; it changed while you were deciding. Nothing was charged.`],
-    action: btn("Search again", "", () => go(searchLink(c.label))) })
+    action: btn("Search again", "", () => go(searchLink(c.label, c.order?.registrationId))) })
 }
 
 function buildTooMany({ checkout: c, hold }: CheckoutState, signal: AbortSignal): HTMLElement {
   holdEnds(signal)(hold !== null)
-  return limitScreen(hold, refresh, searchLink(c.label), signal)
+  return limitScreen(hold, refresh, searchLink(c.label, c.order?.registrationId), signal)
 }
 
 function buildTaken({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "info", icon: "info", title: "This name is no longer available", text: [nameText(c.label, c.chain.tld), " became unavailable after you searched for it. Nothing was charged."],
-    action: btn("Search another name", "", () => go(searchLink(""))) })
+    action: btn("Search another name", "", () => go(searchLink("", c.order?.registrationId))) })
 }
 
 function buildFailed(s: CheckoutState): HTMLElement {
@@ -398,7 +399,7 @@ function buildFailed(s: CheckoutState): HTMLElement {
   // the same order is sent again from here; Back leaves it for the search
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
   return outcome({ tone: "danger", icon: "alert", title: "That did not go through", text: ["Nothing was charged. If this happens again, ", ...supportVia("contact"), "."],
-    action: retry, alt: link("Back", () => go(searchLink(c.label))) })
+    action: retry, alt: link("Back", () => go(searchLink(c.label, c.order?.registrationId))) })
 }
 
 const buildRefusedLink = (kind: LinkKind) => (): HTMLElement =>
@@ -407,7 +408,7 @@ const buildRefusedLink = (kind: LinkKind) => (): HTMLElement =>
 function buildUnavailable(s: CheckoutState): HTMLElement {
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
   return outcome({ tone: "warn", icon: "alert", title: NO_ORDERS, text: "Its terms can't be read now. Nothing was charged. Try again later.",
-    action: retry, alt: link("Back", () => go(searchLink(s.checkout.label))) })
+    action: retry, alt: link("Back", () => go(searchLink(s.checkout.label, s.checkout.order?.registrationId))) })
 }
 
 // a page opened before the service took codes only; the code entered there registers the name searched again for free
@@ -437,7 +438,7 @@ async function submitOrder(): Promise<void> {
   if (!c) return go("/#/names")
   if (session.isSending(c) || holding() || awaitsCode(c, state.codesOnly)) return
   // a card payment awaiting confirmation, met since the page was drawn, blocks a second paid order; the page shows it
-  if (!c.code && waitingCardOrder()) return refresh()
+  if (!c.code && !c.order && waitingCardOrder()) return refresh()
   session.startSending(c)
   try {
     await sendOrder()
@@ -457,7 +458,7 @@ async function sendOrder(): Promise<void> {
   // The order is kept whatever the buyer did meanwhile. Its checkout ends, and the order opens, only while this checkout
   // is still the tab's: the buyer may have started another name, by Back and Forward too.
   const mine = currentRoute()
-  const search = searchLink(c.label)
+  const search = searchLink(c.label, c.order?.registrationId)
   const done = (url: string) => {
     const current = session.checkout()
     const ours = current?.label === c.label && current.ownerCode === c.ownerCode
@@ -468,16 +469,27 @@ async function sendOrder(): Promise<void> {
     else go(url)
   }
   const method = c.method
-  const chosen = c.code ? "code" : method
+  const chosen = c.code ? "code" : c.order?.method ?? method
   const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
   try {
     const fresh = c.sent?.of === of && api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S
     const built = fresh ? c.sent! : { of, ...await flow.orderRequest(draft) }
     session.updateCheckout(c.label, { sent: built })
     try {
+      if (c.order) {
+        const taken = store.orderByRegistration(c.order.registrationId)
+        if (!taken) return done("/#/names")
+        try {
+          await flow.selectName(taken, draft, built)
+        } catch (e) {
+          const read = await readOrder(taken)
+          if (!read || api.selectable(read.view)) throw e
+        }
+        return done(store.orderUrl(taken))
+      }
       if (c.code) {
         const res = await api.registerWithCode(built.request, c.code.display, c.chain.chainId)
-        // the code is the order's now, so it pays for nothing more in this tab
+        // the code is the order's now, so this tab registers no other name with it
         session.dropActiveCode(c.code.display)
         store.saveOrder({ ...flow.recordFor(draft, built, "code", 0, { registrationId: res.registrationId, invoiceId: null }), years: c.code.years, prepaidCode: c.code.display })
         return done(store.orderUrl({ invoiceId: null, registrationId: res.registrationId }))

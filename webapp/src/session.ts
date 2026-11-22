@@ -21,7 +21,7 @@ export interface Checkout {
   channel: string
   method: Method
   code: AppliedCode | null
-  // the code field opened on Check your order, whose code pays in place of the tab's, until it is removed
+  // the code field opened on Check your order, with whose code the name is registered in place of the tab's, until it is removed
   codeHere?: boolean
   ownerCode: string | null
   // the buyer ticked that they keep a copy of the name code, which the review waits for
@@ -40,6 +40,7 @@ export interface Checkout {
   codeError?: string
   // the order last sent and what it was made of, sent again exactly while that is unchanged, so a lost answer is safe to ask for again
   sent?: { of: string; request: SignedOrder; owner: string }
+  order?: { registrationId: string; method: Method | "code"; paid: number }
 }
 
 const CHECKOUT = "simplex-names-checkout"

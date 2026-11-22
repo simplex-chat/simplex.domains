@@ -1,6 +1,6 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
-  agreeToTerms, brokenNames, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, FIT_SIZES, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, rowFit, savedToReview, search, shot,
+  channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, savedToReview, search, selectedToReview, shot,
   shownCode, startOrder, restoreOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registeredPhase, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
@@ -174,38 +174,17 @@ test("a registered order opened in a browser without its code offers restore", a
   await other.close()
 })
 
-test("a failed retarget shows one message below the result, however often it is tried", async ({ page, request }) => {
-  const { invoiceId } = await takenOrder(page, request, uniqueLabel("rtf"))
-  await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { type: "provider_unavailable" } }))
-  await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtf2"))
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(page)
-  for (let i = 0; i < 2; i++) {
-    await page.getByRole("button", { name: "Register with your payment" }).click()
-    await expect(page.getByText("That did not go through")).toHaveCount(1)
-  }
-  await expect(page.locator(".answer .row .notice"), "the message stays out of the name's row").toHaveCount(0)
-  // the name whole on its own line where the long button leaves it too little room beside it
-  for (const size of FIT_SIZES) {
-    await page.setViewportSize(size)
-    expect(await brokenNames(page), `the names broken at ${size.width}x${size.height}`).toEqual([])
-    const { spill, clipped } = await rowFit(page)
-    expect({ spill, clipped }, `the row's parts past it or too narrow at ${size.width}x${size.height}`).toEqual({ spill: 0, clipped: [] })
-  }
-  await page.setViewportSize(FIT_SIZES[0])
-  await shot(page, "N8a2-retarget-failed")
-})
-
-test("a retarget refused for a name taken meanwhile says the name is no longer available", async ({ page, request }) => {
+test("a selection refused for a name taken meanwhile says the name is no longer available, and the next search is for the same order", async ({ page, request }) => {
   const { invoiceId } = await takenOrder(page, request, uniqueLabel("rtt"))
-  await page.goto(`/#/?retarget=${await registrationOf(request, invoiceId)}`)
+  const registrationId = await registrationOf(request, invoiceId)
+  await page.goto(`/#/?order=${registrationId}`)
   await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { type: "name_taken" } }))
-  await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtt2"))
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(page)
-  await page.getByRole("button", { name: "Register with your payment" }).click()
-  await expect(page.getByText("This name is no longer available. Search another one.")).toBeVisible()
+  await selectedToReview(page, uniqueLabel("rtt2"))
+  await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
+  await expect(onStep(page).getByRole("heading", { name: "This name is no longer available" })).toBeVisible()
+  await onStep(page).getByRole("button", { name: "Search another name" }).click()
+  await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
+  await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
 test("a partly paid invoice offers no cancel", async ({ page, request }) => {

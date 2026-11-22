@@ -21,9 +21,9 @@ export interface OrderRecord {
   cardSubmittedAt?: string
   cancelled?: boolean
   tld: string
-  // the prepaid code that paid, shown again if the name is taken first and the code is released
+  // the prepaid code the order was placed with, which bounds the names selected for it after a take
   prepaidCode?: string
-  // the service's error for that code once it can no longer pay for a failed registration
+  // the service's error for that code once a failed registration can no longer be registered with it
   codeRefusal?: CodeRefusal
   // the link of the order that replaced this one with a new invoice; its old link leads there
   replacedBy?: string
