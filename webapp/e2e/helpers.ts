@@ -396,6 +396,7 @@ export async function toReview(page: Page, agree = true): Promise<void> {
 export async function selectedToReview(page: Page, label: string): Promise<void> {
   await page.getByLabel("Name", { exact: true }).fill(label)
   await page.getByLabel("Name", { exact: true }).press("Enter")
+  await expect(onStep(page).locator(".answer .row .name")).toHaveText(`${label}.simplex`)
   await onStep(page).getByRole("button", { name: "Register" }).click()
   await expect(onStep(page).getByRole("heading", { name: LINKS_HEADING })).toBeVisible()
   await onStep(page).getByRole("button", { name: "Skip for now" }).click()

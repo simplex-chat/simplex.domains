@@ -246,8 +246,8 @@ test("a late payment to a replaced invoice is kept by a restored browser after a
 test("a name of another price than a taken order's is refused as the price changed, and its search goes on for the order", async ({ page, request }) => {
   const { invoiceId } = await takenOrder(page, request, sevenLetters())
   const registrationId = await registrationOf(request, invoiceId)
+  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
   for (const label of [uniqueLabel("cheap"), `q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`]) {
-    await page.goto(`/#/?order=${registrationId}`)
     await selectedToReview(page, label)
     await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
     await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
