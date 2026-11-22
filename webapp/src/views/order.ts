@@ -1026,7 +1026,7 @@ function headingOf({ view, record }: OrderState): Kid {
 
 function leadOf(s: OrderState): Kid {
   if (!s.record) return "The browser with its name code signed it."
-  return "Keep this page open until the name is registered."
+  return api.toSignOf(s.view!) || api.lapsedOf(s.view!) ? "Keep this page open until the name is registered." : null
 }
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
