@@ -54,7 +54,6 @@ const PENDING_CHECK_MS = 5000
 const EXPIRY_READS = 3
 const EXPIRY_READ_MS = 1000
 const RESEND_MS = wholeEnv("MOCK_RESEND_MS", 5000)
-const RESENDS = wholeEnv("MOCK_RESENDS", 12)
 const SEALED_MAX = 11095
 // the terms an order signs: the hash of the terms of the name's kind, after COMMUNITY_TERMS for a community name, or the
 // version an older page signed, with /community/ and the community terms' hash after it for a community name
@@ -107,8 +106,6 @@ interface Registration {
   staleNext: boolean
   // what an exact resend of the order that made it must repeat: its fields, never its timestamp or signature
   orderHash: string
-  // tries of a transaction that did not go out, since the last that did
-  resends: number
   // the terms the order signed when it was made or its name last selected
   terms: string
   paidAt: number | null
@@ -738,7 +735,7 @@ type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaid
 function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): Registration {
   const reg: Registration = {
     id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
-    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, resends: 0, version: 1,
+    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, version: 1,
     paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null,
   }
   registrations.set(reg.id, reg)
@@ -867,11 +864,9 @@ async function advance(reg: Registration): Promise<void> {
     // a commit that did not go out stays committing while it is tried again
     if (reg.phase === "queued" || reg.phase === "committing") await commit(reg)
     if (reg.phase === "committed" && reg.intent) await register(reg)
-    reg.resends = 0
   } catch (e) {
-    console.error(`${new Date().toISOString()} ${reg.id} ${reg.phase}, try ${reg.resends}: ${e instanceof Error ? e.message : e}`)
-    if (e instanceof NotSent && reg.resends < RESENDS) {
-      reg.resends += 1
+    console.error(`${new Date().toISOString()} ${reg.id} ${reg.phase}: ${e instanceof Error ? e.message : e}`)
+    if (e instanceof NotSent) {
       setTimeout(() => void advance(reg), RESEND_MS)
     } else fail(reg, "registryRefused")
   } finally {
@@ -899,7 +894,6 @@ async function commit(reg: Registration): Promise<void> {
     try {
       // kept once its receipt is in: the order's page reads a commit hash as a commit on chain
       reg.commitTx = await sendTx(controller, "commit", [reg.commitment])
-      reg.resends = 0
     } catch (e) {
       // an earlier commit of the same commitment is still live
       if (!(e instanceof Reverted && e.revert === "UnexpiredCommitmentExists")) throw e
@@ -1200,7 +1194,6 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   reg.phase = "queued"
   reg.commitTx = null
   reg.registerTx = null
-  reg.resends = 0
   changed(reg)
   const view = await registrationView(reg)
   void advance(reg)

@@ -11,7 +11,6 @@
 #   SLOTS              backends side by side, one per e2e worker: slot i has its chain on 8545+i, its deployment in
 #                      dev/local-chain-i.json and its mock on 8099+i (default: one, in dev/local-chain.json)
 #   MOCK_RESEND_MS     how often the mock tries again a transaction that did not go out (default: 5000)
-#   MOCK_RESENDS       how many times it tries (default: 12)
 #   MOCK_RETRY_AFTER_SECONDS  the wait the mock names for a rate limit injected with invoiceError (default: 30)
 #   CHAIN_START        the unix time of each chain's first block, for a run whose clock /control/clock sets (default: now)
 set -euo pipefail

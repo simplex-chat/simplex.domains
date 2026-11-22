@@ -191,22 +191,6 @@ test("a chain that sends nothing for a moment keeps the order where it was, then
   await waitRegistered(page, label)
 })
 
-test("a chain that sends nothing for longer than its resends fails the order in plain words, leaving it to support", async ({ page, request }) => {
-  test.setTimeout(240_000)
-  const label = uniqueLabel("nd")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  try {
-    await control(request, "search", { unsentSeconds: 120 })
-    await control(request, `settle/${invoiceId}`)
-    await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: 120_000 })
-    await expect(page.getByText("The name could not be registered", { exact: true })).toBeVisible()
-  } finally {
-    await control(request, "search", { unsentSeconds: 0 })
-  }
-  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
-  await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
-})
-
 test("a late payment to a replaced invoice is kept by a restored browser after another name was selected for the order", async ({ page, browser, request }) => {
   const label = `${uniqueLabel("adopt")}-${"long-name".repeat(4)}`
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "btc" })
