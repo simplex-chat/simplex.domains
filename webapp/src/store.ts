@@ -23,7 +23,7 @@ export interface OrderRecord {
   tld: string
   // the prepaid code the name was registered with, shown again if the name is taken first and the code is released
   prepaidCode?: string
-  // the service's error for that code once it can no longer pay for a failed registration
+  // the service's error for that code once a failed registration can no longer be registered with it
   codeRefusal?: CodeRefusal
   // the link of the order that replaced this one with a new invoice; its old link leads there
   replacedBy?: string

@@ -21,7 +21,7 @@ export interface Checkout {
   channel: string
   method: Method
   code: AppliedCode | null
-  // the code field opened on Check your order, whose code pays in place of the tab's, until it is removed
+  // the code field opened on Check your order, with whose code the name is registered in place of the tab's, until it is removed
   codeHere?: boolean
   ownerCode: string | null
   // the buyer ticked that they keep a copy of the name code, which the review waits for
