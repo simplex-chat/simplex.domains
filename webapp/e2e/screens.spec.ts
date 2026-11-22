@@ -1900,9 +1900,9 @@ screen(3002, "names-row-registered-unparsed-link", async (r) => {
 })
 
 screen(3008, "names-balance-outpaid", async (r) => {
-  await takenOrder(r.page, r.request, r.id)
+  await outpaid(r)
   await r.page.goto("/#/names")
-  await shown(r.page, "registered by someone else first")
+  await shown(r.page, "someone has taken this name")
 })
 screen(3009, "names-balance-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })

@@ -368,7 +368,7 @@ function pendingRow(p: store.PendingCode, s: ListState, open: session.Checkout |
 }
 
 const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
-  taken: "registered by someone else first", outpaid: "another buyer paid for it first", ended: null, late: "paid after its invoice closed", rest: "you paid more than the price",
+  taken: "someone has taken this name", outpaid: "someone has taken this name", ended: null, late: "paid after its invoice closed", rest: "you paid more than the price",
 }
 
 // Support refunds a balance.
