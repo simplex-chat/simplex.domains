@@ -178,7 +178,7 @@ test("an order failed while its page was not read says until when the name stays
 })
 
 // a chain that fails each transaction before it goes out, as an RPC provider down for a while, and a look half way through
-const UNSENT_S = 4
+const UNSENT_S = 30
 const UNSENT_CHECK_MS = UNSENT_S * 1000 / 2
 test("a chain that sends nothing for a moment keeps the order where it was, then registers it", async ({ page, request }) => {
   const label = uniqueLabel("ns")
