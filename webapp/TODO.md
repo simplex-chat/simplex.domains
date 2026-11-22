@@ -10,6 +10,8 @@ All texts, compliance: a name code has no monetary value, and nothing may say or
 
 All texts: tense and person. A text addresses the person reading it as "you", never as a third party ("its owner"), and states what happens after an action in the future tense, not the present.
 
+All screens: how each one makes people feel, the criterion the language audit applies to every screen and phrase. In the owner's words: "what is really important to review in our next step is how each screen and phrase makes people _feel_ - it's our next step. It doesn't meant that we have to coddle them or to play with them, like many services are doing. We treat users as responsible adults, not as kids. But it does mean that we don't want to upset these people, and we have to say things like "sorry" and "please". Just be polite and respectful as we should treat adults, especially when we failed to deliver. It's our TODO."
+
 | # | Screen | Issue |
 |---|---|---|
 | 1 | checkout-code-no-storage | Show the public address the name is stored at, and recommend checking on Etherscan that the name landed there. The link opens the page where the person sees the name owned by their address. The private key alone is not enough. |
