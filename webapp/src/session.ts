@@ -40,7 +40,7 @@ export interface Checkout {
   codeError?: string
   // the order last sent and what it was made of, sent again exactly while that is unchanged, so a lost answer is safe to ask for again
   sent?: { of: string; request: SignedOrder; owner: string }
-  order?: { registrationId: string; method: Method | "code" }
+  order?: { registrationId: string; method: Method | "code"; paid: number }
 }
 
 const CHECKOUT = "simplex-names-checkout"

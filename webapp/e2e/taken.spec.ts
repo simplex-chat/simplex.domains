@@ -51,7 +51,11 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   await page.getByRole("button", { name: "Choose another name" }).click()
   await expect(page).toHaveURL(new RegExp(`[?&]order=${await registrationOf(request, invoiceId)}`))
   const next = uniqueLabel("tk2")
+  await page.getByLabel("Name", { exact: true }).fill(next)
+  await page.getByLabel("Name", { exact: true }).press("Enter")
+  await expect(page.locator(".answer .deal"), "a name of the order's price").toHaveText("Paid / 2 years")
   await selectedToReview(page, next)
+  await expect(onStep(page).locator(".card.order .trow.total")).toHaveText("TotalPaid")
   await expect(onStep(page).locator(".pay-with"), "the order's payment, no other").toHaveCount(0)
   await expect(onStep(page).getByText("I have a code")).toHaveCount(0)
   await shot(page, "N8a-another-name")
@@ -249,8 +253,9 @@ test("a name of another price than a taken order's is refused as the price chang
   const { invoiceId } = await takenOrder(page, request, sevenLetters())
   const registrationId = await registrationOf(request, invoiceId)
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  for (const label of [uniqueLabel("cheap"), `q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`]) {
+  for (const [label, price] of [[uniqueLabel("cheap"), "$100"], [`q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`, "$400"]]) {
     await selectedToReview(page, label)
+    await expect(onStep(page).locator(".card.order .trow.total"), "a name of another price shows its price").toHaveText(`Total${price}`)
     await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
     await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
     await onStep(page).getByRole("button", { name: "Search again" }).click()

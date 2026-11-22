@@ -187,7 +187,7 @@ function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),
       c.code || codesOnly || c.order?.method === "code" ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
-        : row("Total", dollars(c.price), "total"),
+        : row("Total", c.order?.paid === c.price ? "Paid" : dollars(c.price), "total"),
       c.code && y < c.code.years ? el("p", { class: "hint" }, `A community name is registered for ${y} years, not your code's ${c.code.years}.`) : null))
 }
 

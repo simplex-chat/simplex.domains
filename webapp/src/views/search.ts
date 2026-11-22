@@ -179,7 +179,7 @@ function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode:
   const code = codeFor(s, label)
   const taken = s.order
   const { ownerCode, saved } = taken ? { ownerCode: taken.ownerCode, saved: true } : orderCode(closedCode)
-  const order = taken ? { registrationId: taken.registrationId, method: taken.method } : undefined
+  const order = taken ? { registrationId: taken.registrationId, method: taken.method, paid: taken.paid } : undefined
   const started = session.checkout()
   const quote = { price: answer.price, years: taken?.years ?? answer.years, termStart: site.termStart, chain, terms: answer.terms, community: answer.community }
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
@@ -302,12 +302,13 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const own = s.ownOrder
   const code = codeFor(s, label)
   const free = code ?? cover
+  const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
   const orderable = flow.orderable(answer)
   const button = setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable)
   button.dataset.focus = "register"
-  const deal = free ? [el("b", { class: "price" }, "Free"), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, free.years)} years`)]
-    : [el("b", { class: "price" }, dollars(answer.price)), el("span", { class: "soft" }, ` / ${api.termYears(answer.community, answer.years)} years`)]
+  const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
+    el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
   return [
     el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,

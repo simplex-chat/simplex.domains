@@ -243,7 +243,7 @@ describe("a code entered on the review", () => {
   })
   it("is never offered for a name selected for a taken order, which its own payment or code registers, in either mode", () => {
     for (const method of ["btc", "code"] as const) {
-      const selecting = checkout({ order: { registrationId: "reg-1", method } })
+      const selecting = checkout({ order: { registrationId: "reg-1", method, paid: method === "code" ? 0 : 1500 } })
       expect([codeEntry(selecting, false), codeEntry(selecting, true), awaitsCode(selecting, true)], method).toEqual([null, null, false])
       expect(changeOf(open({ checkout: selecting }), { type: "code-opened" }), method).toBeNull()
     }
