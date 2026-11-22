@@ -131,8 +131,11 @@ test("a failed registration keeps its payment for support, also in another tab",
   const other = await page.context().newPage()
   await other.goto(`/?order=${invoiceId}`)
   await expect(other.getByRole("heading", { name: "Paid, not registered" })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
+  await expect(onStep(other).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
+  for (const tab of [page, other]) {
+    await expect(tab.getByRole("button", { name: "Try again" })).toHaveCount(0)
+    await expect(tab.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
+  }
 })
 
 test("an order whose commitment lapses before its page signs is committed again by that page, which signs it then", async ({ page, request }) => {
