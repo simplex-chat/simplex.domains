@@ -796,7 +796,7 @@ export function checkCode(body: Record<string, unknown>): Record<string, unknown
   return { minLength: row.minLength, years: row.years, state: stateOf(row) }
 }
 
-const stateOf =(row: PrepaidCode) => row.registrationId !== null && row.state === "expired" ? "reserved" : row.state
+const stateOf = (row: PrepaidCode) => row.registrationId !== null && row.state === "expired" ? "reserved" : row.state
 
 const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code_used", reserved: "code_reserved", expired: "code_expired", unpaid: "payment_pending", revoked: "code_invalid" }
 
