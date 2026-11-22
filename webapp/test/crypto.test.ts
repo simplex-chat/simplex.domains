@@ -4,7 +4,7 @@ import {
   parseAbi, recoverMessageAddress, recoverTypedDataAddress, zeroHash,
 } from "viem"
 import { mnemonicToAccount } from "viem/accounts"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { codeHash, codeProgress, formatOwnerCode, mayBeOwnerCode, parseNameCode } from "../src/crypto/code.ts"
 import {
   acceptTermsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
@@ -124,7 +124,7 @@ describe("registration", () => {
 
   it("derives the commitment secret from the seed and the name", () => {
     const seed = walletFromEntropy(ENTROPY).seed
-    expect(hex(commitmentSecret(seed, "dynamis"))).toBe(hex(commitmentSecret(seed, "dynamis")))
+    expect(hex(commitmentSecret(seed, "alicebakery"))).toBe("0xd67bb185babef492b23920618fa6c5d2dfd160b0dfe0b5e4befa3718392be262")
     expect(hex(commitmentSecret(seed, "dynamis"))).not.toBe(hex(commitmentSecret(seed, "dynamos")))
   })
 
@@ -176,6 +176,14 @@ describe("registration", () => {
 })
 
 describe("sealed order", () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it("seals a name with no links under a zero IV as the service's vector order", async () => {
+    vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => array)
+    expect(await seal(walletFromEntropy(ENTROPY).seed, { label: "alicebakery", contact: "", channel: "" }))
+      .toBe("AAAAAAAAAAAAAAAACWgxqMk-UKfpra_Zh6vc4KNBR6SX1WYpGb4COoWCCbM0bisYCH14WLzghp8hqi_-KyXSi4qf_DAdP_M4bFetD0s")
+  })
+
   it("opens with the same code and not with another", async () => {
     const seed = walletFromEntropy(ENTROPY).seed
     const order = { label: "dynamis", contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
