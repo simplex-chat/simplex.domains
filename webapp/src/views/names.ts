@@ -307,7 +307,7 @@ const rowCode = (code: string) => el("div", { class: "row-code" },
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId
   const seen = s.seen[id]
-  // the order may have moved to another name since it was stored
+  // another name may have been selected for the order since it was stored
   const label = seen?.view.label ?? o.label
   const tld = o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away

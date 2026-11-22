@@ -7,7 +7,7 @@ import { MAX_LABEL_LENGTH } from "./names.ts"
 const REFUSALS = [
   "bad_request", "invalid_name", "invalid_link", "not_found", "method_not_allowed", "internal", "rate_limited", "provider_unavailable", "terms_unavailable",
   "name_check_unavailable", "code_invalid", "code_used", "code_reserved", "code_expired", "code_not_covering", "payment_pending", "codes_only", "order_exists",
-  "name_taken", "catalog_changed", "price_too_high", "terms_changed", "move_limit", "registration_changed", "not_open", "funded",
+  "name_taken", "catalog_changed", "terms_changed", "registration_changed", "not_open", "funded",
   "stale_nonce", "record_reverted", "edit_pending", "edit_limit",
 ] as const
 type Refusal = typeof REFUSALS[number]
@@ -193,7 +193,7 @@ export type PhaseView =
   | { type: "committed"; revealAfter: number; revealBefore: number; signature: Signing }
   | { type: "registering" }
   | { type: "registered"; expiresAt: number }
-  | { type: "taken"; heldUntil?: string }
+  | { type: "taken" }
   | { type: "failed"; reason: FailReason; heldUntil?: string }
 
 export interface AgreedTerms { communityName: boolean; termsHash: string }
@@ -211,14 +211,12 @@ export interface RegistrationView {
   years: number
   // the term in seconds the commitment holds: the paid years and the free days until the term starts
   duration: number
-  // what the order is worth, in cents: what was paid, or the price of the name it moved to; it caps another move
+  // what the order is worth, in cents: what was paid, and the price of a name selected for it after a take
   price: number
   payment: Payment
   balance: Balance | null
   // what money paid after the invoice closed waits on before it is all in the balance: being confirmed, being credited, or support
   latePayment: LateWait | null
-  // how often the order moved to another name or other links, which the service bounds
-  moves: number
   commitTx: string | null
   registerTx: string | null
   community: Community | null
@@ -266,8 +264,7 @@ export const takenByOrder = ({ phase, commitTx }: RegistrationView) => phase.typ
 
 export const paymentKept = ({ balance, price }: RegistrationView) => balance !== null && balance.amount >= price
 
-export const movable = (view: RegistrationView, now: number) => view.phase.type === "taken" && (view.payment.type === "code" || paymentKept(view))
-  && (view.phase.heldUntil === undefined || Date.parse(view.phase.heldUntil) > now)
+export const selectable = (view: RegistrationView) => view.phase.type === "taken" && (view.payment.type === "code" || paymentKept(view))
 
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
@@ -430,9 +427,8 @@ const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isTo
 const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled" || v.closedBy === "reversed")
   && (v.type !== "committed" || (isAmount(v.revealAfter) && isAmount(v.revealBefore) && isSigning(v.signature)))
   && (v.type !== "registered" || isAmount(v.expiresAt)) && (v.type !== "failed" || (FAIL_REASONS.includes(v.reason as FailReason) && optional(v.heldUntil, isTime)))
-  && (v.type !== "taken" || optional(v.heldUntil, isTime))
 const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && isPhase(v.phase) && isText(v.labelHash)
-  && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price) && Number.isInteger(v.moves)
+  && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price)
   && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
   && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && isCommunity(v.community) && isAgreedTerms(v.terms)
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
@@ -532,7 +528,7 @@ export function readRegistration(registrationId: string, seenVersion?: number, s
 
 export const reveal = (registrationId: string, body: RevealBody) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
-export const retarget = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>
+export const selectName = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>
   checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal }), chainId), isRegistration)
 export const retry = (registrationId: string) => checked<RegistrationView>(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/retry`), isRegistration)
 const isFound = (r: unknown) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText) && PHASES.includes(r.phase as Phase) && isText(r.createdAt)

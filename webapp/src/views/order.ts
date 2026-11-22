@@ -264,7 +264,7 @@ async function statusNow(view: api.RegistrationView, record: store.OrderRecord |
   return answer?.found.type ?? null
 }
 
-// Another order of the same buyer: one of this commitment, or of the code's wallet once it moved to another name.
+// Another order of the same buyer: one of this commitment, or of the code's wallet once another name was selected for it.
 const siblingOf = (view: api.RegistrationView) => (o: store.OrderRecord) => o.registrationId !== view.id &&
   (o.request.commitment === view.commitment || o.owner.toLowerCase() === view.owner.toLowerCase())
 
@@ -281,7 +281,7 @@ async function nextOrder(view: api.RegistrationView, invoice: api.InvoiceView): 
 }
 
 // A browser holding the code of another invoice of this order holds this one too: another browser may have made a newer
-// invoice, or money may have reached an older one late. The code reopens the name when the order has moved to another one.
+// invoice, or money may have reached an older one late. The code reopens the name when another name was selected for the order.
 async function adoptSibling(view: api.RegistrationView, invoice: api.InvoiceView): Promise<store.OrderRecord | undefined> {
   const sibling = store.orders().find(siblingOf(view))
   if (!sibling) return undefined
@@ -1124,10 +1124,6 @@ export const REFUSED_LINK: Record<LinkKind, string> = {
 
 export const REPLACE_LINK = "Replace or remove it to register the name."
 
-// what a move refused for good says: the service bounds how often an order moves, and support settles it from there
-export const moveLimitNote = (reference: string): Note => ({ tone: "warn", icon: "alert", title: "This order cannot move again",
-  text: "", link: { support: reference } })
-
 function buildNotOnDevice({ view, invoice }: OrderState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser",
     text: ["This order registers a name to ", el("span", { class: "nowrap" }, shortAddress(view!.owner)), ". Its code was made in the browser it was bought in. Enter the code you saved to carry on here."],
@@ -1159,28 +1155,13 @@ function registeredLead(view: api.RegistrationView, record: store.OrderRecord | 
   return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
 }
 
-function buildTakenWithCode({ view: taken, record, nameStatus }: OrderState): HTMLElement {
-  const reserved = nameStatus === "reserved"
-  const view = taken!
-  const label = labelOf(view, record)
-  const released = releasedCode(view, record)
-  const name = label ? nameText(label, readSite().tld) : "The name"
-  return outcome({ tone: "info", icon: "key", title: reserved ? "The name was reserved meanwhile" : "Someone registered it first",
-    text: [name, reserved ? " can't be registered." : " was registered just before ours.", " Your code was not spent: use it for another name."],
-    extra: released ? codeDisplay(released.code) : null,
-    action: btn("Search another name", "", () => go("/#/")),
-    reference: view.id })
-}
-
-// The payment of an order taken first is kept: the order is moved to another name of its price, or support refunds the
-// payment; only the browser holding the code asks for either. An order refunded since is shown as such. A code order is
-// moved likewise until its window ends; after it, its released code is shown.
+// The payment or code of an order taken first is kept: a name is selected for the order, or support refunds the payment;
+// only the browser holding the code asks for either. An order refunded since is shown as such.
 function buildTaken(s: OrderState): HTMLElement {
   const { view: taken, record, invoice } = s
   const view = taken!
-  if (!invoice && !api.movable(view, s.now)) return buildTakenWithCode(s)
   const label = labelOf(view, record)
-  const uses = codesOnly() || !api.movable(view, s.now) ? " You can ask for a refund." : " Choose another name, or ask for a refund."
+  const uses = codesOnly() ? " You can ask for a refund." : " Choose another name, or ask for a refund."
   const note = !invoice ? null : api.paymentKept(view)
     ? el("div", { class: "notice plain" }, el("b", {}, "What you paid is kept as your balance."), uses, " Your names shows the balance.")
     : el("div", { class: "notice plain" }, el("b", {}, "What you paid went to your balance."), " It has been refunded since; Your names shows it.")
@@ -1196,12 +1177,12 @@ function buildTaken(s: OrderState): HTMLElement {
 
 const REFUND = "refund"
 
-// A taken order whose payment is kept is moved to another name of its price until the month from its payment ends, and a
-// closed one is given a new invoice for its own name by `same`; support refunds the payment kept. Only the browser holding
-// the code asks for either. Otherwise another name is searched as usual.
-function balanceActions({ view, invoice, record, now }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
+// A name is selected for a taken order whose payment or code is kept, and a closed one is given a new invoice for its own
+// name by `same`; support refunds the payment kept. Only the browser holding the code asks for either. Otherwise another
+// name is searched as usual.
+function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
   const kept = same !== undefined || api.paymentKept(view!)
-  const another = () => go(api.movable(view!, now) ? `/#/?retarget=${view!.id}` : searchLink(""))
+  const another = () => go(searchLink("", api.selectable(view!) ? view!.id : undefined))
   const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
   refund?.setAttribute("data-focus", REFUND)
   refund?.setAttribute("aria-haspopup", "dialog")
@@ -1214,8 +1195,8 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   const { view: failed, invoice } = s
   const view = failed!
   const settled = supportCase(s)
-  const continued = setAction(btn("Continue", "", () => void continueOrder()), s.busy === "move", s.hold !== null)
-  // a code refused for good leaves no other name to move to, so the page offers another search as the other endings do
+  const continued = setAction(btn("Continue", "", () => void continueOrder()), s.busy === "continue", s.hold !== null)
+  // with a code refused for good the order registers no name, so the page offers another search as the other endings do
   const action = settled === "unread" ? (s.record ? continued : withoutRecord(""))
     : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : null
   holdEnds(signal)(s.hold !== null)
@@ -1247,19 +1228,19 @@ async function continueOrder(): Promise<void> {
   const gen = opened
   const record = state.record!
   const view = state.view!
-  dispatch({ type: "move-started" })
+  dispatch({ type: "continue-started" })
   try {
     await api.reveal(view.id, await flow.revealFor(record, view.duration, await api.signFor(view.labelHash, view.owner)))
     reread(gen)
   } catch (e) {
     if (holdOn(e, "Nothing changed. ", gen)) return
-    answer(gen, { type: "move-failed", note: warning("That did not go through. Nothing changed. Try again in a moment.") })
+    answer(gen, { type: "continue-failed", note: warning("That did not go through. Nothing changed. Try again in a moment.") })
     reread(gen)
   }
 }
 
-// Another order may have spent the code since this one failed, which a move would only find out. A code revoked or
-// expired may still be held by this registration, whose move the service then takes, so only a spent one is refused.
+// Another order may have spent the code since this one failed, which Continue would only find out. A code revoked or
+// expired may still be held by this registration, whose Continue the service then takes, so only a spent one is refused.
 // A code the service does not know (code_invalid), or revoked, was not spent; null when the service did not answer, and
 // the seconds to wait when it refused the check for its rate limit.
 async function codeSpent(code: string): Promise<boolean | null | { checkAgainIn: number }> {

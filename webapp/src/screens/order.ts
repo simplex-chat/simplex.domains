@@ -22,7 +22,7 @@ export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering"
 
 export type ClosedCase = "paid-late" | "cancelled" | "received" | "expired" | "reversed"
 
-type Action = "card" | "cancel" | "reorder" | "retry" | "move"
+type Action = "card" | "cancel" | "reorder" | "retry" | "continue"
 
 export interface Note { tone: "warn" | "danger"; icon: IconName; title: string | null; text: string; link?: { text: string; href: string; after: string } | { support: string } }
 
@@ -75,8 +75,8 @@ export type OrderEvent =
   | { type: "reorder-started" }
   | { type: "reorder-failed"; note: Note }
   | { type: "price-changed"; price: number }
-  | { type: "move-started" }
-  | { type: "move-failed"; note: Note | null }
+  | { type: "continue-started" }
+  | { type: "continue-failed"; note: Note | null }
   | { type: "retry-started" }
   | { type: "retry-ended"; note: Note | null }
   | { type: "code-checked" }
@@ -125,8 +125,8 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "reorder-started": return start(s, "reorder")
     case "reorder-failed": return end(s, "reorder", { note: e.note })
     case "price-changed": return end(s, "reorder", { price: e.price })
-    case "move-started": return start(s, "move")
-    case "move-failed": return end(s, "move", { note: e.note })
+    case "continue-started": return start(s, "continue")
+    case "continue-failed": return end(s, "continue", { note: e.note })
     case "retry-started": return start(s, "retry")
     case "retry-ended": return end(s, "retry", { note: e.note })
     case "code-checked": return { ...s, codeKept: true, codeCheckAt: null }
@@ -222,7 +222,7 @@ export function closedBalance(s: OrderState): "offer" | "replaced" | null {
 }
 
 // An expired invoice is still followed: a payment can arrive after it closed, and then nothing must be ordered again.
-// A taken or failed order is followed too, since another tab or browser can move or retry it. Money paid after the close
+// A taken or failed order is followed too, since another tab or browser can select a name for it or retry it. Money paid after the close
 // is followed until it is all in the order's balance, or until the service says only support can credit it.
 export function finished(invoice: InvoiceView | null, view: RegistrationView): boolean {
   if (view.phase.type === "registered" || reversedOrder(view)) return true

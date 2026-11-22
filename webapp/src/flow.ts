@@ -1,4 +1,4 @@
-// The order flows, between the views and the crypto: build an order, reveal it, retarget it, restore, edit links.
+// The order flows, between the views and the crypto: build an order, reveal it, select a name for it, restore, edit links.
 import * as api from "./api.ts"
 import { namesSite, readSite } from "./config.ts"
 import { formatOwnerCode, parseNameCode } from "./crypto/code.ts"
@@ -118,16 +118,14 @@ async function sha256Hex(text: string): Promise<string> {
   return hex(new Uint8Array(digest))
 }
 
-// Another name of the same price for an order whose name was taken first, on the same wallet so the same code owns it.
-export async function retargetOrder(record: store.OrderRecord, label: string, links: api.Links, quote: Pick<Quote, "community">, terms: string): Promise<api.RegistrationView> {
-  const site = await namesSite()
-  const draft: Draft = { label, links, chain: chainOf(site), years: api.termYears(quote.community, record.years), termStart: site.termStart, ownerCode: record.ownerCode, terms }
-  const built = await orderRequest(draft)
+// A name selected for an order whose name was taken first, built on the same wallet so the same code owns it.
+export async function selectName(record: store.OrderRecord, draft: Draft, built: BuiltOrder): Promise<api.RegistrationView> {
+  const { label, links, terms } = draft
   const wallet = walletOf(record.ownerCode)!
   const timestamp = now()
   const { labelHash: lh, length, duration, commitment, sealed } = built.request
   const message = `simplex.domains name ${record.registrationId} ${lh} ${length} ${duration} ${commitment} ${await sha256Hex(sealed)} ${terms} ${timestamp}`
-  const view = await api.retarget(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal }, site.chainId)
+  const view = await api.selectName(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal }, draft.chain.chainId)
   store.saveOrder({ ...record, label, ...links, paid: view.price, request: built.request, terms })
   return view
 }
@@ -144,8 +142,8 @@ async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pi
   return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms) }
 }
 
-// An order moved to another name elsewhere (another browser, or a retarget whose answer was lost) is read back from the
-// service; a move with other terms alone keeps the commitment.
+// A name selected for the order elsewhere (another browser, or a selection whose answer was lost) is read back from the
+// service; other terms alone keep the commitment.
 export async function syncRecord(record: store.OrderRecord, view: api.RegistrationView): Promise<store.OrderRecord | null> {
   if (view.commitment === record.request.commitment) {
     const terms = api.signedTermsOf(view.terms)

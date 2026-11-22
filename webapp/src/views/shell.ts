@@ -126,7 +126,7 @@ export function go(url: string): void {
   if (!reloadedForRoute()) rerender()
 }
 
-export const searchLink = (label: string) => `/#/?${new URLSearchParams({ name: label })}`
+export const searchLink = (label: string, order?: string) => `/#/?${new URLSearchParams(order ? { name: label, order } : { name: label })}`
 
 // for a page that sends the buyer elsewhere: replacing the entry keeps Back and Forward usable
 export function redirect(url: string): void {
