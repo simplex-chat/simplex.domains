@@ -303,9 +303,10 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const code = codeFor(s, label)
   const free = code ?? cover
   const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
+  const unpaid = s.order && !free && !paid ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
   const orderable = flow.orderable(answer)
-  const button = setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable)
+  const button = setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable || unpaid !== null)
   button.dataset.focus = "register"
   const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
@@ -313,6 +314,7 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
     el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
+    unpaid ? el("p", { class: "hint" }, `Your payment covers names at ${dollars(unpaid.paid)} for ${unpaid.years} years.`) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
     orderable ? null : line("warn", "alert", `${NO_ORDERS}. Try again later.`),
     own || !s.hold ? null : holdNotice(s.hold, signal),

@@ -249,17 +249,21 @@ test("a late payment to a replaced invoice is kept by a restored browser after a
 })
 
 
-test("a name of another price than a taken order's is refused as the price changed, and its search goes on for the order", async ({ page, request }) => {
+test("a name of another price than a taken order's cannot be registered for it, and its search says the price the payment covers", async ({ page, request }) => {
   const { invoiceId } = await takenOrder(page, request, sevenLetters())
-  const registrationId = await registrationOf(request, invoiceId)
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
+  const register = onStep(page).getByRole("button", { name: "Register", exact: true })
   for (const [label, price] of [[uniqueLabel("cheap"), "$100"], [`q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`, "$400"]]) {
-    await selectedToReview(page, label)
-    await expect(onStep(page).locator(".card.order .trow.total"), "a name of another price shows its price").toHaveText(`Total${price}`)
-    await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
-    await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
-    await onStep(page).getByRole("button", { name: "Search again" }).click()
-    await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
+    await page.getByLabel("Name", { exact: true }).fill(label)
+    await page.getByLabel("Name", { exact: true }).press("Enter")
+    await expect(page.locator(".answer .deal"), "a name of another price shows its price").toHaveText(`${price} / 2 years`)
+    await expect(register).toBeDisabled()
+    await expect(page.locator(".answer .hint")).toHaveText("Your payment covers names at $200 for 2 years.")
   }
+  await page.getByLabel("Name", { exact: true }).fill(sevenLetters())
+  await page.getByLabel("Name", { exact: true }).press("Enter")
+  await expect(page.locator(".answer .deal"), "a name of the order's price").toHaveText("Paid / 2 years")
+  await expect(register).toBeEnabled()
+  await expect(page.locator(".answer .hint")).toHaveCount(0)
   expect(await phaseOf(request, invoiceId), "nothing selected").toBe("taken")
 })
