@@ -179,7 +179,7 @@ function term(years: number, termStart: number, now: number): Kid {
 const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
 
 // The order as the search answered it, with the chats its links open, over its term, with the free days before it
-// starts, its end, and what it costs; a name registered with a code costs nothing. In codes-only mode every order is registered with a code.
+// starts, its end, its dispute period, and what it costs; a name registered with a code costs nothing. In codes-only mode every order is registered with a code.
 function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000

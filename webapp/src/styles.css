@@ -360,7 +360,7 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .trow > span:last-child { font-weight: 600; text-align: right; white-space: nowrap; }
 .trow.total { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--surface-line); font-size: 17px; }
 .trow.total span { color: var(--ink); font-weight: 700; }
-/* the term's free days, whose hint shows over the rows under it, so nothing moves */
+/* the term's free days and the dispute period, whose hints show over the rows under them, so nothing moves */
 :is(.bonus, .period) { position: relative; }
 :is(.bonus, .period) > .days { all: unset; border-radius: 4px; color: var(--ok-fg); cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
 .period > .days { color: inherit; }
