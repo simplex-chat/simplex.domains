@@ -40,7 +40,8 @@ class Service {
         if (path === "/api/config") {
           const mode = this.mode
           if (this.flips) this.mode = OTHER[mode]
-          return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ mode, stripePublishableKey: null }))
+          const names = { codesOnly: mode === "codes", chainId: 31337, resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", tld: "simplex", termStart: 1798761600 }
+          return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ stripePublishableKey: null, names }))
         }
         if (path.startsWith("/api/")) return void res.writeHead(404, { "Cache-Control": "no-store" }).end()
         let stat

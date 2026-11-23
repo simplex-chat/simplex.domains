@@ -134,13 +134,13 @@ function seedRegistration(label: string, records: Record<string, string>, now: n
 const seededAt = Number((await publicClient.getBlock()).timestamp)
 const seeds = [
   seedRegistration("bakery", {
-    "simplex.contact": "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS",
-    "simplex.channel": "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm",
+    "simplex.contact": "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA",
+    "simplex.channel": "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA",
   }, seededAt),
   seedRegistration("harbour", {}, seededAt),
   seedRegistration("bakehouse", {
-    "simplex.contact": "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS",
-    "simplex.channel": "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm",
+    "simplex.contact": "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA",
+    "simplex.channel": "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA",
   }, seededAt),
 ]
 // the controller makes every registration wait after its commit, by block time; the last commit is the latest

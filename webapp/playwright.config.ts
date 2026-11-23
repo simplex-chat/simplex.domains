@@ -31,7 +31,7 @@ export default defineConfig({
   timeout: 180_000,
   expect: { timeout: 15_000 },
   reporter: [["list"]],
-  use: { baseURL: BASE_URL, reducedMotion: "reduce" },
+  use: { baseURL: BASE_URL, reducedMotion: "reduce", trace: "retain-on-failure" },
   // Firefox grants clipboard writes from a click without a permission, and has no permission to grant
   projects: [
     { name: "chromium", testIgnore: SCREENS, use: CHROME },

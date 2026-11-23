@@ -5,7 +5,8 @@ import {
   encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
-import { type ChatKind, communityAgreed, type Profile, termsLink } from "../../src/api.ts"
+import { communityAgreed, type FailReason, type Preview, signedHash, termsLink } from "../../src/api.ts"
+import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
 import { CODES_ONLY, type Mode } from "../../src/mode.ts"
@@ -18,7 +19,7 @@ import { registerNameTypedData } from "../register-name.ts"
 import { savedTerms } from "../serve-terms.ts"
 import { addressFor } from "./addresses.ts"
 import { setClock } from "./clock.ts"
-import { deepLinkOf } from "./links.ts"
+import { coreLink, deepLinkOf } from "./links.ts"
 import { randomBytes, seedRandom } from "./random.ts"
 
 const YEARS = 2
@@ -44,10 +45,9 @@ function wholeEnv(name: string, fallback: number): number {
 // how long a long poll holds before answering unchanged
 const HOLD_MS = 20_000
 const SIGNED_REQUEST_SECONDS = 600
+const SIGNATURE_SECONDS = 7 * 86400
 // find lists an owner's newest orders, at most this many
 const FOUND_MAX = 50
-// the service's max_order_moves: an order moves to another name or other links at most this often
-const MAX_ORDER_MOVES = 3
 // how long a register with no answer is followed on chain before it counts as failed: 12 × 5 s
 const PENDING_CHECKS = 12
 const PENDING_CHECK_MS = 5000
@@ -56,10 +56,6 @@ const EXPIRY_READS = 3
 const EXPIRY_READ_MS = 1000
 const RESEND_MS = wholeEnv("MOCK_RESEND_MS", 5000)
 const RESENDS = wholeEnv("MOCK_RESENDS", 12)
-// what an order shows for a chain that failed it; the provider's own error carries its URL, which can hold an API key
-const CHAIN_FAILED = "The blockchain did not answer"
-// a contract's revert name is no message for a buyer
-const REFUSED = "The blockchain refused the transaction"
 const SEALED_MAX = 11095
 // the terms an order signs: the hash of the terms of the name's kind, after COMMUNITY_TERMS for a community name, or the
 // version an older page signed, with /community/ and the community terms' hash after it for a community name
@@ -89,7 +85,7 @@ interface Registration {
   sealed: string
   years: number
   paid: number
-  method: Method | "code" | "balance"
+  method: Method | "code"
   // the hash of the prepaid code that pays for it
   prepaidCode: string | null
   phase: Phase
@@ -97,7 +93,7 @@ interface Registration {
   version: number
   label: string | null
   secret: Hex | null
-  records: { contact: string[]; channel: string[] } | null
+  records: RevealLinks | null
   intent: { nonce: bigint; deadline: bigint; signature: Hex } | null
   // the owner's signed acceptance of the terms of the name's kind, relayed before the register
   acceptance: { community: boolean; termsHash: Hex; nonce: bigint; signature: Hex } | null
@@ -106,22 +102,18 @@ interface Registration {
   revealAfter: number | null
   revealBefore: number | null
   expiresAt: number | null
-  error: string | null
+  error: FailReason | null
   createdAt: string
   failNext: boolean
-  // successful moves to another name or other links, at most MAX_ORDER_MOVES
-  moves: number
-  // a reveal refused for its links, which only a move to other links can fix
-  linksRefused: boolean
+  staleNext: boolean
   // what an exact resend of the order that made it must repeat: its fields, never its timestamp or signature
   orderHash: string
   // tries of a transaction that did not go out, since the last that did
   resends: number
-  // the cents another order's balance paid when this order was made, and that order
-  fromBalance: number
-  balanceSource: string | null
-  // the terms the order signed when it was made or last moved
+  // the terms the order signed when it was made or its name last selected
   terms: string
+  paidAt: number | null
+  takenAt: number | null
   disputeDays: number
   disputeUntil: number | null
 }
@@ -148,14 +140,14 @@ interface Invoice {
   lateCents: number
   // what a credit of confirmed late money waits on, set by the tests: the service's next pass, or support
   lateWait: "crediting" | "support" | null
+  closedBy: "expired" | "cancelled" | null
 }
 
-// An order's balance, in cents; the holder is the order whose open invoice pays the rest of a dearer name.
+// An order's balance, in cents.
 interface Balance {
   amount: number
   credited: number
   refunded: number
-  holder: string | null
 }
 
 interface PrepaidCode {
@@ -177,16 +169,13 @@ const taking = new Map<string, Promise<void>>()
 // find has a rate limit of its own
 // until unsentUntil, no transaction goes out, as a chain that fails before the send; until unreadUntil, the view's own chain
 // reads fail; each write to a registration waits writeDelayMs before its check, so a test can race two
-// the next reveal finds its links refused, as the service's link check would if it no longer took what the page took;
 // a fetch of a link in fetchDelays takes that many milliseconds;
 // a late payment is credited at the lower of its invoice's rate and the coin's current rate in cents, when one is set;
 // in codes mode, as the service's [names] codes_only, names are registered only with prepaid codes
-const control: { mode: Mode; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; refuseLinks: boolean; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
-  { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, refuseLinks: false, fetchDelays: {}, rates: { btc: null, xmr: null } }
+const control: { mode: Mode; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
+  { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
-// Stripe's least charge in US dollars
-const MIN_CARD_CHARGE_CENTS = 50
 
 const INVOICE_ERRORS: Record<string, number> = { provider_unavailable: 503, rate_limited: 429, catalog_changed: 409, internal: 500 }
 // the raised price an injected catalog_changed reports, in cents
@@ -200,7 +189,7 @@ export class HttpError extends Error {
   constructor(status: number, error: string, extra: Record<string, unknown> = {}, retryAfter: number | null = null) {
     super(error)
     this.status = status
-    this.body = { error, ...extra }
+    this.body = { type: error, ...extra }
     this.retryAfter = retryAfter
   }
 }
@@ -284,9 +273,10 @@ async function lookup(labelHash: Hex): Promise<Lookup> {
   }
 }
 
-// a name being registered here is not on chain until its transaction is mined
-function registering(labelHash: Hex): boolean {
-  return [...registrations.values()].some((r) => r.labelHash === labelHash && r.phase === "registering")
+// a paid, code or balance order holds its name from queued to registering, and failed until its month ended
+const HOLDING: Phase[] = ["queued", "committing", "committed", "registering", "failed"]
+function held(labelHash: Hex, except: Registration | null = null): boolean {
+  return [...registrations.values()].some((r) => r !== except && r.labelHash === labelHash && HOLDING.includes(r.phase) && r.error !== "monthEnded")
 }
 
 // a text record may hold several links, joined as the app joins them
@@ -308,37 +298,35 @@ const UNREAD_TAG = "Unr"
 // a profile picture as the app sends one, a small image in a data URI
 const PICTURE = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#C76A3B"/><circle cx="32" cy="26" r="12" fill="#F6E3C8"/><path d="M12 60c2-14 10-20 20-20s18 6 20 20z" fill="#F6E3C8"/></svg>').toString("base64")}`
 
-function linkProfile(link: string): Profile | null {
+function linkProfile(link: string): Preview | null {
   const kind = linkKind(link)
-  if (kind === null) return null
+  if (kind === null || deepLinkOf(link) === null) return null
   const fragment = link.split("#")[1].slice(0, 6)
-  const type = kind === "contact" ? "address" : "channel"
-  const empty = { type, kind, displayName: "", fullName: "", image: null, subscribers: null } as const
-  // a link the chat core cannot parse, as the seeded names' links, names no server to fetch it from
-  if (deepLinkOf(link) === null || fragment.startsWith(UNFETCHED_TAG)) return { ...empty, profile: "unavailable" }
-  if (fragment.startsWith(UNREAD_TAG)) return { ...empty, profile: "unread" }
-  const chat: ChatKind = kind === "channel" ? "channel" : fragment.startsWith(BUSINESS_TAG) ? "business" : fragment.startsWith(BOT_TAG) ? "bot" : "contact"
+  if (fragment.startsWith(UNFETCHED_TAG)) return { kind, profile: { type: "unavailable" } }
+  if (fragment.startsWith(UNREAD_TAG)) return { kind, profile: { type: "unread" } }
+  const names = { displayName: kind === "contact" ? `Contact ${fragment}` : `Channel ${fragment}`, fullName: "", ...fragment.startsWith(PICTURE_TAG) ? { image: PICTURE } : {} }
   // a channel's count, the same for the same link
-  const subscribers = kind === "channel" ? [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000 : null
-  return {
-    type, kind: chat, profile: "ok", displayName: kind === "contact" ? `Contact ${fragment}` : `Channel ${fragment}`,
-    fullName: "", image: fragment.startsWith(PICTURE_TAG) ? PICTURE : null, subscribers,
+  if (kind === "channel") {
+    const publicMemberCount = [...fragment].reduce((n, c) => n * 7 + c.charCodeAt(0), 0) % 5000
+    return { kind, profile: { type: "ok", linkProfile: { kind: "channel", ...names, subscribers: publicMemberCount } } }
   }
+  const chat = fragment.startsWith(BUSINESS_TAG) ? "business" : fragment.startsWith(BOT_TAG) ? "bot" : "contact"
+  return { kind, profile: { type: "ok", linkProfile: { kind: chat, ...names } } }
 }
 
 // A profile that was read is kept this long, as the service caches it; one not read now is fetched again.
 const PROFILE_CACHE_MS = 10 * 60_000
-const readProfiles = new Map<string, { profile: Profile; until: number }>()
+const readProfiles = new Map<string, { profile: Preview; until: number }>()
 
 // The link's profile as a fetch gives it: a link not fetched answers at once, and a fetch takes the delay a test set for its link.
-async function fetchedProfile(link: string): Promise<Profile | null> {
+async function fetchedProfile(link: string): Promise<Preview | null> {
   const profile = linkProfile(link)
-  if (profile === null || profile.profile === "unavailable") return profile
+  if (profile === null || profile.profile.type === "unavailable") return profile
   const kept = readProfiles.get(link)
   if (kept && kept.until > Date.now()) return kept.profile
   const delay = control.fetchDelays[link]
   if (delay) await sleep(delay)
-  if (profile.profile === "ok") {
+  if (profile.profile.type === "ok") {
     const now = Date.now()
     for (const [cached, { until }] of readProfiles) if (until <= now) readProfiles.delete(cached)
     readProfiles.set(link, { profile, until: now + PROFILE_CACHE_MS })
@@ -347,13 +335,13 @@ async function fetchedProfile(link: string): Promise<Profile | null> {
 }
 
 async function entity(link: string) {
-  const profile = await fetchedProfile(link)
-  return profile && { ...profile, link, deepLink: deepLinkOf(link) }
+  const preview = await fetchedProfile(link)
+  return preview && { preview, link: coreLink(link)!, deepLink: deepLinkOf(link)! }
 }
 
-// the short links of the key's kind in its record, in the record's order
+// the short links of the key's kind in its record that the chat core parses, in the record's order
 const entitiesOf = async (kind: LinkKind, text: string) =>
-  (await Promise.all(splitLinks(text).filter((link) => linkProblem(kind, link) === null).slice(0, MAX_ENTITIES_PER_KEY).map(entity))).filter((e) => e !== null)
+  (await Promise.all(splitLinks(text).filter((link) => linkProblem(kind, link) === null && deepLinkOf(link) !== null).slice(0, MAX_ENTITIES_PER_KEY).map(entity))).filter((e) => e !== null)
 
 // --- search
 
@@ -363,24 +351,23 @@ export async function search(hash: string, lengthText: string | null): Promise<R
   const length = Number(lengthText)
   if (!Number.isInteger(length) || length < MIN_LABEL_LENGTH || length > MAX_LABEL_LENGTH) throw new HttpError(400, "invalid_name")
   const { listed, terms } = await nameTerms(hash).catch(unavailable)
-  return { ...await answerFor(hash, length, terms), community: listed ? communityEntry(hash) : null }
+  return { found: await answerFor(hash, length, terms, listed), ...listed ? { community: communityEntry(hash) } : {} }
 }
 
-async function answerFor(hash: Hex, length: number, terms: Terms | null): Promise<Record<string, unknown>> {
+async function answerFor(hash: Hex, length: number, terms: Terms | null, listed: boolean): Promise<Record<string, unknown>> {
   const found = await lookup(hash)
-  const chain = { chainId: deployment.chainId, tld: deployment.tld }
-  if (found.type === "reserved") return { status: "reserved" }
+  if (found.type === "reserved") return { type: "reserved" }
   if (found.type === "available") {
-    if (registering(hash)) return { status: "registered", entities: [], tld: deployment.tld }
-    const price = await priceOf(length, YEARS).catch(unavailable)
+    if (held(hash)) return { type: "taken" }
+    const years = listed ? COMMUNITY_YEARS : YEARS
+    const price = await priceOf(length, years).catch(unavailable)
     const readable = terms && await termsText(terms).catch(() => null) !== null ? terms : null
-    return { status: "available", price, currency: "usd", years: YEARS, termStart: TERM_START_S, resolver: deployment.resolver, sponsor: deployment.sponsor, ...chain, terms: readable }
+    return { type: "available", price, years, ...readable ? { terms: readable } : {} }
   }
+  const registered = { type: "registered", owner: found.owner, resolver: found.resolver, expiresAt: found.expires, gracePeriod: found.grace }
   // Records are read only from the store's own resolver: calling whatever contract a name points at would let anyone
   // make the service run arbitrary code. A name pointed elsewhere is shown with its owner and no links.
-  if (found.resolver !== getAddress(deployment.resolver)) {
-    return { status: "registered", entities: [], records: null, owner: found.owner, resolver: found.resolver, recordsNonce: null, recordEdits: null, expiresAt: found.expires, gracePeriod: found.grace, ...chain }
-  }
+  if (found.resolver !== getAddress(deployment.resolver)) return { ...registered, entities: [], records: { type: "other" } }
   const node = nodeOf(hash)
   let contact: string, channel: string, nonce: bigint
   try {
@@ -394,7 +381,9 @@ async function answerFor(hash: Hex, length: number, terms: Terms | null): Promis
     throw new HttpError(503, "provider_unavailable")
   }
   const entities = [...await entitiesOf("contact", contact), ...await entitiesOf("channel", channel)]
-  return { status: "registered", entities, records: { contact, channel }, owner: found.owner, resolver: found.resolver, recordsNonce: Number(nonce), recordEdits: editsLeft(hash), expiresAt: found.expires, gracePeriod: found.grace, ...chain }
+  const { left, nextAt } = editsLeft(hash)
+  const edits = { left, ...nextAt === null ? {} : { nextAt: iso(nextAt) } }
+  return { ...registered, entities, records: { type: "own", contact, channel, nonce: Number(nonce), edits } }
 }
 
 function nodeOf(labelHash: Hex): Hex {
@@ -409,7 +398,7 @@ function nodeOf(labelHash: Hex): Hex {
 // words only say what a listed name is for. The terms of each kind are the policy's links, whose texts the service fetches.
 const communities = new Map<Hex, string>([[keccak256(toHex("bakers")), "bakers and pastry chefs"]])
 
-const communityEntry = (labelHash: Hex) => ({ for: communities.get(labelHash) ?? null, years: COMMUNITY_YEARS })
+const communityEntry = (labelHash: Hex) => ({ ...communities.has(labelHash) ? { for: communities.get(labelHash) } : {}, years: COMMUNITY_YEARS })
 // a community name's order pays for these years, whatever years its code gives
 const orderYears = (o: { terms: string }, years: number) => communityAgreed(o.terms) ? COMMUNITY_YEARS : years
 
@@ -439,7 +428,7 @@ async function termsText(terms: Terms): Promise<string | null> {
 // the entry of the community terms an order signed, which the view shows without reading the chain
 const signedCommunity = (reg: Registration) => communityAgreed(reg.terms) ? communityEntry(reg.labelHash) : null
 
-// an order or a move signs the terms of the name's kind the service has now, which it takes no order without
+// an order or a selection signs the terms of the name's kind the service has now, which it takes no order without
 async function checkTerms(o: Pick<OrderBody, "labelHash" | "terms">): Promise<void> {
   const { listed, terms } = await nameTerms(o.labelHash).catch((): never => { throw new HttpError(503, "name_check_unavailable") })
   if (!terms || await termsText(terms) === null) throw new HttpError(503, "terms_unavailable")
@@ -451,34 +440,65 @@ async function checkTerms(o: Pick<OrderBody, "labelHash" | "terms">): Promise<vo
 // a failed chain read is the provider's, not the request's
 const unavailable = (): never => { throw new HttpError(503, "provider_unavailable") }
 
-// a chain read the view needs, or null when it fails: the view still answers, naming the field in unread
-async function viewRead<T>(field: string, unread: string[], f: () => Promise<T>): Promise<T | null> {
+// What the owner signs to accept the terms of the name's kind.
+async function acceptanceOf(reg: Pick<Registration, "labelHash" | "owner">): Promise<{ community: boolean; policy: Address; termsHash: Hex; nonce: number }> {
+  const { listed, terms } = await nameTerms(reg.labelHash)
+  // before the policy has these terms there are none to accept: the view reads unread, and a reveal waits
+  if (!terms) throw new Error("the name policy has not set these terms yet")
+  return { community: listed, policy: deployment.namePolicy, termsHash: terms.hash, nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])) }
+}
+
+// the chain reads the owner signs with, unread when either fails: the view still answers
+async function toSignOf(reg: Pick<Registration, "labelHash" | "owner">): Promise<Record<string, unknown>> {
   try {
     if (Date.now() < control.unreadUntil) throw new Error("the chain is not answering")
-    return await f()
+    const intentNonce = Number(await read<bigint>(sponsor, "nonces", [reg.owner]))
+    return { type: "read", intentNonce, acceptance: await acceptanceOf(reg) }
   } catch {
-    unread.push(field)
-    return null
+    return { type: "unread" }
   }
 }
 
-// What the owner signs to accept the terms of the name's kind.
-async function acceptanceOf(reg: Registration): Promise<{ kind: "general" | "community"; policy: Address; termsHash: Hex; nonce: number }> {
-  const { listed, terms } = await nameTerms(reg.labelHash)
-  // before the policy has these terms there are none to accept: the view leaves it unread, and a reveal waits
-  if (!terms) throw new Error("the name policy has not set these terms yet")
-  return { kind: listed ? "community" : "general", policy: deployment.namePolicy, termsHash: terms.hash, nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])) }
+export async function signFor(hash: string, owner: string | null): Promise<Record<string, unknown>> {
+  if (!isHash(hash) || owner === null || !isAddress(owner, { strict: true }) || getAddress(owner) !== owner) throw badRequest()
+  const toSign = await toSignOf({ labelHash: hash, owner })
+  if (toSign.type !== "read") throw new HttpError(503, "name_check_unavailable")
+  return toSign
+}
+
+function monthAfter(seconds: number): number {
+  const d = new Date(seconds * 1000)
+  const day = d.getUTCDate()
+  d.setUTCDate(1)
+  d.setUTCMonth(d.getUTCMonth() + 1)
+  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()))
+  return Math.floor(d.getTime() / 1000)
+}
+
+const closedOf = (reg: Registration) => reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!.closedBy
+
+async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
+  const closedBy = closedOf(reg)
+  switch (reg.phase) {
+    case "unpaid": return closedBy ? { type: "closed", closedBy } : { type: "unpaid" }
+    case "committed": return { type: "committed", revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
+      signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
+    case "registered": return { type: "registered", expiresAt: reg.expiresAt, ...reg.disputeUntil === null ? {} : { disputeUntil: reg.disputeUntil } }
+    case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
+    default: return { type: reg.phase }
+  }
+}
+
+function paymentOf(reg: Registration): Record<string, unknown> {
+  if (reg.method === "code") return { type: "code" }
+  return { type: "invoice", method: reg.method }
 }
 
 async function registrationView(reg: Registration): Promise<Record<string, unknown>> {
-  const unread: string[] = []
-  const intentNonce = reg.phase === "committed" ? await viewRead("intentNonce", unread, async () => Number(await read<bigint>(sponsor, "nonces", [reg.owner]))) : null
-  const acceptance = reg.phase === "committed" && reg.label === null ? await viewRead("acceptance", unread, () => acceptanceOf(reg)) : null
   return {
-    id: reg.id, version: reg.version, moves: reg.moves, phase: reg.phase, labelHash: reg.labelHash, label: reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
-    resolver: deployment.resolver, sponsor: deployment.sponsor, chainId: deployment.chainId, tld: deployment.tld, years: reg.years, duration: reg.duration, price: reg.paid,
-    fromBalance: reg.fromBalance, balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx, revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
-    intentNonce, disputeDays: reg.disputeDays, acceptance, unread, expiresAt: reg.expiresAt, disputeUntil: reg.disputeUntil, error: reg.error, linksRefused: reg.linksRefused, community: signedCommunity(reg), terms: reg.terms,
+    id: reg.id, version: reg.version, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
+    years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
+    disputeDays: reg.disputeDays, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
   }
 }
 
@@ -487,57 +507,34 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
 // An open invoice past its expiry with nothing received: its order is closed by whatever meets it next.
 const overdue = (inv: Invoice) => inv.status === "open" && inv.amountPaid === null && Date.parse(inv.expiresAt) <= Date.now()
 
-const holderInvoice = (b: Balance) => b.holder === null ? null : invoices.get(registrations.get(b.holder)!.invoiceId!)!
-
-// the order whose invoice holds a balance now; an overdue holder holds nothing
-function heldBy(registrationId: string): string | null {
-  const b = balances.get(registrationId)
-  const inv = b ? holderInvoice(b) : null
-  return inv !== null && !overdue(inv) ? b!.holder : null
-}
-
-// The holder is not named, so an order's link discloses no other order. Its end is said only while no money reached its
-// invoice: money that did holds the balance until it settles, whatever the time.
 function balanceView(registrationId: string): Record<string, unknown> | null {
   const b = balances.get(registrationId)
   if (!b) return null
-  const holder = heldBy(registrationId)
-  const inv = holder === null ? null : invoices.get(registrations.get(holder)!.invoiceId!)!
-  return { amount: b.amount, held: inv !== null, heldUntil: inv !== null && inv.amountPaid === null ? inv.expiresAt : null, refunded: b.refunded,
-    disputeDays: balanceDisputeDays(registrations.get(registrationId)!) }
+  return { amount: b.amount, refunded: b.refunded }
 }
 
 // What money on a closed unpaid order waits on before it is all in the order's balance: money received and not confirmed,
 // or a credit the tests hold back; null once all is credited, or when none came.
-function latePayment(reg: Registration): Record<string, unknown> | null {
+function latePayment(reg: Registration): "confirming" | "crediting" | "support" | null {
   const inv = reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!
   if (reg.phase !== "unpaid" || inv === null || inv.status === "open" || inv.amountPaid === null) return null
-  if (inv.lateWait !== null) return { waiting: inv.lateWait }
-  return inv.confirmed ? null : { waiting: "confirming" }
+  if (inv.lateWait !== null) return inv.lateWait
+  return inv.confirmed ? null : "confirming"
 }
 
 function credit(registrationId: string, cents: number): void {
-  const b = balances.get(registrationId) ?? { amount: 0, credited: 0, refunded: 0, holder: null }
+  const b = balances.get(registrationId) ?? { amount: 0, credited: 0, refunded: 0 }
   b.amount += cents
   b.credited += cents
   balances.set(registrationId, b)
 }
 
-// Whatever closes an unpaid order's invoice releases the balance it held.
-function close(inv: Invoice): void {
+function close(inv: Invoice, by: "expired" | "cancelled" = "expired"): void {
   inv.status = "expired"
+  inv.closedBy = by
   const reg = registrations.get(inv.registrationId)!
-  const b = reg.balanceSource === null ? undefined : balances.get(reg.balanceSource)
-  if (b?.holder === reg.id) b.holder = null
+  clearReveal(reg)
   wake(reg)
-}
-
-// Settlement spends what the order held.
-function spendHold(reg: Registration): void {
-  const b = reg.balanceSource === null ? undefined : balances.get(reg.balanceSource)
-  if (b?.holder !== reg.id) return
-  b.amount -= reg.fromBalance
-  b.holder = null
 }
 
 const unitsOf = (decimal: string, decimals: number) => {
@@ -567,6 +564,7 @@ function creditLate(inv: Invoice): void {
   inv.lateUnits = confirmed
   inv.lateCents += Number(cents)
   credit(inv.registrationId, Number(cents))
+  changed(registrations.get(inv.registrationId)!)
 }
 
 async function invoiceView(inv: Invoice): Promise<Record<string, unknown>> {
@@ -598,7 +596,7 @@ function orderBody(body: Record<string, unknown>): OrderBody {
   return { ...orderFields(body), owner }
 }
 
-// an order's fields but its owner, which a spend takes from the order whose balance pays
+// an order's fields but its owner
 function orderFields(body: Record<string, unknown>): Omit<OrderBody, "owner"> {
   const { labelHash, length, duration, commitment, sealed, terms } = body
   if (!isHash(labelHash) || !isHash(commitment) || !Number.isInteger(duration)) throw badRequest()
@@ -607,6 +605,25 @@ function orderFields(body: Record<string, unknown>): Omit<OrderBody, "owner"> {
   if (typeof length !== "number" || !Number.isInteger(length) || length < MIN_LABEL_LENGTH || length > MAX_LABEL_LENGTH) throw new HttpError(400, "invalid_name")
   return { labelHash, length, duration: duration as number, commitment, sealed, terms }
 }
+
+const objectOf = (v: unknown): Record<string, unknown> => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw badRequest()
+  return v as Record<string, unknown>
+}
+
+function signedTermsOf(v: unknown): string {
+  const { communityName, termsHash } = objectOf(v)
+  if (typeof communityName !== "boolean" || !isHash(termsHash)) throw badRequest()
+  return `${communityName ? COMMUNITY_TERMS : ""}${termsHash.slice(2)}`
+}
+
+function flatSigned(v: unknown): Record<string, unknown> {
+  const { fields, timestamp, signature } = objectOf(v)
+  const sent = objectOf(fields)
+  return { ...sent, terms: signedTermsOf(sent.terms), timestamp, signature }
+}
+
+const flatOrder = (v: unknown): Record<string, unknown> => ({ ...flatSigned(v), owner: objectOf(v).owner })
 
 // the paid years and the free days until the term starts, as the page counts them by the service's clock
 function checkDuration(duration: number, years: number): void {
@@ -617,17 +634,17 @@ function checkDuration(duration: number, years: number): void {
 // an order's own chain reads fail with their own tag, which the page tells from a payment method being unavailable
 const chainPrice = (length: number, years: number) => priceOf(length, years).catch((): never => { throw new HttpError(503, "name_check_unavailable") })
 
-async function nameFree(labelHash: Hex): Promise<void> {
+async function nameFree(labelHash: Hex, except: Registration | null = null): Promise<void> {
   let found: Lookup
   try {
     found = await lookup(labelHash)
   } catch {
     throw new HttpError(503, "name_check_unavailable")
   }
-  if (found.type !== "available" || registering(labelHash)) throw new HttpError(409, "name_taken")
+  if (found.type !== "available" || held(labelHash, except)) throw new HttpError(409, "name_taken")
 }
 
-// Orders and retargets check state, await the chain, then write: run one at a time so two at once cannot both pass.
+// Orders and selections check state, await the chain, then write: run one at a time so two at once cannot both pass.
 let orderTurn: Promise<unknown> = Promise.resolve()
 
 export function oneOrderAtATime<T>(f: () => Promise<T>): Promise<T> {
@@ -637,7 +654,7 @@ export function oneOrderAtATime<T>(f: () => Promise<T>): Promise<T> {
 }
 
 // An order's own fields, tagged by its kind, as an exact resend repeats them.
-const orderHashOf = (kind: "invoice" | "register" | "balance", o: OrderBody, extra: unknown[]) =>
+const orderHashOf = (kind: "invoice" | "register", o: OrderBody, extra: unknown[]) =>
   createHash("sha256").update(JSON.stringify([kind, o.labelHash, o.length, o.duration, o.owner, o.commitment, o.sealed, o.terms, ...extra])).digest("hex")
 
 // The owner signs every order, so nobody can place one in another wallet's name; its age is checked only for a new order.
@@ -675,7 +692,7 @@ async function injectedRefusal(length: number): Promise<void> {
   throw new HttpError(INVOICE_ERRORS[injected], injected, extra, injected === "rate_limited" ? RETRY_AFTER_SECONDS : null)
 }
 
-// in codes mode nothing is paid: no invoice for a name, and no spend of a balance
+// in codes mode nothing is paid: no invoice for a name
 function refuseWhenCodesOnly(): void {
   if (control.mode === "codes") throw new HttpError(403, CODES_ONLY)
 }
@@ -683,22 +700,24 @@ function refuseWhenCodesOnly(): void {
 export async function createInvoice(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (body.kind !== "name") throw badRequest()
   refuseWhenCodesOnly()
-  const order = orderBody(body)
+  const sent = flatOrder(body.order)
+  const order = orderBody(sent)
   const method = body.method
   if (!isMethod(method)) throw badRequest()
   if (!Number.isInteger(body.price)) throw badRequest()
   await injectedRefusal(order.length)
-  await checkOrderSigner(order, body)
+  await checkOrderSigner(order, sent)
   const orderHash = orderHashOf("invoice", order, [method, body.price])
   const resent = existingOrder(order, orderHash)
   if (resent) return invoiceView(invoices.get(resent.invoiceId!)!)
-  freshTimestamp(body.timestamp)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, YEARS)
   await checkTerms(order)
   await nameFree(order.labelHash)
   const price = await chainPrice(order.length, YEARS)
   if (body.price !== price) throw new HttpError(409, "catalog_changed", { price })
-  const reg = newRegistration(order, { years: YEARS, paid: price, method, prepaidCode: null, phase: "unpaid", orderHash })
+  const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS[method] }, body.reveal)
+  const reg = newRegistration(order, { years: YEARS, paid: price, method, prepaidCode: null, phase: "unpaid", orderHash }, rv)
   return invoiceView(openInvoice(reg, method, price))
 }
 
@@ -708,28 +727,22 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
     expiresAt: iso(nowSeconds() + INVOICE_MINUTES * 60),
     cryptoAmount: method === "card" ? null : (amount / 100 / RATES[method]).toFixed(method === "btc" ? 5 : 3),
     amountPaid: null, cryptoAmountPaid: null, cryptoAmountDue: null, paidInFull: null, confirmed: false, settledAt: null,
-    clientSecret: method === "card" ? `pi_mock_secret_${randomBytes(12).toString("hex")}` : null, lateUnits: 0n, lateCents: 0, lateWait: null,
+    clientSecret: method === "card" ? `pi_mock_secret_${randomBytes(12).toString("hex")}` : null, lateUnits: 0n, lateCents: 0, lateWait: null, closedBy: null,
   }
   reg.invoiceId = inv.id
   invoices.set(inv.id, inv)
   return inv
 }
 
-type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash"> & Partial<Pick<Registration, "fromBalance" | "balanceSource">>
+type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash">
 
 const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
-const balanceDisputeDays = (reg: Registration) => reg.phase === "unpaid" && isMethod(reg.method) ? DISPUTE_DAYS[reg.method] : reg.disputeDays
 
-function disputeDaysOf({ method, balanceSource }: NewRegistration): number {
-  const balance = balanceSource ? balanceDisputeDays(registrations.get(balanceSource)!) : 0
-  return method === "balance" ? balance : Math.max(DISPUTE_DAYS[method], balance)
-}
-
-function newRegistration(order: OrderBody, extra: NewRegistration): Registration {
+function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): Registration {
   const reg: Registration = {
-    id: id(), invoiceId: null, fromBalance: 0, balanceSource: null, ...order, ...extra, label: null, secret: null, records: null, intent: null, acceptance: null, commitTx: null, registerTx: null,
-    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, moves: 0, linksRefused: false, resends: 0, version: 1,
-    disputeDays: disputeDaysOf(extra), disputeUntil: null,
+    id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
+    revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, resends: 0, version: 1,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null, disputeDays: DISPUTE_DAYS[extra.method], disputeUntil: null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -740,7 +753,6 @@ export async function readInvoice(invoiceId: string, wait: string | null, seenVe
   if (!inv) throw new HttpError(404, "not_found")
   expireIfDue(inv)
   const reg = registrations.get(inv.registrationId)!
-  lapse(reg)
   if (wait !== null) {
     await hold(inv.id, () => inv.status === wait && (seenVersion === null || reg.version === seenVersion) && (seenPaid === null || ((inv.cryptoAmountPaid ?? "") === seenPaid && (inv.paidInFull === true) === seenFull)))
     expireIfDue(inv)
@@ -751,7 +763,6 @@ export async function readInvoice(invoiceId: string, wait: string | null, seenVe
 export async function readRegistration(registrationId: string, seenVersion: number | null): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  lapse(reg)
   if (seenVersion !== null) await hold(reg.id, () => reg.version === seenVersion)
   return registrationView(reg)
 }
@@ -768,7 +779,7 @@ export async function cancelInvoice(invoiceId: string): Promise<Record<string, u
   expireIfDue(inv)
   if (inv.status !== "open") throw new HttpError(409, "not_open")
   if (inv.amountPaid) throw new HttpError(409, "funded")
-  close(inv)
+  close(inv, "cancelled")
   return invoiceView(inv)
 }
 
@@ -785,28 +796,32 @@ export function checkCode(body: Record<string, unknown>): Record<string, unknown
   if (typeof body.code !== "string") throw badRequest()
   const { row } = prepaidOf(body.code)
   if (!row) throw new HttpError(400, "code_invalid")
-  return { minLength: row.minLength, years: row.years, state: row.state }
+  return { minLength: row.minLength, years: row.years, state: stateOf(row) }
 }
+
+const stateOf = (row: PrepaidCode) => row.registrationId !== null && row.state === "expired" ? "reserved" : row.state
 
 const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code_used", reserved: "code_reserved", expired: "code_expired", unpaid: "payment_pending", revoked: "code_invalid" }
 
 export async function registerWithCode(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (typeof body.code !== "string") throw badRequest()
-  const order = orderBody(body)
+  const sent = flatOrder(body.order)
+  const order = orderBody(sent)
   const { hash, row } = prepaidOf(body.code)
   if (!row) throw new HttpError(400, "code_invalid")
-  await checkOrderSigner(order, body)
+  await checkOrderSigner(order, sent)
   const orderHash = orderHashOf("register", order, [hash])
   const resent = existingOrder(order, orderHash)
   if (resent) return { registrationId: resent.id }
-  freshTimestamp(body.timestamp)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, orderYears(order, row.years))
   await checkTerms(order)
   await nameFree(order.labelHash)
-  const error = CODE_ERRORS[row.state]
+  const error = CODE_ERRORS[stateOf(row)]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (order.length < row.minLength) throw new HttpError(409, "code_not_covering")
-  const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash })
+  const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS.code }, body.reveal)
+  const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash }, rv)
   row.state = "reserved"
   row.registrationId = reg.id
   void advance(reg)
@@ -857,22 +872,20 @@ async function advance(reg: Registration): Promise<void> {
     if (reg.phase === "committed" && reg.intent) await register(reg)
     reg.resends = 0
   } catch (e) {
+    console.error(`${new Date().toISOString()} ${reg.id} ${reg.phase}, try ${reg.resends}: ${e instanceof Error ? e.message : e}`)
     if (e instanceof NotSent && reg.resends < RESENDS) {
       reg.resends += 1
       setTimeout(() => void advance(reg), RESEND_MS)
-    } else fail(reg, e instanceof Reverted ? REFUSED : CHAIN_FAILED)
+    } else fail(reg, "registryRefused")
   } finally {
     busy.delete(reg.id)
   }
 }
 
-// A commitment not revealed before revealBefore can no longer register: the order fails, for Try again to commit afresh.
-function lapse(reg: Registration): void {
-  if (reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore) fail(reg, "The name was not signed in time")
-}
+const lapsed = (reg: Registration) => reg.phase === "committed" && !reg.intent && reg.revealBefore !== null && nowSeconds() > reg.revealBefore
 
-function fail(reg: Registration, error: string): void {
-  // a failed registration keeps its prepaid code reserved for Try again
+function fail(reg: Registration, error: FailReason): void {
+  // a failed registration keeps its prepaid code reserved
   reg.phase = "failed"
   reg.error = error
   changed(reg)
@@ -883,7 +896,7 @@ async function commit(reg: Registration): Promise<void> {
   changed(reg)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "The blockchain did not take the commit")
+    return fail(reg, "registryRefused")
   }
   for (;;) {
     try {
@@ -897,6 +910,7 @@ async function commit(reg: Registration): Promise<void> {
     const at = Number(await read<bigint>(controller, "commitments", [reg.commitment]))
     // a commit the wall clock calls lapsed can still be live on chain for a few blocks; reusing it would lapse at once
     if (at + deployment.maxCommitmentAge > nowSeconds()) break
+    console.error(`${new Date().toISOString()} ${reg.id} commit at ${at}, now ${nowSeconds()}`)
     await sleep(1000)
   }
   const committedAt = Number(await read<bigint>(controller, "commitments", [reg.commitment]))
@@ -915,11 +929,11 @@ function clearReveal(reg: Registration): void {
   reg.acceptance = null
 }
 
-function registrationTuple(reg: Registration) {
+function registrationTuple(reg: Pick<Registration, "label" | "secret" | "records" | "owner" | "duration">) {
   const node = namehash(`${reg.label}.${deployment.tld}`)
-  const records: [string, string[]][] = [[CONTACT_KEY, reg.records!.contact], [CHANNEL_KEY, reg.records!.channel]]
-  const data = records.filter(([, links]) => links.length > 0)
-    .map(([key, links]) => encodeFunctionData({ abi: resolver.abi, functionName: "setText", args: [node, key, links.join(";")] }))
+  const records: [string, string | null][] = [[CONTACT_KEY, reg.records!.contact], [CHANNEL_KEY, reg.records!.channel]]
+  const data = records.filter((record): record is [string, string] => record[1] !== null)
+    .map(([key, link]) => encodeFunctionData({ abi: resolver.abi, functionName: "setText", args: [node, key, link] }))
   return {
     label: reg.label!, owner: reg.owner, duration: BigInt(reg.duration), secret: reg.secret!, resolver: deployment.resolver, data, reverseRecord: 0, referrer: zeroHash,
   }
@@ -930,7 +944,12 @@ async function register(reg: Registration): Promise<void> {
   await taking.get(reg.label!)
   if (reg.failNext) {
     reg.failNext = false
-    return fail(reg, "The register transaction did not go through")
+    return fail(reg, "registryRefused")
+  }
+  if (reg.staleNext) {
+    reg.staleNext = false
+    clearReveal(reg)
+    return changed(reg)
   }
   const { nonce, deadline, signature } = reg.intent!
   const { acceptance } = reg
@@ -955,7 +974,7 @@ async function register(reg: Registration): Promise<void> {
   } catch (e) {
     if (e instanceof NotSent) throw e
     // a register with no answer may still be mined, so the order waits for the chain; a relay with no answer fails the order
-    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, CHAIN_FAILED)
+    if (!(e instanceof Reverted)) return reg.phase === "registering" ? awaitRegistration(reg) : fail(reg, "registryRefused")
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
     // another registration by the same owner spent this nonce first, or the terms changed: the owner signs again
     if (SIGN_AGAIN.includes(e.revert ?? "")) {
@@ -966,17 +985,16 @@ async function register(reg: Registration): Promise<void> {
     const available = await read<boolean>(controller, "available", [reg.label])
     if (!available) {
       reg.phase = "taken"
-      reg.error = "Another registration took the name first"
-      // a paid order keeps what it is worth as its balance; a code carries no money
-      if (reg.prepaidCode) releaseCode(reg)
-      else credit(reg.id, reg.paid)
+      reg.takenAt = nowSeconds()
+      // a paid order keeps what it is worth as its balance; a code order keeps its code reserved
+      if (!reg.prepaidCode) credit(reg.id, reg.paid)
       return changed(reg)
     }
-    return fail(reg, REFUSED)
+    return fail(reg, "registryRefused")
   }
   // the transaction went through; the owner is checked as the chain answers it, and a read that fails leaves it at that
   const holder = await ownerOf(reg.labelHash).catch(() => reg.owner)
-  if (holder !== reg.owner) return fail(reg, "Registered to another address")
+  if (holder !== reg.owner) return fail(reg, "registryRefused")
   await registered(reg)
 }
 
@@ -986,7 +1004,7 @@ async function awaitRegistration(reg: Registration): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, PENDING_CHECK_MS))
     if ((await ownerOf(reg.labelHash).catch(() => null)) === reg.owner) return registered(reg)
   }
-  fail(reg, "The register transaction got no answer from the blockchain")
+  fail(reg, "registryRefused")
 }
 
 // a few tries, as one failed read is the provider's moment, not the registration's
@@ -1011,14 +1029,6 @@ async function registered(reg: Registration): Promise<void> {
   changed(reg)
 }
 
-function releaseCode(reg: Registration): void {
-  const row = codes.get(reg.prepaidCode!)
-  if (row && row.registrationId === reg.id && row.state === "reserved") {
-    row.state = "unused"
-    row.registrationId = null
-  }
-}
-
 // --- the reveal
 
 function checkSignature(signature: unknown): Hex {
@@ -1030,29 +1040,33 @@ function checkSignature(signature: unknown): Hex {
   return signature as Hex
 }
 
-// at most one link per key, each text; whether they are links the service takes is checked last
-function linksOf(records: unknown): { contact: string[]; channel: string[] } {
+interface RevealLinks { contact: string | null; channel: string | null }
+
+// one link per key or none, each text; whether they are links the service takes is checked last
+function linksOf(records: unknown): RevealLinks {
   if (typeof records !== "object" || records === null) throw badRequest()
-  const out = { contact: [] as string[], channel: [] as string[] }
-  for (const kind of ["contact", "channel"] as const) {
-    const links = (records as Record<string, unknown>)[kind]
-    if (!Array.isArray(links) || links.length > 1 || !links.every((l) => typeof l === "string")) throw badRequest()
-    out[kind].push(...links)
+  const linkOf = (link: unknown) => {
+    if (link !== undefined && link !== null && typeof link !== "string") throw badRequest()
+    return typeof link === "string" ? link : null
   }
-  return out
+  const { contact, channel } = records as Record<string, unknown>
+  return { contact: linkOf(contact), channel: linkOf(channel) }
 }
 
-const linksTaken = (records: { contact: string[]; channel: string[] }) =>
-  (["contact", "channel"] as const).every((kind) => records[kind].every((link) => linkProblem(kind, link) === null))
+const refusedLink = (records: RevealLinks): LinkKind | null =>
+  (["contact", "channel"] as const).find((kind) => { const link = records[kind]; return link !== null && (linkProblem(kind, link) !== null || deepLinkOf(link) === null) }) ?? null
+
+type Ordered = Pick<Registration, "labelHash" | "length" | "duration" | "owner" | "commitment" | "disputeDays">
+type Reveal = { label: string; secret: Hex; records: RevealLinks; intent: NonNullable<Registration["intent"]>; acceptance: NonNullable<Registration["acceptance"]> }
 
 // A reveal includes the owner's signature of the acceptance its view returns, of the terms of the name's kind on chain now.
-async function checkAcceptance(reg: Registration, accepted: unknown, deadline: number): Promise<Registration["acceptance"]> {
-  const asked = await acceptanceOf(reg).catch(unavailable)
+async function checkAcceptance(reg: Ordered, accepted: unknown, deadline: number, unread: () => never): Promise<Reveal["acceptance"]> {
+  const asked = await acceptanceOf(reg).catch(unread)
   if (typeof accepted !== "object" || accepted === null) throw badRequest()
   const { termsHash, nonce, signature: signed } = accepted as Record<string, unknown>
   if (termsHash !== asked.termsHash || nonce !== asked.nonce) throw badRequest()
   const signature = checkSignature(signed)
-  const primaryType = asked.kind === "community" ? "AcceptCommunityTerms" : "AcceptGeneralTerms"
+  const primaryType = asked.community ? "AcceptCommunityTerms" : "AcceptGeneralTerms"
   const acceptor = await recoverTypedDataAddress({
     domain: { name: "SimplexNamePolicy", version: "1", chainId: deployment.chainId, verifyingContract: deployment.namePolicy },
     types: { [primaryType]: [{ name: "commitment", type: "bytes32" }, { name: "termsHash", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
@@ -1061,53 +1075,51 @@ async function checkAcceptance(reg: Registration, accepted: unknown, deadline: n
     signature,
   })
   if (acceptor !== reg.owner) throw badRequest()
-  return { community: asked.kind === "community", termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
+  return { community: asked.community, termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
+}
+
+async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: number, unread: () => never): Promise<Reveal> {
+  const signature = checkSignature(body.signature)
+  const { label, secret, nonce, deadline } = body
+  if (typeof label !== "string" || labelProblem(label) !== null) throw badRequest()
+  if (keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
+  if (!isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
+  const records = linksOf(body.records)
+  const tuple = registrationTuple({ ...o, label, secret, records })
+  if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
+  if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
+  const signer = await recoverTypedDataAddress({
+    ...registerNameTypedData(deployment.chainId, deployment.sponsor),
+    message: { label, owner: o.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(o.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
+    signature,
+  })
+  if (signer !== o.owner) throw badRequest()
+  if (BigInt(nonce) !== (await read<bigint>(sponsor, "nonces", [o.owner]).catch(unread))) throw badRequest()
+  const acceptance = await checkAcceptance(o, body.acceptance, deadline, unread)
+  return { label, secret, records, intent: { nonce: BigInt(nonce), deadline: BigInt(deadline), signature }, acceptance }
+}
+
+async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
+  const rv = await checkReveal(o, objectOf(body), nowSeconds(), (): never => { throw new HttpError(503, "name_check_unavailable") })
+  const kind = refusedLink(rv.records)
+  if (kind) throw new HttpError(400, "invalid_link", { kind })
+  return rv
 }
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  lapse(reg)
   const signature = checkSignature(body.signature)
   if (reg.label !== null) {
     if (reg.label === body.label && reg.intent?.signature === signature) return {}
     throw badRequest()
   }
-  if (reg.phase !== "committed") throw badRequest()
+  const unread = reg.phase === "failed" && reg.error === "unread"
+  if (!unread && (reg.phase !== "committed" || lapsed(reg))) throw badRequest()
   const version = reg.version
-  const { label, secret, nonce, deadline } = body
-  if (typeof label !== "string" || labelProblem(label) !== null) throw badRequest()
-  if (keccak256(toHex(label)) !== reg.labelHash || label.length !== reg.length) throw badRequest()
-  if (!isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
-  const records = linksOf(body.records)
-  const candidate = { ...reg, label, secret, records }
-  const tuple = registrationTuple(candidate)
-  if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unavailable)) !== reg.commitment) throw badRequest()
-  if (deadline < nowSeconds()) throw badRequest()
-  const signer = await recoverTypedDataAddress({
-    ...registerNameTypedData(deployment.chainId, deployment.sponsor),
-    message: { label, owner: reg.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(reg.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
-    signature,
-  })
-  if (signer !== reg.owner) throw badRequest()
-  if (BigInt(nonce) !== (await read<bigint>(sponsor, "nonces", [reg.owner]).catch(unavailable))) throw badRequest()
-  const acceptance = await checkAcceptance(reg, body.acceptance, deadline)
-  // Refused links are the committed ones, as the commitment and the owner's signature passed: only a move fixes them.
-  if (reg.linksRefused) throw new HttpError(400, "invalid_link")
-  const refuse = control.refuseLinks
-  control.refuseLinks = false
-  if (refuse || !linksTaken(records)) {
-    await unchangedSince(reg, version)
-    reg.linksRefused = true
-    changed(reg)
-    throw new HttpError(400, "invalid_link")
-  }
+  const rv = await checkReveal(reg, body, nowSeconds(), unavailable)
   await unchangedSince(reg, version)
-  reg.label = label
-  reg.secret = secret
-  reg.records = records
-  reg.intent = { nonce: BigInt(nonce), deadline: BigInt(deadline), signature }
-  reg.acceptance = acceptance
+  Object.assign(reg, rv, unread ? { phase: "queued", error: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null } : {})
   changed(reg)
   void advance(reg)
   return {}
@@ -1128,102 +1140,51 @@ async function checkSigned(owner: Address, message: string, timestamp: unknown, 
 
 const sha256Hex = (text: string) => "0x" + createHash("sha256").update(text, "ascii").digest("hex")
 
-export async function retarget(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function selectName(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  const order = orderBody({ ...body, owner: reg.owner })
-  await checkSigner(reg.owner, `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${body.timestamp}`, body.timestamp, body.signature)
+  const sent = flatSigned(body)
+  const order = orderBody({ ...sent, owner: reg.owner })
+  const revealBody = objectOf(body.reveal)
+  await checkSigner(reg.owner, `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`, sent.timestamp, sent.signature)
   const current = reg.labelHash === order.labelHash && reg.length === order.length && reg.duration === order.duration && reg.commitment === order.commitment && reg.sealed === order.sealed
     && reg.terms === order.terms
   // a repeat is answered however old its signature, as the service answers it before the age
   if (current) return registrationView(reg)
-  freshTimestamp(body.timestamp)
-  lapse(reg)
-  // a failed order, or one whose reveal was refused for its links; a paid order taken first keeps its price as its balance
-  const movable = reg.phase === "failed" || (reg.phase === "committed" && reg.linksRefused)
-  if (!movable) throw badRequest()
-  if (reg.moves >= MAX_ORDER_MOVES) throw new HttpError(409, "move_limit", { registration: await registrationView(reg) })
+  // only an order taken first, with a new order's checks in a new order's sequence: a code order whose code is checked
+  // again, or a paid order while its balance keeps its price
+  if (reg.phase !== "taken") throw badRequest()
   const version = reg.version
   existingOrder(order, null, reg)
+  freshTimestamp(sent.timestamp)
   checkDuration(order.duration, orderYears(order, reg.years))
   await checkTerms(order)
-  await nameFree(order.labelHash)
-  const price = reg.method === "code" ? 0 : await chainPrice(order.length, orderYears(order, reg.years))
-  if (price > reg.paid) throw new HttpError(409, "price_too_high", { price })
+  await nameFree(order.labelHash, reg)
+  const paid = reg.method !== "code"
+  const price = paid ? await chainPrice(order.length, orderYears(order, reg.years)) : 0
+  if (price !== reg.paid) throw new HttpError(409, "catalog_changed", { price })
+  const rv = await orderReveal({ ...order, disputeDays: reg.disputeDays }, revealBody)
   const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
-  if (row) codeStillPays(row, reg, order.length)
+  if (row) codeReservable(row, reg, order.length)
+  if (paid && (balances.get(reg.id)?.amount ?? 0) < reg.paid) throw badRequest()
   await unchangedSince(reg, version)
-  if (row) Object.assign(row, { state: "reserved", registrationId: reg.id })
-  // a cheaper name keeps the rest as the order's balance
-  if (price < reg.paid) credit(reg.id, reg.paid - price)
-  // the order now has the new name's price, which caps any later move
+  if (row?.state === "unused") Object.assign(row, { state: "reserved", registrationId: reg.id })
+  if (paid) balances.get(reg.id)!.amount -= reg.paid
   Object.assign(reg, {
-    labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms, paid: price,
-    moves: reg.moves + 1, phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, linksRefused: false,
+    labelHash: order.labelHash, length: order.length, duration: order.duration, commitment: order.commitment, sealed: order.sealed, terms: order.terms,
+    phase: "queued", commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, error: null, paidAt: nowSeconds(), ...rv,
   })
-  clearReveal(reg)
   changed(reg)
   const view = await registrationView(reg)
   void advance(reg)
   return view
 }
 
-// The balance as the page read it, with no open order holding it: an overdue holder holds nothing and is returned, for the
-// spend to close.
-function spendable(source: Registration, seen: number): Invoice | null {
-  const b = balances.get(source.id)
-  const held = b ? holderInvoice(b) : null
-  if (!b || b.amount !== seen || (held !== null && !overdue(held))) throw new HttpError(409, "balance_changed", { balance: balanceView(source.id) })
-  return held
-}
-
-// Another name for the owner of the order at sourceId, paid from that order's balance: the price at once when it covers it,
-// else all of it, held until an invoice for the difference is paid.
-export async function spend(sourceId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  refuseWhenCodesOnly()
-  const { price, balance, method } = body
-  if (!Number.isInteger(price) || !Number.isInteger(balance) || (price as number) <= 0 || (balance as number) <= 0 || !Number.isInteger(body.timestamp)) throw badRequest()
-  const difference = (price as number) > (balance as number)
-  if (difference ? !isMethod(method) : method !== undefined) throw badRequest()
-  const fields = orderFields(body)
-  const source = registrations.get(sourceId)
-  if (!source) throw new HttpError(404, "not_found")
-  const order = { ...fields, owner: source.owner }
-  const message = `simplex.domains spend ${source.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${body.timestamp}`
-  if (await recoverMessageAddress({ message, signature: checkSignature(body.signature) }) !== source.owner) throw badRequest()
-  const orderHash = orderHashOf("balance", order, [source.id, price, balance, method ?? ""])
-  const resent = existingOrder(order, orderHash)
-  if (resent) return resent.invoiceId ? invoiceView(invoices.get(resent.invoiceId)!) : { registrationId: resent.id }
-  freshTimestamp(body.timestamp)
-  checkDuration(order.duration, YEARS)
-  await checkTerms(order)
-  spendable(source, balance as number)
-  await nameFree(order.labelHash)
-  const chain = await chainPrice(order.length, YEARS)
-  if (price !== chain) throw new HttpError(409, "catalog_changed", { price: chain })
-  if (difference) await injectedRefusal(order.length)
-  // the card provider charges no less than its minimum, so a smaller difference is paid in coin
-  if (difference && method === "card" && (price as number) - (balance as number) < MIN_CARD_CHARGE_CENTS) throw badRequest()
-  // checked again at the write: the awaits above let settlement, a cancel or a refund change the balance
-  const holder = spendable(source, balance as number)
-  if (holder) close(holder)
-  const reg = newRegistration(order, {
-    years: YEARS, paid: chain, method: difference ? method as Method : "balance", prepaidCode: null, phase: difference ? "unpaid" : "queued", orderHash,
-    fromBalance: difference ? balance as number : chain, balanceSource: source.id,
-  })
-  const b = balances.get(source.id)!
-  if (difference) {
-    b.holder = reg.id
-    return invoiceView(openInvoice(reg, method as Method, chain - (balance as number)))
-  }
-  b.amount -= chain
-  void advance(reg)
-  return { registrationId: reg.id }
-}
-
-// A code order's code pays again if it is still this order's, or was released and is still unused, and covers the name.
-function codeStillPays(row: PrepaidCode, reg: Registration, length: number): void {
-  const error = row.state !== "unused" && row.registrationId !== reg.id ? CODE_ERRORS[row.state] : undefined
+// A code order's code is accepted at a selection while this order holds it, past its expiry until a calendar month after
+// the take, or while it is unused, and as long as it covers the name; a revoked code never is.
+function codeReservable(row: PrepaidCode, reg: Registration, length: number): void {
+  const held = row.registrationId === reg.id && (row.state === "reserved" || (row.state === "expired" && reg.takenAt !== null && nowSeconds() < monthAfter(reg.takenAt)))
+  const error = row.state === "revoked" ? "code_invalid" : held || row.state === "unused" ? undefined : CODE_ERRORS[row.state]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
@@ -1231,25 +1192,11 @@ function codeStillPays(row: PrepaidCode, reg: Registration, length: number): voi
 export async function retry(registrationId: string): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  lapse(reg)
-  // its commitment holds the refused links, so a new commit could never register: only a move fixes them
-  if (reg.phase !== "failed" || reg.linksRefused) throw badRequest()
-  const version = reg.version
-  if ((await ownerOf(reg.labelHash).catch(unavailable)) === reg.owner) {
-    await unchangedSince(reg, version)
-    await registered(reg).catch(unavailable)
-    return registrationView(reg)
-  }
-  const nonce = reg.intent ? await read<bigint>(sponsor, "nonces", [reg.owner]).catch(unavailable) : null
-  await unchangedSince(reg, version)
-  const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
-  if (row) {
-    codeStillPays(row, reg, reg.length)
-    Object.assign(row, { state: "reserved", registrationId: reg.id })
-  }
-  if (reg.intent && reg.intent.nonce !== nonce) clearReveal(reg)
+  // only a commitment that lapsed unsigned is committed again
+  if (!lapsed(reg)) throw badRequest()
+  await unchangedSince(reg, reg.version)
   reg.phase = "queued"
-  reg.error = null
+  reg.commitTx = null
   reg.registerTx = null
   reg.resends = 0
   changed(reg)
@@ -1258,8 +1205,11 @@ export async function retry(registrationId: string): Promise<Record<string, unkn
   return view
 }
 
-export async function find(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export function findLimited(): void {
   if (control.findLimitedUntil > Date.now()) throw new HttpError(429, "rate_limited", {}, Math.ceil((control.findLimitedUntil - Date.now()) / 1000))
+}
+
+export async function find(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const owner = body.owner
   if (typeof owner !== "string" || !isAddress(owner)) throw badRequest()
   const address = getAddress(owner)
@@ -1267,13 +1217,11 @@ export async function find(body: Record<string, unknown>): Promise<Record<string
   const all = [...registrations.values()].filter((r) => r.owner === address).reverse()
   // a balance never expires, so an older order holding one is listed after the newest
   const found = [...all.slice(0, FOUND_MAX), ...all.slice(FOUND_MAX).filter((r) => (balances.get(r.id)?.amount ?? 0) > 0)]
-  if (found.length === 0) throw new HttpError(404, "not_found")
-  return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed,
-    balanceSource: r.balanceSource, heldBy: heldBy(r.id) })) }
+  return { registrations: found.map((r) => ({ registrationId: r.id, invoiceId: r.invoiceId, phase: r.phase === "unpaid" && closedOf(r) ? "closed" : r.phase, createdAt: r.createdAt, labelHash: r.labelHash, sealed: r.sealed })) }
 }
 
-export async function previewLink(body: Record<string, unknown>): Promise<Profile> {
-  if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link")
+export async function previewLink(body: Record<string, unknown>): Promise<Preview> {
+  if (typeof body.link !== "string" || linkProfile(body.link) === null || new TextEncoder().encode(body.link).length > LINK_MAX_BYTES) throw new HttpError(400, "invalid_link", { kind: null })
   return (await fetchedProfile(body.link))!
 }
 
@@ -1300,8 +1248,19 @@ function editsLeft(labelHash: Hex): { left: number; nextAt: number | null } {
 
 // Each sent request, by its signed edits: a repeat is answered from it rather than checked anew. A refused request is
 // never sent, so it is not kept, and its repeat is checked again.
-interface SentEdit { hash: Hex; outcome: Record<string, unknown> | HttpError | null }
+interface SentEdit { hash: Hex; outcome: Record<string, unknown> | HttpError | null; reverted: () => Promise<Record<string, unknown> | HttpError> }
 const sentEdits = new Map<string, SentEdit>()
+
+async function revertedOutcome(node: Hex, owner: Address, edits: SignedEdit[]): Promise<Record<string, unknown> | HttpError> {
+  let nonce: bigint, values: string[]
+  try {
+    [nonce, ...values] = await Promise.all([read<bigint>(resolver, "nonces", [owner]), ...edits.map((e) => read<string>(resolver, "text", [node, recordKey(e.key)]))]) as [bigint, ...string[]]
+  } catch {
+    throw new HttpError(504, "edit_pending")
+  }
+  const held = nonce > BigInt(edits[edits.length - 1].nonce) && edits.every((e, i) => values[i] === e.value)
+  return held ? { tx: null } : new HttpError(409, "record_reverted")
+}
 
 async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
   if (sent.outcome instanceof HttpError) throw sent.outcome
@@ -1313,15 +1272,16 @@ async function repeatedEdit(sent: SentEdit): Promise<Record<string, unknown>> {
   } catch {
     throw new HttpError(504, "edit_pending")
   }
-  sent.outcome = ok ? { tx: sent.hash } : new HttpError(409, "record_reverted", { revert: null })
+  sent.outcome = ok ? { tx: sent.hash } : await sent.reverted()
   return repeatedEdit(sent)
 }
 
 // A Save's edits: one link of each kind at most, so two
 const MAX_EDITS = 2
 
-// One signed edit of a request: a SetText of a key, or a ClearRecords (key null).
-interface SignedEdit { key: string | null; value: string; nonce: number; deadline: number; signature: Hex }
+// One signed edit of a request: a SetText of a kind's record.
+interface SignedEdit { key: "contact" | "channel"; value: string; nonce: number; deadline: number; signature: Hex }
+const recordKey = (kind: SignedEdit["key"]) => kind === "contact" ? CONTACT_KEY : CHANNEL_KEY
 
 // every edit's format and key, then every link, then every signature, as the service checks them
 function signedEdits(edits: unknown): SignedEdit[] {
@@ -1330,31 +1290,27 @@ function signedEdits(edits: unknown): SignedEdit[] {
     if (typeof e !== "object" || e === null) throw badRequest()
     const { key, value, nonce, deadline, signature } = e as Record<string, unknown>
     if (typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
-    if ((e as Record<string, unknown>).clear === true) return { key: null, value: "", nonce, deadline, signature }
-    if ((key !== CONTACT_KEY && key !== CHANNEL_KEY) || typeof value !== "string") throw badRequest()
-    return { key, value, nonce, deadline, signature }
+    if ((key !== "contact" && key !== "channel") || typeof value !== "string") throw badRequest()
+    return { key: key as SignedEdit["key"], value, nonce, deadline, signature }
   })
   const keys = parsed.map((e) => e.key)
-  if (new Set(keys).size !== keys.length || (keys.includes(null) && parsed.length > 1)) throw badRequest()
+  if (new Set(keys).size !== keys.length) throw badRequest()
   if (parsed.some((e, i) => i > 0 && e.nonce !== parsed[i - 1].nonce + 1)) throw badRequest()
   for (const { key, value } of parsed) {
-    if (key !== null && value !== "" && linkProblem(key === CONTACT_KEY ? "contact" : "channel", value) !== null) throw new HttpError(400, "invalid_link")
+    if (value !== "" && (linkProblem(key, value) !== null || deepLinkOf(value) === null)) throw new HttpError(400, "invalid_link", { kind: null })
   }
   return parsed.map((e) => ({ ...e, signature: checkSignature(e.signature) }))
 }
 
 const SET_TEXT_TYPES = { SetText: [{ name: "node", type: "bytes32" }, { name: "key", type: "string" }, { name: "value", type: "string" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] }
-const CLEAR_RECORDS_TYPES = { ClearRecords: [{ name: "node", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] }
 
 function editDigest(node: Hex, { key, value, nonce, deadline }: SignedEdit): Hex {
   const domain = { name: "SimplexResolver", version: "1", chainId: deployment.chainId, verifyingContract: deployment.resolver }
-  return key === null
-    ? hashTypedData({ domain, primaryType: "ClearRecords", types: CLEAR_RECORDS_TYPES, message: { node, nonce: BigInt(nonce), deadline: BigInt(deadline) } })
-    : hashTypedData({ domain, primaryType: "SetText", types: SET_TEXT_TYPES, message: { node, key, value, nonce: BigInt(nonce), deadline: BigInt(deadline) } })
+  return hashTypedData({ domain, primaryType: "SetText", types: SET_TEXT_TYPES, message: { node, key: recordKey(key), value, nonce: BigInt(nonce), deadline: BigInt(deadline) } })
 }
 
 const editCall = (node: Hex, { key, value, nonce, deadline, signature }: SignedEdit): [string, unknown[]] =>
-  key === null ? ["clearRecordsWithSig", [node, BigInt(nonce), BigInt(deadline), signature]] : ["setTextWithSig", [node, key, value, BigInt(nonce), BigInt(deadline), signature]]
+  ["setTextWithSig", [node, recordKey(key), value, BigInt(nonce), BigInt(deadline), signature]]
 
 // A request's one transaction: an edit alone as its own call, two as the resolver's multicall, which reverts both when
 // either fails.
@@ -1379,7 +1335,7 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   if (earlier) return repeatedEdit(earlier)
   // as the service, after the signatures and before any chain read
   const { left, nextAt } = editsLeft(labelHash)
-  if (left === 0) throw new HttpError(429, "edit_limit", { nextAt })
+  if (left === 0) throw new HttpError(409, "edit_limit", { nextAt: iso(nextAt ?? nowSeconds()) })
   if (Math.min(...edits.map((e) => e.deadline)) < nowSeconds()) throw badRequest()
   // a failed chain read is the provider's, not the request's
   let owner: Address, nameResolver: Address, current: bigint
@@ -1393,12 +1349,12 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
   if (signers[0] !== owner) throw badRequest()
   // the relay writes only the store's resolver, which a name pointed elsewhere no longer reads
   if (nameResolver !== getAddress(deployment.resolver)) throw badRequest()
-  if (BigInt(edits[0].nonce) !== current) throw badRequest()
+  if (BigInt(edits[0].nonce) !== current) throw new HttpError(409, "stale_nonce")
   // kept from the moment it goes out, and counted once whatever it changes
   const edit: { sent: SentEdit | null } = { sent: null }
   const goingOut = (hash: Hex) => {
     nameEdits.set(labelHash, [...nameEdits.get(labelHash) ?? [], nowSeconds()])
-    edit.sent = { hash, outcome: null }
+    edit.sent = { hash, outcome: null, reverted: () => revertedOutcome(node, owner, edits) }
     sentEdits.set(editKey, edit.sent)
   }
   try {
@@ -1409,9 +1365,9 @@ export async function editRecords(body: Record<string, unknown>): Promise<Record
     if (e instanceof NotSent) throw new HttpError(503, "provider_unavailable")
     // a dry run that reverts sends nothing; a transaction that reverts is the edit's answer
     if (e instanceof Reverted) {
-      const reverted = new HttpError(409, "record_reverted", { revert: e.revert })
-      if (edit.sent) edit.sent.outcome = reverted
-      throw reverted
+      if (!edit.sent) throw new HttpError(409, "record_reverted")
+      edit.sent.outcome = await edit.sent.reverted()
+      return repeatedEdit(edit.sent)
     }
     // no answer from the chain is not a refusal: the edit may still be mined, which the page says
     throw new HttpError(504, "edit_pending")
@@ -1429,8 +1385,9 @@ function settledUnits(inv: Invoice, paid: unknown): bigint {
   return unitsOf(paid, decimals)
 }
 
-// As BTCPay settles: an open invoice paid in full, or past its amount, registers its name and credits what is past it; a
-// closed one stays closed, its money credited to the order's balance.
+// As BTCPay settles: an open invoice paid in full, or past its amount, registers its name and credits what is past it, and
+// one whose name another paid order holds is taken, its price credited; a closed one stays closed, its money credited to
+// the order's balance.
 function settle(inv: Invoice, reg: Registration, paid: bigint): void {
   const decimals = inv.method === "card" ? null : UNIT_DECIMALS[inv.method]
   const whole = decimals === null ? BigInt(inv.amount) : unitsOf(inv.cryptoAmount!, decimals)
@@ -1441,10 +1398,13 @@ function settle(inv: Invoice, reg: Registration, paid: bigint): void {
   if (decimals !== null) Object.assign(inv, { cryptoAmountPaid: decimalOf(paid, decimals), cryptoAmountDue: decimalOf(paid >= whole ? 0n : whole - paid, decimals) })
   if (open && reg.phase === "unpaid") {
     Object.assign(inv, { status: "paid", settledAt: iso(nowSeconds()), lateUnits: whole })
-    reg.phase = "queued"
-    spendHold(reg)
+    const taken = held(reg.labelHash, reg)
+    reg.phase = taken ? "taken" : "queued"
+    reg.paidAt = nowSeconds()
+    if (taken) reg.takenAt = nowSeconds()
+    if (taken) credit(reg.id, reg.paid)
     changed(reg)
-    void advance(reg)
+    if (!taken) void advance(reg)
   }
   if (inv.lateWait === null) creditLate(inv)
 }
@@ -1471,7 +1431,7 @@ export function controlInvoice(action: string, invoiceId: string, body: Record<s
   return { ok: true, status: inv.status }
 }
 
-// A balance grown by money from elsewhere, as a later credit to the order (a late payment or a cheaper move) grows it.
+// A balance grown by money from elsewhere, as a later credit to the order (a late payment) grows it.
 export function controlCredit(registrationId: string, cents: unknown): Record<string, unknown> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
@@ -1497,9 +1457,11 @@ export function controlRegistration(action: string, registrationId: string): Rec
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
   if (action === "fail") reg.failNext = true
+  else if (action === "stale") reg.staleNext = true
+  else if (action === "unread" && reg.phase === "committed" && reg.intent === null) fail(reg, "unread")
   else if (action === "lapse" && reg.phase === "committed") {
     reg.revealBefore = nowSeconds() - 1
-    lapse(reg)
+    changed(reg)
   } else throw badRequest()
   return { ok: true }
 }
@@ -1516,18 +1478,6 @@ export async function controlUnregister(registrationId: string): Promise<Record<
   return { ok: true }
 }
 
-// The order and those whose balances paid it, back to the first, as support pays a refund back by the methods that paid.
-// A closed unpaid order released the balance it held, so the chain stops there.
-function balanceChain(reg: Registration): Record<string, unknown>[] {
-  const inv = reg.invoiceId === null ? null : invoices.get(reg.invoiceId)!
-  const entry = {
-    registrationId: reg.id, invoiceId: reg.invoiceId, method: reg.method, fromBalance: reg.fromBalance,
-    invoiced: inv !== null && reg.phase !== "unpaid" ? inv.amount : 0, late: inv?.lateCents ?? 0,
-  }
-  const source = reg.balanceSource !== null && reg.phase !== "unpaid" ? registrations.get(reg.balanceSource)! : null
-  return [entry, ...source ? balanceChain(source) : []]
-}
-
 // A refund support records, by the order's invoice id or registration id, of the whole balance: the cents given, else all of it.
 export function controlRefund(reference: string, cents: unknown): Record<string, unknown> {
   const reg = registrations.get(reference) ?? registrations.get(invoices.get(reference)?.registrationId ?? "")
@@ -1535,14 +1485,11 @@ export function controlRefund(reference: string, cents: unknown): Record<string,
   if (cents !== undefined && (!Number.isInteger(cents) || (cents as number) <= 0)) throw badRequest()
   const b = balances.get(reg.id)
   if (!b || b.amount === 0) throw new HttpError(409, "no_balance")
-  const held = holderInvoice(b)
-  // an overdue holder too: closing it is the poller's, which can cancel it at the provider
-  if (held) throw new HttpError(409, "balance_held", { holder: b.holder, expiresAt: held.expiresAt })
   const refund = (cents ?? b.amount) as number
   if (refund !== b.amount) throw new HttpError(409, "balance_changed", { balance: balanceView(reg.id) })
   b.amount = 0
   b.refunded += refund
-  return { registrationId: reg.id, cents: refund, chain: balanceChain(reg) }
+  return { registrationId: reg.id, cents: refund }
 }
 
 // The coins' current rates in whole dollars, for late payments; null goes back to the invoice's own rate.
@@ -1593,7 +1540,6 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
   if (typeof body.unsentSeconds === "number") control.unsentUntil = Date.now() + body.unsentSeconds * 1000
   if (typeof body.unreadSeconds === "number") control.unreadUntil = Date.now() + body.unreadSeconds * 1000
   if (typeof body.writeDelayMs === "number") control.writeDelayMs = body.writeDelayMs
-  if (typeof body.refuseLinks === "boolean") control.refuseLinks = body.refuseLinks
   const delays = body.fetchDelays
   if (typeof delays === "object" && delays !== null && Object.values(delays).every((ms) => Number.isInteger(ms) && ms >= 0)) control.fetchDelays = delays as Record<string, number>
   return { ok: true }
@@ -1607,6 +1553,11 @@ export function controlMode(body: Record<string, unknown>): Record<string, unkno
 }
 
 export const modeNow = () => ({ mode: control.mode })
+
+export const siteConfig = (): { stripePublishableKey: null; names: NamesSite } => ({
+  stripePublishableKey: null,
+  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S },
+})
 
 export async function controlClock(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const { now } = body

@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test"
 import {
-  CODE_HEADING, contactLink, control, LINKS_HEADING, onStep, payButton, recordedFrames, recordFrames, registrationOf, savedToReview, search, startOrder, test, toReview, uniqueLabel,
+  CODE_HEADING, contactLink, control, LINKS_HEADING, okPreview, onStep, payButton, recordedFrames, recordFrames, registrationOf, savedToReview, search, startOrder, test, toReview, uniqueLabel,
 } from "./helpers.ts"
 
 const SIZES = [{ width: 1280, height: 800 }, { width: 390, height: 844 }]
@@ -47,7 +47,7 @@ test("Back is in the window and reached by the keyboard on every screen that has
   await savedToReview(page)
   await backReady(page, "Check your order")
   // an order refused for a rate limit shows its own screen, with Back to the search
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "30" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "30" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "Too many attempts" })).toBeVisible()
   await backReady(page, "Too many attempts")
@@ -141,7 +141,7 @@ test("a redraw that only changes the words of what is shown, as a rate limit's w
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await search(page, uniqueLabel("rearrive"))
   await toReview(page)
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "Too many attempts" })).toBeVisible()
   await settled(page)
@@ -160,7 +160,7 @@ test("a link's profile takes its placeholder's place as it is, rather than arriv
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.route("**/api/link/preview", async (route) => {
     await new Promise((done) => setTimeout(done, PREVIEW_DELAY_MS))
-    await route.fulfill({ json: { type: "address", kind: "contact", displayName: "Late profile", fullName: "", image: null, subscribers: null, profile: "ok" } })
+    await route.fulfill({ json: okPreview("contact", "Late profile") })
   })
   await search(page, uniqueLabel("inplace"))
   await onStep(page).getByRole("button", { name: "Register" }).click()

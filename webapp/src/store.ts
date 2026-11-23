@@ -1,7 +1,7 @@
 // What this browser keeps: its orders with their owner codes, and its prepaid codes.
 // Storage can be missing or full; the page then keeps everything in memory and says so where it matters.
 
-import type { Payment } from "./api.ts"
+import type { Method } from "./api.ts"
 
 export interface OrderRecord {
   registrationId: string
@@ -11,8 +11,7 @@ export interface OrderRecord {
   owner: string
   contact: string
   channel: string
-  // a balance alone paid when it covered the price; a difference is paid by its invoice's method
-  method: Payment
+  method: Method | "code"
   paid: number
   years: number
   // the request, kept to ask for a new invoice for the same commitment
@@ -22,16 +21,12 @@ export interface OrderRecord {
   cardSubmittedAt?: string
   cancelled?: boolean
   tld: string
-  // the prepaid code that paid, shown again if the name is taken first and the code is released
+  // the prepaid code the order was placed with, which bounds the names selected for it after a take
   prepaidCode?: string
-  // the service's error for that code once it can no longer pay for a failed registration
+  // the service's error for that code once a failed registration can no longer be registered with it
   codeRefusal?: CodeRefusal
   // the link of the order that replaced this one with a new invoice; its old link leads there
   replacedBy?: string
-  // the service refused the order's links at its reveal, which only a move to other links can fix
-  linksRefused?: boolean
-  // the order whose balance paid this one, which the service's views do not name
-  balanceSource?: string
   createdAt: string
 }
 

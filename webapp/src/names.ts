@@ -27,18 +27,26 @@ export function labelProblem(label: string): LabelProblem | null {
 
 export type LinkKind = "contact" | "channel"
 
-// The app reads a name's first short link of the right type, so only one short link per key is useful. A link's query may
-// carry its other servers' hosts, joined by an escaped comma, as the chat core writes them.
+// The app reads a name's first short link of the right type, so only one short link per key is useful. A link has what the
+// chat core reads in it (simplexmq AConnShortLink strP): its type in either case, a "/" allowed before "#", a key, and a
+// server, the https:// link's host or, for a simplex:/ link, the hosts in `h`; the service refuses a host or query it cannot read.
 const SHORT_LINK: Record<LinkKind, RegExp> = {
-  contact: /^(https:\/\/[a-z0-9.-]+\/a|simplex:\/a)#[A-Za-z0-9_-]+(\?([A-Za-z0-9_=&.-]|%2C)*)?$/,
-  channel: /^(https:\/\/[a-z0-9.-]+\/c|simplex:\/c)#[A-Za-z0-9_-]+(\?([A-Za-z0-9_=&.-]|%2C)*)?$/,
+  contact: /^(?:https:\/\/[^/?#\s]+|(simplex):)\/[aA]\/?#([A-Za-z0-9_-]+)(?:\?(\S*))?$/,
+  channel: /^(?:https:\/\/[^/?#\s]+|(simplex):)\/[cC]\/?#([A-Za-z0-9_-]+)(?:\?(\S*))?$/,
+}
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+function canonicalKey(key: string): boolean {
+  const spare = [0, 6, 4, 2][key.length % 4]
+  return spare < 6 && (BASE64URL.indexOf(key[key.length - 1]) & ((1 << spare) - 1)) === 0
 }
 
 export const linkTooLong = (link: string) => new TextEncoder().encode(link).length > LINK_MAX_BYTES
 
 export function linkProblem(kind: LinkKind, link: string): "kind" | "long" | null {
   if (linkTooLong(link)) return "long"
-  return SHORT_LINK[kind].test(link) ? null : "kind"
+  const [, simplex, key, query] = SHORT_LINK[kind].exec(link) ?? []
+  return key !== undefined && canonicalKey(key) && (!simplex || new URLSearchParams(query).get("h")) ? null : "kind"
 }
 
 export function linkKind(link: string): LinkKind | null {
