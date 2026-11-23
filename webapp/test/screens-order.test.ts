@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { Acceptance, Community, InvoiceView, RegistrationView } from "../src/api.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
-  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, disputeEndAhead, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
+  CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
   askAgainDue, retryDue, supportCase,
 } from "../src/screens/order.ts"
@@ -351,16 +351,6 @@ describe("costOf", () => {
   })
 })
 
-describe("disputeEndAhead", () => {
-  const registered = (disputeUntil?: number) => read(null, registration({ phase: "registered", disputeUntil }))
-  it("is a registered name's dispute end while it is ahead", () => {
-    expect(disputeEndAhead(registered(NOW / 1000 + 1))).toBe(NOW / 1000 + 1)
-  })
-  it("is null once the dispute end is reached, and for a name registered without one", () => {
-    for (const disputeUntil of [NOW / 1000, NOW / 1000 - 1, undefined]) expect(disputeEndAhead(registered(disputeUntil)), String(disputeUntil)).toBeNull()
-  })
-})
-
 describe("finished", () => {
   const paidLate = (reg: Short) => crypto({ status: "paid", paidInFull: true }, reg)
   it("follows money paid after the close until it is in the balance", () => {
@@ -597,13 +587,6 @@ describe("wakeAt", () => {
   })
   it("takes the earlier of two moments", () => {
     expect(wakeAt({ ...paying, view: registration({ ...committed, revealAfter: NOW / 1000 + 30 }) })).toBe(NOW + 30_000)
-  })
-  it("wakes a registered name's page at its dispute end, which a tick then takes away", () => {
-    const registered = read(null, registration({ phase: "registered", label: "alice", disputeUntil: NOW / 1000 + 30 }))
-    expect(wakeAt(registered)).toBe(NOW + 30_000)
-    const woken = reduce(registered, { type: "tick", now: wakeAt(registered)! })
-    expect(disputeEndAhead(woken)).toBeNull()
-    expect(wakeAt(woken)).toBeNull()
   })
   it("sleeps when nothing waits on the clock", () => {
     expect(wakeAt(STATES["pay-crypto"])).toBeNull()

@@ -179,10 +179,10 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   it("reads a registered order's dispute days and its dispute end, and one registered without a dispute end as having none", async () => {
     answering("registration-registered")
     const disputed = await api.readRegistration("registration")
-    expect([disputed.disputeDays, disputed.phase.type, api.disputeUntilOf(disputed)]).toEqual([14, "registered", expect.any(Number)])
+    expect([disputed.disputeDays, disputed.phase]).toEqual([14, { type: "registered", expiresAt: expect.any(Number), disputeUntil: expect.any(Number) }])
     answering("registration-registered-no-dispute")
     const undisputed = await api.readRegistration("registration")
-    expect([undisputed.phase.type, api.disputeUntilOf(undisputed)]).toEqual(["registered", null])
+    expect(undisputed.phase).toStrictEqual({ type: "registered", expiresAt: expect.any(Number) })
   })
 
   it("reads an order whose registration was ended", async () => {

@@ -8,7 +8,7 @@ import { walletOf } from "../src/flow.ts"
 import { dateOf } from "../src/format.ts"
 import {
   agreeToTerms, answersReserved, blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, LINKS_HEADING, MOCK, offCentre, onStep,
-  payButton, previewsShown, qrText, registeredPhase, registrationView, savedToReview, search, searchName, selectedToReview, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, takenHeading, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
+  payButton, previewsShown, qrText, registrationView, savedToReview, search, searchName, selectedToReview, sevenLetters, shot, shownCode, SLOW_FETCH_MS, startOrder, takenHeading, test, textChangesOf, toCodeStep, restoreOrder, toReview, uniqueLabel,
   useCode, waitRegistered,
   acceptedOnChain, COMMUNITY_TERMS_HASH, contractsOwnerLists, GENERAL_TERMS_HASH,
 } from "./helpers.ts"
@@ -114,10 +114,10 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await waitRegistered(page, label)
   const registered = await searchName(request, label)
   expect(registered.type).toBe("registered")
+  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}.`)
+  // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
   const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as
     { years: number; duration: number; registerTx: string; disputeDays: number; phase: { disputeUntil: number } }
-  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}. It can be ended until ${dateOf(view.phase.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
-  // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
   expect(registered.expiresAt).toBe(await chainExpiry(label))
@@ -166,33 +166,6 @@ test("a registration ended in its dispute period says so on its order's page, is
   await page.goto(`/#/edit/${registrationId}`)
   await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Save links" })).toHaveCount(0)
-})
-
-test("a registered name's page takes its dispute end away as it passes, and is drawn once while that end is further off than a timer's longest delay", async ({ page }) => {
-  const label = uniqueLabel("until")
-  const order = await keepOrder(page, `reg-${label}`, null, label)
-  const now = Math.floor(Date.now() / 1000)
-  const expiresAt = now + YEAR_S
-  let disputeUntil = now + 10
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt, disputeUntil), commitTx: "0x02", registerTx: "0x03" }) }))
-  const lead = page.locator("body > main .lead")
-  const disputed = () => `Registered until ${dateOf(expiresAt)}. It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
-  await page.goto(`/?registration=${order.registrationId}`)
-  await expect(lead).toHaveText(disputed())
-  await expect(lead, "the lead once the dispute end has passed").toHaveText(`Registered until ${dateOf(expiresAt)}.`, { timeout: 20_000 })
-  disputeUntil = now + 30 * 86400
-  await page.reload()
-  await expect(lead).toHaveText(disputed())
-  const draws = await page.evaluate(() => new Promise<number>((done) => {
-    let count = 0
-    const watch = new MutationObserver(() => { count++ })
-    watch.observe(document.querySelector("body > main")!, { childList: true })
-    setTimeout(() => {
-      watch.disconnect()
-      done(count)
-    }, 2000)
-  }))
-  expect(draws, "the screens drawn in two seconds after the first").toBe(0)
 })
 
 // These cases need a prepaid code alone, from /control/code, so they run against the service as well as the mock.

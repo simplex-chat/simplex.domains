@@ -350,9 +350,9 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
 
   await waitRegistered(page, label)
   const main = page.locator("body > main")
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
-  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}. It can be ended until ${dateOf(paidInvoice.registration.phase.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
+  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
+  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
   expect(paidInvoice.registration.phase.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)

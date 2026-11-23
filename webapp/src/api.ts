@@ -235,7 +235,6 @@ export const toSignOf = (view: RegistrationView): ToSign | null => {
 }
 export const lapsedOf = (view: RegistrationView) => committedOf(view)?.signature.type === "lapsed"
 export const expiresAtOf = (view: RegistrationView) => view.phase.type === "registered" ? view.phase.expiresAt : null
-export const disputeUntilOf = (view: RegistrationView) => view.phase.type === "registered" ? view.phase.disputeUntil ?? null : null
 export const signedTermsOf = (terms: AgreedTerms) => `${terms.communityName ? COMMUNITY_TERMS : ""}${terms.termsHash.slice(2)}`
 
 const LATE_WAITS = ["confirming", "crediting", "support"] as const

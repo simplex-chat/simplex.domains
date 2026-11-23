@@ -6,7 +6,7 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, disputeEndAhead, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -87,12 +87,10 @@ function dispatch(event: OrderEvent): void {
   wakeOnTime()
 }
 
-const LONGEST_TIMEOUT_MS = 2 ** 31 - 1
-
 function wakeOnTime(): void {
   clearTimeout(wakes)
   const at = wakeAt(state)
-  if (at !== null) wakes = setTimeout(() => dispatch({ type: "tick", now: api.serviceNow() }), Math.min(at - api.serviceNow(), LONGEST_TIMEOUT_MS))
+  if (at !== null) wakes = setTimeout(() => dispatch({ type: "tick", now: api.serviceNow() }), at - api.serviceNow())
 }
 
 const isOpen = (gen: number) => gen === opened && isRoute(pageRoute)
@@ -1138,7 +1136,7 @@ function buildRegistered(s: OrderState): HTMLElement {
   // the code's QR is under everything, there only while the code is shown
   const qr = el("div", { class: "code-qr" })
   const { tld } = readSite()
-  return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record, disputeEndAhead(s)), action: registeredAction(s.record) },
+  return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record), action: registeredAction(s.record) },
     code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
       el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", shortNameText(label ?? "", tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
@@ -1147,11 +1145,10 @@ function buildRegistered(s: OrderState): HTMLElement {
     el("div", { class: "yours-edit center" }, btn(linksAction(hasLinks(s.record!, null)), "quiet small", () => go(editUrl(view.id)))), qr] : null)
 }
 
-function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null, disputeUntil: number | null): string {
+function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null): string {
   const expiresAt = api.expiresAtOf(view)
   const until = expiresAt ? dateOf(expiresAt) : ""
-  const dispute = disputeUntil === null ? "" : ` It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
-  return record ? `Registered until ${until}.${dispute}` : `Registered until ${until} to ${shortAddress(view.owner)}.${dispute} Its name code is not in this browser.`
+  return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
 }
 
 function buildEnded({ view, record, invoice }: OrderState): HTMLElement {

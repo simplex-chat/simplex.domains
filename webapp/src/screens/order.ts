@@ -1,4 +1,4 @@
-import { committedOf, type Community, disputeUntilOf, type FailReason, type Found, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, type Terms, toSignOf } from "../api.ts"
+import { committedOf, type Community, type FailReason, type Found, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, type Terms, toSignOf } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -201,11 +201,6 @@ export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc"
 // What the order's name costs; null for a code, which costs nothing.
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null
 
-export function disputeEndAhead({ view, now }: OrderState): number | null {
-  const until = view && disputeUntilOf(view)
-  return until && until * 1000 > now ? until : null
-}
-
 export function screenOf(s: OrderState): OrderKind {
   if (s.gone) return "status:unknown-link"
   if (s.price !== null) return "status:price-changed"
@@ -307,7 +302,6 @@ export function stalledAt(s: OrderState): number | null {
 export function wakeAt(s: OrderState): number | null {
   const { invoice, view, record, cardSubmittedAt, now } = s
   const moments = [
-    view?.phase.type === "registered" && view.phase.disputeUntil !== undefined ? view.phase.disputeUntil * 1000 : null,
     invoice?.status === "open" && !coinOf(invoice) && record && cardSubmittedAt ? Date.parse(cardSubmittedAt) + CARD_SLOW_MS : null,
     view?.phase.type === "committed" ? view.phase.revealAfter * 1000 : null,
   ].filter((at): at is number => at !== null && at > now)
