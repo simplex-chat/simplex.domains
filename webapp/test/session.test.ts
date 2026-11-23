@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
-  activeBalance, activeCode, appliedBalance, checkout as tabCheckout, dropActiveCode, isSending, scrolled, setActiveBalance, setActiveCode, setCheckout, setScrolled,
-  startSending, stopSending, type Checkout, updateActiveBalance,
+  activeCode, checkout as tabCheckout, dropActiveCode, isSending, scrolled, setActiveCode, setCheckout, setScrolled,
+  startSending, stopSending, type Checkout,
 } from "../src/session.ts"
 
 const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const TERMS = { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` }
 
 function checkout(label: string, ownerCode: string | null): Checkout {
-  return { label, price: 10000, years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, chain: CHAIN, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, balance: null, ownerCode, saved: false, agreed: false, searchAt: 0, step: "code" }
+  return { label, price: 10000, years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, chain: CHAIN, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode, saved: false, agreed: false, searchAt: 0, step: "code" }
 }
 
 describe("orders on their way", () => {
@@ -48,9 +48,6 @@ describe("the tab's checkout", () => {
     const { step: _, ...older } = checkout("oldername", "SN-AAAAA")
     setCheckout(older as Checkout)
     expect(tabCheckout()).toEqual({ ...older, step: "review" })
-    const { balance: __, ...unbalanced } = checkout("unbalanced", "SN-AAAAA")
-    setCheckout(unbalanced as Checkout)
-    expect(tabCheckout(), "one kept before balances pays with none").toEqual({ ...unbalanced, balance: null })
     setCheckout(checkout("newername", "SN-BBBBB"))
     expect(tabCheckout()!.step).toBe("code")
     const { terms: ___, ...unagreeable } = checkout("noterms", "SN-AAAAA")
@@ -60,14 +57,6 @@ describe("the tab's checkout", () => {
     expect(tabCheckout(), "one kept with the terms version an older page kept is a leftover").toBeNull()
     setCheckout(null)
     expect(tabCheckout()).toBeNull()
-  })
-  it("one holding a balance an older page kept without its dispute days is a leftover", () => {
-    const balance = { source: "reg-taken", amount: 10000, held: false, heldUntil: null }
-    setCheckout({ ...checkout("olderbalance", "SN-AAAAA"), balance } as never)
-    expect(tabCheckout()).toBeNull()
-    setCheckout({ ...checkout("newerbalance", "SN-AAAAA"), balance: { ...balance, disputeDays: 120 } })
-    expect(tabCheckout()!.balance).toEqual({ ...balance, disputeDays: 120 })
-    setCheckout(null)
   })
 })
 
@@ -86,41 +75,5 @@ describe("the tab's active code", () => {
     expect(activeCode(), "another code chosen since stays").toEqual({ display: "SN6-BBBBB", minLength: 6, years: 2 })
     dropActiveCode("SN6-BBBBB")
     expect(activeCode()).toBeNull()
-  })
-})
-
-describe("the tab's active balance", () => {
-  const BALANCE = { source: "reg-taken", amount: 10000, held: false, heldUntil: null, disputeDays: 14 }
-  const CODE = { display: "SN8-AAAAA", minLength: 8, years: 5 }
-  it("takes the code's place, and a code chosen later takes the balance's", () => {
-    setActiveCode(CODE)
-    setActiveBalance(BALANCE)
-    expect([activeBalance(), activeCode()]).toEqual([BALANCE, null])
-    setActiveCode(CODE)
-    expect([activeBalance(), activeCode()]).toEqual([null, CODE])
-    setActiveCode(null)
-  })
-  it("is changed by a read of its own order only, not of an order no longer the one the tab pays with", () => {
-    setActiveBalance(BALANCE)
-    updateActiveBalance("reg-other", null)
-    expect(activeBalance()).toEqual(BALANCE)
-    updateActiveBalance("reg-taken", { ...BALANCE, amount: 2500 })
-    expect(activeBalance()).toEqual({ ...BALANCE, amount: 2500 })
-    updateActiveBalance("reg-taken", null)
-    expect(activeBalance()).toBeNull()
-  })
-  it("is none when an older page kept it without its dispute days", () => {
-    const { disputeDays: _, ...older } = BALANCE
-    setActiveBalance(older as never)
-    expect(activeBalance()).toBeNull()
-    setActiveBalance(null)
-  })
-  it("applies an order's balance only while something is left, with the end of the invoice that holds it and the dispute days it pays for", () => {
-    expect(appliedBalance("reg-1", { amount: 10000, held: false, heldUntil: null, refunded: 0, disputeDays: 120 }))
-      .toEqual({ source: "reg-1", amount: 10000, held: false, heldUntil: null, disputeDays: 120 })
-    expect(appliedBalance("reg-1", { amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", refunded: 0, disputeDays: 14 }))
-      .toEqual({ source: "reg-1", amount: 10000, held: true, heldUntil: "2026-10-22T10:00:00Z", disputeDays: 14 })
-    expect(appliedBalance("reg-1", { amount: 0, held: false, heldUntil: null, refunded: 10000, disputeDays: 14 }), "refunded whole").toBeNull()
-    expect(appliedBalance("reg-1", null)).toBeNull()
   })
 })

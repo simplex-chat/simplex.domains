@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  allowedDays, ApiError, BalanceChanged, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, findRegistrations, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retryDelay, searchName, seenOf, spend, TermsChanged,
-  communityAgreed, readerUrl, signedHash, termsFor, termsLink, termsText, termYears,
+  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
+  communityAgreed, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
 const HASH = "ab".repeat(32)
@@ -15,8 +15,15 @@ function answerWith(status: number, body: string, headers: Record<string, string
   vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status, headers })))
 }
 
-async function errorOf(): Promise<ApiError> {
-  const e = await searchName(HASH, 8).then(() => null, (e: unknown) => e)
+const CHAIN_ID = 31337
+const REVEAL = {
+  label: "alicebakery", secret: `0x${"11".repeat(32)}`, records: { contact: null, channel: null }, nonce: 0, deadline: 1800000000, signature: "0x",
+  acceptance: { termsHash: `0x${"ab".repeat(32)}`, nonce: 0, signature: "0x" },
+}
+const REGISTERED = { type: "registered", owner: "0x1", resolver: "0x2", expiresAt: 1, gracePeriod: 2, entities: [], records: { type: "other" } }
+
+async function errorOf(chainId = CHAIN_ID): Promise<ApiError> {
+  const e = await searchName(HASH, 8, chainId).then(() => null, (e: unknown) => e)
   expect(e).toBeInstanceOf(ApiError)
   return e as ApiError
 }
@@ -87,10 +94,25 @@ describe("termsText", () => {
     }
   })
   it("passes the service's refusal, with its wait", async () => {
-    answerWith(404, JSON.stringify({ error: "not_found" }))
+    answerWith(404, JSON.stringify({ type: "not_found" }))
     await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "not_found" })
-    answerWith(503, JSON.stringify({ error: "terms_unavailable" }), { "retry-after": "30" })
+    answerWith(503, JSON.stringify({ type: "terms_unavailable" }), { "retry-after": "30" })
     await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "terms_unavailable", retryAfter: 30 })
+  })
+})
+
+describe("selectable", () => {
+  const view = (change: Partial<RegistrationView>) => ({ phase: { type: "taken" }, price: 10000, payment: { type: "invoice", method: "btc" },
+    balance: { amount: 10000, refunded: 0 }, ...change }) as RegistrationView
+  const coded = (change: Partial<RegistrationView> = {}) => view({ payment: { type: "code" }, price: 0, balance: null, ...change })
+  it("is a taken order: a paid one while its balance holds its price, a code one", () => {
+    expect(selectable(view({}))).toBe(true)
+    expect(selectable(coded())).toBe(true)
+    expect(selectable(view({ balance: { amount: 0, refunded: 10000 } })), "a paid order refunded").toBe(false)
+  })
+  it("is no order in another phase", () => {
+    expect(selectable(coded({ phase: { type: "failed", reason: "registryRefused" } }))).toBe(false)
+    expect(selectable(view({ phase: { type: "queued" } }))).toBe(false)
   })
 })
 
@@ -105,23 +127,24 @@ describe("retryDelay", () => {
   })
   it("gives up on a refusal that asking again cannot change", () => {
     expect(retryDelay(new ApiError("not_found", 404, null, {}), USUAL)).toBeNull()
-    expect(retryDelay(new ApiError("bad_signature", 400, null, {}), USUAL)).toBeNull()
-  })
-})
-
-describe("allowedDays", () => {
-  it("is the way to pay's own days, or, paid from a balance, the balance's days, or the rest's way to pay's when more", () => {
-    expect([allowedDays("card"), allowedDays("btc"), allowedDays("xmr"), allowedDays("code")]).toEqual([120, 14, 14, 14])
-    expect([allowedDays({ balanceDays: 120, rest: "btc" }), allowedDays({ balanceDays: 14, rest: "card" }), allowedDays({ balanceDays: 120, rest: null }), allowedDays({ balanceDays: 14, rest: null })])
-      .toEqual([120, 120, 120, 14])
+    expect(retryDelay(new ApiError("bad_request", 400, null, {}), USUAL)).toBeNull()
   })
 })
 
 describe("service errors", () => {
-  it("reads the service's own error code, whatever the status", async () => {
-    answerWith(503, JSON.stringify({ error: "provider_unavailable" }))
+  it("reads the service's own refusal, tagged by type on the names endpoints and by error on the others, whatever the status", async () => {
+    answerWith(503, JSON.stringify({ type: "provider_unavailable" }))
     const e = await errorOf()
     expect([e.code, e.status]).toEqual(["provider_unavailable", 503])
+    answerWith(409, JSON.stringify({ type: "order_exists" }))
+    expect((await errorOf()).code).toBe("order_exists")
+  })
+
+  it("takes a refusal the page does not know as the service's own failure, or the network's under a gateway status", async () => {
+    answerWith(409, JSON.stringify({ type: "weird" }))
+    expect((await errorOf()).code).toBe("internal")
+    answerWith(503, JSON.stringify({ type: "weird" }))
+    expect((await errorOf()).code).toBe("network")
   })
 
   it("takes a proxy's gateway failure, with no code of the service's, as the network failing", async () => {
@@ -142,82 +165,105 @@ describe("service errors", () => {
     expect([e.code, e.retryAfter]).toEqual(["rate_limited", 12])
   })
 
-  it("reads the service's edit_limit under 429 as its own refusal, with when the next edit fits, and no wait to hold", async () => {
-    const edit = { labelHash: `0x${HASH}`, edits: [{ key: "simplex.channel", value: "", nonce: 3, deadline: 1, signature: "0x" }] }
-    answerWith(429, JSON.stringify({ error: "edit_limit", nextAt: 1824249600 }))
+  it("reads the service's edit_limit as its own refusal, with when the next edit fits in seconds, and no wait to hold", async () => {
+    const edit = { labelHash: `0x${HASH}`, edits: [{ key: "channel" as const, value: "", nonce: 3, deadline: 1, signature: "0x" }] }
+    answerWith(409, JSON.stringify({ type: "edit_limit", nextAt: "2027-10-23T00:00:00Z" }))
     const e = await editRecords(edit).then(() => null, (e: unknown) => e)
     expect(e).toBeInstanceOf(EditLimited)
-    expect([(e as EditLimited).code, (e as EditLimited).status, (e as EditLimited).nextAt]).toEqual(["edit_limit", 429, 1824249600])
+    expect([(e as EditLimited).code, (e as EditLimited).status, (e as EditLimited).nextAt]).toEqual(["edit_limit", 409, 1824249600])
     expect(retryDelay(e, 5000), "asking again cannot change it").toBeNull()
-    for (const body of [{ error: "edit_limit" }, { error: "edit_limit", nextAt: "soon" }, { error: "edit_limit", nextAt: -1 }]) {
-      answerWith(429, JSON.stringify(body))
+    for (const body of [{ type: "edit_limit" }, { type: "edit_limit", nextAt: "soon" }, { type: "edit_limit", nextAt: 1824249600 }]) {
+      answerWith(409, JSON.stringify(body))
       const bad = await editRecords(edit).then(() => null, (e: unknown) => e)
       expect((bad as ApiError).code, JSON.stringify(body)).toBe("network")
     }
-    // any other 429 stays a rate limit, whatever its body says
-    answerWith(429, JSON.stringify({ error: "move_limit" }), { "retry-after": "4" })
+    // a 429 is a rate limit, whatever its body says
+    answerWith(429, JSON.stringify({ type: "edit_limit", nextAt: "2027-10-23T00:00:00Z" }), { "retry-after": "4" })
     const limited = await editRecords(edit).then(() => null, (e: unknown) => e)
     expect([(limited as ApiError).code, (limited as ApiError).retryAfter, limited instanceof EditLimited]).toEqual(["rate_limited", 4, false])
   })
 
-  it("passes a registered name's record edits, and takes ones that cannot be so as no answer", async () => {
-    const answer = { status: "registered", tld: "simplex", entities: [], records: { contact: "", channel: "" }, recordsNonce: 2, community: null }
-    for (const recordEdits of [{ left: 3, nextAt: null }, { left: 0, nextAt: 1824249600 }, { left: 1, nextAt: 1824249600 }, null]) {
-      answerWith(200, JSON.stringify({ ...answer, recordEdits }))
-      expect(await searchName(HASH, 8), JSON.stringify(recordEdits)).toMatchObject({ recordEdits })
+  it("passes a registered name's record edits, with when the next returns in seconds, and takes ones that cannot be so as no answer", async () => {
+    const own = { type: "own", contact: "", channel: "", nonce: 2 }
+    for (const [edits, read] of [[{ left: 3 }, { left: 3, nextAt: null }], [{ left: 0, nextAt: "2027-10-23T00:00:00Z" }, { left: 0, nextAt: 1824249600 }],
+      [{ left: 1, nextAt: "2027-10-23T00:00:00Z" }, { left: 1, nextAt: 1824249600 }]] as const) {
+      answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
+      expect(await searchName(HASH, 8, CHAIN_ID), JSON.stringify(edits)).toMatchObject({ found: { records: { ...own, edits: read } } })
     }
-    for (const recordEdits of [{ left: 0, nextAt: null }, { left: -1, nextAt: null }, { left: 1.5, nextAt: null }, { left: 2 }, { left: 2, nextAt: "soon" }, 3]) {
-      answerWith(200, JSON.stringify({ ...answer, recordEdits }))
-      expect((await errorOf()).code, JSON.stringify(recordEdits)).toBe("network")
+    for (const edits of [{ left: 0 }, { left: -1 }, { left: 1.5 }, {}, { left: 2, nextAt: "soon" }, { left: 2, nextAt: 1824249600 }, 3, undefined]) {
+      answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
+      expect((await errorOf()).code, JSON.stringify(edits)).toBe("network")
     }
   })
 
   it("takes a search answer the page cannot draw as no answer", async () => {
-    const chain = { resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex" }
-    for (const body of [
-      { status: "weird" }, { status: "registered", tld: "simplex" }, [], "registered",
-      { status: "registered", tld: "simplex", entities: [{}] }, { status: "registered", tld: "simplex", entities: [null] },
-      { status: "available", price: "100", years: 2, currency: "USD", ...chain }, { status: "available", price: 5, currency: "USD", ...chain },
+    for (const found of [
+      { type: "weird" }, { type: "registered" }, [], "registered", undefined, { ...REGISTERED, owner: undefined }, { ...REGISTERED, records: undefined }, { ...REGISTERED, records: { type: "own" } },
+      { ...REGISTERED, records: null }, { ...REGISTERED, entities: [{}] }, { ...REGISTERED, entities: [null] },
+      { type: "available", price: "100", years: 2 }, { type: "available", price: 5 },
     ]) {
+      answerWith(200, JSON.stringify({ found }))
+      expect((await errorOf()).code, JSON.stringify(found)).toBe("network")
+    }
+    for (const body of [[], "registered", { status: "available", price: 5, years: 2 }]) {
       answerWith(200, JSON.stringify(body))
       expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
     }
   })
 
   const TERMS = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
-  const PROFILE = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
+  const GROUP = { kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
+  const channelPreview = (profile: Record<string, unknown> = GROUP) => ({ kind: "channel", profile: { type: "ok", linkProfile: profile } })
+  const PREVIEW = channelPreview()
+  // the profile as the page draws it
+  const DRAWN = { type: "channel", kind: "channel", displayName: "Alice", fullName: "Alice's news", image: null, subscribers: 12, profile: "ok" }
+  const LINK = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
+  const registeredWith = (...entities: unknown[]) => JSON.stringify({ found: { ...REGISTERED, entities } })
 
   it("passes a search answer the page can draw", async () => {
-    const available = { status: "available", price: 10000, currency: "usd", years: 2, termStart: 1798761600, resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: TERMS }
-    answerWith(200, JSON.stringify(available))
-    expect(await searchName("ab".repeat(32), 8)).toEqual(available)
-    const entity = { ...PROFILE, link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
-    answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [entity], community: null }))
-    expect(await searchName("ab".repeat(32), 8)).toMatchObject({ status: "registered", entities: [entity] })
+    const available = { type: "available", price: 10000, years: 2, terms: TERMS }
+    answerWith(200, JSON.stringify({ found: available }))
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: available, community: null })
+    answerWith(200, JSON.stringify({ found: { type: "available", price: 10000, years: 2 } }))
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
+    answerWith(200, registeredWith({ preview: PREVIEW, ...LINK }))
+    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
+    for (const type of ["taken", "reserved"]) {
+      answerWith(200, JSON.stringify({ found: { type } }))
+      expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { type }, community: null })
+    }
   })
 
-  it("takes a linked chat without its kind, full name or subscriber count, with a kind the app has not, or a kind its record cannot hold, as no answer", async () => {
-    const link = { link: "https://simplex.chat/c#x", deepLink: "simplex:/c#x" }
-    const changes = [{ kind: undefined }, { kind: "group" }, { fullName: undefined }, { subscribers: undefined }, { subscribers: -1 }, { subscribers: "many" },
-      { type: "address" }, { kind: "contact" }, { profile: undefined }, { profile: "lost" }, { deepLink: undefined }, { deepLink: 5 }]
-    for (const change of changes) {
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [{ ...PROFILE, ...link, ...change }], community: null }))
+  it("takes a linked chat without its names, a type the app has not, a member count that cannot be, or a link not as text, as no answer", async () => {
+    const previews = [
+      { ...PREVIEW, kind: "group" }, { ...PREVIEW, kind: undefined }, { ...PREVIEW, profile: undefined }, { ...PREVIEW, profile: { type: "lost" } },
+      { ...PREVIEW, profile: { type: "ok" } }, channelPreview({ ...GROUP, displayName: undefined }), channelPreview({ ...GROUP, fullName: undefined }), channelPreview({ ...GROUP, kind: "group" }),
+      channelPreview({ ...GROUP, kind: undefined }), channelPreview({ ...GROUP, subscribers: -1 }), channelPreview({ ...GROUP, subscribers: "many" }),
+    ]
+    for (const preview of previews) {
+      answerWith(200, registeredWith({ preview, ...LINK }))
+      expect((await errorOf()).code, JSON.stringify(preview)).toBe("network")
+    }
+    for (const change of [{ deepLink: undefined }, { deepLink: null }, { deepLink: 5 }, { link: null }, { preview: undefined }]) {
+      answerWith(200, registeredWith({ preview: PREVIEW, ...LINK, ...change }))
       expect((await errorOf()).code, JSON.stringify(change)).toBe("network")
     }
     // a link whose data the service did not read is still a chat, drawn without its profile
-    for (const profile of ["unread", "unavailable"]) {
-      const entity = { ...PROFILE, ...link, displayName: "", fullName: "", subscribers: null, profile }
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [entity], community: null }))
-      expect(await searchName("ab".repeat(32), 8), profile).toMatchObject({ entities: [entity] })
+    for (const [kind, type] of [["contact", "address"], ["channel", "channel"]]) {
+      for (const profile of ["unread", "unavailable"]) {
+        answerWith(200, registeredWith({ preview: { kind, profile: { type: profile } }, ...LINK }))
+        expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
+      }
     }
-    // a link the chat core cannot parse has no deep link, and its own text is opened
-    const unparsed = { ...PROFILE, ...link, deepLink: null, displayName: "", fullName: "", subscribers: null, profile: "unavailable" }
-    answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [unparsed], community: null }))
-    expect(await searchName("ab".repeat(32), 8)).toMatchObject({ entities: [unparsed] })
+    // an address opens a contact, a business or a bot, as the service tells them apart
+    const contactPreview = (kind: unknown) => ({ kind: "contact", profile: { type: "ok", linkProfile: { kind, displayName: "Alice", fullName: "" } } })
     for (const kind of ["contact", "business", "bot"]) {
-      const entity = { ...PROFILE, ...link, type: "address", kind, subscribers: null }
-      answerWith(200, JSON.stringify({ status: "registered", tld: "simplex", entities: [entity], community: null }))
-      expect(await searchName("ab".repeat(32), 8), kind).toMatchObject({ entities: [entity] })
+      answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
+      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), kind).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
+    }
+    for (const kind of [undefined, "robot", 5]) {
+      answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
+      expect((await errorOf()).code, JSON.stringify(kind)).toBe("network")
     }
   })
 
@@ -237,9 +283,9 @@ describe("service errors", () => {
   })
 
   const REGISTRATION = {
-    id: "r1", version: 4, unread: [], moves: 0, phase: "unpaid", labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
-    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, fromBalance: 0, balance: null, commitTx: null, registerTx: null, revealAfter: null, revealBefore: null, intentNonce: null, expiresAt: null, error: null, linksRefused: false, latePayment: null,
-    resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: null, terms: "2026-10-23", acceptance: null, disputeDays: 120, disputeUntil: null,
+    id: "r1", version: 4, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
+    sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, latePayment: null,
+    community: null, terms: { communityName: false, termsHash: TERMS.hash }, disputeDays: 14, disputeUntil: null,
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -247,10 +293,9 @@ describe("service errors", () => {
     answerWith(200, JSON.stringify(INVOICE))
     expect(await readInvoice("inv1")).toMatchObject({ invoiceId: "inv1", registration: { id: "r1" } })
     for (const body of [
-      {}, { ...INVOICE, registration: undefined }, { ...INVOICE, registration: { ...REGISTRATION, phase: "lost" } }, { ...INVOICE, status: "weird" },
+      {}, { ...INVOICE, registration: undefined }, { ...INVOICE, registration: { ...REGISTRATION, phase: { type: "lost" } } }, { ...INVOICE, status: "weird" },
       { ...INVOICE, amount: "lots" }, { ...INVOICE, amount: -1 }, { ...INVOICE, cryptoAmount: "a lot" }, { ...INVOICE, registration: { ...REGISTRATION, years: 0 } },
-      { ...INVOICE, registration: { ...REGISTRATION, version: "4" } }, { ...INVOICE, registration: { ...REGISTRATION, unread: undefined } },
-      { ...INVOICE, registration: { ...REGISTRATION, unread: [4] } },
+      { ...INVOICE, registration: { ...REGISTRATION, version: "4" } }, { ...INVOICE, registration: { ...REGISTRATION, phase: "unpaid" } },
     ]) {
       answerWith(200, JSON.stringify(body))
       const e = await readInvoice("inv1").then(() => null, (e: unknown) => e)
@@ -261,7 +306,7 @@ describe("service errors", () => {
   it("takes an overpaid invoice's negative due as nothing left to pay, from every request that answers an invoice", async () => {
     const overpaid = { ...INVOICE, cryptoAmountPaid: "0.00256", cryptoAmountDue: "-0.001", paidInFull: true }
     const reads: [string, () => Promise<unknown>][] = [
-      ["a read", () => readInvoice("inv1")], ["a cancel", () => cancelInvoice("inv1")], ["a spend", () => spend("r1", SPEND, 31337)],
+      ["a read", () => readInvoice("inv1")], ["a cancel", () => cancelInvoice("inv1")],
     ]
     for (const [name, read] of reads) {
       answerWith(200, JSON.stringify(overpaid))
@@ -274,34 +319,49 @@ describe("service errors", () => {
     }
   })
 
-  const BALANCE = { amount: 10000, held: true, heldUntil: "2026-10-16T12:00:00Z", refunded: 2500, disputeDays: 14 }
+  const BALANCE = { amount: 10000, refunded: 2500 }
 
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {
-      answerWith(200, JSON.stringify({ ...REGISTRATION, latePayment: { waiting } }))
-      expect((await readRegistration("r1")).latePayment).toEqual({ waiting })
+      answerWith(200, JSON.stringify({ ...REGISTRATION, latePayment: waiting }))
+      expect((await readRegistration("r1")).latePayment).toEqual(waiting)
     }
   })
 
-  it("passes find's paying order and holder of each order, and takes a malformed one as no answer", async () => {
-    const entry = { registrationId: "r2", invoiceId: null, phase: "unpaid", createdAt: "2026-10-16T12:00:00Z", labelHash: "0x01", sealed: "s", balanceSource: "r1", heldBy: null }
-    answerWith(200, JSON.stringify({ registrations: [entry] }))
-    expect((await findRegistrations("0xowner", 1, "0x")).registrations).toEqual([entry])
-    for (const change of [{ balanceSource: undefined }, { heldBy: 5 }]) {
-      answerWith(200, JSON.stringify({ registrations: [{ ...entry, ...change }] }))
-      const e = await findRegistrations("0xowner", 1, "0x").then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
+  it("passes each phase with what it holds, and takes a phase that cannot be so as no answer", async () => {
+    const acceptance = { community: false, policy: "0x3", termsHash: TERMS.hash, nonce: 0 }
+    const committed = (signature: unknown) => ({ type: "committed", revealAfter: 1, revealBefore: 2, signature })
+    for (const phase of [
+      { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "closed", closedBy: "reversed" }, { type: "queued" }, { type: "committing" },
+      committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
+      committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "ended" }, { type: "taken" },
+      { type: "failed", reason: "registryRefused" }, { type: "failed", reason: "signatureRefused" },
+      { type: "failed", reason: "monthEnded" }, { type: "failed", reason: "unread" },
+    ]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
+      expect((await readRegistration("r1")).phase, JSON.stringify(phase)).toEqual(phase)
+    }
+    for (const phase of [
+      { type: "closed" }, { type: "closed", closedBy: "paid" }, { type: "committed", revealAfter: 1, revealBefore: 2 }, committed({ type: "awaiting" }),
+      committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4 } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: -1, acceptance } }),
+      { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "failed" }, { type: "failed", reason: "not_registered" }, { type: "failed", reason: "linksRefused" },
+    ]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
+      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      expect((e as ApiError).code, JSON.stringify(phase)).toBe("network")
     }
   })
 
-  it("passes an order's balance and what a balance paid of it, and takes either malformed as no answer", async () => {
-    answerWith(200, JSON.stringify({ ...REGISTRATION, fromBalance: 4000, balance: BALANCE }))
-    expect(await readRegistration("r1")).toMatchObject({ fromBalance: 4000, balance: BALANCE })
+  it("passes an order's balance and how it was paid, and takes either malformed as no answer", async () => {
+    for (const payment of [{ type: "invoice", method: "btc" }, { type: "code" }]) {
+      answerWith(200, JSON.stringify({ ...REGISTRATION, payment, balance: BALANCE }))
+      expect(await readRegistration("r1"), JSON.stringify(payment)).toMatchObject({ payment, balance: BALANCE })
+    }
     for (const change of [
-      { fromBalance: undefined }, { fromBalance: -1 }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
-      { balance: { ...BALANCE, held: "yes" } }, { balance: { ...BALANCE, heldUntil: 5 } }, { balance: { ...BALANCE, refunded: null } },
-      { balance: { ...BALANCE, disputeDays: undefined } }, { balance: { ...BALANCE, disputeDays: 13 } }, { balance: { ...BALANCE, disputeDays: 121 } },
-      { linksRefused: undefined }, { linksRefused: "no" }, { latePayment: undefined }, { latePayment: {} }, { latePayment: { waiting: "later" } },
+      { payment: undefined }, { payment: { type: "invoice" } }, { payment: { type: "invoice", method: "eth" } },
+      { payment: { type: "balance" } }, { payment: { type: "gift" } }, { balance: undefined }, { balance: {} }, { balance: { ...BALANCE, amount: -5 } },
+      { balance: { ...BALANCE, refunded: null } },
+      { latePayment: undefined }, { latePayment: {} }, { latePayment: "later" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
@@ -324,47 +384,6 @@ describe("service errors", () => {
     }
   })
 
-  it("passes an order whose registration was ended in its dispute period", async () => {
-    answerWith(200, JSON.stringify({ ...REGISTRATION, phase: "ended", label: "alice", disputeUntil: null }))
-    expect(await readRegistration("r1")).toMatchObject({ phase: "ended", disputeUntil: null })
-  })
-
-  const SPEND = { labelHash: `0x${"ab".repeat(32)}`, length: 8, duration: 2 * 365 * 86400, commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", price: 20000, balance: 10000, method: "btc" as const, terms: "2026-10-23", timestamp: 1, signature: "0x" }
-
-  it("posts a spend for the paying order and answers the new order, without an invoice or with the difference's", async () => {
-    const fetched = vi.fn(async () => new Response(JSON.stringify({ registrationId: "r2" }), { status: 200 }))
-    vi.stubGlobal("fetch", fetched)
-    expect(await spend("r/1", SPEND, 31337)).toEqual({ registrationId: "r2" })
-    const [path, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
-    expect([path, init.method, JSON.parse(String(init.body))]).toEqual(["/api/registration/r%2F1/spend", "POST", SPEND])
-    const invoice = { ...INVOICE, amount: 10000, registration: { ...REGISTRATION, price: 20000, fromBalance: 10000 } }
-    answerWith(200, JSON.stringify(invoice))
-    expect(await spend("r1", SPEND, 31337)).toEqual(invoice)
-    for (const body of [{}, { registrationId: 5 }, { ...invoice, registration: undefined }, { registrationId: "r2", invoiceId: "inv1" }]) {
-      answerWith(200, JSON.stringify(body))
-      const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(body).slice(0, 80)).toBe("network")
-    }
-  })
-
-  it("gives a refusal for a changed balance the balance as it is now, or null, and takes one it cannot read as no answer", async () => {
-    for (const balance of [BALANCE, null]) {
-      answerWith(409, JSON.stringify({ error: "balance_changed", balance }))
-      const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-      expect(e, JSON.stringify(balance)).toBeInstanceOf(BalanceChanged)
-      expect(e).toMatchObject({ code: "balance_changed", status: 409, balance })
-    }
-    for (const body of [{ error: "balance_changed" }, { error: "balance_changed", balance: { amount: "lots" } }, { error: "balance_changed", balance: { ...BALANCE, disputeDays: undefined } }]) {
-      answerWith(409, JSON.stringify(body))
-      const e = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-      expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
-    }
-    answerWith(409, JSON.stringify({ error: "order_exists" }))
-    const other = await spend("r1", SPEND, 31337).then(() => null, (e: unknown) => e)
-    expect(other).not.toBeInstanceOf(BalanceChanged)
-    expect((other as ApiError).code).toBe("order_exists")
-  })
-
   it("holds a poll on the registration's version and the payment marks it has seen", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify(INVOICE), { status: 200 }))
     vi.stubGlobal("fetch", fetched)
@@ -377,25 +396,25 @@ describe("service errors", () => {
     expect(urls).toEqual(["/api/invoice/inv1", "/api/invoice/inv1?wait=open&seenVersion=4&seenPaid=0.5&seenFull=1", "/api/registration/r1?seenVersion=4", "/api/registration/r1?seenVersion=0"])
   })
 
-  it("takes a link preview whose image is no image the page can show as no answer", async () => {
-    answerWith(200, JSON.stringify({ ...PROFILE, image: "data:image/png;base64,iVBORw0KGgo=" }))
-    expect(await previewLink("x")).toMatchObject({ displayName: "Alice" })
-    for (const image of ["javascript:alert(1)", "http://example.com/a.png", "https://example.com/a.png", 5]) {
-      answerWith(200, JSON.stringify({ ...PROFILE, image }))
+  it("takes a link preview whose image is no image the page can show as no answer, and an image the service dropped as none", async () => {
+    answerWith(200, JSON.stringify(channelPreview({ ...GROUP, image: "data:image/png;base64,iVBORw0KGgo=" })))
+    expect(await previewLink("x")).toMatchObject({ displayName: "Alice", kind: "channel", subscribers: 12, image: "data:image/png;base64,iVBORw0KGgo=" })
+    answerWith(200, JSON.stringify(channelPreview(GROUP)))
+    expect(await previewLink("x")).toMatchObject({ displayName: "Alice", image: null })
+    for (const image of ["javascript:alert(1)", "http://example.com/a.png", "https://example.com/a.png", 5, null]) {
+      answerWith(200, JSON.stringify(channelPreview({ ...GROUP, image })))
       const e = await previewLink("x").then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, String(image)).toBe("network")
     }
   })
 
   it("takes a search or code answer with values that cannot be so as no answer", async () => {
-    const chain = { resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex" }
-    for (const body of [
-      { status: "available", price: -500, years: 2, termStart: 1798761600, currency: "usd", ...chain }, { status: "available", price: 500, years: 0, termStart: 1798761600, currency: "usd", ...chain },
-      { status: "available", price: 500, years: 2, currency: "usd", ...chain }, { status: "available", price: 500, years: 2, termStart: "2027", currency: "usd", ...chain },
-      { status: "registered", tld: "simplex", entities: [], owner: 5 }, { status: "registered", tld: "simplex", entities: [], records: { contact: 1 } },
+    for (const found of [
+      { type: "available", price: -500, years: 2 }, { type: "available", price: 500, years: 0 },
+      { ...REGISTERED, owner: 5 }, { ...REGISTERED, records: { type: "own", contact: 1, channel: "", nonce: 0, edits: { left: 1 } } },
     ]) {
-      answerWith(200, JSON.stringify(body))
-      expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
+      answerWith(200, JSON.stringify({ found }))
+      expect((await errorOf()).code, JSON.stringify(found)).toBe("network")
     }
     answerWith(200, JSON.stringify({ state: "unused", minLength: -3, years: -1 }))
     expect(((await checkCode("SN6-X").then(() => null, (e: unknown) => e)) as ApiError).code).toBe("network")
@@ -407,13 +426,14 @@ describe("service errors", () => {
     const LOCAL_TERMS = termsOf(`http://127.0.0.1:8098/terms/${"c7".repeat(32)}.md#sha256=${"c7".repeat(32)}`)
     const SIGNED = `community/${COMMUNITY_TERMS.hash.slice(2)}`
     const OLDER_SIGNED = `2026-10-23/community/${"c7".repeat(32)}`
-    const AVAILABLE = { status: "available", price: 10000, currency: "usd", years: 2, termStart: 1798761600, resolver: "0x1", sponsor: "0x2", chainId: 31337, tld: "simplex", community: COMMUNITY, terms: COMMUNITY_TERMS }
-    const ORDER = { labelHash: `0x${"ab".repeat(32)}`, length: 6, duration: 2 * 365 * 86400, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", terms: SIGNED, timestamp: 1, signature: "0x" }
+    const AVAILABLE = { found: { type: "available", price: 10000, years: 2, terms: COMMUNITY_TERMS }, community: COMMUNITY }
+    const availableWith = (terms: unknown) => ({ ...AVAILABLE, found: { ...AVAILABLE.found, terms } })
+    const ORDER = { labelHash: `0x${"ab".repeat(32)}`, length: 6, duration: 2 * 365 * 86400, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`, sealed: "sealed", terms: SIGNED, timestamp: 1, signature: "0x", reveal: REVEAL }
 
     it("signs the general terms' hash for a name not on the community list, and community/ with the community terms' hash for one on it", () => {
       expect(termsFor(TERMS, null)).toBe(TERMS.hash.slice(2))
       expect(termsFor(COMMUNITY_TERMS, COMMUNITY)).toBe(SIGNED)
-      expect(currentTerms(AVAILABLE as never)).toBe(SIGNED)
+      expect(currentTerms({ terms: COMMUNITY_TERMS, community: COMMUNITY })).toBe(SIGNED)
     })
 
     it("reads the hash of the terms an order signed, and none from the version an older page signed", () => {
@@ -434,36 +454,41 @@ describe("service errors", () => {
       for (const terms of [TERMS.hash.slice(2), "2026-10-23", null, undefined]) expect(communityAgreed(terms), String(terms)).toBe(false)
     })
 
-    it("passes a community entry in every search answer, and the terms of the name's kind in the available one, null while they can't be read", async () => {
+    it("passes the community entry of a community name's search answer, and the terms of the name's kind in the available one", async () => {
       for (const body of [
-        AVAILABLE, { status: "reserved", community: COMMUNITY }, { status: "registered", entities: [], tld: "simplex", community: COMMUNITY },
-        { ...AVAILABLE, community: { ...COMMUNITY, for: null } }, { ...AVAILABLE, community: null, terms: TERMS }, { ...AVAILABLE, terms: null }, { ...AVAILABLE, terms: LOCAL_TERMS },
-        { status: "registered", entities: [], records: null, owner: "0x1", resolver: "0x2", recordsNonce: null, expiresAt: 1, gracePeriod: 2, chainId: 1, tld: "simplex", community: null },
+        AVAILABLE, { found: { type: "reserved" }, community: COMMUNITY }, { found: REGISTERED, community: COMMUNITY },
+        { ...AVAILABLE, community: { years: 2 } }, { ...availableWith(TERMS), community: null }, availableWith(LOCAL_TERMS),
       ]) {
         answerWith(200, JSON.stringify(body))
-        expect(await searchName(HASH, 6), body.status).toEqual(body)
+        expect(await searchName(HASH, 6, CHAIN_ID), JSON.stringify(body)).toEqual(body)
       }
+      answerWith(200, JSON.stringify({ found: REGISTERED }))
+      expect(await searchName(HASH, 6, CHAIN_ID), "a name off the community list").toEqual({ found: REGISTERED, community: null })
     })
 
-    it("takes an answer without its community, or the available one with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
+    it("takes a community entry that cannot be so, or the available answer with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
       for (const body of [
-        { ...AVAILABLE, community: undefined }, { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } },
-        { ...AVAILABLE, community: { for: COMMUNITY.for } }, { ...AVAILABLE, terms: undefined }, { ...AVAILABLE, terms: { link: TERMS.link } }, { ...AVAILABLE, terms: { hash: TERMS.hash } },
-        { ...AVAILABLE, terms: { ...TERMS, hash: COMMUNITY_TERMS.hash } }, { ...AVAILABLE, terms: { ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") } },
-        { ...AVAILABLE, terms: termsOf(TERMS.link.replace("https:", "http:")) }, { ...AVAILABLE, terms: termsOf("https://simplex.chat/terms") }, { ...AVAILABLE, chainId: 1, terms: LOCAL_TERMS },
-        { status: "reserved" }, { status: "registered", entities: [], tld: "simplex" },
+        { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, for: null } },
+        { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } }, { ...AVAILABLE, community: { for: COMMUNITY.for } }, availableWith({ link: TERMS.link }), availableWith({ hash: TERMS.hash }),
+        availableWith(null), availableWith({ ...TERMS, hash: COMMUNITY_TERMS.hash }), availableWith({ ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") }),
+        availableWith(termsOf(TERMS.link.replace("https:", "http:"))), availableWith(termsOf("https://simplex.chat/terms")),
+        { found: { type: "registered" } }, { community: COMMUNITY },
       ]) {
         answerWith(200, JSON.stringify(body))
         expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
       }
+      answerWith(200, JSON.stringify(availableWith(LOCAL_TERMS)))
+      expect((await errorOf(1)).code, "terms on this machine, on another chain").toBe("network")
     })
 
-    it("passes an order's community entry and the terms it signed, also the version an older page signed, null for an order stored without them", async () => {
-      for (const change of [{ community: COMMUNITY, terms: SIGNED }, { community: COMMUNITY, terms: OLDER_SIGNED }, { community: null, terms: null }, { terms: "v1.2_3" }, { terms: "t".repeat(112) }]) {
+    it("passes an order's community entry and the terms it signed", async () => {
+      const agreed = { communityName: true, termsHash: COMMUNITY_TERMS.hash }
+      for (const change of [{ community: COMMUNITY, terms: agreed }, { community: null, terms: { communityName: false, termsHash: TERMS.hash } }]) {
         answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
         expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
       }
-      for (const change of [{ community: undefined }, { community: { ...COMMUNITY, for: 1 } }, { terms: undefined }, { terms: 5 }, { terms: "" }, { terms: "a b" }, { terms: "t".repeat(113) }]) {
+      for (const change of [{ community: undefined }, { community: { ...COMMUNITY, for: 1 } }, { terms: undefined }, { terms: null }, { terms: SIGNED }, { terms: { ...agreed, communityName: "yes" } },
+        { terms: { ...agreed, termsHash: COMMUNITY_TERMS.hash.slice(2) } }, { terms: { communityName: true } }]) {
         answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
         const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
@@ -471,43 +496,46 @@ describe("service errors", () => {
     })
 
     it("passes the acceptance a committed name's reveal signs, of either kind, and takes one it cannot sign as no answer", async () => {
-      const acceptance = { kind: "community", policy: "0x3", termsHash: COMMUNITY_TERMS.hash, nonce: 0 }
-      for (const change of [{ acceptance }, { acceptance: { ...acceptance, kind: "general", termsHash: TERMS.hash } }, { acceptance: null }]) {
-        answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
-        expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
+      const acceptance = { community: true, policy: "0x3", termsHash: COMMUNITY_TERMS.hash, nonce: 0 }
+      const withAcceptance = (accepted: unknown) => ({ ...REGISTRATION, phase: { type: "committed", revealAfter: 1, revealBefore: 2,
+        signature: { type: "awaiting", toSign: { type: "read", intentNonce: 0, acceptance: accepted } } } })
+      for (const accepted of [acceptance, { ...acceptance, community: false, termsHash: TERMS.hash }]) {
+        answerWith(200, JSON.stringify(withAcceptance(accepted)))
+        expect(await readRegistration("r1"), JSON.stringify(accepted)).toMatchObject(withAcceptance(accepted))
       }
-      for (const change of [{ acceptance: undefined }, { acceptance: { ...acceptance, termsHash: "0x1" } }, { acceptance: { ...acceptance, nonce: -1 } }, { acceptance: { ...acceptance, nonce: 1.5 } },
-        { acceptance: { ...acceptance, policy: 3 } }, { acceptance: { ...acceptance, kind: undefined } }, { acceptance: { ...acceptance, kind: "name" } }]) {
-        answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
+      for (const accepted of [undefined, null, { ...acceptance, termsHash: "0x1" }, { ...acceptance, nonce: -1 }, { ...acceptance, nonce: 1.5 },
+        { ...acceptance, policy: 3 }, { ...acceptance, community: undefined }, { ...acceptance, community: "community" }]) {
+        answerWith(200, JSON.stringify(withAcceptance(accepted)))
         const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
-        expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
+        expect((e as ApiError).code, JSON.stringify(accepted)).toBe("network")
       }
     })
 
     const SENDS: [string, () => Promise<unknown>][] = [
       ["an order", () => createOrder(ORDER, "btc", 10000, 31337)],
       ["a code order", () => registerWithCode(ORDER, "SN6-X", 31337)],
-      ["a move", () => retarget("r1", ORDER, 31337)],
-      ["a spend", () => spend("r1", { ...SPEND, terms: ORDER.terms }, 31337)],
+      ["a selection", () => selectName("r1", ORDER, 31337)],
     ]
 
-    it.each(SENDS)("sends %s with the terms the buyer agreed to", async (_, send) => {
-      const fetched = vi.fn(async () => new Response(JSON.stringify({ error: "name_taken" }), { status: 409 }))
+    it.each(SENDS)("sends %s with the terms the buyer agreed to and the reveal", async (_, send) => {
+      const fetched = vi.fn(async () => new Response(JSON.stringify({ type: "name_taken" }), { status: 409 }))
       vi.stubGlobal("fetch", fetched)
       await send().catch(() => undefined)
       const [, init] = fetched.mock.calls[0] as unknown as [string, RequestInit]
-      expect(JSON.parse(String(init.body)).terms).toBe(ORDER.terms)
+      const body = JSON.parse(String(init.body))
+      expect((body.order ?? body).fields.terms).toEqual({ communityName: true, termsHash: COMMUNITY_TERMS.hash })
+      expect(body.reveal).toEqual(REVEAL)
     })
 
     it.each(SENDS)("gives %s refused for changed terms the terms of the name's kind and the community entry as they are now", async (_, send) => {
       for (const [terms, community] of [[COMMUNITY_TERMS, COMMUNITY], [TERMS, null], [LOCAL_TERMS, null]] as const) {
-        answerWith(409, JSON.stringify({ error: "terms_changed", terms, community }))
+        answerWith(409, JSON.stringify({ type: "terms_changed", terms, community }))
         const e = await send().then(() => null, (e: unknown) => e)
         expect(e).toBeInstanceOf(TermsChanged)
         expect(e).toMatchObject({ code: "terms_changed", status: 409, terms, community })
       }
-      for (const body of [{ error: "terms_changed" }, { error: "terms_changed", terms: TERMS }, { error: "terms_changed", terms: null, community: null },
-        { error: "terms_changed", terms: { ...TERMS, hash: COMMUNITY_TERMS.hash }, community: null }, { error: "terms_changed", terms: termsOf("ftp://x"), community: null }]) {
+      for (const body of [{ type: "terms_changed" }, { type: "terms_changed", terms: TERMS }, { type: "terms_changed", terms: null, community: null },
+        { type: "terms_changed", terms: { ...TERMS, hash: COMMUNITY_TERMS.hash }, community: null }, { type: "terms_changed", terms: termsOf("ftp://x"), community: null }]) {
         answerWith(409, JSON.stringify(body))
         const e = await send().then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
@@ -515,7 +543,7 @@ describe("service errors", () => {
     })
 
     it.each(SENDS)("passes %s refused while the terms can't be read, with the service's wait", async (_, send) => {
-      answerWith(503, JSON.stringify({ error: "terms_unavailable" }), { "retry-after": "30" })
+      answerWith(503, JSON.stringify({ type: "terms_unavailable" }), { "retry-after": "30" })
       const e = await send().then(() => null, (e: unknown) => e)
       expect(e).not.toBeInstanceOf(TermsChanged)
       expect(e).toMatchObject({ code: "terms_unavailable", status: 503, retryAfter: 30 })

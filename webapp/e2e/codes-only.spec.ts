@@ -51,25 +51,23 @@ function apiCalls(page: Page): string[] {
   return calls
 }
 
-const PAYMENT_CALL = /^POST \/api\/(invoice$|registration\/[^/]+\/spend$)/
+const PAYMENT_CALL = /^POST \/api\/invoice$/
 
-// No control of the page's that pays or chooses how: methods, Pay, a new invoice, Pay with ETH or a balance to use.
+// No control of the page's that pays or chooses how: methods, Pay, a new invoice or Pay with ETH.
 async function noPaymentUi(page: Page): Promise<void> {
   const main = page.locator("body > main")
   await expect(main.getByRole("radio")).toHaveCount(0)
-  await expect(main.getByRole("button", { name: /^Pay |^Get a new invoice$|^Register with your balance$|^Order the name again$/ })).toHaveCount(0)
-  await expect(main.locator(".balance-row").getByRole("button", { name: "Use", exact: true })).toHaveCount(0)
+  await expect(main.getByRole("button", { name: /^Pay |^Get a new invoice$|^Order the name again$/ })).toHaveCount(0)
   await expect(main.getByRole("link", { name: /^Pay with / })).toHaveCount(0)
   await expect(main.getByRole("button", { name: /^Pay with / })).toHaveCount(0)
-  await expect(chip(page).filter({ hasText: "Balance" })).toHaveCount(0)
 }
 
 test("the service's mode is at /api/config: open by default, codes once the mock takes codes only, the page the same in both", async ({ page, request }) => {
   expect(await (await request.get(`${MOCK}/control/mode`)).json()).toEqual({ mode: "open" })
-  expect(await (await page.request.get("/api/config")).json()).toEqual({ mode: "open", stripePublishableKey: null })
+  expect(await (await page.request.get("/api/config")).json()).toMatchObject({ stripePublishableKey: null, names: { codesOnly: false } })
   const open = await (await page.request.get("/")).text()
   await setMode(request, "codes")
-  expect(await (await page.request.get("/api/config")).json()).toEqual({ mode: "codes", stripePublishableKey: null })
+  expect(await (await page.request.get("/api/config")).json()).toMatchObject({ stripePublishableKey: null, names: { codesOnly: true } })
   expect(await (await page.request.get("/")).text()).toBe(open)
 })
 
@@ -77,10 +75,7 @@ test("the mock refuses every payment in codes-only mode, as the service does", a
   await setMode(request, "codes")
   const invoice = await request.post(`${MOCK}/api/invoice`, { data: { kind: "name" } })
   expect(invoice.status()).toBe(FORBIDDEN)
-  expect(await invoice.json()).toEqual({ error: "codes_only" })
-  const spend = await request.post(`${MOCK}/api/registration/reg-none/spend`, { data: {} })
-  expect(spend.status()).toBe(FORBIDDEN)
-  expect(await spend.json()).toEqual({ error: "codes_only" })
+  expect(await invoice.json()).toEqual({ type: "codes_only" })
   await setMode(request, "open")
   expect((await request.post(`${MOCK}/api/invoice`, { data: { kind: "name" } })).status(), "open mode takes the order to its checks").not.toBe(FORBIDDEN)
 })
@@ -111,7 +106,8 @@ test("each mode's home is drawn from its first frame, never the other mode's fir
   }
 })
 
-test("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request }) => {
+test("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request, browserName }) => {
+  test.skip(browserName === "webkit", "WebKit asks the service again rather than hand the preloaded answer to the page")
   await setMode(request, "codes")
   const asked: string[] = []
   page.on("request", (r) => { if (new URL(r.url()).pathname === "/api/config") asked.push(r.resourceType()) })
@@ -237,23 +233,14 @@ test("a code taken off on Check your order leaves the code field in place of pay
   await page.waitForURL(/\?registration=/)
 })
 
-test("an order paid before codes only shows no new invoice or balance to spend, only Register with code and the refund", async ({ page, request }) => {
+test("an order paid before codes only shows no new invoice or other name, only Register with code and the refund", async ({ page, request }) => {
   const label = uniqueLabel("was")
   const { invoiceId } = await takenOrder(page, request, label)
   const expired = await startOrder(page, uniqueLabel("exp"), { method: "btc" })
   await control(request, `expire/${expired.invoiceId}`)
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
-  // the tab was paying with the taken order's balance
-  await page.goto(`/?order=${invoiceId}`)
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(chip(page)).toContainText("Balance")
 
   await setMode(request, "codes")
-  await page.reload()
-  await expect(chip(page)).toBeHidden()
-  await expect(page.locator("body > header").getByRole("link", { name: "Check your code" })).toBeVisible()
-  await expect(nameField(page), "the balance opens no search").toBeDisabled()
-
   await page.goto(`/?order=${invoiceId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex was taken` })).toBeVisible()
   await expect(onStep(page).getByText("What you paid is kept as your balance. You can ask for a refund. Your names shows the balance.")).toBeVisible()
@@ -282,7 +269,7 @@ test("a registration ended in its dispute period offers only Register with code,
   await setMode(request, "codes")
   const label = uniqueLabel("endc")
   const order = await keepOrder(page, `reg-${label}`, null, label)
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "ended", commitTx: "0x02", registerTx: "0x03" }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: { type: "ended" }, commitTx: "0x02", registerTx: "0x03" }) }))
   await page.goto(`/?registration=${order.registrationId}`)
   await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Search a name" })).toHaveCount(0)
