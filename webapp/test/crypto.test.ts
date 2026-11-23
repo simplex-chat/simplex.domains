@@ -5,6 +5,7 @@ import {
 } from "viem"
 import { mnemonicToAccount } from "viem/accounts"
 import { describe, expect, it } from "vitest"
+import { registerNameTypedData } from "../dev/register-name.ts"
 import { codeHash, codeProgress, formatOwnerCode, mayBeOwnerCode, parseNameCode } from "../src/crypto/code.ts"
 import {
   acceptTermsDigest, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, recordCalls,
@@ -132,12 +133,7 @@ describe("registration", () => {
     const wallet = walletFromEntropy(ENTROPY)
     const r = registration(wallet.address, "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA")
     const typed = {
-      domain: { name: "SimplexSponsor", version: "1", chainId: Number(CHAIN_ID), verifyingContract: hex(SPONSOR) },
-      types: { RegisterName: [
-        { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-        { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "disputeDays", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-      ] },
-      primaryType: "RegisterName" as const,
+      ...registerNameTypedData(Number(CHAIN_ID), hex(SPONSOR)),
       message: { label: r.label, owner: hex(r.owner), duration: r.duration, resolver: hex(RESOLVER), data: recordCalls(r).map(hex), disputeDays: 37n, nonce: 0n, deadline: 1800000000n },
     }
     const digest = registerIntentDigest(CHAIN_ID, SPONSOR, r, 37n, 0n, 1800000000n)
