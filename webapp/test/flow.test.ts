@@ -84,7 +84,9 @@ const view = (request: { labelHash: string; duration: number; commitment: string
   community: null, terms: { communityName: false, termsHash: TERMS.hash },
 }, { phase: "committed", revealAfter: 1000, revealBefore: 87400, intentNonce: 3, ...extra })
 
-const revealSigner = (sent: Pick<RevealBody, "secret" | "nonce" | "deadline" | "signature">, duration: number, days: number) => {
+type SentReveal = Pick<RevealBody, "secret" | "nonce" | "deadline" | "signature">
+
+const revealSigner = (sent: SentReveal, duration: number, days: number) => {
   const r = {
     label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(duration), secret: fromHex(sent.secret),
     resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
@@ -150,7 +152,7 @@ describe("revealOrder", () => {
     const record = flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId: method === "code" ? null : "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
     await flow.revealOrder(view(built.request, { acceptance: general }), record)
-    const body = calls[0].body as RevealBody
+    const body = calls[0].body as SentReveal
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
     expect(await revealSigner(body, built.request.duration, days)).toBe(OWNER)
@@ -185,7 +187,7 @@ describe("revealOrder", () => {
     const record = await flow.ownOrderFor(OWNER_CODE, built.request.labelHash)
     expect(record?.method).toBe(method)
     await flow.revealOrder(reopened, record!)
-    const sent = calls.find((c) => c.path === "/api/registration/reg1/reveal")!.body as RevealBody
+    const sent = calls.find((c) => c.path === "/api/registration/reg1/reveal")!.body as SentReveal
     expect(await revealSigner(sent, built.request.duration, days)).toBe(OWNER)
   })
 })
