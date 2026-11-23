@@ -56,16 +56,16 @@ async function quote(label: string): Promise<Quote> {
   return q!
 }
 
-async function draftOf(label: string, links = { contact: "", channel: "" }, disputeDays = api.DISPUTE_DAYS.btc): Promise<flow.Draft> {
+async function draftOf(label: string, links = { contact: "", channel: "" }, method: flow.Draft["method"] = "btc"): Promise<flow.Draft> {
   const q = await quote(label)
-  return { label, links, chain: flow.chainOf(readSite()), years: q.years, termStart: readSite().termStart, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q), disputeDays }
+  return { label, links, chain: flow.chainOf(readSite()), years: q.years, termStart: readSite().termStart, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q), method }
 }
 
 // a name selected for the order, under the terms the service has for that name now or `terms`
 async function selectionOf(record: store.OrderRecord, to: string, terms?: string): Promise<api.RegistrationView> {
   const q = await quote(to)
   const draft: flow.Draft = { label: to, links: NO_LINKS, chain: flow.chainOf(readSite()), years: api.termYears(q.community, record.years), termStart: readSite().termStart, ownerCode: record.ownerCode,
-    terms: terms ?? api.currentTerms(q), disputeDays: api.DISPUTE_DAYS[record.method] }
+    terms: terms ?? api.currentTerms(q), method: record.method }
   return flow.selectName(record, draft, await flow.orderRequest(draft))
 }
 
@@ -278,7 +278,7 @@ test("a cancelled or expired order gives way to a new one of the same wallet, an
   await control(request, `settle/${second.json.invoiceId}`)
   const late = await call("GET", `/api/invoice/${second.json.invoiceId}`)
   expect([late.json.status, late.json.paidInFull, (late.json.registration as Json).phase]).toEqual(["expired", true, { type: "closed", closedBy: "expired" }])
-  expect((await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, disputeDays: api.DISPUTE_DAYS.card })).request, "card", q.price))).status).toBe(200)
+  expect((await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, method: "card" })).request, "card", q.price))).status).toBe(200)
 })
 
 // an invoice's status as the mock holds it, which a read of the invoice would mark expired once due
@@ -492,7 +492,7 @@ async function nameBody(record: store.OrderRecord, view: api.RegistrationView, t
   const sealedHash = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(view.sealed))))
   const length = record.label.length
   const message = `simplex.domains name ${view.id} ${view.labelHash} ${length} ${view.duration} ${view.commitment} ${sealedHash} ${terms} ${timestamp}`
-  const reveal = await flow.revealFor(record, view, await api.signFor(view.labelHash, view.owner))
+  const reveal = await flow.revealFor(record, view.duration, await api.signFor(view.labelHash, view.owner))
   return { ...api.signedFields({ labelHash: view.labelHash, length, duration: view.duration, commitment: view.commitment, sealed: view.sealed, terms, timestamp,
     signature: hex(signDigest(flow.walletOf(record.ownerCode)!.privateKey, personalDigest(message))) }), reveal } as unknown as Json
 }
@@ -623,7 +623,7 @@ type Paying = { draft: flow.Draft; record: store.OrderRecord; id: string; invoic
 
 // An order of a new code whose invoice closed with nothing received, then got its money: a closed order holding a balance of its price.
 async function lateBalance(request: APIRequestContext, label = uniqueLabel("lb"), method: api.Method = "btc"): Promise<Paying> {
-  const draft = await draftOf(label, undefined, api.DISPUTE_DAYS[method])
+  const draft = await draftOf(label, undefined, method)
   const built = await flow.orderRequest(draft)
   const { price } = await quote(label)
   const opened = await call("POST", "/api/invoice", invoiceBody(built.request, method, price))
@@ -669,7 +669,7 @@ test("a late payment is credited once settled, each confirmed figure once, at th
   // an order whose invoice closed with nothing received
   const closed = async (method: api.Method) => {
     const label = uniqueLabel("lp")
-    const res = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(await draftOf(label, undefined, api.DISPUTE_DAYS[method]))).request, method, (await quote(label)).price))
+    const res = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(await draftOf(label, undefined, method))).request, method, (await quote(label)).price))
     await control(request, `expire/${res.json.invoiceId}`)
     return { invoiceId: res.json.invoiceId as string, id: (res.json.registration as Json).id as string, cryptoAmount: res.json.cryptoAmount }
   }
@@ -967,10 +967,10 @@ test("an order signed over other dispute days than its payment's is bad_request,
   const label = uniqueLabel("dd")
   const draft = await draftOf(label)
   const { price } = await quote(label)
-  expect(await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, disputeDays: api.DISPUTE_DAYS.card })).request, "btc", price)), "a card's days for Bitcoin").toEqual({ status: 400, json: { type: "bad_request" } })
+  expect(await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, method: "card" })).request, "btc", price)), "a card's days for Bitcoin").toEqual({ status: 400, json: { type: "bad_request" } })
   expect(await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(draft)).request, "card", price)), "Bitcoin's days for a card").toEqual({ status: 400, json: { type: "bad_request" } })
-  const card = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, disputeDays: api.DISPUTE_DAYS.card })).request, "card", price))
-  expect([card.status, (card.json.registration as Json).disputeDays]).toEqual([200, api.DISPUTE_DAYS.card])
+  const card = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, method: "card" })).request, "card", price))
+  expect([card.status, (card.json.registration as Json).disputeDays]).toEqual([200, 120])
 })
 
 test("a selection signed over other dispute days than its order's payment is bad_request, and its view holds the payment's days", async ({ request }) => {
@@ -979,17 +979,17 @@ test("a selection signed over other dispute days than its order's payment is bad
   const next = uniqueLabel("dt2")
   const q = await quote(next)
   const over = { label: next, links: NO_LINKS, chain: flow.chainOf(readSite()), years: record.years, termStart: readSite().termStart, ownerCode: record.ownerCode, terms: api.currentTerms(q),
-    disputeDays: api.DISPUTE_DAYS.card }
+    method: "card" as const }
   await expect(flow.selectName(record, over, await flow.orderRequest(over)), "a card's days for a Bitcoin order").rejects.toMatchObject({ code: "bad_request" })
-  expect((await selectionOf(record, next)).disputeDays).toBe(api.DISPUTE_DAYS.btc)
+  expect((await selectionOf(record, next)).disputeDays).toBe(14)
 })
 
 test("a code order whose reveal is signed over other dispute days than a code's is bad_request, and one over a code's registers the name with them", async ({ request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
-  const over = await flow.orderRequest({ ...await draftOf(uniqueLabel("tu")), disputeDays: api.DISPUTE_DAYS.card })
+  const over = await flow.orderRequest(await draftOf(uniqueLabel("tu"), undefined, "card"))
   expect(await call("POST", "/api/name/register", codeBody(over.request, code))).toEqual({ status: 400, json: { type: "bad_request" } })
   const { id } = await codeOrder(request, uniqueLabel("tu"))
-  expect((await viewOf(id)).disputeDays).toBe(api.DISPUTE_DAYS.code)
+  expect((await viewOf(id)).disputeDays).toBe(14)
   await untilPhase(id, ["registered"])
 })
 

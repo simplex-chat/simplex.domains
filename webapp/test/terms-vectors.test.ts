@@ -117,7 +117,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     vi.unstubAllGlobals()
   })
 
-  const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, chain: CHAIN, years: YEARS, termStart: TERM_START, ownerCode: OWNER_CODE, terms, disputeDays: 14 })
+  const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, chain: CHAIN, years: YEARS, termStart: TERM_START, ownerCode: OWNER_CODE, terms, method: "btc" as const })
 
   it.each(TERMS)("order with terms %s", async (terms) => {
     const { flow } = await builders()

@@ -426,7 +426,6 @@ const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for
 const isAcceptance = (v: unknown) => isObject(v) && typeof v.community === "boolean" && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const MIN_DISPUTE_DAYS = 14
 const MAX_DISPUTE_DAYS = 120
-export const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
 const isDisputeDays = (v: unknown) => Number.isInteger(v) && (v as number) >= MIN_DISPUTE_DAYS && (v as number) <= MAX_DISPUTE_DAYS
 const isToSign = (v: unknown) => isObject(v) && (v.type === "unread" || (v.type === "read" && isAmount(v.intentNonce) && isAcceptance(v.acceptance)))
 const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isToSign(v.toSign)) || v.type === "signed" || v.type === "lapsed")

@@ -1,4 +1,4 @@
-import { type Community, DISPUTE_DAYS, type Method, type Terms } from "../api.ts"
+import type { Community, Method, Terms } from "../api.ts"
 import type { LinkKind } from "../names.ts"
 import type { AppliedCode, Checkout } from "../session.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -113,9 +113,6 @@ export function codeEntry(c: Checkout, codesOnly: boolean): "field" | "link" | n
 
 // the open code field takes the payment choices' place, and the order waits for a code there that covers the name
 export const awaitsCode = (c: Checkout, codesOnly: boolean) => codeEntry(c, codesOnly) === "field" && c.code === null
-
-export const disputeDaysOf = (c: Checkout, codesOnly: boolean) =>
-  DISPUTE_DAYS[c.order ? c.order.method : c.code || codeEntry(c, codesOnly) === "field" ? "code" : c.method]
 
 // the review opens once the name code is saved and a community name's terms are accepted on their own step, which only a
 // community name has

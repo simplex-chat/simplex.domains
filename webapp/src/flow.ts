@@ -12,6 +12,7 @@ import * as store from "./store.ts"
 
 const EDIT_DEADLINE_SECONDS = 3600
 const REVEAL_DEADLINE_SECONDS = 7 * 86400
+const DISPUTE_DAYS: Record<store.OrderRecord["method"], number> = { card: 120, btc: 14, xmr: 14, code: 14 }
 
 // signed timestamps and deadlines are judged by the service's clock
 const now = api.serviceSeconds
@@ -38,7 +39,7 @@ export interface Draft {
   termStart: number
   ownerCode: string
   terms: string
-  disputeDays: number
+  method: store.OrderRecord["method"]
 }
 
 export type Available = Extract<api.Found, { type: "available" }> & { community: api.Community | null }
@@ -56,8 +57,8 @@ export async function quoteOf(label: string): Promise<Quote | null> {
 }
 
 // An order of a record's name and links again, as a new order of its code: a new commitment for the term from now.
-export const draftAgain = (record: store.OrderRecord, quote: Quote, terms: string, disputeDays: number): Draft =>
-  ({ label: record.label, links: { contact: record.contact, channel: record.channel }, chain: chainOf(readSite()), years: api.termYears(quote.community, quote.years), termStart: readSite().termStart, ownerCode: record.ownerCode, terms, disputeDays })
+export const draftAgain = (record: store.OrderRecord, quote: Quote, terms: string, method: api.Method): Draft =>
+  ({ label: record.label, links: { contact: record.contact, channel: record.channel }, chain: chainOf(readSite()), years: api.termYears(quote.community, quote.years), termStart: readSite().termStart, ownerCode: record.ownerCode, terms, method })
 
 export type BuiltOrder = { request: api.SignedOrder; owner: string }
 
@@ -72,14 +73,14 @@ export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
   const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links })
   const owner = checksumAddress(wallet.address)
   const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(commitment), sealed, terms: draft.terms }
-  const reveal = signedReveal(wallet, r, commitment, await api.signFor(order.labelHash, owner), draft.chain, draft.disputeDays)
+  const reveal = signedReveal(wallet, r, commitment, await api.signFor(order.labelHash, owner), draft.chain, draft.method)
   const message = `simplex.domains order ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${await sha256Hex(sealed)} ${order.terms} ${timestamp}`
   return { request: { ...order, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal }, owner }
 }
 
-function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, toSign: api.ToSignRead, chain: Pick<api.ChainInfo, "chainId" | "sponsor">, disputeDays: number): api.RevealBody {
+function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, toSign: api.ToSignRead, chain: Pick<api.ChainInfo, "chainId" | "sponsor">, method: store.OrderRecord["method"]): api.RevealBody {
   const deadline = now() + REVEAL_DEADLINE_SECONDS
-  const digest = registerIntentDigest(BigInt(chain.chainId), fromHex(chain.sponsor), r, BigInt(disputeDays), BigInt(toSign.intentNonce), BigInt(deadline))
+  const digest = registerIntentDigest(BigInt(chain.chainId), fromHex(chain.sponsor), r, BigInt(DISPUTE_DAYS[method]), BigInt(toSign.intentNonce), BigInt(deadline))
   const a = toSign.acceptance
   const acceptance = {
     termsHash: a.termsHash, nonce: a.nonce,
@@ -101,30 +102,17 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
   }
 }
 
-export class DisputeDaysDeclined extends Error {
-  readonly days: number
-  readonly allowed: number
-  constructor(days: number, allowed: number) {
-    super("dispute_days")
-    this.days = days
-    this.allowed = allowed
-  }
-}
-
-export async function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method">, view: Pick<api.RegistrationView, "duration" | "disputeDays">,
-  toSign: api.ToSignRead): Promise<api.RevealBody> {
-  const allowed = api.DISPUTE_DAYS[record.method]
-  if (view.disputeDays > allowed) throw new DisputeDaysDeclined(view.disputeDays, allowed)
+export async function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method">, duration: number, toSign: api.ToSignRead): Promise<api.RevealBody> {
   const wallet = walletOf(record.ownerCode)!
   const site = await namesSite()
-  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(view.duration))
-  return signedReveal(wallet, r, makeCommitment(r), toSign, site, view.disputeDays)
+  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(duration))
+  return signedReveal(wallet, r, makeCommitment(r), toSign, site, record.method)
 }
 
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
   const toSign = api.toSignOf(view)
   if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
-  await api.reveal(view.id, await revealFor(record, view, toSign))
+  await api.reveal(view.id, await revealFor(record, view.duration, toSign))
 }
 
 async function sha256Hex(text: string): Promise<string> {

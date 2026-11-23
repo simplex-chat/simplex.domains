@@ -53,7 +53,6 @@ export interface OrderState {
   nameStatus: Found["type"] | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
-  declined: string | null
 }
 
 export type OrderEvent =
@@ -70,7 +69,6 @@ export type OrderEvent =
   | { type: "reveal-refused"; key: string }
   | { type: "reveal-failed"; key: string }
   | { type: "reveal-retried" }
-  | { type: "reveal-declined"; key: string }
   | { type: "cancel-started" }
   | { type: "cancel-answered" }
   | { type: "cancel-failed"; note: Note }
@@ -90,7 +88,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, declined: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase.type}${view.phase.type === "committed" && view.label !== null ? " signed" : ""}`
@@ -121,7 +119,6 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "reveal-refused": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false, refusals: s.reveal.refusals + 1 } } : s
     case "reveal-failed": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false } } : s
     case "reveal-retried": return s.reveal ? { ...s, reveal: { ...s.reveal, refusals: 0 } } : s
-    case "reveal-declined": return { ...s, declined: e.key, reveal: s.reveal?.key === e.key ? { ...s.reveal, sending: false } : s.reveal }
     case "cancel-started": return start(s, "cancel")
     case "cancel-answered": return end(s, "cancel", {})
     case "cancel-failed": return end(s, "cancel", { note: e.note })
@@ -259,7 +256,7 @@ export const readToSign = (view: RegistrationView) => {
 
 export const revealKey = (view: RegistrationView) => {
   const read = readToSign(view)
-  return `${view.id} ${view.commitment} ${read?.intentNonce ?? null} ${committedOf(view)?.revealBefore ?? null} ${view.disputeDays}${read ? ` ${read.acceptance.policy} ${read.acceptance.termsHash} ${read.acceptance.nonce}` : ""}`
+  return `${view.id} ${view.commitment} ${read?.intentNonce ?? null} ${committedOf(view)?.revealBefore ?? null}${read ? ` ${read.acceptance.policy} ${read.acceptance.termsHash} ${read.acceptance.nonce}` : ""}`
 }
 
 // The terms of the name's kind on chain are not the ones the order signed, so the buyer agrees to them again before the reveal.
@@ -277,15 +274,13 @@ export const termsToAgree = (s: OrderState) => termsChanged(s) && !(termsAskedAg
 // The changed terms are asked for once the order is committed and they are not asked for yet.
 export const askAgainDue = (s: OrderState) => !!s.record && termsChanged(s) && !termsAskedAgain(s)
 
-export const declinedNow = ({ view, declined }: OrderState) => view !== null && declined === revealKey(view)
-
 export function refusalsOf({ view, reveal }: OrderState): number {
   return view?.phase.type === "committed" && reveal?.key === revealKey(view) ? reveal.refusals : 0
 }
 
 export function revealDue(s: OrderState): boolean {
   const { view, record, reveal } = s
-  if (view?.phase.type !== "committed" || view.label !== null || !readToSign(view) || !record || declinedNow(s)) return false
+  if (view?.phase.type !== "committed" || view.label !== null || !readToSign(view) || !record) return false
   if (termsToAgree(s)) return false
   if (view.phase.revealAfter * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
@@ -293,7 +288,7 @@ export function revealDue(s: OrderState): boolean {
 
 export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
-  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!)) || declinedNow(s)) return null
+  if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!))) return null
   if (view.phase.type !== "committed" || view.label !== null) return since.at + TX_STALL_MS
   return Math.max(since.at, view.phase.revealAfter * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }

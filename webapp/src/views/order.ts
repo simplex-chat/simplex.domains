@@ -6,7 +6,7 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -312,7 +312,6 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
-    if (e instanceof flow.DisputeDaysDeclined) return dispatch({ type: "reveal-declined", key })
     const refused = e instanceof api.ApiError && e.code === "bad_request"
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
@@ -961,7 +960,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const signed = api.signedTermsOf(now.registration.terms)
     const terms = termsOrAsk(gen, record, signed, quote)
     if (terms === null) return
-    const built = await flow.orderRequest(flow.draftAgain(record, quote, terms, api.DISPUTE_DAYS[method]))
+    const built = await flow.orderRequest(flow.draftAgain(record, quote, terms, method))
     const res = await api.createOrder(built.request, method, invoice.amount, readSite().chainId)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
@@ -1041,7 +1040,6 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
   const states = stagesOf(view)
   sayStage(view, states)
   const refused = refusalsOf(s) >= REVEAL_ATTEMPTS
-  const declined = declinedNow(s)
   const steps = stages(states)
   const stalled = stalledAt(s)
   const lapsed = api.lapsedOf(view)
@@ -1065,7 +1063,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase.type !== "committed") return say(note, view.phase.type === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)
-    if (view.label === null && (refused || declined || termsToAgree(s))) say(note, "The registration is not signed yet.")
+    if (view.label === null && (refused || termsToAgree(s))) say(note, "The registration is not signed yet.")
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)
@@ -1225,7 +1223,7 @@ async function continueOrder(): Promise<void> {
   const view = state.view!
   dispatch({ type: "continue-started" })
   try {
-    await api.reveal(view.id, await flow.revealFor(record, view, await api.signFor(view.labelHash, view.owner)))
+    await api.reveal(view.id, await flow.revealFor(record, view.duration, await api.signFor(view.labelHash, view.owner)))
     reread(gen)
   } catch (e) {
     if (holdOn(e, "Nothing changed. ", gen)) return

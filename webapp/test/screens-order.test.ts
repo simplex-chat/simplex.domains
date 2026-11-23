@@ -506,9 +506,8 @@ describe("reveal helpers", () => {
   const view = registration(committed)
   const waiting = read(null, view)
   it("revealKey names the commit a reveal is signed for", () => {
-    expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 14 0x3 ${SIGNED} 0`)
-    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 14 0x3 ${CHANGED} 0`)
-    expect(revealKey(registration({ ...committed, disputeDays: 120 })), "and the dispute days it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 120 0x3 ${SIGNED} 0`)
+    expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 0x3 ${SIGNED} 0`)
+    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 0x3 ${CHANGED} 0`)
   })
   it("a stored reveal ends its sending, so one the service clears is signed again under the same key", () => {
     const sent = reduce(waiting, { type: "reveal-sent", key: revealKey(view) })
@@ -562,18 +561,6 @@ describe("reveal helpers", () => {
     expect(revealDue({ ...waiting, reveal: { key, sending: true, refusals: 0 } })).toBe(false)
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS } })).toBe(false)
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS - 1 } })).toBe(true)
-  })
-  it("a reveal over more dispute days than the payment allows is not signed again, nor taken as stalled, until the service asks another", () => {
-    const over = registration({ ...committed, disputeDays: 120 })
-    const key = revealKey(over)
-    const timed = { ...read(null, over), since: { stage: "reg-1 committed", at: NOW } }
-    expect(stalledAt(timed)).not.toBeNull()
-    const declined = reduce(reduce(timed, { type: "reveal-sent", key }), { type: "reveal-declined", key })
-    expect(declined.declined).toBe(key)
-    expect(revealDue(declined)).toBe(false)
-    expect(stalledAt(declined)).toBeNull()
-    expect(revealDue({ ...declined, view: registration({ ...committed, disputeDays: 120, intentNonce: 5 }) }), "another reveal").toBe(true)
-    expect(revealDue({ ...declined, view: registration({ ...committed, disputeDays: 14 }) }), "the service's days corrected").toBe(true)
   })
 })
 
@@ -662,7 +649,7 @@ describe("initialState", () => {
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
       reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
-      nameStatus: null, since: null, declined: null,
+      nameStatus: null, since: null,
     })
   })
 })

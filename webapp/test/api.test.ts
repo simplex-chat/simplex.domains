@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, DISPUTE_DAYS, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
+  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
   communityAgreed, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
@@ -128,12 +128,6 @@ describe("retryDelay", () => {
   it("gives up on a refusal that asking again cannot change", () => {
     expect(retryDelay(new ApiError("not_found", 404, null, {}), USUAL)).toBeNull()
     expect(retryDelay(new ApiError("bad_request", 400, null, {}), USUAL)).toBeNull()
-  })
-})
-
-describe("DISPUTE_DAYS", () => {
-  it("is 120 days for a card and 14 for Bitcoin, Monero or a code", () => {
-    expect([DISPUTE_DAYS.card, DISPUTE_DAYS.btc, DISPUTE_DAYS.xmr, DISPUTE_DAYS.code]).toEqual([120, 14, 14, 14])
   })
 })
 

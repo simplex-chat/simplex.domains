@@ -8,7 +8,7 @@ import { type Method, methodMark } from "../icons.ts"
 import type { LinkKind } from "../names.ts"
 import { RETRY_MS } from "../screens/order.ts"
 import {
-  awaitsCode, changeOf, codeEntry, disputeDaysOf, type CheckoutEvent, type CheckoutKind, type CheckoutState, initialState, METHODS, reduce, screenOf, stepFor, type WaitingOrder,
+  awaitsCode, changeOf, codeEntry, type CheckoutEvent, type CheckoutKind, type CheckoutState, initialState, METHODS, reduce, screenOf, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
@@ -454,7 +454,6 @@ async function sendOrder(): Promise<void> {
   dispatch({ type: "send-started" })
   const links = { contact: c.contact, channel: c.channel }
   const terms = api.termsFor(c.terms, c.community)
-  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms, disputeDays: disputeDaysOf(c, state.codesOnly) }
   // The order is kept whatever the buyer did meanwhile. Its checkout ends, and the order opens, only while this checkout
   // is still the tab's: the buyer may have started another name, by Back and Forward too.
   const mine = currentRoute()
@@ -470,6 +469,7 @@ async function sendOrder(): Promise<void> {
   }
   const method = c.method
   const chosen = c.code ? "code" : c.order?.method ?? method
+  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms, method: chosen }
   const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
   try {
     const fresh = c.sent?.of === of && api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S

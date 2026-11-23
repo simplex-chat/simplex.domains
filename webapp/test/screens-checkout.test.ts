@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  awaitsCode, changeOf, codeEntry, disputeDaysOf, type CheckoutEvent, type CheckoutKind, type CheckoutState, FALLBACK_METHOD, initialState, reduce, screenOf, stepFor,
+  awaitsCode, changeOf, codeEntry, type CheckoutEvent, type CheckoutKind, type CheckoutState, FALLBACK_METHOD, initialState, reduce, screenOf, stepFor,
 } from "../src/screens/checkout.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import type { Checkout } from "../src/session.ts"
@@ -360,21 +360,5 @@ describe("codes-only mode", () => {
     expect(screenOf(refused)).toBe("status:codes-only")
     expect(refused).toMatchObject({ sending: false, busy: false, checkout: sent.checkout })
     expect(screenOf(reduce(refused, opened(refused))), "the review opened again").toBe("review")
-  })
-})
-
-describe("disputeDaysOf", () => {
-  it("is the days the way to pay allows: 120 for a card, 14 for Bitcoin, Monero or a code", () => {
-    expect(disputeDaysOf(checkout({ method: "card" }), false)).toBe(120)
-    expect(disputeDaysOf(checkout({ method: "btc" }), false)).toBe(14)
-    expect(disputeDaysOf(checkout({ method: "xmr" }), false)).toBe(14)
-    expect(disputeDaysOf(checkout({ method: "card", code: CODE }), false)).toBe(14)
-    expect(disputeDaysOf(checkout({ method: "card", codeHere: true }), false), "the code field opened").toBe(14)
-    expect(disputeDaysOf(checkout({ method: "card" }), true), "codes-only mode").toBe(14)
-  })
-  it("for a name selected for a taken order, is the days of that order's payment, whatever method the checkout holds", () => {
-    expect(disputeDaysOf(checkout({ method: "btc", order: { registrationId: "reg-9", method: "card", paid: 1500 } }), false)).toBe(120)
-    expect(disputeDaysOf(checkout({ method: "card", order: { registrationId: "reg-9", method: "xmr", paid: 1500 } }), false)).toBe(14)
-    expect(disputeDaysOf(checkout({ method: "card", order: { registrationId: "reg-9", method: "code", paid: 0 } }), false)).toBe(14)
   })
 })
