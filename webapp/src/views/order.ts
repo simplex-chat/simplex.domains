@@ -967,7 +967,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const signed = api.signedTermsOf(now.registration.terms)
     const terms = termsOrAsk(gen, record, signed, quote)
     if (terms === null) return
-    const built = await flow.orderRequest(flow.draftAgain(record, quote, terms))
+    const built = await flow.orderRequest(flow.draftAgain(record, quote, terms, api.DISPUTE_DAYS[method]))
     const res = await api.createOrder(built.request, method, invoice.amount, readSite().chainId)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
