@@ -62,10 +62,10 @@ async function draftOf(label: string, links = { contact: "", channel: "" }, meth
 }
 
 // a name selected for the order, under the terms the service has for that name now or `terms`
-async function selectionOf(record: store.OrderRecord, to: string, terms?: string): Promise<api.RegistrationView> {
+async function selectionOf(record: store.OrderRecord, to: string, terms?: string, method = record.method): Promise<api.RegistrationView> {
   const q = await quote(to)
   const draft: flow.Draft = { label: to, links: NO_LINKS, chain: flow.chainOf(readSite()), years: api.termYears(q.community, record.years), termStart: readSite().termStart, ownerCode: record.ownerCode,
-    terms: terms ?? api.currentTerms(q), method: record.method }
+    terms: terms ?? api.currentTerms(q), method }
   return flow.selectName(record, draft, await flow.orderRequest(draft))
 }
 
@@ -977,10 +977,7 @@ test("a selection signed over other dispute days than its order's payment's is b
   const { id } = await takenPaid(request, uniqueLabel("dt"))
   const record = store.orderByRegistration(id)!
   const next = uniqueLabel("dt2")
-  const q = await quote(next)
-  const over = { label: next, links: NO_LINKS, chain: flow.chainOf(readSite()), years: record.years, termStart: readSite().termStart, ownerCode: record.ownerCode, terms: api.currentTerms(q),
-    method: "card" as const }
-  await expect(flow.selectName(record, over, await flow.orderRequest(over)), "a card's days for a Bitcoin order").rejects.toMatchObject({ code: "bad_request" })
+  await expect(selectionOf(record, next, undefined, "card"), "a card's days for a Bitcoin order").rejects.toMatchObject({ code: "bad_request" })
   await selectionOf(record, next)
   expect((await call("GET", `/api/registration/${id}`)).json.disputeDays).toBe(14)
 })
