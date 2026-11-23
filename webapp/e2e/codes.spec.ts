@@ -117,11 +117,11 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
   const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as
-    { years: number; duration: number; registerTx: string; disputeDays: number; phase: { disputeUntil: number } }
+    { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } }
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
   expect(registered.expiresAt).toBe(await chainExpiry(label))
-  expect(view.phase.disputeUntil, "the dispute days signed in the reveal, counted on chain from the register's block").toBe(await blockTimeOf(view.registerTx) + view.disputeDays * 86400)
+  expect(view.phase.disputeUntil, "a code's dispute end, 14 days after the register's block").toBe(await blockTimeOf(view.registerTx) + 14 * 86400)
   await shot(page, "K8-registered-with-code")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
