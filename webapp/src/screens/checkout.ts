@@ -2,6 +2,7 @@ import type { Community, Method, Terms } from "../api.ts"
 import type { LinkKind } from "../names.ts"
 import type { AppliedCode, Checkout } from "../session.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
+import type { Declined } from "./order.ts"
 import type { CheckoutStep } from "./routes.ts"
 
 export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
@@ -23,7 +24,7 @@ export interface CheckoutState {
   openOrder: OpenOrder | null
   hold: Hold | null
   refusal: Refusal | null
-  declined: { days: number; allowed: number } | null
+  declined: Declined | null
   // the community terms' text read for their step, by their hash; null when it cannot be shown
   communityText: { hash: string; text: string | null } | null
 }
