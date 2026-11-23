@@ -13,14 +13,17 @@ const read = <T>(name: string): T => JSON.parse(readFileSync(join(DIR!, `${name}
 const fromHex = (h: string) => Uint8Array.from(Buffer.from(h.replace(/^0x/, ""), "hex"))
 const ENTROPY = fromHex("6f2d1c9a4b7e3f80d15a2c6e9b04f7a3")
 
+interface RegisterName {
+  chainId: number; sponsor: string; label: string; owner: string; duration: number; secret: string; resolver: string
+  contact: string | null; channel: string | null; commitment: string; disputeDays: number; nonce: number; deadline: number; digest: string
+}
+
 interface Signatures {
   owner: string
   findTimestamp: number
   messages: { kind: string; terms: string | null; text: string; digest: Hex; signature: Hex }[]
-  registerName: {
-    chainId: number; sponsor: string; label: string; owner: string; duration: number; secret: string; resolver: string
-    contact: string | null; channel: string | null; commitment: string; disputeDays: number; nonce: number; deadline: number; digest: string
-  }
+  registerName: RegisterName
+  registerNameCode: RegisterName
   setText: { chainId: number; resolver: string; label: string; key: string; value: string; nonce: number; deadline: number; digest: string }
 }
 
@@ -44,14 +47,17 @@ describe.skipIf(!DIR)("the names page reproduces the service's recorded vectors"
     expect(await recoverMessageAddress({ message: find.text, signature: find.signature })).toBe(v.owner)
   })
 
-  it("commits to a registration and hashes RegisterName and SetText as the service does", () => {
-    const { registerName: r, setText: s } = read<Signatures>("vectors-signatures")
-    const registration = {
-      label: r.label, tld: "simplex", owner: fromHex(r.owner), duration: BigInt(r.duration), secret: fromHex(r.secret), resolver: fromHex(r.resolver),
-      contactLink: r.contact, channelLink: r.channel,
+  it("commits to a registration and hashes RegisterName over a card's and a code's dispute days, and SetText, as the service does", () => {
+    const { registerName, registerNameCode, setText: s } = read<Signatures>("vectors-signatures")
+    expect([registerName.disputeDays, registerNameCode.disputeDays]).toEqual([120, 14])
+    for (const r of [registerName, registerNameCode]) {
+      const registration = {
+        label: r.label, tld: "simplex", owner: fromHex(r.owner), duration: BigInt(r.duration), secret: fromHex(r.secret), resolver: fromHex(r.resolver),
+        contactLink: r.contact, channelLink: r.channel,
+      }
+      expect(hex(makeCommitment(registration))).toBe(r.commitment)
+      expect(hex(registerIntentDigest(BigInt(r.chainId), fromHex(r.sponsor), registration, BigInt(r.disputeDays), BigInt(r.nonce), BigInt(r.deadline))), `${r.disputeDays} days`).toBe(r.digest)
     }
-    expect(hex(makeCommitment(registration))).toBe(r.commitment)
-    expect(hex(registerIntentDigest(BigInt(r.chainId), fromHex(r.sponsor), registration, BigInt(r.disputeDays), BigInt(r.nonce), BigInt(r.deadline)))).toBe(r.digest)
     expect(hex(setTextDigest(BigInt(s.chainId), fromHex(s.resolver), namehash("simplex", s.label), s.key, s.value, BigInt(s.nonce), BigInt(s.deadline)))).toBe(s.digest)
   })
 

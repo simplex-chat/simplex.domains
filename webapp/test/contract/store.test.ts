@@ -176,6 +176,20 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect(api.selectable(view)).toBe(true)
   })
 
+  it("reads a registered order's dispute days and its dispute end, and one registered without a dispute end as having none", async () => {
+    answering("registration-registered")
+    const disputed = await api.readRegistration("registration")
+    expect([disputed.disputeDays, disputed.phase.type, api.disputeUntilOf(disputed)]).toEqual([14, "registered", expect.any(Number)])
+    answering("registration-registered-no-dispute")
+    const undisputed = await api.readRegistration("registration")
+    expect([undisputed.phase.type, api.disputeUntilOf(undisputed)]).toEqual(["registered", null])
+  })
+
+  it("reads an order whose registration was ended", async () => {
+    answering("registration-ended")
+    expect((await api.readRegistration("registration")).phase).toEqual({ type: "ended" })
+  })
+
   it("reads a selection of a name at another price with that name's price", async () => {
     const e = await refusal("select-catalog-changed", () => api.selectName("r1", order, chainId()))
     expect([e.code, e.body.price]).toEqual(["catalog_changed", 20000])
