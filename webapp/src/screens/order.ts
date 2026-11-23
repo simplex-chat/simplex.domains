@@ -53,7 +53,7 @@ export interface OrderState {
   nameStatus: Found["type"] | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
-  declined: { key: string; days: number; allowed: number } | null
+  declined: string | null
 }
 
 export type OrderEvent =
@@ -70,7 +70,7 @@ export type OrderEvent =
   | { type: "reveal-refused"; key: string }
   | { type: "reveal-failed"; key: string }
   | { type: "reveal-retried" }
-  | { type: "reveal-declined"; key: string; days: number; allowed: number }
+  | { type: "reveal-declined"; key: string }
   | { type: "cancel-started" }
   | { type: "cancel-answered" }
   | { type: "cancel-failed"; note: Note }
@@ -121,7 +121,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "reveal-refused": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false, refusals: s.reveal.refusals + 1 } } : s
     case "reveal-failed": return s.reveal?.key === e.key ? { ...s, reveal: { ...s.reveal, sending: false } } : s
     case "reveal-retried": return s.reveal ? { ...s, reveal: { ...s.reveal, refusals: 0 } } : s
-    case "reveal-declined": return { ...s, declined: { key: e.key, days: e.days, allowed: e.allowed }, reveal: s.reveal?.key === e.key ? { ...s.reveal, sending: false } : s.reveal }
+    case "reveal-declined": return { ...s, declined: e.key, reveal: s.reveal?.key === e.key ? { ...s.reveal, sending: false } : s.reveal }
     case "cancel-started": return start(s, "cancel")
     case "cancel-answered": return end(s, "cancel", {})
     case "cancel-failed": return end(s, "cancel", { note: e.note })
@@ -277,7 +277,7 @@ export const termsToAgree = (s: OrderState) => termsChanged(s) && !(termsAskedAg
 // The changed terms are asked for once the order is committed and they are not asked for yet.
 export const askAgainDue = (s: OrderState) => !!s.record && termsChanged(s) && !termsAskedAgain(s)
 
-export const declinedNow = ({ view, declined }: OrderState) => view && declined?.key === revealKey(view) ? declined : null
+export const declinedNow = ({ view, declined }: OrderState) => view !== null && declined === revealKey(view)
 
 export function refusalsOf({ view, reveal }: OrderState): number {
   return view?.phase.type === "committed" && reveal?.key === revealKey(view) ? reveal.refusals : 0

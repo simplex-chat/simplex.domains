@@ -1674,17 +1674,6 @@ screen(2176, "order-registered-no-links", async (r) => {
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
 })
-screen(2177, "order-registering-days-refused", async (r) => {
-  const { invoiceId, registrationId } = await ordered(r, r.id)
-  await r.page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
-  })
-  await control(r.request, `stale/${registrationId}`)
-  await control(r.request, `settle/${invoiceId}`)
-  await shown(r.page, "This order cannot be signed")
-})
 screen(2178, "order-registered-no-record", async (r) => {
   const { invoiceId } = await ordered(r, r.id)
   await control(r.request, `settle/${invoiceId}`)

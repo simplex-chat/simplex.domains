@@ -568,8 +568,8 @@ describe("reveal helpers", () => {
     const key = revealKey(over)
     const timed = { ...read(null, over), since: { stage: "reg-1 committed", at: NOW } }
     expect(stalledAt(timed)).not.toBeNull()
-    const declined = reduce(reduce(timed, { type: "reveal-sent", key }), { type: "reveal-declined", key, days: 120, allowed: 14 })
-    expect(declined.declined).toEqual({ key, days: 120, allowed: 14 })
+    const declined = reduce(reduce(timed, { type: "reveal-sent", key }), { type: "reveal-declined", key })
+    expect(declined.declined).toBe(key)
     expect(revealDue(declined)).toBe(false)
     expect(stalledAt(declined)).toBeNull()
     expect(revealDue({ ...declined, view: registration({ ...committed, disputeDays: 120, intentNonce: 5 }) }), "another reveal").toBe(true)

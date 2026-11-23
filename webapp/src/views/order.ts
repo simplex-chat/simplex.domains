@@ -23,7 +23,7 @@ import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
 import { loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
-  asStep, type Builder, CONTACT_EMAIL, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
+  asStep, type Builder, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
   searchLink, showRefund, whenDropped, whenLeaving,
 } from "./shell.ts"
 
@@ -312,11 +312,7 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record).catch((e) => {
-    if (e instanceof flow.DisputeDaysDeclined) {
-      dispatch({ type: "reveal-declined", key, days: e.days, allowed: e.allowed })
-      if (isRoute(pageRoute) && state.reference === reference) announce(`${NOT_SIGNABLE}. ${overDays(e)} Write to ${CONTACT_EMAIL} with the reference below.`)
-      return
-    }
+    if (e instanceof flow.DisputeDaysDeclined) return dispatch({ type: "reveal-declined", key })
     const refused = e instanceof api.ApiError && e.code === "bad_request"
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
@@ -1034,9 +1030,6 @@ function leadOf(s: OrderState): Kid {
   return "Keep this page open until the name is registered."
 }
 
-const NOT_SIGNABLE = "This order cannot be signed"
-const overDays = ({ days, allowed }: { days: number; allowed: number }) => `Its registration could be ended for ${days} days, longer than the ${allowed} days its payment allows.`
-
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
 const LAPSED_NOTE = "The name was not signed in time"
@@ -1076,11 +1069,10 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)
-  return screen({ title: headingOf(s), lead: declined ? null : leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
+  return screen({ title: headingOf(s), lead: leadOf(s), action: refused ? btn("Try again", "", tryAgain) : null },
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
-    declined ? alertBox("danger", "alert", NOT_SIGNABLE, [`${overDays(declined)} Write to `, el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     referenceLine(s.invoice?.invoiceId ?? view.id),
     termsAskedAgain(s) ? agreement(s, "reveal") : null)
@@ -1237,9 +1229,7 @@ async function continueOrder(): Promise<void> {
     reread(gen)
   } catch (e) {
     if (holdOn(e, "Nothing changed. ", gen)) return
-    const note: Note = e instanceof flow.DisputeDaysDeclined ? { tone: "danger", icon: "alert", title: NOT_SIGNABLE, text: `${overDays(e)} Write to ${CONTACT_EMAIL} with the reference below.` }
-      : warning("That did not go through. Nothing changed. Try again in a moment.")
-    answer(gen, { type: "continue-failed", note })
+    answer(gen, { type: "continue-failed", note: warning("That did not go through. Nothing changed. Try again in a moment.") })
     reread(gen)
   }
 }
