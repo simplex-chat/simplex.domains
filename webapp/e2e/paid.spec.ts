@@ -433,20 +433,39 @@ const inWindow = async (page: Page, node: Locator) => {
 const termLines = (page: Page) => onStep(page).locator(".trow").first().locator("> span").last()
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
-test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
-  const { invoiceId } = await startOrder(page, uniqueLabel("over"), { method: "btc" })
-  const reveals: string[] = []
-  page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/reveal")) reveals.push(r.url()) })
-  await page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
-  })
+const viewWithCardDays = (page: Page, invoiceId: string) => page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
+  const res = await route.fetch()
+  const json = await res.json()
+  await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
+})
+
+test("a Bitcoin order's reveal is signed over Bitcoin's dispute days while its view names a card's, and the name is registered", async ({ page, request }) => {
+  const label = uniqueLabel("over")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  await viewWithCardDays(page, invoiceId)
   await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
-  await expect(onStep(page).locator(".countdown p > :not(.sizer)")).toHaveText("The registration is not signed yet.", { timeout: REGISTRATION_MS })
-  await expect(onStep(page).locator(".notice"), "no notice").toHaveCount(0)
-  expect(reveals, "no reveal sent").toEqual([])
+  await waitRegistered(page, label)
+  await page.unrouteAll({ behavior: "ignoreErrors" })
+})
+
+test("Continue signs a failed Bitcoin order over Bitcoin's dispute days while its view names a card's, and the name is registered", async ({ page, request }) => {
+  const label = uniqueLabel("cont")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  const registrationId = await registrationOf(request, invoiceId)
+  await viewWithCardDays(page, invoiceId)
+  await page.route("**/api/registration/*/reveal", (route) => route.abort())
+  await control(request, `stale/${registrationId}`)
+  await control(request, `settle/${invoiceId}`)
+  await expect.poll(async () => {
+    const { phase, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null
+  }, { timeout: REGISTRATION_MS }).toBe(true)
+  await control(request, `unread/${registrationId}`)
+  await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
+  await page.unroute("**/api/registration/*/reveal")
+  await onStep(page).getByRole("button", { name: "Continue" }).click()
+  await waitRegistered(page, label)
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 

@@ -993,12 +993,12 @@ test("a code order whose reveal is signed over other dispute days than a code's 
   await untilPhase(id, ["registered"])
 })
 
-test("a reveal signed over other dispute days than its view's is bad_request, and the reveal over the view's registers the name", async ({ request }) => {
+test("a reveal signed over other dispute days than its order's payment's is bad_request, and the name is registered with the reveal over its payment's", async ({ request }) => {
   const { draft, built, id } = await codeOrder(request, uniqueLabel("tu"))
-  const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+  const recordAs = (method: store.OrderRecord["method"]) => flow.recordFor(draft, built, method, 0, { registrationId: id, invoiceId: null })
   const view = await signAgain(request, id)
-  await expect(flow.revealOrder({ ...view, disputeDays: view.disputeDays - 1 }, record)).rejects.toMatchObject({ code: "bad_request" })
-  await flow.revealOrder(view, record)
+  await expect(flow.revealOrder(view, recordAs("card")), "a card's days for a code order").rejects.toMatchObject({ code: "bad_request" })
+  await flow.revealOrder(view, recordAs("code"))
   await untilPhase(id, ["registered"])
 })
 
