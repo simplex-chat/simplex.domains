@@ -963,7 +963,7 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
 })
 
-test("an order signed over other dispute days than its payment's is bad_request, and a card order's view holds a card's days", async () => {
+test("an order signed over other dispute days than its payment's is bad_request, and a card order's view contains a card's days", async () => {
   const label = uniqueLabel("dd")
   const draft = await draftOf(label)
   const { price } = await quote(label)
@@ -973,7 +973,7 @@ test("an order signed over other dispute days than its payment's is bad_request,
   expect([card.status, (card.json.registration as Json).disputeDays]).toEqual([200, 120])
 })
 
-test("a selection signed over other dispute days than its order's payment is bad_request, and its view holds the payment's days", async ({ request }) => {
+test("a selection signed over other dispute days than its order's payment's is bad_request, and its view contains the payment's days", async ({ request }) => {
   const { id } = await takenPaid(request, uniqueLabel("dt"))
   const record = store.orderByRegistration(id)!
   const next = uniqueLabel("dt2")
@@ -985,7 +985,7 @@ test("a selection signed over other dispute days than its order's payment is bad
   expect((await call("GET", `/api/registration/${id}`)).json.disputeDays).toBe(14)
 })
 
-test("a code order whose reveal is signed over other dispute days than a code's is bad_request, and one over a code's registers the name with them", async ({ request }) => {
+test("a code order whose reveal is signed over other dispute days than a code's is bad_request, and one signed over a code's is registered, its view containing a code's days", async ({ request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   const over = await flow.orderRequest(await draftOf(uniqueLabel("tu"), undefined, "card"))
   expect(await call("POST", "/api/name/register", codeBody(over.request, code))).toEqual({ status: 400, json: { type: "bad_request" } })

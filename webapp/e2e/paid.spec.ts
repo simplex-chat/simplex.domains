@@ -439,7 +439,7 @@ const viewWithCardDays = (page: Page, invoiceId: string) => page.route(`**/api/i
   await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
 })
 
-test("a Bitcoin order's reveal is signed over Bitcoin's dispute days while its view names a card's, and the name is registered", async ({ page, request }) => {
+test("a Bitcoin order's reveal is signed over Bitcoin's dispute days while its view contains a card's, and the name is registered", async ({ page, request }) => {
   const label = uniqueLabel("over")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await viewWithCardDays(page, invoiceId)
@@ -449,7 +449,7 @@ test("a Bitcoin order's reveal is signed over Bitcoin's dispute days while its v
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
-test("Continue signs a failed Bitcoin order over Bitcoin's dispute days while its view names a card's, and the name is registered", async ({ page, request }) => {
+test("a failed Bitcoin order is signed on Continue over Bitcoin's dispute days while its view contains a card's, and the name is registered", async ({ page, request }) => {
   const label = uniqueLabel("cont")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   const registrationId = await registrationOf(request, invoiceId)

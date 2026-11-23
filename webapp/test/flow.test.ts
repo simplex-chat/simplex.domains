@@ -126,7 +126,7 @@ describe("orderRequest", () => {
     expect(flow.recordFor(draft("dynamis", COMMUNITY_SIGNED), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }).terms).toBe(COMMUNITY_SIGNED)
   })
 
-  it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("includes the RegisterName, over the dispute days of a %s payment, %i, and the terms acceptance the code's key signs at what the service reads for the name and owner, a week ahead of the service's clock", async (method, days) => {
+  it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("includes the RegisterName, over the dispute days of a %s payment, %i, and the terms acceptance, signed with the code's key at what the service reads for the name and owner, a week ahead of the service's clock", async (method, days) => {
     const { flow } = await modules()
     const { request } = await flow.orderRequest({ ...draft(), method })
     expect(signReads).toEqual([`/api/name/${request.labelHash}/sign?owner=${OWNER}`])
@@ -171,7 +171,7 @@ describe("revealOrder", () => {
     expect(await recoverAddress({ hash: hex(other) as Hex, signature: sent.acceptance.signature })).not.toBe(OWNER)
   })
 
-  it.each([["card", "btc", 120], ["btc", "card", 14], ["code", "card", 14]] as const)("keeps this browser's %s payment of an order reopened with its code while the view names %s, and signs the reveal over its %i dispute days", async (method, named, days) => {
+  it.each([["card", "btc", 120], ["btc", "card", 14], ["code", "card", 14]] as const)("keeps this browser's %s payment of an order reopened with its code while the view's payment is %s, and signs the reveal over its %i dispute days", async (method, named, days) => {
     const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())
     const invoiceId = method === "code" ? null : "inv1"

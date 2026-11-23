@@ -455,8 +455,8 @@ describe("edit", () => {
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
-      ["a name an order holds, its own order not registered yet", answered(opened, held, registration({ phase: "committed" })), "edit-not-registered"],
-      ["a registered name an order holds now, read again", answered(opened, held), "edit-unreadable"],
+      ["a name taken by another order, its own order not registered yet", answered(opened, held, registration({ phase: "committed" })), "edit-not-registered"],
+      ["a registered name taken by another order now, read again", answered(opened, held), "edit-unreadable"],
       ["a registered name with its links", STATES.edit, "edit"],
     ]
     it.each(cases)("%s", (_, state, kind) => {

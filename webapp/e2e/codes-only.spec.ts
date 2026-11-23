@@ -264,7 +264,7 @@ test("an order paid before codes only shows no new invoice or other name, only R
   await shot(page, "C8-codes-only-names")
 })
 
-test("a registration ended in its dispute period offers only Register with code, as the other endings do", async ({ page, request }) => {
+test("a registration ended in its dispute period is shown with Register with code alone, as the other endings are", async ({ page, request }) => {
   await setMode(request, "codes")
   const label = uniqueLabel("endc")
   const order = await keepOrder(page, `reg-${label}`, null, label)

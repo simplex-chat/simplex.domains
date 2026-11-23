@@ -150,7 +150,7 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await shot(page, "K5-code-used")
 })
 
-test("a registration ended in its dispute period says so on its order's page, is marked Ended in Your names, has no links to edit, and leaves the name available", async ({ page, request }) => {
+test("a registration ended in its dispute period is shown as ended on its order's page, in Your names and in Edit links, and its name is available again", async ({ page, request }) => {
   const { registrationId, label } = await registerWithCode(page, request, "ended")
   await waitRegistered(page, label)
   await control(request, `unregister/${registrationId}`)
