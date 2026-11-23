@@ -469,7 +469,7 @@ test("a name selected for a code order taken first is one its code allows, its c
   const label = uniqueLabel("cc")
   const { id, code, view: taken } = await takenCode(request, label, 10)
   expect(Object.keys(taken).sort(), "the fields of the service's view of a taken code order (registration-taken-code.json)").toEqual([
-    "balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
+    "balance", "commitTx", "commitment", "community", "disputeDays", "disputeUntil", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
     "registerTx", "sealed", "terms", "version", "years",
   ])
   expect([taken.phase, taken.payment, taken.balance, taken.price, taken.label], "a code order has no balance").toEqual([{ type: "taken" }, { type: "code" }, null, 0, label])
