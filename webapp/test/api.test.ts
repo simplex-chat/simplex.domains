@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
+  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, DISPUTE_DAYS, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
   communityAgreed, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 
@@ -128,6 +128,12 @@ describe("retryDelay", () => {
   it("gives up on a refusal that asking again cannot change", () => {
     expect(retryDelay(new ApiError("not_found", 404, null, {}), USUAL)).toBeNull()
     expect(retryDelay(new ApiError("bad_request", 400, null, {}), USUAL)).toBeNull()
+  })
+})
+
+describe("DISPUTE_DAYS", () => {
+  it("is 120 days for a card and 14 for Bitcoin, Monero or a code", () => {
+    expect([DISPUTE_DAYS.card, DISPUTE_DAYS.btc, DISPUTE_DAYS.xmr, DISPUTE_DAYS.code]).toEqual([120, 14, 14, 14])
   })
 })
 
@@ -285,7 +291,7 @@ describe("service errors", () => {
   const REGISTRATION = {
     id: "r1", version: 4, phase: { type: "unpaid" }, labelHash: `0x${"ab".repeat(32)}`, label: null, owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", commitment: `0x${"cd".repeat(32)}`,
     sealed: "sealed", years: 2, duration: 2 * 365 * 86400, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, latePayment: null,
-    community: null, terms: { communityName: false, termsHash: TERMS.hash }, disputeDays: 14, disputeUntil: null,
+    disputeDays: 14, community: null, terms: { communityName: false, termsHash: TERMS.hash },
   }
   const INVOICE = { invoiceId: "inv1", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-16T12:00:00Z", kind: "name", registration: REGISTRATION, cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bc1q" }
 
@@ -334,7 +340,8 @@ describe("service errors", () => {
     for (const phase of [
       { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "closed", closedBy: "reversed" }, { type: "queued" }, { type: "committing" },
       committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
-      committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "ended" }, { type: "taken" },
+      committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "registered", expiresAt: 3, disputeUntil: 2 },
+      { type: "ended" }, { type: "taken" },
       { type: "failed", reason: "registryRefused" }, { type: "failed", reason: "signatureRefused" },
       { type: "failed", reason: "monthEnded" }, { type: "failed", reason: "unread" },
     ]) {
@@ -344,7 +351,7 @@ describe("service errors", () => {
     for (const phase of [
       { type: "closed" }, { type: "closed", closedBy: "paid" }, { type: "committed", revealAfter: 1, revealBefore: 2 }, committed({ type: "awaiting" }),
       committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4 } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: -1, acceptance } }),
-      { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "failed" }, { type: "failed", reason: "not_registered" }, { type: "failed", reason: "linksRefused" },
+      { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "registered", expiresAt: 3, disputeUntil: null }, { type: "failed" }, { type: "failed", reason: "not_registered" }, { type: "failed", reason: "linksRefused" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
@@ -369,19 +376,26 @@ describe("service errors", () => {
     }
   })
 
-  it("passes an order's dispute days, 14 to 120, and its dispute end, and takes a view without them or with values that cannot be so as no answer", async () => {
-    for (const change of [{ disputeDays: 14 }, { disputeDays: 120, disputeUntil: 1810000000 }]) {
+  const registered = (disputeUntil?: unknown) => ({ phase: { type: "registered", expiresAt: 1870000000, ...disputeUntil === undefined ? {} : { disputeUntil } } })
+
+  it("passes an order's dispute days, 14 to 120, and a registered order's dispute end, and takes a view without them or with values that cannot be so as no answer", async () => {
+    for (const change of [{ disputeDays: 14 }, { disputeDays: 120, ...registered(1810000000) }, registered()]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
     }
     for (const change of [
       { disputeDays: undefined }, { disputeDays: null }, { disputeDays: 13 }, { disputeDays: 121 }, { disputeDays: 14.5 }, { disputeDays: "14" },
-      { disputeUntil: undefined }, { disputeUntil: -1 }, { disputeUntil: "1810000000" },
+      registered(null), registered(-1), registered("1810000000"),
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
       const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
     }
+  })
+
+  it("passes an order whose registration was ended in its dispute period", async () => {
+    answerWith(200, JSON.stringify({ ...REGISTRATION, phase: { type: "ended" }, label: "alice" }))
+    expect(await readRegistration("r1")).toMatchObject({ phase: { type: "ended" } })
   })
 
   it("holds a poll on the registration's version and the payment marks it has seen", async () => {

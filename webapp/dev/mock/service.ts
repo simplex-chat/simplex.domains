@@ -483,7 +483,7 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
     case "unpaid": return closedBy ? { type: "closed", closedBy } : { type: "unpaid" }
     case "committed": return { type: "committed", revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
-    case "registered": return { type: "registered", expiresAt: reg.expiresAt }
+    case "registered": return { type: "registered", expiresAt: reg.expiresAt, ...reg.disputeUntil === null ? {} : { disputeUntil: reg.disputeUntil } }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
@@ -497,8 +497,8 @@ function paymentOf(reg: Registration): Record<string, unknown> {
 async function registrationView(reg: Registration): Promise<Record<string, unknown>> {
   return {
     id: reg.id, version: reg.version, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
-    years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), disputeDays: reg.disputeDays, disputeUntil: reg.disputeUntil, balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
-    community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
+    years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
+    disputeDays: reg.disputeDays, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
   }
 }
 

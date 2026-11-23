@@ -19,7 +19,7 @@ const CHANNEL = "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2J"
 const registration = (change: ShortView = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: "0x9c11", sealed: "sealed-box", years: 2,
   duration: 2 * YEAR_S, price: 1500, balance: null, commitTx: null, registerTx: null, latePayment: null,
-  community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` }, disputeDays: 120, disputeUntil: null,
+  community: null, terms: { communityName: false, termsHash: `0x${"21".repeat(32)}` },
 }, change)
 
 const invoice = (change: Partial<InvoiceView> = {}, reg: ShortView = {}): InvoiceView => ({
@@ -56,11 +56,13 @@ const storedEvent = (change: Partial<Stored> = {}, hold: Hold | null = null): Li
 const list = (change: Partial<Stored> = {}, state: Partial<ListState> = {}): ListState => ({ ...initialList(stored(change), null, {}, {}, NOW), ...state })
 
 describe("list helpers", () => {
-  it("lapsed: a registered name past its expiry is over, and one unregistered before it is not", () => {
+  it("lapsed: a registered name past its expiry is over, whatever the search finds", () => {
     const view = registeredView()
-    expect(lapsed({ view }, NOW)).toBe(false)
-    expect(lapsed({ view }, NOW + 3 * YEAR_S * 1000)).toBe(true)
-    expect(lapsed({ view: registration({ phase: "committed" }) }, NOW)).toBe(false)
+    expect(lapsed({ view, answer: registered() }, NOW)).toBe(false)
+    expect(lapsed({ view, answer: registered() }, NOW + 3 * YEAR_S * 1000)).toBe(true)
+    expect(lapsed({ view, answer: available }, NOW + 3 * YEAR_S * 1000)).toBe(true)
+    expect(lapsed({ view, answer: available }, NOW), "a name unregistered before its expiry").toBe(false)
+    expect(lapsed({ view: registration({ phase: "committed" }), answer: available }, NOW)).toBe(false)
   })
   it("registrableAgain: free now once the search finds it available", () => {
     expect(registrableAgain(NOW / 1000 - GRACE_S - 1, available, NOW)).toEqual({ when: "now" })
@@ -134,7 +136,7 @@ describe("list helpers", () => {
     expect(editable(registered(), OWNER.toLowerCase())).toBe(true)
     expect(editable(registered(undefined, { owner: APP }), OWNER)).toBe(false)
     expect(editable(registered(null), OWNER)).toBe(false)
-    expect(editable(held, OWNER)).toBe(false)
+    expect(editable(held, OWNER), "taken by another order").toBe(false)
     expect(editable(available, OWNER), "unregistered on chain before the service's check").toBe(false)
     expect(editable({ found: { type: "reserved" }, community: null }, OWNER)).toBe(false)
   })
@@ -452,10 +454,11 @@ describe("edit", () => {
       ["a registration ended, its name registered again since", answered(opened, registered(undefined, { owner: APP }), registration({ phase: "ended", label: "alice" })), "edit-ended"],
       ["a name unregistered on chain before the service's check, read again", answered(opened, available), "edit-unreadable"],
       ["a name reserved since, read again", answered(opened, { found: { type: "reserved" }, community: null }), "edit-unreadable"],
-      ["a name an order holds since, read again", answered(opened, held), "edit-unreadable"],
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
+      ["a name an order holds, its own order not registered yet", answered(opened, held, registration({ phase: "committed" })), "edit-not-registered"],
+      ["a registered name an order holds now, read again", answered(opened, held), "edit-unreadable"],
       ["a registered name with its links", STATES.edit, "edit"],
     ]
     it.each(cases)("%s", (_, state, kind) => {

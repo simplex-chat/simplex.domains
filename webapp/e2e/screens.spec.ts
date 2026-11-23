@@ -683,16 +683,6 @@ screen(264, "checkout-select-held", async (r) => {
   await press(r.page, "Register with your payment")
   await shown(r.page, "Too many attempts")
 })
-screen(265, "checkout-select-days-refused", async (r) => {
-  const registrationId = await selectPaid(r, `${r.id}-from`)
-  await selectedToReview(r.page, r.id)
-  await r.page.route(`**/api/registration/${registrationId}`, async (route) => {
-    const res = await route.fetch()
-    await route.fulfill({ response: res, json: { ...await res.json(), disputeDays: 120 } })
-  })
-  await press(r.page, "Register with your payment")
-  await heading(r.page, "This order cannot be signed")
-})
 screen(266, "home-select-own-open-order", async (r) => {
   await startOrder(r.page, r.id, { method: "btc" })
   await selectTo(r, `${r.id}-from`, r.id)
@@ -1686,12 +1676,12 @@ screen(2176, "order-registered-no-links", async (r) => {
 })
 screen(2177, "order-registering-days-refused", async (r) => {
   const { invoiceId, registrationId } = await ordered(r, r.id)
-  await control(r.request, `stale/${registrationId}`)
   await r.page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
     const res = await route.fetch()
     const json = await res.json()
     await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
   })
+  await control(r.request, `stale/${registrationId}`)
   await control(r.request, `settle/${invoiceId}`)
   await shown(r.page, "This order cannot be signed")
 })

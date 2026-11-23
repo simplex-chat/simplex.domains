@@ -81,7 +81,7 @@ const draft = (label = "dynamis", terms = SIGNED) => ({ label, links: LINKS, cha
 const view = (request: { labelHash: string; duration: number; commitment: string; sealed: string }, extra: ShortView = {}) => viewOf({
   id: "reg1", version: 1, labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
   years: 2, duration: request.duration, price: 20000, balance: null, commitTx: "0x01", registerTx: null, latePayment: null,
-  community: null, terms: { communityName: false, termsHash: TERMS.hash }, disputeDays: 14, disputeUntil: null,
+  community: null, terms: { communityName: false, termsHash: TERMS.hash },
 }, { phase: "committed", revealAfter: 1000, revealBefore: 87400, intentNonce: 3, ...extra })
 
 describe("orderRequest", () => {
@@ -118,7 +118,7 @@ describe("orderRequest", () => {
     expect(flow.recordFor(draft("dynamis", COMMUNITY_SIGNED), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }).terms).toBe(COMMUNITY_SIGNED)
   })
 
-  it("includes the RegisterName of the draft's dispute days and the terms acceptance the code's key signs at what the service reads for the name and owner, a week ahead of the service's clock", async () => {
+  it("includes the RegisterName, over the order's dispute days, and the terms acceptance the code's key signs at what the service reads for the name and owner, a week ahead of the service's clock", async () => {
     const { flow } = await modules()
     const { request } = await flow.orderRequest(draft())
     expect(signReads).toEqual([`/api/name/${request.labelHash}/sign?owner=${OWNER}`])
@@ -198,19 +198,6 @@ describe("revealOrder", () => {
   })
 })
 
-describe("signedDays", () => {
-  it("is the view's dispute days up to those the record's payment allows, and refuses more", async () => {
-    const { flow } = await modules()
-    expect([flow.signedDays({ method: "card" }, { disputeDays: 120 }), flow.signedDays({ method: "card" }, { disputeDays: 37 }), flow.signedDays({ method: "code" }, { disputeDays: 14 })])
-      .toEqual([120, 37, 14])
-    for (const method of ["btc", "xmr", "code"] as const) {
-      const refused = (() => { try { return flow.signedDays({ method }, { disputeDays: 120 }) } catch (e) { return e } })()
-      expect(refused, method).toBeInstanceOf(flow.DisputeDaysDeclined)
-      expect(refused, method).toMatchObject({ days: 120, allowed: 14 })
-    }
-  })
-})
-
 describe("selectName", () => {
   it("signs the new name's request and the terms agreed for it with the order's key, and keeps the record's wallet", async () => {
     const { flow, store } = await modules()
@@ -244,13 +231,14 @@ describe("selectName", () => {
     expect(store.orderByRegistration("reg1")?.years).toBe(5)
   })
 
-  it("drafts a new invoice for the answer's years, or a community name's own, over the dispute days of its payment", async () => {
+  it("drafts a new invoice for the answer's years, or a community name's own, over the dispute days of its way to pay", async () => {
     const { flow } = await modules()
     await (await import("../src/config.ts")).namesSite()
     const record = flow.recordFor(draft(), await flow.orderRequest(draft()), "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     const community = { years: 2 }
-    expect(flow.draftAgain(record, { ...QUOTE, years: 3 }, SIGNED, 14)).toMatchObject({ years: 3, disputeDays: 14 })
-    expect(flow.draftAgain(record, { ...QUOTE, years: 3, community }, SIGNED, 120)).toMatchObject({ years: 2, disputeDays: 120 })
+    expect(flow.draftAgain(record, { ...QUOTE, years: 3 }, SIGNED, 14).years).toBe(3)
+    expect(flow.draftAgain(record, { ...QUOTE, years: 3, community }, SIGNED, 14).years).toBe(2)
+    expect(flow.draftAgain(record, QUOTE, SIGNED, 120).disputeDays).toBe(120)
   })
 })
 

@@ -161,7 +161,7 @@ export function nameRows(s: ListState): OrderRecord[] {
 
 // A registered name past its expiry: there are no renewals, so the page takes it as over, though the chain keeps it its
 // holder's through the grace period, and whether or not someone has registered it again since.
-export const lapsed = ({ view }: Pick<RowSeen, "view">, now: number) =>
+export const lapsed = ({ view }: Pick<RowSeen, "view" | "answer">, now: number) =>
   view.phase.type === "registered" && view.phase.expiresAt < now / 1000
 
 export const waitsToSign = (view: RegistrationView, now: number) =>
@@ -348,7 +348,7 @@ export function screenOfEdit(s: EditState): EditKind {
   const { view, answer, now } = s.read
   const { found } = answer
   if (view.phase.type === "ended") return "edit-ended"
-  if (lapsed({ view }, now)) return "edit-expired"
+  if (lapsed({ view, answer }, now)) return "edit-expired"
   if (view.phase.type === "registered" && found.type !== "registered") return "edit-unreadable"
   if (found.type === "registered" && !owns(found, s.record.owner)) return "edit-in-app"
   if (found.type === "registered" && found.records.type === "other") return "edit-elsewhere"

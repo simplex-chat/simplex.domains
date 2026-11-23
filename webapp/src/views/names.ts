@@ -274,11 +274,11 @@ const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() +
 // the reference support asks for, in a face where l and I differ
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
-function subLine(o: store.OrderRecord, { view, invoice }: RowSeen, now: number): Kid {
+function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
   // what was paid, from the invoice, else the record's amount, or a free name with a code
   const paid = paidLine(o, invoice)
   const expiresAt = api.expiresAtOf(view)
-  if (lapsed({ view }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
+  if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
   if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
   if (api.reversedOrder(view)) return ""
   if (invoice && invoice.status !== "open" && (view.phase.type === "unpaid" || view.phase.type === "closed")) {

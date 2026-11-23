@@ -8,7 +8,7 @@ import { type Method, methodMark } from "../icons.ts"
 import type { LinkKind } from "../names.ts"
 import { RETRY_MS } from "../screens/order.ts"
 import {
-  awaitsCode, changeOf, codeEntry, type CheckoutEvent, type CheckoutKind, type CheckoutState, initialState, METHODS, paymentOf, reduce, screenOf, stepFor, type WaitingOrder,
+  awaitsCode, changeOf, codeEntry, disputeDaysOf, type CheckoutEvent, type CheckoutKind, type CheckoutState, initialState, METHODS, reduce, screenOf, stepFor, type WaitingOrder,
 } from "../screens/checkout.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
@@ -21,7 +21,7 @@ import {
   asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, supportVia, whenLeaving,
 } from "./shell.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
-import { declinedWords, NOT_SIGNABLE, openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
+import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { readOrder } from "./search.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, shortRowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
@@ -36,7 +36,7 @@ const SIGNED_WINDOW_S = 600
 const years = (c: session.Checkout) => api.termYears(c.community, c.code?.years ?? c.years)
 // a card order waiting for Stripe holds a second paid order; an order with a code, or with a taken order's payment, is no second charge, so it holds none
 const blockedBy = ({ checkout, waiting, codesOnly }: CheckoutState) => checkout.code || checkout.order || codesOnly ? null : waiting
-const payLabel = (c: session.Checkout, codesOnly: boolean) => paymentOf(c, codesOnly) === "code" ? "Register with your code"
+const payLabel = (c: session.Checkout, codesOnly: boolean) => c.code || c.order?.method === "code" || codeEntry(c, codesOnly) === "field" ? "Register with your code"
   : c.order ? "Register with your payment" : `Pay ${dollars(c.price)} with ${methodName(c.method)}`
 
 function waitingCardOrder(): WaitingOrder | null {
@@ -182,11 +182,11 @@ const disputeLine = (days: number) => `For ${days} days after it is registered, 
 // starts, its end, its dispute period, and what it costs; a name registered with a code costs nothing. In codes-only mode every order is registered with a code.
 function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
+  const disputeDays = disputeDaysOf(c, codesOnly)
   const now = api.serviceNow() / 1000
   const name = `${c.label}.${c.chain.tld}`
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
   const side = chats.length ? el("span", { class: "chats" }, chats) : null
-  const disputeDays = api.DISPUTE_DAYS[paymentOf(c, codesOnly)]
   return el("section", { class: "card order" },
     el("div", { class: "row" }, shortRowName(c.label, c.chain.tld, c.community, "community"), side),
     el("div", { class: "table" },
@@ -418,11 +418,6 @@ function buildUnavailable(s: CheckoutState): HTMLElement {
     action: retry, alt: link("Back", () => go(searchLink(s.checkout.label, s.checkout.order?.registrationId))) })
 }
 
-function buildDeclined({ checkout: c, declined }: CheckoutState): HTMLElement {
-  return outcome({ tone: "danger", icon: "alert", title: NOT_SIGNABLE, text: declinedWords(declined!), reference: c.order!.registrationId,
-    action: btn("Back", "", () => go(searchLink(c.label, c.order?.registrationId))) })
-}
-
 // a page opened before the service took codes only; the code entered there registers the name searched again for free
 function buildCodesOnly({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE,
@@ -441,7 +436,6 @@ const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
   "status:taken": buildTaken,
   "status:unavailable": buildUnavailable,
   "status:codes-only": buildCodesOnly,
-  "status:declined": buildDeclined,
   "status:link-contact": buildRefusedLink("contact"),
   "status:link-channel": buildRefusedLink("channel"),
 }
@@ -467,6 +461,7 @@ async function sendOrder(): Promise<void> {
   dispatch({ type: "send-started" })
   const links = { contact: c.contact, channel: c.channel }
   const terms = api.termsFor(c.terms, c.community)
+  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms, disputeDays: disputeDaysOf(c, state.codesOnly) }
   // The order is kept whatever the buyer did meanwhile. Its checkout ends, and the order opens, only while this checkout
   // is still the tab's: the buyer may have started another name, by Back and Forward too.
   const mine = currentRoute()
@@ -481,18 +476,16 @@ async function sendOrder(): Promise<void> {
     else go(url)
   }
   const method = c.method
-  const chosen = paymentOf(c, state.codesOnly)
-  const taken = c.order ? store.orderByRegistration(c.order.registrationId) : undefined
+  const chosen = c.code ? "code" : c.order?.method ?? method
+  const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
   try {
-    if (c.order && !taken) return done("/#/names")
-    const disputeDays = taken ? flow.signedDays(taken, await api.readRegistration(taken.registrationId)) : api.DISPUTE_DAYS[chosen]
-    const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms, disputeDays }
-    const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
     const fresh = c.sent?.of === of && api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S
     const built = fresh ? c.sent! : { of, ...await flow.orderRequest(draft) }
     session.updateCheckout(c.label, { sent: built })
     try {
-      if (taken) {
+      if (c.order) {
+        const taken = store.orderByRegistration(c.order.registrationId)
+        if (!taken) return done("/#/names")
         try {
           await flow.selectName(taken, draft, built)
         } catch (e) {
@@ -535,7 +528,6 @@ async function sendOrder(): Promise<void> {
 }
 
 function orderError(e: unknown, c: session.Checkout): void {
-  if (e instanceof flow.DisputeDaysDeclined) return dispatch({ type: "order-refused", reason: "declined", days: e.days, allowed: e.allowed })
   if (e instanceof api.TermsChanged) {
     act({ type: "terms-changed", terms: e.terms, community: e.community })
     // community terms that changed are read and accepted again on their own step

@@ -114,13 +114,14 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await waitRegistered(page, label)
   const registered = await searchName(request, label)
   expect(registered.type).toBe("registered")
-  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { years: number; duration: number; registerTx: string; disputeDays: number; disputeUntil: number }
-  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}. It can be ended until ${dateOf(view.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as
+    { years: number; duration: number; registerTx: string; disputeDays: number; phase: { disputeUntil: number } }
+  await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}. It can be ended until ${dateOf(view.phase.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
   expect(registered.expiresAt).toBe(await chainExpiry(label))
-  expect(view.disputeUntil, "the dispute days signed with the order, counted on chain from the register's block").toBe(await blockTimeOf(view.registerTx) + view.disputeDays * 86400)
+  expect(view.phase.disputeUntil, "the dispute days signed in the reveal, counted on chain from the register's block").toBe(await blockTimeOf(view.registerTx) + view.disputeDays * 86400)
   await shot(page, "K8-registered-with-code")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -153,8 +154,7 @@ test("a registration ended in its dispute period says so on its order's page, is
   const { registrationId, label } = await registerWithCode(page, request, "ended")
   await waitRegistered(page, label)
   await control(request, `unregister/${registrationId}`)
-  const ended = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as Record<string, unknown>
-  expect(ended, "the view the service gives an ended order").toMatchObject({ phase: { type: "ended" }, disputeUntil: null })
+  expect((await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json()).phase, "the view the service gives an ended order").toEqual({ type: "ended" })
   await page.reload()
   await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
   await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was ended because a payment for it was disputed, reversed or refunded in full.`)
@@ -174,7 +174,7 @@ test("a registered name's page takes its dispute end away as it passes, and is d
   const now = Math.floor(Date.now() / 1000)
   const expiresAt = now + YEAR_S
   let disputeUntil = now + 10
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03", disputeUntil }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt, disputeUntil), commitTx: "0x02", registerTx: "0x03" }) }))
   const lead = page.locator("body > main .lead")
   const disputed = () => `Registered until ${dateOf(expiresAt)}. It can be ended until ${dateOf(disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`
   await page.goto(`/?registration=${order.registrationId}`)

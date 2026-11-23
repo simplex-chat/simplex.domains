@@ -6,7 +6,7 @@ import * as flow from "../flow.ts"
 import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
-  closedBalance, type ClosedCase, closedCase, coinOf, costOf, type Declined, declinedNow, disputeEndAhead, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
+  closedBalance, type ClosedCase, closedCase, coinOf, costOf, declinedNow, disputeEndAhead, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
@@ -1036,11 +1036,8 @@ function leadOf(s: OrderState): Kid {
   return "Keep this page open until the name is registered."
 }
 
-export const NOT_SIGNABLE = "This order cannot be signed"
-const overDays = ({ days, allowed }: Declined) => `Its registration could be ended for ${days} days, longer than the ${allowed} days its payment allows.`
-const declinedNote = (declined: Declined): Note => ({ tone: "danger", icon: "alert", title: NOT_SIGNABLE,
-  text: `${overDays(declined)} Write to `, link: { text: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}`, after: " with the reference below." } })
-export const declinedWords = (declined: Declined) => noteText(declinedNote(declined))
+const NOT_SIGNABLE = "This order cannot be signed"
+const overDays = ({ days, allowed }: { days: number; allowed: number }) => `Its registration could be ended for ${days} days, longer than the ${allowed} days its payment allows.`
 
 const WAIT_NOTE = "Every new name waits a little, so nobody who sees your order can take the name first."
 const COMMIT_NOTE = "Placing your order. The wait starts once it is in."
@@ -1085,7 +1082,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     steps,
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
-    declined ? noteBox(declinedNote(declined)) : null,
+    declined ? alertBox("danger", "alert", NOT_SIGNABLE, [`${overDays(declined)} Write to `, el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " with the reference below."]) : null,
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
     referenceLine(s.invoice?.invoiceId ?? view.id),
     termsAskedAgain(s) ? agreement(s, "reveal") : null)
@@ -1242,9 +1239,10 @@ async function continueOrder(): Promise<void> {
     await api.reveal(view.id, await flow.revealFor(record, view, await api.signFor(view.labelHash, view.owner)))
     reread(gen)
   } catch (e) {
-    if (e instanceof flow.DisputeDaysDeclined) return answer(gen, { type: "continue-failed", note: declinedNote(e) })
     if (holdOn(e, "Nothing changed. ", gen)) return
-    answer(gen, { type: "continue-failed", note: warning("That did not go through. Nothing changed. Try again in a moment.") })
+    const note: Note = e instanceof flow.DisputeDaysDeclined ? { tone: "danger", icon: "alert", title: NOT_SIGNABLE, text: `${overDays(e)} Write to ${CONTACT_EMAIL} with the reference below.` }
+      : warning("That did not go through. Nothing changed. Try again in a moment.")
+    answer(gen, { type: "continue-failed", note })
     reread(gen)
   }
 }

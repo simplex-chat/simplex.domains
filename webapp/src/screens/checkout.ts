@@ -1,13 +1,12 @@
-import type { Community, Method, Terms } from "../api.ts"
+import { type Community, DISPUTE_DAYS, type Method, type Terms } from "../api.ts"
 import type { LinkKind } from "../names.ts"
 import type { AppliedCode, Checkout } from "../session.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
-import type { Declined } from "./order.ts"
 import type { CheckoutStep } from "./routes.ts"
 
 export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
 
-export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only" | "declined" | `link-${LinkKind}`
+export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only" | `link-${LinkKind}`
 export type CheckoutKind = CheckoutStep | `status:${Refusal}`
 
 export interface WaitingOrder { registrationId: string; invoiceId: string }
@@ -24,7 +23,6 @@ export interface CheckoutState {
   openOrder: OpenOrder | null
   hold: Hold | null
   refusal: Refusal | null
-  declined: Declined | null
   // the community terms' text read for their step, by their hash; null when it cannot be shown
   communityText: { hash: string; text: string | null } | null
 }
@@ -46,14 +44,13 @@ export type CheckoutEvent =
   | { type: "send-started" }
   | { type: "order-refused"; reason: "code"; error: string }
   | { type: "order-refused"; reason: "method" | "failed" | "taken" | "unavailable" | "codes-only" | `link-${LinkKind}` }
-  | { type: "order-refused"; reason: "declined"; days: number; allowed: number }
   | { type: "price-changed"; price: number }
   | { type: "terms-changed"; terms: Terms; community: Community | null }
   | { type: "hold-started"; until: number }
   | { type: "hold-ended" }
 
 export function initialState(checkout: Checkout, step: CheckoutStep, codesOnly: boolean): CheckoutState {
-  return { step, checkout, codesOnly, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, declined: null, communityText: null }
+  return { step, checkout, codesOnly, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, communityText: null }
 }
 
 export function changeOf({ checkout, codesOnly }: CheckoutState, e: CheckoutEvent): Partial<Checkout> | null {
@@ -95,8 +92,7 @@ export function reduce(s: CheckoutState, e: CheckoutEvent): CheckoutState {
     case "waiting-settled": return { ...s, waiting: null }
     case "open-order-seen": return { ...s, openOrder: e.order }
     case "send-started": return { ...s, sending: true, busy: true }
-    case "order-refused": return unsent(s, { checkout, refusal: e.reason === "method" || e.reason === "code" ? null : e.reason,
-      declined: e.reason === "declined" ? { days: e.days, allowed: e.allowed } : null })
+    case "order-refused": return unsent(s, { checkout, refusal: e.reason === "method" || e.reason === "code" ? null : e.reason })
     case "price-changed": return unsent(s, { checkout, refusal: "price-changed" })
     case "terms-changed": return unsent(s, { checkout })
     case "hold-started": return unsent(s, { hold: { until: Math.max(e.until, s.hold?.until ?? 0), lead: NO_LEAD }, refusal: "too-many" })
@@ -118,10 +114,8 @@ export function codeEntry(c: Checkout, codesOnly: boolean): "field" | "link" | n
 // the open code field takes the payment choices' place, and the order waits for a code there that covers the name
 export const awaitsCode = (c: Checkout, codesOnly: boolean) => codeEntry(c, codesOnly) === "field" && c.code === null
 
-export function paymentOf(c: Checkout, codesOnly: boolean): Method | "code" {
-  if (c.order) return c.order.method
-  return c.code || codeEntry(c, codesOnly) === "field" ? "code" : c.method
-}
+export const disputeDaysOf = (c: Checkout, codesOnly: boolean) =>
+  DISPUTE_DAYS[c.order ? c.order.method : c.code || codeEntry(c, codesOnly) === "field" ? "code" : c.method]
 
 // the review opens once the name code is saved and a community name's terms are accepted on their own step, which only a
 // community name has

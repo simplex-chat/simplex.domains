@@ -18,7 +18,7 @@ const WARN: Note = { tone: "warn", icon: "alert", title: null, text: "The invoic
 
 const registration = (change: Short = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
-  price: 1500, balance: null, commitTx: null, registerTx: null, latePayment: null, community: null, terms: { communityName: false, termsHash: SIGNED }, disputeDays: 120, disputeUntil: null,
+  price: 1500, balance: null, commitTx: null, registerTx: null, latePayment: null, community: null, terms: { communityName: false, termsHash: SIGNED },
 }, change)
 
 const crypto = (change: Partial<InvoiceView> = {}, reg: Short = {}): InvoiceView => ({
@@ -352,12 +352,12 @@ describe("costOf", () => {
 })
 
 describe("disputeEndAhead", () => {
-  const registered = (disputeUntil: number | null) => read(null, registration({ phase: "registered", disputeUntil }))
+  const registered = (disputeUntil?: number) => read(null, registration({ phase: "registered", disputeUntil }))
   it("is a registered name's dispute end while it is ahead", () => {
     expect(disputeEndAhead(registered(NOW / 1000 + 1))).toBe(NOW / 1000 + 1)
   })
   it("is null once the dispute end is reached, and for a name registered without one", () => {
-    for (const disputeUntil of [NOW / 1000, NOW / 1000 - 1, null]) expect(disputeEndAhead(registered(disputeUntil)), String(disputeUntil)).toBeNull()
+    for (const disputeUntil of [NOW / 1000, NOW / 1000 - 1, undefined]) expect(disputeEndAhead(registered(disputeUntil)), String(disputeUntil)).toBeNull()
   })
 })
 
@@ -516,8 +516,9 @@ describe("reveal helpers", () => {
   const view = registration(committed)
   const waiting = read(null, view)
   it("revealKey names the commit a reveal is signed for", () => {
-    expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 120 0x3 ${SIGNED} 0`)
-    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 120 0x3 ${CHANGED} 0`)
+    expect(revealKey(view)).toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 14 0x3 ${SIGNED} 0`)
+    expect(revealKey(registration({ ...committed, acceptance: acceptanceFor(CHANGED) })), "and the acceptance it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 14 0x3 ${CHANGED} 0`)
+    expect(revealKey(registration({ ...committed, disputeDays: 120 })), "and the dispute days it signs").toBe(`reg-1 ${COMMITMENT} 4 ${NOW / 1000 + 3600} 120 0x3 ${SIGNED} 0`)
   })
   it("a stored reveal ends its sending, so one the service clears is signed again under the same key", () => {
     const sent = reduce(waiting, { type: "reveal-sent", key: revealKey(view) })
@@ -573,14 +574,15 @@ describe("reveal helpers", () => {
     expect(revealDue({ ...waiting, reveal: { key, sending: false, refusals: REVEAL_ATTEMPTS - 1 } })).toBe(true)
   })
   it("a reveal over more dispute days than the payment allows is not signed again, nor taken as stalled, until the service asks another", () => {
-    const key = revealKey(view)
-    const timed = { ...waiting, since: { stage: "reg-1 committed", at: NOW } }
+    const over = registration({ ...committed, disputeDays: 120 })
+    const key = revealKey(over)
+    const timed = { ...read(null, over), since: { stage: "reg-1 committed", at: NOW } }
     expect(stalledAt(timed)).not.toBeNull()
     const declined = reduce(reduce(timed, { type: "reveal-sent", key }), { type: "reveal-declined", key, days: 120, allowed: 14 })
     expect(declined.declined).toEqual({ key, days: 120, allowed: 14 })
     expect(revealDue(declined)).toBe(false)
     expect(stalledAt(declined)).toBeNull()
-    expect(revealDue({ ...declined, view: registration({ ...committed, intentNonce: 5 }) }), "another reveal").toBe(true)
+    expect(revealDue({ ...declined, view: registration({ ...committed, disputeDays: 120, intentNonce: 5 }) }), "another reveal").toBe(true)
     expect(revealDue({ ...declined, view: registration({ ...committed, disputeDays: 14 }) }), "the service's days corrected").toBe(true)
   })
 })

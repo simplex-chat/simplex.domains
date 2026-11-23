@@ -66,26 +66,6 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   expect(await phaseOf(request, invoiceId), "the same order").toBe("registered")
 })
 
-test("a name selected for a taken order is signed over the dispute days of the order's view, and not over more than its payment allows", async ({ page, request }) => {
-  const { invoiceId } = await takenOrder(page, request, uniqueLabel("tkd"))
-  const registrationId = await registrationOf(request, invoiceId)
-  await page.getByRole("button", { name: "Choose another name" }).click()
-  await selectedToReview(page, uniqueLabel("tkd2"))
-  await expect(onStep(page).locator(".card.order .trow", { hasText: "Dispute period" }).getByRole("button"), "the days of the order's Bitcoin payment").toHaveText("14 days")
-  const selections: string[] = []
-  page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/name")) selections.push(r.url()) })
-  await page.route(`**/api/registration/${registrationId}`, async (route) => {
-    const res = await route.fetch()
-    await route.fulfill({ response: res, json: { ...await res.json(), disputeDays: 120 } })
-  })
-  await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
-  await expect(onStep(page).getByRole("heading", { name: "This order cannot be signed" })).toBeVisible()
-  await expect(onStep(page).locator(".notice")).toHaveText("Its registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.")
-  await expect(onStep(page).getByText(`Reference ${registrationId}`)).toBeVisible()
-  expect(selections, "no selection sent").toEqual([])
-  await page.unrouteAll({ behavior: "ignoreErrors" })
-})
-
 test("a paid order whose name was reserved meanwhile says so, and keeps its payment as its balance", async ({ page, request }) => {
   const label = uniqueLabel("prs")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })

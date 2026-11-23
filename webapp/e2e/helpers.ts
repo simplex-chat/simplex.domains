@@ -584,10 +584,10 @@ export async function keepOrder(page: Page, registrationId: string, invoiceId: s
 export const registrationView = (o: KeptOrder, change: Record<string, unknown> = {}) => ({
   id: o.registrationId, version: 1, phase: { type: "unpaid" }, labelHash: o.request.labelHash, label: o.label, owner: o.owner, commitment: o.request.commitment, sealed: "sealed",
   years: 2, duration: 2 * YEAR_S, price: 10000, payment: { type: "invoice", method: "btc" }, balance: null, commitTx: null, registerTx: null, latePayment: null,
-  community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, disputeDays: 120, disputeUntil: null, ...change,
+  disputeDays: 14, community: null, terms: { communityName: false, termsHash: GENERAL_TERMS_HASH }, ...change,
 })
 
-export const registeredPhase = (expiresAt: number) => ({ type: "registered", expiresAt })
+export const registeredPhase = (expiresAt: number, disputeUntil?: number) => ({ type: "registered", expiresAt, disputeUntil })
 
 // A registered name of this browser's code, as the service answers it, holding `links` until `records` answers otherwise.
 export async function fakeRegisteredName(page: Page, label: string, links: { contact: string; channel: string },
@@ -595,7 +595,7 @@ export async function fakeRegisteredName(page: Page, label: string, links: { con
   const order = await keepOrder(page, `reg-${label.slice(0, 12)}`, null, label, links)
   const expiresAt = Math.floor(Date.now() / 1000) + YEAR_S
   const disputeUntil = Math.floor(Date.now() / 1000) + 120 * 86400
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03", disputeUntil }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(expiresAt, disputeUntil), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route("**/api/name/**", (route) => {
     const now = records()
     return route.fulfill({ json: registeredAnswer(order.owner, expiresAt, now.links, [], now.nonce) })

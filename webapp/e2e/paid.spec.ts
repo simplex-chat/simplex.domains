@@ -351,12 +351,12 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
 
   await waitRegistered(page, label)
   const main = page.locator("body > main")
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; disputeUntil: number } }
-  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}. It can be ended until ${dateOf(paidInvoice.registration.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
+  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
+  await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}. It can be ended until ${dateOf(paidInvoice.registration.phase.disputeUntil)} if a payment for it is disputed, reversed or refunded in full.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
-  expect(paidInvoice.registration.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
+  expect(paidInvoice.registration.phase.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
   // how to use the name in the app, with its code, and no buttons to go elsewhere
   await expect(main.locator(".card.use").getByRole("heading", { name: "Use in the app" })).toBeVisible()
   await expect(main.locator(".card.use :is(.sr-only, [aria-hidden=true])"), "a name of up to 25 letters drawn and read as it is").toHaveCount(0)
@@ -457,8 +457,6 @@ test("Check your order says for how many days the registration can be ended, by 
 
 test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("over"), { method: "btc" })
-  // the order's stored reveal is cleared at its register, so the page signs it again over the view's days
-  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   const reveals: string[] = []
   page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/reveal")) reveals.push(r.url()) })
   await page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
@@ -466,6 +464,7 @@ test("a reveal over more dispute days than the order's payment allows is not sig
     const json = await res.json()
     await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
   })
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   const notice = onStep(page).locator(".notice", { hasText: "This order cannot be signed" })
   await expect(notice).toHaveText("This order cannot be signedIts registration could be ended for 120 days, longer than the 14 days its payment allows. Write to chat@simplex.chat with the reference below.",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  awaitsCode, changeOf, codeEntry, type CheckoutEvent, type CheckoutKind, type CheckoutState, FALLBACK_METHOD, initialState, paymentOf, reduce, screenOf, stepFor,
+  awaitsCode, changeOf, codeEntry, disputeDaysOf, type CheckoutEvent, type CheckoutKind, type CheckoutState, FALLBACK_METHOD, initialState, reduce, screenOf, stepFor,
 } from "../src/screens/checkout.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import type { Checkout } from "../src/session.ts"
@@ -38,7 +38,6 @@ const STATES: Record<CheckoutKind, CheckoutState> = {
   "status:taken": open({ refusal: "taken" }),
   "status:unavailable": open({ refusal: "unavailable" }),
   "status:codes-only": open({ refusal: "codes-only" }),
-  "status:declined": open({ checkout: checkout({ order: { registrationId: "reg-1", method: "btc", paid: 1500 } }), refusal: "declined", declined: { days: 120, allowed: 14 } }),
   "status:link-contact": open({ refusal: "link-contact" }),
   "status:link-channel": open({ refusal: "link-channel" }),
 }
@@ -58,7 +57,6 @@ describe("screenOf", () => {
     ["an order for a name registered meanwhile", STATES["status:taken"], "status:taken"],
     ["an order refused while its terms can't be read", STATES["status:unavailable"], "status:unavailable"],
     ["an order the service takes only with a code for now", STATES["status:codes-only"], "status:codes-only"],
-    ["a name selected for a taken order whose view names more dispute days than its payment allows", STATES["status:declined"], "status:declined"],
     ["an order whose contact link the service refused", STATES["status:link-contact"], "status:link-contact"],
     ["an order whose channel link the service refused", STATES["status:link-channel"], "status:link-channel"],
   ]
@@ -215,11 +213,6 @@ describe("reduce", () => {
   it("order-refused while the terms can't be read says names can't be ordered now, with the checkout as it was", () => {
     expect(reduce({ ...s, sending: true, busy: true }, { type: "order-refused", reason: "unavailable" })).toEqual({ ...s, refusal: "unavailable" })
   })
-  it("order-refused for dispute days over the payment's says so with the days, and a later refusal keeps none", () => {
-    const declined = reduce({ ...s, sending: true, busy: true }, { type: "order-refused", reason: "declined", days: 120, allowed: 14 })
-    expect(declined).toEqual({ ...s, refusal: "declined", declined: { days: 120, allowed: 14 } })
-    expect(reduce({ ...declined, sending: true, busy: true }, { type: "order-refused", reason: "failed" })).toEqual({ ...s, refusal: "failed" })
-  })
   it("price-changed keeps the new price and says so", () => {
     expect(reduce({ ...s, sending: true, busy: true }, { type: "price-changed", price: 2500 })).toEqual({ ...s, checkout: checkout({ price: 2500 }), refusal: "price-changed" })
   })
@@ -322,7 +315,7 @@ describe("stepFor", () => {
 describe("initialState", () => {
   it("starts on its step with the checkout as stored and nothing else known", () => {
     expect(initialState(checkout(), "links", false)).toEqual({
-      step: "links", checkout: checkout(), codesOnly: false, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, declined: null, communityText: null,
+      step: "links", checkout: checkout(), codesOnly: false, sending: false, busy: false, waiting: null, openOrder: null, hold: null, refusal: null, communityText: null,
     })
   })
 })
@@ -370,18 +363,18 @@ describe("codes-only mode", () => {
   })
 })
 
-describe("paymentOf", () => {
-  it("is a code, taken or awaited in the field, else the method chosen", () => {
-    expect(paymentOf(checkout({ method: "card", code: CODE }), false)).toBe("code")
-    expect(paymentOf(checkout({ method: "card", codeHere: true }), false), "the code field opened").toBe("code")
-    expect(paymentOf(checkout({ method: "card" }), true), "codes-only mode").toBe("code")
-    expect(paymentOf(checkout({ method: "card" }), false)).toBe("card")
-    expect(paymentOf(checkout({ method: "xmr" }), false)).toBe("xmr")
+describe("disputeDaysOf", () => {
+  it("is the days the way to pay allows: 120 for a card, 14 for Bitcoin, Monero or a code", () => {
+    expect(disputeDaysOf(checkout({ method: "card" }), false)).toBe(120)
+    expect(disputeDaysOf(checkout({ method: "btc" }), false)).toBe(14)
+    expect(disputeDaysOf(checkout({ method: "xmr" }), false)).toBe(14)
+    expect(disputeDaysOf(checkout({ method: "card", code: CODE }), false)).toBe(14)
+    expect(disputeDaysOf(checkout({ method: "card", codeHere: true }), false), "the code field opened").toBe(14)
+    expect(disputeDaysOf(checkout({ method: "card" }), true), "codes-only mode").toBe(14)
   })
-  it("is a taken order's own payment for a name selected for it", () => {
-    for (const method of ["card", "btc", "code"] as const) {
-      expect(paymentOf(checkout({ method: "xmr", order: { registrationId: "reg-1", method, paid: method === "code" ? 0 : 1500 } }), false), method).toBe(method)
-      expect(paymentOf(checkout({ method: "xmr", order: { registrationId: "reg-1", method, paid: method === "code" ? 0 : 1500 } }), true), `${method}, codes-only mode`).toBe(method)
-    }
+  it("for a name selected for a taken order, is the days of that order's payment, whatever method the checkout holds", () => {
+    expect(disputeDaysOf(checkout({ method: "btc", order: { registrationId: "reg-9", method: "card", paid: 1500 } }), false)).toBe(120)
+    expect(disputeDaysOf(checkout({ method: "card", order: { registrationId: "reg-9", method: "xmr", paid: 1500 } }), false)).toBe(14)
+    expect(disputeDaysOf(checkout({ method: "card", order: { registrationId: "reg-9", method: "code", paid: 0 } }), false)).toBe(14)
   })
 })
