@@ -27,7 +27,7 @@ async function refusal(name: string, send: () => Promise<unknown>): Promise<api.
 
 const HASH = `0x${"ab".repeat(32)}`
 const LABEL = "alicebakery"
-const VIEW_FIELDS = ["balance", "commitTx", "commitment", "community", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
+const VIEW_FIELDS = ["balance", "commitTx", "commitment", "community", "disputeDays", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
   "registerTx", "sealed", "terms", "version", "years"]
 
 describe.skipIf(!DIR)("the names page reads the service's recorded answers", () => {
@@ -174,6 +174,16 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect(Object.keys(view).sort(), "the fields the mock's view of a taken code order has").toEqual(VIEW_FIELDS)
     expect([view.phase, view.payment, view.price, view.balance, view.label]).toEqual([{ type: "taken" }, { type: "code" }, 0, null, expect.any(String)])
     expect(api.selectable(view)).toBe(true)
+  })
+
+  it.each(["registration-registered", "registration-registered-no-dispute"])("reads %s, with or without a dispute end, as registered until its expiry", async (name) => {
+    answering(name)
+    expect((await api.readRegistration("registration")).phase).toMatchObject({ type: "registered", expiresAt: expect.any(Number) })
+  })
+
+  it("reads an order whose registration was ended", async () => {
+    answering("registration-ended")
+    expect((await api.readRegistration("registration")).phase).toEqual({ type: "ended" })
   })
 
   it("reads a selection of a name at another price with that name's price", async () => {

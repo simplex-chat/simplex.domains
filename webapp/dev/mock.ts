@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
-  cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, createInvoice, currentTerms, dump, editRecords, find, findLimited,
+  cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, controlUnregister, createInvoice, currentTerms, dump, editRecords, find, findLimited,
   HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retry, reveal, search, selectName, signFor, siteConfig,
 } from "./mock/service.ts"
 
@@ -49,6 +49,7 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/api\/registration\/([^/]+)\/retry$/, (m) => retry(m[1])],
   ["POST", /^\/control\/(settle|partial|confirming|expire|overdue)\/([^/]+)$/, (m, b) => controlInvoice(m[1], m[2], b)],
   ["POST", /^\/control\/(fail|stale|unread|lapse)\/([^/]+)$/, (m) => controlRegistration(m[1], m[2])],
+  ["POST", /^\/control\/unregister\/([^/]+)$/, (m) => controlUnregister(m[1])],
   ["POST", /^\/control\/late\/([^/]+)$/, (m, b) => controlLate(m[1], b.waiting ?? null)],
   ["POST", /^\/control\/credit\/([^/]+)$/, (m, b) => controlCredit(m[1], b.cents)],
   ["POST", /^\/control\/take$/, (_, b) => controlTake(b.label)],

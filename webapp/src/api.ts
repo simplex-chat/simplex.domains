@@ -55,7 +55,7 @@ export function retryDelay(e: unknown, usual: number): number | null {
   return e.status >= 400 && e.status < 500 ? null : usual
 }
 
-export type Phase = "unpaid" | "closed" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
+export type Phase = "unpaid" | "closed" | "queued" | "committing" | "committed" | "registering" | "registered" | "ended" | "taken" | "failed"
 export type Method = "card" | "btc" | "xmr"
 
 export interface ChainInfo {
@@ -193,6 +193,7 @@ export type PhaseView =
   | { type: "committed"; revealAfter: number; revealBefore: number; signature: Signing }
   | { type: "registering" }
   | { type: "registered"; expiresAt: number }
+  | { type: "ended" }
   | { type: "taken" }
   | { type: "failed"; reason: FailReason; heldUntil?: string }
 
@@ -413,7 +414,7 @@ const isLinkProfile = (p: unknown) => isObject(p) && CHAT_KINDS.includes(p.kind 
 const isPreview = (p: unknown) => isObject(p) && LINK_KINDS.includes(p.kind as Preview["kind"]) && isObject(p.profile)
   && (p.profile.type === "ok" ? isLinkProfile(p.profile.linkProfile) : PROFILE_STATES.includes(p.profile.type as Profile["profile"]))
 const isEntity = (e: unknown) => isObject(e) && isPreview(e.preview) && isText(e.link) && isText(e.deepLink)
-const PHASES: Phase[] = ["unpaid", "closed", "queued", "committing", "committed", "registering", "registered", "taken", "failed"]
+const PHASES: Phase[] = ["unpaid", "closed", "queued", "committing", "committed", "registering", "registered", "ended", "taken", "failed"]
 const METHODS: Method[] = ["card", "btc", "xmr"]
 const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && isAmount(v.refunded)
 const isPayment = (v: unknown) => isObject(v) && ((v.type === "invoice" && METHODS.includes(v.method as Method)) || v.type === "code")

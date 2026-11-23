@@ -1,5 +1,5 @@
 import { recoverAddress, recoverMessageAddress, type Hex } from "viem"
-import type { Phase } from "../src/api.ts"
+import type { Phase, RevealBody } from "../src/api.ts"
 import type { CodeOrder } from "../src/flow.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { formatOwnerCode } from "../src/crypto/code.ts"
@@ -76,13 +76,23 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
-const draft = (label = "dynamis", terms = SIGNED) => ({ label, links: LINKS, chain: CHAIN, years: 2, termStart: TERM_START, ownerCode: OWNER_CODE, terms })
+const draft = (label = "dynamis", terms = SIGNED) => ({ label, links: LINKS, chain: CHAIN, years: 2, termStart: TERM_START, ownerCode: OWNER_CODE, terms, method: "card" as const })
 
 const view = (request: { labelHash: string; duration: number; commitment: string; sealed: string }, extra: ShortView = {}) => viewOf({
   id: "reg1", version: 1, labelHash: request.labelHash, label: null, owner: OWNER, commitment: request.commitment, sealed: request.sealed,
   years: 2, duration: request.duration, price: 20000, balance: null, commitTx: "0x01", registerTx: null, latePayment: null,
   community: null, terms: { communityName: false, termsHash: TERMS.hash },
 }, { phase: "committed", revealAfter: 1000, revealBefore: 87400, intentNonce: 3, ...extra })
+
+type SentReveal = Pick<RevealBody, "secret" | "nonce" | "deadline" | "signature">
+
+const revealSigner = (sent: SentReveal, duration: number, days: number) => {
+  const r = {
+    label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(duration), secret: fromHex(sent.secret),
+    resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
+  }
+  return recoverAddress({ hash: hex(registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, BigInt(days), BigInt(sent.nonce), BigInt(sent.deadline))) as Hex, signature: sent.signature as Hex })
+}
 
 describe("orderRequest", () => {
   it("commits to the label, the code's wallet, its derived secret and the links, and seals the name for the code", async () => {
@@ -118,19 +128,14 @@ describe("orderRequest", () => {
     expect(flow.recordFor(draft("dynamis", COMMUNITY_SIGNED), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }).terms).toBe(COMMUNITY_SIGNED)
   })
 
-  it("includes the RegisterName and the terms acceptance the code's key signs at what the service reads for the name and owner, a week ahead of the service's clock", async () => {
+  it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("includes the RegisterName, over the dispute days of a %s payment, %i, and the terms acceptance, signed with the code's key at what the service reads for the name and owner, a week ahead of the service's clock", async (method, days) => {
     const { flow } = await modules()
-    const { request } = await flow.orderRequest(draft())
+    const { request } = await flow.orderRequest({ ...draft(), method })
     expect(signReads).toEqual([`/api/name/${request.labelHash}/sign?owner=${OWNER}`])
     const { reveal } = request
     expect(reveal).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 5 })
     expect(Math.abs(reveal.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
-    const r = {
-      label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(request.duration), secret: fromHex(reveal.secret),
-      resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
-    }
-    const intent = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 5n, BigInt(reveal.deadline))
-    expect(await recoverAddress({ hash: hex(intent) as Hex, signature: reveal.signature as Hex })).toBe(OWNER)
+    expect(await revealSigner(reveal, request.duration, days)).toBe(OWNER)
     const a = TO_SIGN.acceptance
     expect(reveal.acceptance).toMatchObject({ termsHash: a.termsHash, nonce: 1 })
     const accepted = acceptTermsDigest(false, 31337n, fromHex(a.policy), fromHex(request.commitment), fromHex(a.termsHash), 1n, BigInt(reveal.deadline))
@@ -141,21 +146,16 @@ describe("orderRequest", () => {
 describe("revealOrder", () => {
   const general = { community: false, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: `0x${"c7".repeat(32)}`, nonce: 0 }
 
-  it("sends the label, secret and links with a RegisterName signature from the code's key, a week ahead of the service's clock", async () => {
+  it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("sends the label, secret and links with a RegisterName signature from the code's key over the dispute days of a %s payment, %i, a week ahead of the service's clock", async (method, days) => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
-    const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
+    const record = flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId: method === "code" ? null : "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
     await flow.revealOrder(view(built.request, { acceptance: general }), record)
-    const body = calls[0].body as { label: string; secret: string; records: unknown; nonce: number; deadline: number; signature: Hex }
+    const body = calls[0].body as SentReveal
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
-    const r = {
-      label: "dynamis", tld: "simplex", owner: WALLET.address, duration: BigInt(built.request.duration), secret: fromHex(body.secret),
-      resolver: fromHex(CHAIN.resolver), contactLink: LINKS.contact, channelLink: null,
-    }
-    const digest = registerIntentDigest(31337n, fromHex(CHAIN.sponsor), r, 3n, BigInt(body.deadline))
-    expect(await recoverAddress({ hash: hex(digest) as Hex, signature: body.signature })).toBe(OWNER)
+    expect(await revealSigner(body, built.request.duration, days)).toBe(OWNER)
   })
 
   it.each([["name", false], ["community", true]] as const)("signs the acceptance of the %s terms on chain with the code's key, at the same deadline, as their kind's type", async (_, community) => {
@@ -171,6 +171,24 @@ describe("revealOrder", () => {
     const other = acceptTermsDigest(!community, 31337n, fromHex(acceptance.policy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, BigInt(sent.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: sent.acceptance.signature })).toBe(OWNER)
     expect(await recoverAddress({ hash: hex(other) as Hex, signature: sent.acceptance.signature })).not.toBe(OWNER)
+  })
+
+  it.each([["card", "btc", 120], ["btc", "card", 14], ["code", "card", 14]] as const)("keeps this browser's %s payment of an order reopened with its code while the view's payment is %s, and signs the reveal over its %i dispute days", async (method, named, days) => {
+    const { flow, store } = await modules()
+    const built = await flow.orderRequest(draft())
+    const invoiceId = method === "code" ? null : "inv1"
+    store.saveOrder(flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId }))
+    const reopened = view(built.request, { acceptance: general, payment: { type: "invoice", method: named } })
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash,
+      sealed: built.request.sealed }] }
+    answers["GET /api/invoice/inv1"] = { invoiceId: "inv1", status: "paid", amount: 20000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name", registration: reopened }
+    answers["GET /api/registration/reg1"] = reopened
+    answers["POST /api/registration/reg1/reveal"] = {}
+    const record = await flow.ownOrderFor(OWNER_CODE, built.request.labelHash)
+    expect(record?.method).toBe(method)
+    await flow.revealOrder(reopened, record!)
+    const sent = calls.find((c) => c.path === "/api/registration/reg1/reveal")!.body as SentReveal
+    expect(await revealSigner(sent, built.request.duration, days)).toBe(OWNER)
   })
 })
 
@@ -212,8 +230,16 @@ describe("selectName", () => {
     await (await import("../src/config.ts")).namesSite()
     const record = flow.recordFor(draft(), await flow.orderRequest(draft()), "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     const community = { years: 2 }
-    expect(flow.draftAgain(record, { ...QUOTE, years: 3 }, SIGNED).years).toBe(3)
-    expect(flow.draftAgain(record, { ...QUOTE, years: 3, community }, SIGNED).years).toBe(2)
+    expect(flow.draftAgain(record, { ...QUOTE, years: 3 }, SIGNED, "btc").years).toBe(3)
+    expect(flow.draftAgain(record, { ...QUOTE, years: 3, community }, SIGNED, "btc").years).toBe(2)
+  })
+
+  it.each([["card", "btc", 120], ["btc", "card", 14], ["xmr", "card", 14]] as const)("signs the reveal of a new invoice paid by %s for a closed %s order over %i dispute days", async (method, closed, days) => {
+    const { flow } = await modules()
+    await (await import("../src/config.ts")).namesSite()
+    const record = flow.recordFor(draft(), await flow.orderRequest(draft()), closed, 20000, { registrationId: "reg1", invoiceId: "inv1" })
+    const { request } = await flow.orderRequest(flow.draftAgain(record, QUOTE, SIGNED, method))
+    expect(await revealSigner(request.reveal, request.duration, days)).toBe(OWNER)
   })
 })
 
@@ -332,6 +358,14 @@ describe("ownOrderFor", () => {
     const record = await flow.ownOrderFor(OWNER_CODE, mine.labelHash)
     expect(record).toMatchObject({ registrationId: "reg1", label: "dynamis", ownerCode: OWNER_CODE })
     expect(store.orderByRegistration("reg1")?.label).toBe("dynamis")
+  })
+
+  it("opens the code's unpaid order for the name, passing over an older one whose registration was ended", async () => {
+    const { flow } = await modules()
+    const mine = (await flow.orderRequest(draft())).request
+    answers["POST /api/registration/find"] = { registrations: [found("reg2", "unpaid", mine.labelHash, mine.sealed), found("reg1", "ended", mine.labelHash, mine.sealed)] }
+    answers["GET /api/registration/reg2"] = view(mine, { id: "reg2", phase: "unpaid" })
+    expect(await flow.ownOrderFor(OWNER_CODE, mine.labelHash)).toMatchObject({ registrationId: "reg2", label: "dynamis" })
   })
 
   it("finds nothing when the code has no order for the name", async () => {

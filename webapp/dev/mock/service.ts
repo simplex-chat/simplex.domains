@@ -15,6 +15,7 @@ import {
   baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, moveChainTo, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
 } from "./chain.ts"
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
+import { registerNameTypedData } from "../register-name.ts"
 import { savedTerms } from "../serve-terms.ts"
 import { addressFor } from "./addresses.ts"
 import { setClock } from "./clock.ts"
@@ -68,7 +69,7 @@ const SIGN_AGAIN = ["InvalidNonce", "TermsNotAccepted", "TermsMismatch"]
 const COMMUNITY_TEXT_MAX = 200
 const SECP256K1_HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n
 
-export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "taken" | "failed"
+export type Phase = "unpaid" | "queued" | "committing" | "committed" | "registering" | "registered" | "ended" | "taken" | "failed"
 type Method = "card" | "btc" | "xmr"
 type Coin = Exclude<Method, "card">
 const isMethod = (v: unknown): v is Method => v === "card" || v === "btc" || v === "xmr"
@@ -113,6 +114,8 @@ interface Registration {
   terms: string
   paidAt: number | null
   takenAt: number | null
+  disputeDays: number
+  disputeUntil: number | null
 }
 
 interface Invoice {
@@ -480,7 +483,7 @@ async function phaseView(reg: Registration): Promise<Record<string, unknown>> {
     case "unpaid": return closedBy ? { type: "closed", closedBy } : { type: "unpaid" }
     case "committed": return { type: "committed", revealAfter: reg.revealAfter, revealBefore: reg.revealBefore,
       signature: reg.label !== null ? { type: "signed" } : lapsed(reg) ? { type: "lapsed" } : { type: "awaiting", toSign: await toSignOf(reg) } }
-    case "registered": return { type: "registered", expiresAt: reg.expiresAt }
+    case "registered": return { type: "registered", expiresAt: reg.expiresAt, ...reg.disputeUntil === null ? {} : { disputeUntil: reg.disputeUntil } }
     case "failed": return { type: "failed", reason: reg.error, ...reg.error !== "monthEnded" && reg.paidAt !== null ? { heldUntil: iso(monthAfter(reg.paidAt)) } : {} }
     default: return { type: reg.phase }
   }
@@ -495,7 +498,7 @@ async function registrationView(reg: Registration): Promise<Record<string, unkno
   return {
     id: reg.id, version: reg.version, phase: await phaseView(reg), labelHash: reg.labelHash, label: reg.paidAt === null ? null : reg.label, owner: reg.owner, commitment: reg.commitment, sealed: reg.sealed,
     years: reg.years, duration: reg.duration, price: reg.paid, payment: paymentOf(reg), balance: balanceView(reg.id), latePayment: latePayment(reg), commitTx: reg.commitTx, registerTx: reg.registerTx,
-    community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
+    disputeDays: reg.disputeDays, community: signedCommunity(reg), terms: { communityName: communityAgreed(reg.terms), termsHash: signedHash(reg.terms) },
   }
 }
 
@@ -663,11 +666,9 @@ async function checkOrderSigner(o: OrderBody, body: Record<string, unknown>): Pr
 
 const freshTimestamp = (timestamp: unknown) => { if (Math.abs(nowSeconds() - (timestamp as number)) > SIGNED_REQUEST_SECONDS) throw badRequest() }
 
-// A registration is live while its invoice is open, or once paid until it is taken.
-// a registered order is not live either, so its wallet can order the name again once it lapses
 function live(reg: Registration): boolean {
   if (reg.phase === "unpaid") return reg.invoiceId !== null && invoices.get(reg.invoiceId)!.status === "open"
-  return reg.phase !== "taken" && reg.phase !== "registered"
+  return reg.phase !== "taken" && reg.phase !== "registered" && reg.phase !== "ended"
 }
 
 // The answer to an exact resend, or nothing; an overdue order of the same wallet and name with nothing received is closed
@@ -715,7 +716,7 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   await nameFree(order.labelHash)
   const price = await chainPrice(order.length, YEARS)
   if (body.price !== price) throw new HttpError(409, "catalog_changed", { price })
-  const rv = await orderReveal(order, body.reveal)
+  const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS[method] }, body.reveal)
   const reg = newRegistration(order, { years: YEARS, paid: price, method, prepaidCode: null, phase: "unpaid", orderHash }, rv)
   return invoiceView(openInvoice(reg, method, price))
 }
@@ -735,11 +736,13 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
 
 type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash">
 
+const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
+
 function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): Registration {
   const reg: Registration = {
     id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, resends: 0, version: 1,
-    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null, disputeDays: DISPUTE_DAYS[extra.method], disputeUntil: null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -817,7 +820,7 @@ export async function registerWithCode(body: Record<string, unknown>): Promise<R
   const error = CODE_ERRORS[stateOf(row)]
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (order.length < row.minLength) throw new HttpError(409, "code_not_covering")
-  const rv = await orderReveal(order, body.reveal)
+  const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS.code }, body.reveal)
   const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash }, rv)
   row.state = "reserved"
   row.registrationId = reg.id
@@ -967,7 +970,7 @@ async function register(reg: Registration): Promise<void> {
         if (!(e instanceof Reverted) || await accepted() !== acceptance.termsHash) throw e
       })
     }
-    reg.registerTx = await sendTx(sponsor, "registerWithCredit", [registrationTuple(reg), nonce, deadline, signature], sending)
+    reg.registerTx = await sendTx(sponsor, "registerWithCredit", [registrationTuple(reg), BigInt(reg.disputeDays), nonce, deadline, signature], sending)
   } catch (e) {
     if (e instanceof NotSent) throw e
     // a register with no answer may still be mined, so the order waits for the chain; a relay with no answer fails the order
@@ -1009,6 +1012,8 @@ async function registered(reg: Registration): Promise<void> {
   for (let i = 0; ; i++) {
     try {
       reg.expiresAt = Number(await read<bigint>(baseRegistrar, "nameExpires", [BigInt(reg.labelHash)]))
+      const disputeUntil = await read<bigint>(baseRegistrar, "disputeUntil", [BigInt(reg.labelHash)])
+      reg.disputeUntil = disputeUntil === 0n ? null : Number(disputeUntil)
       break
     } catch (e) {
       if (i + 1 >= EXPIRY_READS) throw e
@@ -1051,7 +1056,7 @@ function linksOf(records: unknown): RevealLinks {
 const refusedLink = (records: RevealLinks): LinkKind | null =>
   (["contact", "channel"] as const).find((kind) => { const link = records[kind]; return link !== null && (linkProblem(kind, link) !== null || deepLinkOf(link) === null) }) ?? null
 
-type Ordered = Pick<Registration, "labelHash" | "length" | "duration" | "owner" | "commitment">
+type Ordered = Pick<Registration, "labelHash" | "length" | "duration" | "owner" | "commitment" | "disputeDays">
 type Reveal = { label: string; secret: Hex; records: RevealLinks; intent: NonNullable<Registration["intent"]>; acceptance: NonNullable<Registration["acceptance"]> }
 
 // A reveal includes the owner's signature of the acceptance its view returns, of the terms of the name's kind on chain now.
@@ -1084,15 +1089,8 @@ async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: 
   if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
   if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
   const signer = await recoverTypedDataAddress({
-    domain: { name: "SimplexSponsor", version: "1", chainId: deployment.chainId, verifyingContract: deployment.sponsor },
-    types: {
-      RegisterName: [
-        { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-        { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-      ],
-    },
-    primaryType: "RegisterName",
-    message: { label, owner: o.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, nonce: BigInt(nonce), deadline: BigInt(deadline) },
+    ...registerNameTypedData(deployment.chainId, deployment.sponsor),
+    message: { label, owner: o.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(o.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
     signature,
   })
   if (signer !== o.owner) throw badRequest()
@@ -1165,7 +1163,7 @@ export async function selectName(registrationId: string, body: Record<string, un
   const paid = reg.method !== "code"
   const price = paid ? await chainPrice(order.length, orderYears(order, reg.years)) : 0
   if (price !== reg.paid) throw new HttpError(409, "catalog_changed", { price })
-  const rv = await orderReveal(order, revealBody)
+  const rv = await orderReveal({ ...order, disputeDays: reg.disputeDays }, revealBody)
   const row = reg.prepaidCode ? codes.get(reg.prepaidCode) : undefined
   if (row) codeReservable(row, reg, order.length)
   if (paid && (balances.get(reg.id)?.amount ?? 0) < reg.paid) throw badRequest()
@@ -1468,6 +1466,18 @@ export function controlRegistration(action: string, registrationId: string): Rec
   return { ok: true }
 }
 
+export async function controlUnregister(registrationId: string): Promise<Record<string, unknown>> {
+  const reg = registrations.get(registrationId)
+  if (!reg) throw new HttpError(404, "not_found")
+  if (reg.phase !== "registered" || reg.disputeUntil === null) throw badRequest()
+  await send(controller, "unregister", [reg.label, BigInt(reg.disputeUntil)], undefined, contractsOwner)
+  reg.phase = "ended"
+  reg.expiresAt = null
+  reg.disputeUntil = null
+  changed(reg)
+  return { ok: true }
+}
+
 // A refund support records, by the order's invoice id or registration id, of the whole balance: the cents given, else all of it.
 export function controlRefund(reference: string, cents: unknown): Record<string, unknown> {
   const reg = registrations.get(reference) ?? registrations.get(invoices.get(reference)?.registrationId ?? "")
@@ -1517,16 +1527,9 @@ let holderTurn: Promise<unknown> = Promise.resolve()
 async function registerForHolder(tuple: { label: string; owner: Address; duration: bigint; secret: Hex; resolver: Address; data: Hex[]; reverseRecord: number; referrer: Hex }): Promise<void> {
   const nonce = await read<bigint>(sponsor, "nonces", [holder.address])
   const deadline = BigInt(nowSeconds() + 3600)
-  const signature = await holder.signTypedData({
-    domain: { name: "SimplexSponsor", version: "1", chainId: deployment.chainId, verifyingContract: deployment.sponsor },
-    types: { RegisterName: [
-      { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-      { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
-    ] },
-    primaryType: "RegisterName",
-    message: { ...tuple, nonce, deadline },
-  })
-  await send(sponsor, "registerWithCredit", [tuple, nonce, deadline, signature])
+  const disputeDays = BigInt(DISPUTE_DAYS.card)
+  const signature = await holder.signTypedData({ ...registerNameTypedData(deployment.chainId, deployment.sponsor), message: { ...tuple, disputeDays, nonce, deadline } })
+  await send(sponsor, "registerWithCredit", [tuple, disputeDays, nonce, deadline, signature])
 }
 
 export function controlSearch(body: Record<string, unknown>): Record<string, unknown> {

@@ -1682,6 +1682,14 @@ screen(2178, "order-registered-no-record", async (r) => {
   await heading(other, `${r.id}.simplex is yours`)
   return other
 })
+screen(2179, "order-ended", async (r) => {
+  const { invoiceId, registrationId } = await ordered(r, r.id)
+  await control(r.request, `settle/${invoiceId}`)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.reload()
+  await heading(r.page, "Registration ended")
+})
 screen(2180, "order-taken-chain", async (r) => { await takenOrder(r.page, r.request, r.id) })
 screen(2182, "order-taken-reserved", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
@@ -1925,6 +1933,12 @@ screen(3010, "names-pending-config-unread", async (r) => {
   await nameChecked(tab)
   return tab
 })
+const AVAILABLE_AGAIN = { found: { type: "available", price: 10000, years: 2 } }
+screen(3011, "names-row-unregistered", async (r) => {
+  await faked(r, r.id, { phase: registeredPhase(START_S + 2 * YEAR_S), commitTx: "0x02", registerTx: "0x03" }, null, AVAILABLE_AGAIN)
+  await yourNames(r.page, [r.id])
+  await expect(listRow(r.page, r.id).getByRole("button", { name: /links$/ })).toHaveCount(0)
+})
 screen(3012, "names-list-config-unread-fresh", async (r) => {
   await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
@@ -1933,6 +1947,13 @@ screen(3012, "names-list-config-unread-fresh", async (r) => {
   await r.page.goto("about:blank")
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id })).toContainText("Until")
+})
+screen(3013, "names-row-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto("/#/names")
+  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Ended")
 })
 const seenListReloaded = async (r: Reach, unread: (page: Page) => Promise<unknown>) => {
   await codeOrder(r, r.id)
@@ -2413,6 +2434,10 @@ screen(3124, "names-edit-unreadable", async (r) => {
   await r.page.goto(`/#/edit/reg-${r.id}`)
   await shown(r.page, "The name could not be read now")
 })
+screen(3125, "names-edit-unregistered", async (r) => {
+  await editFaked(r, { phase: registeredPhase(START_S + 2 * YEAR_S) }, () => AVAILABLE_AGAIN)
+  await shown(r.page, "The name could not be read now")
+})
 screen(3126, "names-edit-unreadable-reading", async (r) => {
   await kept(r, `reg-${r.id}`, null, r.id)
   let reads = 0
@@ -2433,6 +2458,13 @@ screen(3130, "names-edit-expired-from", async (r) => {
 screen(3132, "names-edit-expired-taken", async (r) => {
   await editFaked(r, { phase: registeredPhase(r.now - 100 * 86400) }, (order) => registeredFor(order, r.now + YEAR_S, OTHER_OWNER))
   await shown(r.page, "This name has expired")
+})
+screen(3133, "names-edit-ended", async (r) => {
+  const { registrationId } = await codeOrder(r, r.id)
+  await waitRegistered(r.page, r.id)
+  await control(r.request, `unregister/${registrationId}`)
+  await r.page.goto(`/#/edit/${registrationId}`)
+  await shown(r.page, "The registration was ended")
 })
 screen(3134, "names-edit-other-owner", async (r) => {
   const expiresAt = START_S + 2 * YEAR_S

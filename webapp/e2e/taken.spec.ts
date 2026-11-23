@@ -66,6 +66,15 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   expect(await phaseOf(request, invoiceId), "the same order").toBe("registered")
 })
 
+test("a name selected for a taken card order is signed over a card's dispute days and registered", async ({ page, request }) => {
+  await takenOrder(page, request, uniqueLabel("tcd"), "card")
+  await page.getByRole("button", { name: "Choose another name" }).click()
+  const next = uniqueLabel("tcd2")
+  await selectedToReview(page, next)
+  await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
+  await waitRegistered(page, next)
+})
+
 test("a paid order whose name was reserved meanwhile says so, and keeps its payment as its balance", async ({ page, request }) => {
   const label = uniqueLabel("prs")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })

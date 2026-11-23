@@ -139,7 +139,7 @@ export function listedOrders(s: ListState): OrderRecord[] {
 
 // An order's balance as Your names lists it: what is left, what support refunded from it,
 // and what made it: its name registered by someone else first, money after its invoice closed, or money paid over its price.
-export interface BalanceRow { id: string; amount: number; refunded: number; from: "taken" | "outpaid" | "ended" | "late" | "rest" }
+export interface BalanceRow { id: string; amount: number; refunded: number; from: "taken" | "outpaid" | "monthEnded" | "late" | "rest" }
 
 export function balanceRows(s: ListState): BalanceRow[] {
   return listedOrders(s).flatMap((o) => {
@@ -147,7 +147,7 @@ export function balanceRows(s: ListState): BalanceRow[] {
     const b = view?.balance
     if (!b || (b.amount === 0 && b.refunded === 0)) return []
     const from = view.phase.type === "taken" ? takenByOrder(view) ? "outpaid" : "taken"
-      : view.phase.type === "failed" && view.phase.reason === "monthEnded" ? "ended"
+      : view.phase.type === "failed" && view.phase.reason === "monthEnded" ? "monthEnded"
       : view.phase.type === "unpaid" || view.phase.type === "closed" ? "late" : "rest"
     return [{ id: o.registrationId, amount: b.amount, refunded: b.refunded, from }]
   })
@@ -161,8 +161,8 @@ export function nameRows(s: ListState): OrderRecord[] {
 
 // A registered name past its expiry: there are no renewals, so the page takes it as over, though the chain keeps it its
 // holder's through the grace period, and whether or not someone has registered it again since.
-export const lapsed = ({ view, answer }: Pick<RowSeen, "view" | "answer">, now: number) =>
-  view.phase.type === "registered" && (view.phase.expiresAt < now / 1000 || answer?.found.type === "available")
+export const lapsed = (view: RegistrationView, now: number) =>
+  view.phase.type === "registered" && view.phase.expiresAt < now / 1000
 
 export const waitsToSign = (view: RegistrationView, now: number) =>
   view.phase.type === "committed" && view.label === null && now / 1000 >= view.phase.revealAfter
@@ -170,7 +170,7 @@ export const waitsToSign = (view: RegistrationView, now: number) =>
 const PHASE_CHIPS: Record<Exclude<Phase, "closed">, [string, string]> = {
   unpaid: ["Waiting for payment", "warn"],
   queued: ["Registering", "brand"], committing: ["Registering", "brand"], committed: ["Registering", "brand"], registering: ["Registering", "brand"],
-  registered: ["Registered", "ok"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
+  registered: ["Registered", "ok"], ended: ["Ended", "bad"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
 }
 
 const CHIPS = {
@@ -221,7 +221,7 @@ export const CODE_CHIPS: Record<CodeState, [string, string]> = {
 }
 
 export function editable({ found }: SearchAnswer, owner: string): boolean {
-  if (found.type !== "registered") return true
+  if (found.type !== "registered") return false
   return found.owner.toLowerCase() === owner.toLowerCase() && found.records.type === "own"
 }
 
@@ -259,7 +259,7 @@ export function reduceRestore(s: RestoreState, e: RestoreEvent): RestoreState {
 }
 
 export const EDIT_RETRY_MS = 5000
-export type EditKind = "edit" | "edit-unreadable" | "edit-no-code" | "edit-expired" | "edit-in-app" | "edit-elsewhere" | "edit-not-registered"
+export type EditKind = "edit" | "edit-unreadable" | "edit-no-code" | "edit-expired" | "edit-ended" | "edit-in-app" | "edit-elsewhere" | "edit-not-registered"
 interface EditRead { view: RegistrationView; answer: SearchAnswer; now: number }
 type EditResult = "sending" | "nothing" | "saved" | "unanswered" | "moved" | "refused"
 
@@ -347,7 +347,9 @@ export function screenOfEdit(s: EditState): EditKind {
   if (!s.read) return "edit-unreadable"
   const { view, answer, now } = s.read
   const { found } = answer
-  if (lapsed({ view, answer }, now)) return "edit-expired"
+  if (view.phase.type === "ended") return "edit-ended"
+  if (lapsed(view, now)) return "edit-expired"
+  if (view.phase.type === "registered" && found.type !== "registered") return "edit-unreadable"
   if (found.type === "registered" && !owns(found, s.record.owner)) return "edit-in-app"
   if (found.type === "registered" && found.records.type === "other") return "edit-elsewhere"
   if (view.phase.type !== "registered" || found.type !== "registered") return "edit-not-registered"

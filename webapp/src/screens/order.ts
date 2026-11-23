@@ -17,7 +17,7 @@ export const TX_STALL_MS = 180_000
 const UNREAD_PACING_MS = [5_000, 15_000, 30_000]
 export const unreadDelay = (reads: number) => UNREAD_PACING_MS[Math.min(reads, UNREAD_PACING_MS.length - 1)]
 
-export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "registered" | "taken" | "failed" | "not-on-device"
+export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "registered" | "ended" | "taken" | "failed" | "not-on-device"
   | "status:closed" | "status:card-unconfirmed" | "status:paid-by-invoice" | "status:unreadable" | "status:unknown-link" | "status:price-changed"
 
 export type ClosedCase = "paid-late" | "cancelled" | "received" | "expired" | "reversed"
@@ -207,6 +207,7 @@ export function screenOf(s: OrderState): OrderKind {
   if (invoice && unpaidOrClosed(view)) return paymentKind(s, invoice)
   if (unpaidOrClosed(view)) return "status:paid-by-invoice"
   if (view.phase.type === "registered") return "registered"
+  if (view.phase.type === "ended") return "ended"
   if (view.phase.type === "taken") return "taken"
   if (view.phase.type === "failed") return "failed"
   if (view.phase.type !== "registering" && view.label === null && !record) return "not-on-device"
@@ -225,7 +226,7 @@ export function closedBalance(s: OrderState): "offer" | "replaced" | null {
 // A taken or failed order is followed too, since another tab or browser can select a name for it or retry it. Money paid after the close
 // is followed until it is all in the order's balance, or until the service says only support can credit it.
 export function finished(invoice: InvoiceView | null, view: RegistrationView): boolean {
-  if (view.phase.type === "registered" || reversedOrder(view)) return true
+  if (view.phase.type === "registered" || view.phase.type === "ended" || reversedOrder(view)) return true
   if (!unpaidOrClosed(view) || !invoice || invoice.status === "open") return false
   if (view.latePayment) return view.latePayment === "support"
   return paidLate(invoice) && view.balance !== null
