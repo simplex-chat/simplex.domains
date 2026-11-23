@@ -139,7 +139,7 @@ export function listedOrders(s: ListState): OrderRecord[] {
 
 // An order's balance as Your names lists it: what is left, what support refunded from it,
 // and what made it: its name registered by someone else first, money after its invoice closed, or money paid over its price.
-export interface BalanceRow { id: string; amount: number; refunded: number; from: "taken" | "outpaid" | "ended" | "late" | "rest" }
+export interface BalanceRow { id: string; amount: number; refunded: number; from: "taken" | "outpaid" | "monthEnded" | "late" | "rest" }
 
 export function balanceRows(s: ListState): BalanceRow[] {
   return listedOrders(s).flatMap((o) => {
@@ -147,7 +147,7 @@ export function balanceRows(s: ListState): BalanceRow[] {
     const b = view?.balance
     if (!b || (b.amount === 0 && b.refunded === 0)) return []
     const from = view.phase.type === "taken" ? takenByOrder(view) ? "outpaid" : "taken"
-      : view.phase.type === "failed" && view.phase.reason === "monthEnded" ? "ended"
+      : view.phase.type === "failed" && view.phase.reason === "monthEnded" ? "monthEnded"
       : view.phase.type === "unpaid" || view.phase.type === "closed" ? "late" : "rest"
     return [{ id: o.registrationId, amount: b.amount, refunded: b.refunded, from }]
   })

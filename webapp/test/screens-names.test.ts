@@ -214,7 +214,7 @@ describe("balances", () => {
     expect(balanceRows(all())).toEqual([
       { id: "reg-taken", amount: 10000, refunded: 0, from: "taken" },
       { id: "reg-outpaid", amount: 10000, refunded: 0, from: "outpaid" },
-      { id: "reg-ended", amount: 10000, refunded: 0, from: "ended" },
+      { id: "reg-ended", amount: 10000, refunded: 0, from: "monthEnded" },
       { id: "reg-late", amount: 2500, refunded: 7500, from: "late" },
       { id: "reg-overpaid", amount: 5000, refunded: 0, from: "rest" },
     ])
