@@ -274,11 +274,11 @@ const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() +
 // the reference support asks for, in a face where l and I differ
 const reference = (id: string) => [`${SEP}reference `, el("span", { class: "mono" }, id)]
 
-function subLine(o: store.OrderRecord, { view, invoice, answer }: RowSeen, now: number): Kid {
+function subLine(o: store.OrderRecord, { view, invoice }: RowSeen, now: number): Kid {
   // what was paid, from the invoice, else the record's amount, or a free name with a code
   const paid = paidLine(o, invoice)
   const expiresAt = api.expiresAtOf(view)
-  if (lapsed({ view, answer }, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
+  if (lapsed(view, now)) return `Expired ${expiresAt ? dateOf(expiresAt) : ""}`.trim()
   if (view.phase.type === "registered") return `Until ${dateOf(view.phase.expiresAt)}`
   if (api.reversedOrder(view)) return ""
   if (invoice && invoice.status !== "open" && (view.phase.type === "unpaid" || view.phase.type === "closed")) {
@@ -314,7 +314,7 @@ function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const registered = seen?.view.phase.type === "registered"
   const code = registered ? o.ownerCode : null
   const shown = code !== null && s.shownCode === id
-  const edits = registered && !lapsed(seen, s.now) && (!seen.answer || editable(seen.answer, o.owner))
+  const edits = registered && !lapsed(seen.view, s.now) && (!seen.answer || editable(seen.answer, o.owner))
   const acts = code === null ? [small("Open", `${id}-open`, () => go(store.orderUrl(o)))]
     : [codeToggle(id, shown), edits ? small(linksAction(hasLinks(o, seen.answer)), `${id}-edit`, () => go(editUrl(id))) : null]
   const community = seen?.view.community ?? null
@@ -341,7 +341,7 @@ const chipRoom = (shown: HTMLElement, words = ORDER_CHIP_WORDS) => el("span", { 
 
 function rowChip(s: ListState, o: store.OrderRecord, seen: RowSeen | undefined): HTMLElement | null {
   if (s.unread.includes(o.registrationId) || !seen) return chip(ROW_CHIPS.unchecked, "warn")
-  if (lapsed(seen, s.now)) return chip(ROW_CHIPS.lapsed, "bad")
+  if (lapsed(seen.view, s.now)) return chip(ROW_CHIPS.lapsed, "bad")
   // a registered name says so by its date
   if (seen.view.phase.type === "registered") return null
   const [text, tone] = phaseChip(seen.view, seen.invoice, o, s.now)

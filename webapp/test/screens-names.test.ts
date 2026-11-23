@@ -56,13 +56,11 @@ const storedEvent = (change: Partial<Stored> = {}, hold: Hold | null = null): Li
 const list = (change: Partial<Stored> = {}, state: Partial<ListState> = {}): ListState => ({ ...initialList(stored(change), null, {}, {}, NOW), ...state })
 
 describe("list helpers", () => {
-  it("lapsed: a registered name past its expiry is over, whatever the search finds", () => {
+  it("lapsed: a registered name past its expiry is over", () => {
     const view = registeredView()
-    expect(lapsed({ view, answer: registered() }, NOW)).toBe(false)
-    expect(lapsed({ view, answer: registered() }, NOW + 3 * YEAR_S * 1000)).toBe(true)
-    expect(lapsed({ view, answer: available }, NOW + 3 * YEAR_S * 1000)).toBe(true)
-    expect(lapsed({ view, answer: available }, NOW), "a name unregistered before its expiry").toBe(false)
-    expect(lapsed({ view: registration({ phase: "committed" }), answer: available }, NOW)).toBe(false)
+    expect(lapsed(view, NOW)).toBe(false)
+    expect(lapsed(view, NOW + 3 * YEAR_S * 1000)).toBe(true)
+    expect(lapsed(registration({ phase: "committed" }), NOW)).toBe(false)
   })
   it("registrableAgain: free now once the search finds it available", () => {
     expect(registrableAgain(NOW / 1000 - GRACE_S - 1, available, NOW)).toEqual({ when: "now" })
