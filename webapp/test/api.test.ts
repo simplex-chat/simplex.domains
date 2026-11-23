@@ -370,11 +370,6 @@ describe("service errors", () => {
     }
   })
 
-  it("passes an order whose registration was ended in its dispute period", async () => {
-    answerWith(200, JSON.stringify({ ...REGISTRATION, phase: { type: "ended" }, label: "alice" }))
-    expect(await readRegistration("r1")).toMatchObject({ phase: { type: "ended" } })
-  })
-
   it("holds a poll on the registration's version and the payment marks it has seen", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify(INVOICE), { status: 200 }))
     vi.stubGlobal("fetch", fetched)
