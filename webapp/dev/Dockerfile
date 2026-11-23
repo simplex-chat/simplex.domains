@@ -6,7 +6,7 @@ FROM node:24-bookworm AS contracts
 ARG NAMESPACE_COMMIT=e3ba0a50d9475dab8336b5a4026ab0fc5f79ebd4
 ARG ENS_CONTRACTS_COMMIT=ebf76989ec5cab1c7dd49085b4c18faf303657d0
 WORKDIR /src
-RUN git clone https://github.com/brenzi/simplex-namespace-contract.git . \
+RUN git clone https://github.com/simplex-chat/simplex-namespace-contract.git . \
  && git fetch origin "$NAMESPACE_COMMIT" \
  && git checkout "$NAMESPACE_COMMIT" \
  && git submodule update --init ens-contracts \
