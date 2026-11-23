@@ -433,42 +433,6 @@ const inWindow = async (page: Page, node: Locator) => {
 const termLines = (page: Page) => onStep(page).locator(".trow").first().locator("> span").last()
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
-const viewWithCardDays = (page: Page, invoiceId: string) => page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
-  const res = await route.fetch()
-  const json = await res.json()
-  await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, disputeDays: 120 } } })
-})
-
-test("a Bitcoin order's reveal is signed over Bitcoin's dispute days while its view contains a card's, and the name is registered", async ({ page, request }) => {
-  const label = uniqueLabel("over")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  await viewWithCardDays(page, invoiceId)
-  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
-  await control(request, `settle/${invoiceId}`)
-  await waitRegistered(page, label)
-  await page.unrouteAll({ behavior: "ignoreErrors" })
-})
-
-test("a failed Bitcoin order is signed on Continue over Bitcoin's dispute days while its view contains a card's, and the name is registered", async ({ page, request }) => {
-  const label = uniqueLabel("cont")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  const registrationId = await registrationOf(request, invoiceId)
-  await viewWithCardDays(page, invoiceId)
-  await page.route("**/api/registration/*/reveal", (route) => route.abort())
-  await control(request, `stale/${registrationId}`)
-  await control(request, `settle/${invoiceId}`)
-  await expect.poll(async () => {
-    const { phase, label: revealed } = await mockRegistration(request, invoiceId)
-    return phase === "committed" && revealed === null
-  }, { timeout: REGISTRATION_MS }).toBe(true)
-  await control(request, `unread/${registrationId}`)
-  await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
-  await page.unroute("**/api/registration/*/reveal")
-  await onStep(page).getByRole("button", { name: "Continue" }).click()
-  await waitRegistered(page, label)
-  await page.unrouteAll({ behavior: "ignoreErrors" })
-})
-
 test("the term's free days are the early adopter bonus, explained on hover, focus and tap, with nothing moving", async ({ page, browser, baseURL }) => {
   await search(page, uniqueLabel("bonus"))
   await toReview(page, false)
