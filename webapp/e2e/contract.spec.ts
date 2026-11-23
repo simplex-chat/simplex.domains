@@ -981,7 +981,8 @@ test("a selection signed over other dispute days than its order's payment is bad
   const over = { label: next, links: NO_LINKS, chain: flow.chainOf(readSite()), years: record.years, termStart: readSite().termStart, ownerCode: record.ownerCode, terms: api.currentTerms(q),
     method: "card" as const }
   await expect(flow.selectName(record, over, await flow.orderRequest(over)), "a card's days for a Bitcoin order").rejects.toMatchObject({ code: "bad_request" })
-  expect((await selectionOf(record, next)).disputeDays).toBe(14)
+  await selectionOf(record, next)
+  expect((await call("GET", `/api/registration/${id}`)).json.disputeDays).toBe(14)
 })
 
 test("a code order whose reveal is signed over other dispute days than a code's is bad_request, and one over a code's registers the name with them", async ({ request }) => {
@@ -989,7 +990,7 @@ test("a code order whose reveal is signed over other dispute days than a code's 
   const over = await flow.orderRequest(await draftOf(uniqueLabel("tu"), undefined, "card"))
   expect(await call("POST", "/api/name/register", codeBody(over.request, code))).toEqual({ status: 400, json: { type: "bad_request" } })
   const { id } = await codeOrder(request, uniqueLabel("tu"))
-  expect((await viewOf(id)).disputeDays).toBe(14)
+  expect((await call("GET", `/api/registration/${id}`)).json.disputeDays).toBe(14)
   await untilPhase(id, ["registered"])
 })
 

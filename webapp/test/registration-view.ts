@@ -1,6 +1,6 @@
 import type { Acceptance, FailReason, Payment, Phase, PhaseView, RegistrationView, ToSign } from "../src/api.ts"
 
-export type ViewBase = Omit<RegistrationView, "phase" | "payment" | "disputeDays">
+export type ViewBase = Omit<RegistrationView, "phase" | "payment">
 
 export interface ShortView extends Partial<Omit<RegistrationView, "phase">> {
   phase?: Phase
@@ -24,5 +24,5 @@ export function viewOf(base: ViewBase, change: ShortView): RegistrationView {
   const toSign: ToSign = unread || intentNonce === null || acceptance === null ? { type: "unread" } : { type: "read", intentNonce, acceptance }
   const phaseView: PhaseView = phase === "committed" ? { type: phase, revealAfter, revealBefore, signature: view.label !== null ? { type: "signed" } : lapsed ? { type: "lapsed" } : { type: "awaiting", toSign } }
     : phase === "registered" ? { type: phase, expiresAt } : phase === "failed" ? { type: phase, reason } : phase === "closed" ? { type: phase, closedBy } : { type: phase }
-  return { payment, disputeDays: 14, ...view, phase: phaseView }
+  return { payment, ...view, phase: phaseView }
 }

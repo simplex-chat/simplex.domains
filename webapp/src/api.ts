@@ -192,7 +192,7 @@ export type PhaseView =
   | { type: "committing" }
   | { type: "committed"; revealAfter: number; revealBefore: number; signature: Signing }
   | { type: "registering" }
-  | { type: "registered"; expiresAt: number; disputeUntil?: number }
+  | { type: "registered"; expiresAt: number }
   | { type: "ended" }
   | { type: "taken" }
   | { type: "failed"; reason: FailReason; heldUntil?: string }
@@ -220,7 +220,6 @@ export interface RegistrationView {
   latePayment: LateWait | null
   commitTx: string | null
   registerTx: string | null
-  disputeDays: number
   community: Community | null
   terms: AgreedTerms
 }
@@ -424,18 +423,15 @@ const isAgreedTerms = (v: unknown) => isObject(v) && typeof v.communityName === 
 const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
 const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
 const isAcceptance = (v: unknown) => isObject(v) && typeof v.community === "boolean" && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
-const MIN_DISPUTE_DAYS = 14
-const MAX_DISPUTE_DAYS = 120
-const isDisputeDays = (v: unknown) => Number.isInteger(v) && (v as number) >= MIN_DISPUTE_DAYS && (v as number) <= MAX_DISPUTE_DAYS
 const isToSign = (v: unknown) => isObject(v) && (v.type === "unread" || (v.type === "read" && isAmount(v.intentNonce) && isAcceptance(v.acceptance)))
 const isSigning = (v: unknown) => isObject(v) && ((v.type === "awaiting" && isToSign(v.toSign)) || v.type === "signed" || v.type === "lapsed")
 const isPhase = (v: unknown) => isObject(v) && PHASES.includes(v.type as Phase) && (v.type !== "closed" || v.closedBy === "expired" || v.closedBy === "cancelled" || v.closedBy === "reversed")
   && (v.type !== "committed" || (isAmount(v.revealAfter) && isAmount(v.revealBefore) && isSigning(v.signature)))
-  && (v.type !== "registered" || (isAmount(v.expiresAt) && optional(v.disputeUntil, isAmount))) && (v.type !== "failed" || (FAIL_REASONS.includes(v.reason as FailReason) && optional(v.heldUntil, isTime)))
+  && (v.type !== "registered" || isAmount(v.expiresAt)) && (v.type !== "failed" || (FAIL_REASONS.includes(v.reason as FailReason) && optional(v.heldUntil, isTime)))
 const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isInteger(v.version) && isPhase(v.phase) && isText(v.labelHash)
   && nullable(v.label, isText) && isText(v.owner) && isText(v.commitment) && isText(v.sealed) && isCount(v.years) && isCount(v.duration) && isAmount(v.price)
   && isPayment(v.payment) && nullable(v.balance, isBalance) && nullable(v.latePayment, (l) => LATE_WAITS.includes(l as LateWait))
-  && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && isDisputeDays(v.disputeDays) && isCommunity(v.community) && isAgreedTerms(v.terms)
+  && nullable(v.commitTx, isText) && nullable(v.registerTx, isText) && isCommunity(v.community) && isAgreedTerms(v.terms)
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)
