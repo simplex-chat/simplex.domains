@@ -1,5 +1,5 @@
 // The registration, its commitment and the signed intents, from simplexmq PR #1942's names-web (which mirrors
-// simplex-chat PR #7693's Registration.hs), with the record edits and the store's derived secret added.
+// simplex-chat PR #7693's Registration.hs), with the record edits, the store's derived secret and the dispute days added.
 import { concatBytes, numberToBytesBE, utf8ToBytes } from "@noble/curves/utils"
 import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha2"
@@ -57,13 +57,14 @@ export function recordCalls(r: Registration): Uint8Array[] {
     )
 }
 
-export function registerIntentDigest(chainId: bigint, sponsor: Uint8Array, r: Registration, nonce: bigint, deadline: bigint): Uint8Array {
-  const intent = hashStruct("RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)", [
+export function registerIntentDigest(chainId: bigint, sponsor: Uint8Array, r: Registration, disputeDays: bigint, nonce: bigint, deadline: bigint): Uint8Array {
+  const intent = hashStruct("RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 disputeDays,uint256 nonce,uint256 deadline)", [
     keccak_256(utf8ToBytes(r.label)),
     addressWord(r.owner),
     uint256(r.duration),
     addressWord(r.resolver),
     keccak_256(concatBytes(...recordCalls(r).map((c) => keccak_256(c)))),
+    uint256(disputeDays),
     uint256(nonce),
     uint256(deadline),
   ])

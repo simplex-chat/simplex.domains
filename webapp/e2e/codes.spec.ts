@@ -116,10 +116,12 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   expect(registered.type).toBe("registered")
   await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
-  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { years: number; duration: number; registerTx: string }
+  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as
+    { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } }
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
   expect(registered.expiresAt).toBe(await chainExpiry(label))
+  expect(view.phase.disputeUntil, "a code's dispute end, 14 days after the register's block").toBe(await blockTimeOf(view.registerTx) + 14 * 86400)
   await shot(page, "K8-registered-with-code")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -146,6 +148,24 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   await expect(page.locator(".code-entry .verdict.bad")).toContainText("This code was already used")
   await expect(onStep(page).getByRole("button", { name: "Find a name" })).toBeDisabled()
   await shot(page, "K5-code-used")
+})
+
+test("a registration ended in its dispute period is shown as ended on its order's page, in Your names and in Edit links, and its name is available again", async ({ page, request }) => {
+  const { registrationId, label } = await registerWithCode(page, request, "ended")
+  await waitRegistered(page, label)
+  await control(request, `unregister/${registrationId}`)
+  expect((await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json()).phase, "the view the service gives an ended order").toEqual({ type: "ended" })
+  await page.reload()
+  await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
+  await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was ended because a payment for it was disputed, reversed or refunded in full.`)
+  expect((await searchName(request, label)).type).toBe("available")
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: `${label}.simplex` })
+  await expect(row.locator(".chip")).toHaveText("Ended")
+  await expect(row.getByRole("button", { name: /links$/ })).toHaveCount(0)
+  await page.goto(`/#/edit/${registrationId}`)
+  await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: "Save links" })).toHaveCount(0)
 })
 
 // These cases need a prepaid code alone, from /control/code, so they run against the service as well as the mock.

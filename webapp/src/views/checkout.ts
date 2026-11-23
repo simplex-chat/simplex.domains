@@ -454,7 +454,6 @@ async function sendOrder(): Promise<void> {
   dispatch({ type: "send-started" })
   const links = { contact: c.contact, channel: c.channel }
   const terms = api.termsFor(c.terms, c.community)
-  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms }
   // The order is kept whatever the buyer did meanwhile. Its checkout ends, and the order opens, only while this checkout
   // is still the tab's: the buyer may have started another name, by Back and Forward too.
   const mine = currentRoute()
@@ -470,6 +469,7 @@ async function sendOrder(): Promise<void> {
   }
   const method = c.method
   const chosen = c.code ? "code" : c.order?.method ?? method
+  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms, method: chosen }
   const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
   try {
     const fresh = c.sent?.of === of && api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S

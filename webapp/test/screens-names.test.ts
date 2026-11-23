@@ -56,12 +56,11 @@ const storedEvent = (change: Partial<Stored> = {}, hold: Hold | null = null): Li
 const list = (change: Partial<Stored> = {}, state: Partial<ListState> = {}): ListState => ({ ...initialList(stored(change), null, {}, {}, NOW), ...state })
 
 describe("list helpers", () => {
-  it("lapsed: a registered name past its expiry, or one the search finds available again, is over", () => {
+  it("lapsed: a registered name past its expiry is over", () => {
     const view = registeredView()
-    expect(lapsed({ view, answer: registered() }, NOW)).toBe(false)
-    expect(lapsed({ view, answer: registered() }, NOW + 3 * YEAR_S * 1000)).toBe(true)
-    expect(lapsed({ view, answer: available }, NOW)).toBe(true)
-    expect(lapsed({ view: registration({ phase: "committed" }), answer: available }, NOW)).toBe(false)
+    expect(lapsed(view, NOW)).toBe(false)
+    expect(lapsed(view, NOW + 3 * YEAR_S * 1000)).toBe(true)
+    expect(lapsed(registration({ phase: "committed" }), NOW)).toBe(false)
   })
   it("registrableAgain: free now once the search finds it available", () => {
     expect(registrableAgain(NOW / 1000 - GRACE_S - 1, available, NOW)).toEqual({ when: "now" })
@@ -113,6 +112,7 @@ describe("list helpers", () => {
       ["nothing paid", registration(), invoice(), record(), ["Waiting for payment", "warn"]],
       ["a registration under way", registration({ phase: "registering" }), null, record(), ["Registering", "brand"]],
       ["a registered name", registeredView(), null, record(), ["Registered", "ok"]],
+      ["a registration ended in its dispute period", registration({ phase: "ended", label: "alice" }), null, record(), ["Ended", "bad"]],
       ["a name taken first", registration({ phase: "taken" }), null, record(), ["Taken first", "warn"]],
       ["a failed registration", registration({ phase: "failed" }), null, record(), ["Not registered", "bad"]],
     ]
@@ -129,13 +129,14 @@ describe("list helpers", () => {
     expect(linksAction(hasLinks(record({ contact: CONTACT }), null))).toBe("Edit links")
     expect(linksAction(hasLinks(record(), registered({ contact: "", channel: CHANNEL })))).toBe("Edit links")
   })
-  it("editable: a name in the app's wallet, or pointed at another resolver, is not edited here", () => {
+  it("editable: a name in the app's wallet, pointed at another resolver, or not answered as registered, is not edited here", () => {
     expect(editable(registered(), OWNER)).toBe(true)
     expect(editable(registered(), OWNER.toLowerCase())).toBe(true)
     expect(editable(registered(undefined, { owner: APP }), OWNER)).toBe(false)
     expect(editable(registered(null), OWNER)).toBe(false)
-    expect(editable(held, OWNER)).toBe(true)
-    expect(editable(available, OWNER)).toBe(true)
+    expect(editable(held, OWNER), "taken by another order").toBe(false)
+    expect(editable(available, OWNER), "unregistered on chain before the service's check").toBe(false)
+    expect(editable({ found: { type: "reserved" }, community: null }, OWNER)).toBe(false)
   })
   it("hasLinks: a name's records once read, else the links it was ordered with", () => {
     expect(hasLinks(record(), registered()), "a contact address on chain").toBe(true)
@@ -213,7 +214,7 @@ describe("balances", () => {
     expect(balanceRows(all())).toEqual([
       { id: "reg-taken", amount: 10000, refunded: 0, from: "taken" },
       { id: "reg-outpaid", amount: 10000, refunded: 0, from: "outpaid" },
-      { id: "reg-ended", amount: 10000, refunded: 0, from: "ended" },
+      { id: "reg-ended", amount: 10000, refunded: 0, from: "monthEnded" },
       { id: "reg-late", amount: 2500, refunded: 7500, from: "late" },
       { id: "reg-overpaid", amount: 5000, refunded: 0, from: "rest" },
     ])
@@ -431,7 +432,8 @@ describe("edit", () => {
   const STATES: Record<EditKind, EditState> = {
     "edit-no-code": initialEdit("reg-1", null),
     "edit-unreadable": reduceEdit(opened, { type: "read-failed" }),
-    "edit-expired": answered(opened, available),
+    "edit-expired": answered(opened, available, registeredView({ expiresAt: NOW / 1000 - GRACE_S - 1 })),
+    "edit-ended": answered(opened, available, registration({ phase: "ended", label: "alice" })),
     "edit-in-app": answered(opened, registered(undefined, { owner: APP })),
     "edit-elsewhere": answered(opened, registered(null)),
     "edit-not-registered": answered(opened, { found: { type: "reserved" }, community: null }, registration({ phase: "committed" })),
@@ -446,10 +448,15 @@ describe("edit", () => {
       ["a name whose read failed", STATES["edit-unreadable"], "edit-unreadable"],
       ["a name past its expiry", answered(opened, registered(), registeredView({ expiresAt: NOW / 1000 - 1 })), "edit-expired"],
       ["a name registered again by someone else", STATES["edit-expired"], "edit-expired"],
+      ["a registration ended in its dispute period", STATES["edit-ended"], "edit-ended"],
+      ["a registration ended, its name registered again since", answered(opened, registered(undefined, { owner: APP }), registration({ phase: "ended", label: "alice" })), "edit-ended"],
+      ["a name unregistered on chain before the service's check, read again", answered(opened, available), "edit-unreadable"],
+      ["a name reserved since, read again", answered(opened, { found: { type: "reserved" }, community: null }), "edit-unreadable"],
       ["a name moved to the app's wallet", STATES["edit-in-app"], "edit-in-app"],
       ["a name pointed at another resolver", STATES["edit-elsewhere"], "edit-elsewhere"],
       ["a name still being registered", STATES["edit-not-registered"], "edit-not-registered"],
-      ["a name an order holds", answered(opened, held), "edit-not-registered"],
+      ["a name taken by another order, its own order not registered yet", answered(opened, held, registration({ phase: "committed" })), "edit-not-registered"],
+      ["a registered name taken by another order now, read again", answered(opened, held), "edit-unreadable"],
       ["a registered name with its links", STATES.edit, "edit"],
     ]
     it.each(cases)("%s", (_, state, kind) => {

@@ -960,7 +960,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const signed = api.signedTermsOf(now.registration.terms)
     const terms = termsOrAsk(gen, record, signed, quote)
     if (terms === null) return
-    const built = await flow.orderRequest(flow.draftAgain(record, quote, terms))
+    const built = await flow.orderRequest(flow.draftAgain(record, quote, terms, method))
     const res = await api.createOrder(built.request, method, invoice.amount, readSite().chainId)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
@@ -1141,6 +1141,13 @@ function registeredLead(view: api.RegistrationView, record: store.OrderRecord | 
   return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
 }
 
+function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
+  const label = labelOf(view!, record)
+  return outcome({ tone: "warn", icon: "alert", title: "Registration ended",
+    text: ["The registration of ", label ? nameText(label, readSite().tld) : "the name", " was ended because a payment for it was disputed, reversed or refunded in full."],
+    action: codesOnly() ? codeAction() : btn("Search a name", "", () => go(searchLink(""))), reference: invoice?.invoiceId ?? view!.id })
+}
+
 // An order taken first keeps its payment or its code: a name is selected for the order, or support refunds the payment;
 // only the browser holding the code asks for either. An order refunded since is shown as such.
 function buildTaken(s: OrderState): HTMLElement {
@@ -1245,6 +1252,7 @@ const BUILDERS: Record<OrderKind, Builder<OrderState>> = {
   confirming: buildConfirming,
   registering: buildRegistering,
   registered: buildRegistered,
+  ended: buildEnded,
   taken: buildTaken,
   failed: buildFailed,
   "not-on-device": buildNotOnDevice,

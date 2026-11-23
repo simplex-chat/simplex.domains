@@ -329,8 +329,8 @@ describe("ownOrders", () => {
       expect(asked, "nothing older is read").toEqual(["r2"])
     }
   })
-  it("takes a registered or taken order, or one failed at its month's end, as neither open nor closed", async () => {
-    for (const [phase, failure] of [["registered", null], ["taken", null], ["failed", "monthEnded"]] as const) {
+  it("takes a registered, ended or taken order, or one failed at its month's end, as neither open nor closed", async () => {
+    for (const [phase, failure] of [["registered", null], ["ended", null], ["taken", null], ["failed", "monthEnded"]] as const) {
       expect(await ownOrders([order("r1")], reader({ r1: { phase, failure, invoice: "paid" } }).read), phase).toEqual({ open: null, closed: null })
     }
   })

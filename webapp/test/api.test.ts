@@ -334,7 +334,8 @@ describe("service errors", () => {
     for (const phase of [
       { type: "unpaid" }, { type: "closed", closedBy: "expired" }, { type: "closed", closedBy: "cancelled" }, { type: "closed", closedBy: "reversed" }, { type: "queued" }, { type: "committing" },
       committed({ type: "awaiting", toSign: { type: "unread" } }), committed({ type: "awaiting", toSign: { type: "read", intentNonce: 4, acceptance } }), committed({ type: "signed" }),
-      committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "taken" },
+      committed({ type: "lapsed" }), { type: "registering" }, { type: "registered", expiresAt: 3 }, { type: "registered", expiresAt: 3, disputeUntil: 2 },
+      { type: "ended" }, { type: "taken" },
       { type: "failed", reason: "registryRefused" }, { type: "failed", reason: "signatureRefused" },
       { type: "failed", reason: "monthEnded" }, { type: "failed", reason: "unread" },
     ]) {
