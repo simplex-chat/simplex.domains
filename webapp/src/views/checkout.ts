@@ -24,7 +24,7 @@ import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./ho
 import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { readOrder } from "./search.ts"
 import { loadNextRouteAfresh } from "./served-mode.ts"
-import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, shortRowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
+import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
 const CHECKOUT_NOTE = "checkout-note"
 const SAVED_LABEL = "I have saved my name code"
@@ -182,7 +182,7 @@ function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
   const side = chats.length ? el("span", { class: "chats" }, chats) : null
   return el("section", { class: "card order" },
-    el("div", { class: "row" }, shortRowName(c.label, c.chain.tld, c.community, "community"), side),
+    el("div", { class: "row" }, rowName(c.label, c.chain.tld, c.community, "community"), side),
     el("div", { class: "table" },
       row("Term", term(y, c.termStart, now)),
       row("Registered until", dateOf(termEnd(y, c.termStart, now))),

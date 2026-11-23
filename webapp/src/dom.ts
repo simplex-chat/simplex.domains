@@ -1,5 +1,5 @@
 // Building blocks for the views, as the mockups (plans/names-codes/mockups/domains.js) draw them.
-import { seconds, shortLabel } from "./format.ts"
+import { seconds } from "./format.ts"
 import { icon, type IconName } from "./icons.ts"
 import { qrSvg } from "./qr.ts"
 
@@ -100,27 +100,9 @@ export function nameText(label: string, tld: string, after = ""): HTMLSpanElemen
   return el("span", { class: "nt" }, nameHead(label), el("span", { class: "nowrap" }, `${nameTail(label)}.${tld}${after}`))
 }
 
-type Drawn = (...text: Kid[]) => Kid
-const asIs: Drawn = (...text) => text
-const unread: Drawn = (...text) => el("span", { "aria-hidden": "true" }, ...text)
-
 // `after` is a label that belongs to the name, kept with its last letters, so it never starts a line alone
-export function nameTitle(label: string, cls = "name", tld = "simplex", drawn = asIs, ...after: Kid[]): HTMLDivElement {
-  return el("div", { class: cls }, drawn(nameHead(label)), el("span", { class: "nowrap" }, drawn(nameTail(label), el("span", { class: "tld" }, `.${tld}`)), ...after))
-}
-
-export interface ShortName { shown: string; whole: HTMLElement | null }
-
-export function shortName(label: string, tld: string, after = ""): ShortName {
-  const shown = shortLabel(label)
-  return { shown, whole: shown === label ? null : el("span", { class: "sr-only" }, `${label}.${tld}${after}`) }
-}
-
-export const drawnOf = ({ whole }: ShortName): Drawn => whole ? unread : asIs
-
-export function shortNameText(label: string, tld: string, after = ""): Kid {
-  const name = shortName(label, tld, after)
-  return [drawnOf(name)(nameText(name.shown, tld, after)), name.whole]
+export function nameTitle(label: string, cls = "name", tld = "simplex", ...after: Kid[]): HTMLDivElement {
+  return el("div", { class: cls }, nameHead(label), el("span", { class: "nowrap" }, nameTail(label), el("span", { class: "tld" }, `.${tld}`), ...after))
 }
 
 export function gradName(label: string, tld = "simplex"): HTMLSpanElement {

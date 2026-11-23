@@ -514,11 +514,6 @@ test("the marker stands where the mockup draws it on Check your order", async ({
       // the order's name is drawn smaller on a phone's review that holds a line under the order
       await expectMarkerPlaces(page, "review", label, onStep(page).locator(".order .row .name"), false)
     }
-    await expect(onStep(page).locator(".order > .row .name"), "the name drawn abbreviated").toContainText(`${long.slice(0, 12)}...${long.slice(-3)}.simplex`)
-    const read = await onStep(page).locator(".order > .row").ariaSnapshot()
-    expect(read.split(`${long}.simplex`).length - 1, `the whole name read once: ${read}`).toBe(1)
-    expect(read, "the abbreviation not read").not.toContain("...")
-    expect(read, "the marker reachable").toContain(MARKER)
   })
 })
 

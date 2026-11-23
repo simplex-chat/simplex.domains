@@ -12,13 +12,6 @@ export function shortAddress(address: string): string {
   return `${address.slice(0, 6)}\u2060…\u2060${address.slice(-4)}`
 }
 
-const WHOLE_LABEL_MAX = 25
-const SHORT_LABEL_HEAD = 12
-const SHORT_LABEL_TAIL = 3
-
-export const shortLabel = (label: string) =>
-  label.length > WHOLE_LABEL_MAX ? `${label.slice(0, SHORT_LABEL_HEAD)}...${label.slice(-SHORT_LABEL_TAIL)}` : label
-
 export function letters(n: number): string {
   return n === 1 ? "1 letter" : `${n} letters`
 }

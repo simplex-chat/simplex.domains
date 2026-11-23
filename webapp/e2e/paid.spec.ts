@@ -358,7 +358,6 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   expect(paidInvoice.registration.phase.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
   // how to use the name in the app, with its code, and no buttons to go elsewhere
   await expect(main.locator(".card.use").getByRole("heading", { name: "Use in the app" })).toBeVisible()
-  await expect(main.locator(".card.use :is(.sr-only, [aria-hidden=true])"), "a name of up to 25 letters drawn and read as it is").toHaveCount(0)
   await expect(await shownCode(page)).toHaveText(ownerCode)
   await expect(main.getByRole("button", { name: "Copy code" })).toBeVisible()
   await expect(main.getByRole("checkbox")).toHaveCount(0)
@@ -1400,23 +1399,15 @@ test("once a name is registered, Back to its search never offers it again, and Y
   expect(await page.evaluate(() => (window as unknown as { __chips: string[] }).__chips), "the row's chips from its first draw").toEqual([])
 })
 
-const orderRow = async (page: Page) => {
+test("on a phone, a long name wraps beside its chats on Check your order, the chats at the row's right", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(63)}`.slice(0, 63))
   const row = onStep(page).locator(".card.order > .row")
   const [box, name, chats] = await Promise.all([row, row.locator(".name"), row.locator(".chats")].map(async (l) => (await l.boundingBox())!))
   const padding = await row.evaluate((r) => parseFloat(getComputedStyle(r).paddingRight))
-  return { name, chats, right: Math.round(box.x + box.width - padding) }
-}
-
-test("on a phone, a long name wraps beside its chats on Check your order, the chats at the row's right, as they are for a name abbreviated", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(25)}`.slice(0, 25))
-  const { name, chats, right } = await orderRow(page)
   expect(chats.x, "the chats after the name").toBeGreaterThanOrEqual(name.x + name.width)
-  expect(Math.round(chats.x + chats.width), "the chats at the row's right").toBe(right)
+  expect(Math.round(chats.x + chats.width), "the chats at the row's right").toBe(Math.round(box.x + box.width - padding))
   expect(name.height, "the name on more than one line").toBeGreaterThan(40)
-  await toFullReview(page, `${uniqueLabel("wrap")}${"w".repeat(63)}`.slice(0, 63))
-  const abbreviated = await orderRow(page)
-  expect(Math.round(abbreviated.chats.x + abbreviated.chats.width), "the chats of a name abbreviated at the row's right").toBe(abbreviated.right)
 })
 
 // how often a pay page checks its name again (NAME_CHECK_MS in src/views/order.ts)
