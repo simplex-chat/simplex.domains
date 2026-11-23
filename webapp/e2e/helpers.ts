@@ -524,8 +524,8 @@ export const test = base.extend<{ cspViolations: void }>({
 export const takenHeading = (label: string) => `${label}.simplex was taken`
 
 // An order paid in Bitcoin whose name a rival registers first, up to its taken page.
-export async function takenOrder(page: Page, request: APIRequestContext, label: string): Promise<{ invoiceId: string; ownerCode: string }> {
-  const order = await startOrder(page, label, { method: "btc" })
+export async function takenOrder(page: Page, request: APIRequestContext, label: string, method: OrderOptions["method"] = "btc"): Promise<{ invoiceId: string; ownerCode: string }> {
+  const order = await startOrder(page, label, { method })
   await control(request, "take", { label })
   await control(request, `settle/${order.invoiceId}`)
   await expect(page.getByRole("heading", { name: takenHeading(label) })).toBeVisible({ timeout: REGISTRATION_MS })

@@ -360,6 +360,14 @@ describe("ownOrderFor", () => {
     expect(store.orderByRegistration("reg1")?.label).toBe("dynamis")
   })
 
+  it("opens the code's unpaid order for the name, passing over an older one whose registration was ended", async () => {
+    const { flow } = await modules()
+    const mine = (await flow.orderRequest(draft())).request
+    answers["POST /api/registration/find"] = { registrations: [found("reg2", "unpaid", mine.labelHash, mine.sealed), found("reg1", "ended", mine.labelHash, mine.sealed)] }
+    answers["GET /api/registration/reg2"] = view(mine, { id: "reg2", phase: "unpaid" })
+    expect(await flow.ownOrderFor(OWNER_CODE, mine.labelHash)).toMatchObject({ registrationId: "reg2", label: "dynamis" })
+  })
+
   it("finds nothing when the code has no order for the name", async () => {
     const { flow } = await modules()
     const other = (await flow.orderRequest(draft("another"))).request
