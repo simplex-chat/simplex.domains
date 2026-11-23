@@ -433,7 +433,7 @@ const inWindow = async (page: Page, node: Locator) => {
 const termLines = (page: Page) => onStep(page).locator(".trow").first().locator("> span").last()
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
-test("a reveal over more dispute days than the order's payment allows is not signed, and the page says the registration is not signed yet", async ({ page, request }) => {
+test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("over"), { method: "btc" })
   const reveals: string[] = []
   page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/reveal")) reveals.push(r.url()) })

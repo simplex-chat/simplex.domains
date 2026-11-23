@@ -963,7 +963,7 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
 })
 
-test("an order and a selection signed over other dispute days than their payment's are bad_request, and each view holds its payment's days", async ({ request }) => {
+test("an order signed over other dispute days than its payment's is bad_request, and a card order's view holds a card's days", async () => {
   const label = uniqueLabel("dd")
   const draft = await draftOf(label)
   const { price } = await quote(label)
@@ -971,6 +971,9 @@ test("an order and a selection signed over other dispute days than their payment
   expect(await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(draft)).request, "card", price)), "Bitcoin's days for a card").toEqual({ status: 400, json: { type: "bad_request" } })
   const card = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...draft, disputeDays: api.DISPUTE_DAYS.card })).request, "card", price))
   expect([card.status, (card.json.registration as Json).disputeDays]).toEqual([200, api.DISPUTE_DAYS.card])
+})
+
+test("a selection signed over other dispute days than its order's payment is bad_request, and its view holds the payment's days", async ({ request }) => {
   const { id } = await takenPaid(request, uniqueLabel("dt"))
   const record = store.orderByRegistration(id)!
   const next = uniqueLabel("dt2")
