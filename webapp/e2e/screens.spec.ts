@@ -1933,6 +1933,12 @@ screen(3010, "names-pending-config-unread", async (r) => {
   await nameChecked(tab)
   return tab
 })
+const AVAILABLE_AGAIN = { found: { type: "available", price: 10000, years: 2 } }
+screen(3011, "names-row-unregistered", async (r) => {
+  await faked(r, r.id, { phase: registeredPhase(START_S + 2 * YEAR_S), commitTx: "0x02", registerTx: "0x03" }, null, AVAILABLE_AGAIN)
+  await yourNames(r.page, [r.id])
+  await expect(listRow(r.page, r.id).getByRole("button", { name: /links$/ })).toHaveCount(0)
+})
 screen(3012, "names-list-config-unread-fresh", async (r) => {
   await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
@@ -2426,6 +2432,10 @@ screen(3124, "names-edit-unreadable", async (r) => {
   await kept(r, `reg-${r.id}`, null, r.id)
   await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => answer(route, 503, "provider_unavailable"))
   await r.page.goto(`/#/edit/reg-${r.id}`)
+  await shown(r.page, "The name could not be read now")
+})
+screen(3125, "names-edit-unregistered", async (r) => {
+  await editFaked(r, { phase: registeredPhase(START_S + 2 * YEAR_S) }, () => AVAILABLE_AGAIN)
   await shown(r.page, "The name could not be read now")
 })
 screen(3126, "names-edit-unreadable-reading", async (r) => {
