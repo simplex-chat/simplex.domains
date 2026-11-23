@@ -199,7 +199,6 @@ test("a valid prepaid code opens the search for the names it covers and register
   await shot(page, "C4-codes-only-covered")
   await toReview(page)
   await expect(page.locator(".card.order .trow.total")).toHaveText("Free SimpleX name")
-  await expect(onStep(page).locator(".card.order .trow", { hasText: "Dispute period" }).getByRole("button")).toHaveText("14 days")
   await noPaymentUi(page)
   await expect(onStep(page).getByText("I have a code")).toHaveCount(0)
   await expect(onStep(page).getByText("Remove code")).toHaveCount(0)

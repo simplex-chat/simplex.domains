@@ -306,8 +306,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.locator(".screen-body > .review + [role=status] + .mid")).toHaveCount(1)
   await expect(step.locator(".card.order .name")).toHaveText(`${label}.simplex`)
   // the term holds the free days until the paid years start, which are folded into it
-  await expect(step.locator(".card.order .trow")).toHaveText([/^Term2 years and (\d{2,} days|1 day)Early adopter bonus: your 2 years start on 1\u00a0January 2027\.$/, /^Registered until31\u00a0December 2028$/,
-    `Dispute period14 days${disputeLine(14)}`, /^Total\$\d+$/])
+  await expect(step.locator(".card.order .trow")).toHaveText([/^Term2 years and (\d{2,} days|1 day)Early adopter bonus: your 2 years start on 1\u00a0January 2027\.$/, /^Registered until31\u00a0December 2028$/, /^Total\$\d+$/])
   // each link as the chat it opens, read only
   await expect(step.locator(".card.order .chat")).toHaveCount(2)
   await expect(step.getByRole("button", { name: "Contact F1Y8m3, contact address" })).toBeVisible()
@@ -435,26 +434,6 @@ const inWindow = async (page: Page, node: Locator) => {
 const termLines = (page: Page) => onStep(page).locator(".trow").first().locator("> span").last()
   .evaluate((value) => new Set([...value.getClientRects()].map((r) => Math.round(r.top))).size)
 
-const disputeLine = (days: number) => `For ${days} days after it is registered, the registration can be ended if a payment for it is disputed, reversed or refunded in full.`
-const disputeRow = (page: Page) => onStep(page).locator(".card.order .trow", { hasText: "Dispute period" })
-
-test("Check your order says for how many days the registration can be ended, by the way it is paid, explained on hover", async ({ page }) => {
-  await search(page, uniqueLabel("days"))
-  await toReview(page)
-  for (const [method, days] of [["Card", 120], ["Bitcoin", 14], ["Monero", 14]] as const) {
-    await page.getByRole("radio", { name: method }).click()
-    await expect(disputeRow(page).getByRole("button")).toHaveText(`${days} days`)
-    await expect(disputeRow(page).getByRole("button")).toHaveAccessibleDescription(disputeLine(days))
-  }
-  await expect(disputeRow(page).getByRole("tooltip")).toBeHidden()
-  await disputeRow(page).getByRole("button").hover()
-  await expect(disputeRow(page).getByRole("tooltip")).toBeVisible()
-  await page.mouse.move(0, 0)
-  await page.getByRole("radio", { name: "Card" }).click()
-  await onStep(page).getByRole("button", { name: "I have a code" }).click()
-  await expect(disputeRow(page).getByRole("button")).toHaveText("14 days")
-})
-
 test("a reveal over more dispute days than the order's payment allows is not signed, and the page says so", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("over"), { method: "btc" })
   const reveals: string[] = []
@@ -531,23 +510,6 @@ test("the term's free days are the early adopter bonus, explained on hover, focu
   await context.close()
 })
 
-test("on a touch screen, I have a code takes its taps under the payment methods, none of theirs", async ({ page, browser, baseURL, browserName }) => {
-  test.skip(browserName !== "chromium", "Chromium's touch emulation gives the page a coarse pointer")
-  await search(page, uniqueLabel("tap"))
-  await toReview(page)
-  const checkout = await page.evaluate((key) => sessionStorage.getItem(key)!, CHECKOUT_KEY)
-  const context = await browser.newContext({ baseURL, viewport: FIT_SIZES[1], hasTouch: true, reducedMotion: "reduce" })
-  await context.addInitScript(([key, value]) => sessionStorage.setItem(key, value), [CHECKOUT_KEY, checkout])
-  const phone = await context.newPage()
-  await phone.goto("/#/checkout")
-  await expect(onStep(phone).getByRole("heading", { name: "Check your order" })).toBeVisible()
-  expect(await phone.evaluate(() => matchMedia("(pointer: coarse)").matches), "a coarse pointer").toBe(true)
-  const methods = (await onStep(phone).locator(".methods").boundingBox())!
-  const link = (await onStep(phone).getByRole("button", { name: "I have a code" }).boundingBox())!
-  expect(Math.round(link.y), "the top of the link's tap area").toBeGreaterThanOrEqual(Math.round(methods.y + methods.height))
-  await context.close()
-})
-
 test("a term that has started has no free days, so no bonus or hint, which come back with the days", async ({ page }) => {
   await search(page, uniqueLabel("nobonus"))
   await toReview(page, false)
@@ -557,7 +519,7 @@ test("a term that has started has no free days, so no bonus or hint, which come 
   await page.reload()
   await expect(onStep(page).locator(".trow").first()).toHaveText("Term2 years")
   await expect(bonusOf(page)).toHaveCount(0)
-  await expect(onStep(page).locator(".trow").first().locator("[role=tooltip]")).toHaveCount(0)
+  await expect(onStep(page).locator("[role=tooltip]")).toHaveCount(0)
   await startAt(termStart)
   await page.reload()
   await expect(bonusOf(page)).toHaveAccessibleDescription(/^Early adopter bonus/)
