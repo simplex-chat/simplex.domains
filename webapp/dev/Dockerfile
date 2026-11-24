@@ -6,9 +6,9 @@ FROM node:24-bookworm AS contracts
 ARG ENS_CONTRACTS_COMMIT=ebf76989ec5cab1c7dd49085b4c18faf303657d0
 WORKDIR /src/ens-contracts
 RUN git clone https://github.com/simplex-network/ens-contracts.git . \
- && git fetch origin "$ENS_CONTRACTS_COMMIT" \
  && git checkout "$ENS_CONTRACTS_COMMIT"
 RUN npx --yes pnpm@9 install --frozen-lockfile --ignore-scripts && npx hardhat compile
+COPY webapp/dev/fixtures/terms /src/test/fixtures/terms
 
 # Hardhat's own node answers reverts without their data, which the mock needs to tell a taken name from a failure
 FROM debian:bookworm-slim AS anvil
