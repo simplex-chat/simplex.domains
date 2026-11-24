@@ -56,7 +56,8 @@ export function retryDelay(e: unknown, usual: number): number | null {
 }
 
 export type Phase = "unpaid" | "closed" | "queued" | "committing" | "committed" | "registering" | "registered" | "ended" | "taken" | "failed"
-export type Method = "card" | "btc" | "xmr"
+export type Method = "card" | "btc" | "ln" | "xmr"
+export type Coin = Exclude<Method, "card">
 
 export interface ChainInfo {
   resolver: string
@@ -404,6 +405,7 @@ const isCount = (v: unknown) => Number.isInteger(v) && (v as number) >= 1
 const isDecimal = (v: unknown) => typeof v === "string" && /^\d+(\.\d+)?$/.test(v)
 // BTCPay reports an overpaid invoice's due below zero, which the page reads as nothing left to pay
 const isDue = (v: unknown) => typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)
+const BOLT11 = /^ln(bc|bcrt|tb|tbs|sb)(\d+[munp]?)?1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+$/
 const optional = (v: unknown, test: (v: unknown) => boolean) => v === undefined || test(v)
 const nullable = (v: unknown, test: (v: unknown) => boolean) => v === null || test(v)
 // an image the page holds itself, as the service sends it: the page's CSP loads images from nowhere else
@@ -415,7 +417,7 @@ const isPreview = (p: unknown) => isObject(p) && LINK_KINDS.includes(p.kind as P
   && (p.profile.type === "ok" ? isLinkProfile(p.profile.linkProfile) : PROFILE_STATES.includes(p.profile.type as Profile["profile"]))
 const isEntity = (e: unknown) => isObject(e) && isPreview(e.preview) && isText(e.link) && isText(e.deepLink)
 const PHASES: Phase[] = ["unpaid", "closed", "queued", "committing", "committed", "registering", "registered", "ended", "taken", "failed"]
-const METHODS: Method[] = ["card", "btc", "xmr"]
+const METHODS: Method[] = ["card", "btc", "ln", "xmr"]
 const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && isAmount(v.refunded)
 const isPayment = (v: unknown) => isObject(v) && ((v.type === "invoice" && METHODS.includes(v.method as Method)) || v.type === "code")
 const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
@@ -435,8 +437,8 @@ const isRegistration = (v: unknown) => isObject(v) && isText(v.id) && Number.isI
 const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open", "paid", "expired"].includes(v.status as string) && isAmount(v.amount)
   && isText(v.currency) && isText(v.expiresAt) && isRegistration(v.registration) && optional(v.amountPaid, isAmount)
   && optional(v.cryptoAmountPaid, isDecimal) && optional(v.cryptoAmountDue, isDue) && optional(v.cryptoAmount, isDecimal)
-  && optional(v.paidInFull, (x) => typeof x === "boolean") && optional(v.address, isText)
-  && optional(v.cryptoCurrency, (x) => ["card", "btc", "xmr"].includes(x as string)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
+  && optional(v.paidInFull, (x) => typeof x === "boolean") && optional(v.address, (a) => isText(a) && BOLT11.test(a as string) === (v.cryptoCurrency === "ln"))
+  && optional(v.cryptoCurrency, (x) => METHODS.includes(x as Method)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
 const clampDue = (inv: InvoiceView): InvoiceView => inv.cryptoAmountDue?.startsWith("-") ? { ...inv, cryptoAmountDue: "0" } : inv
 const checkedInvoice = (answer: Promise<unknown>) => checked<InvoiceView>(answer, isInvoice).then(clampDue)
 const isTime = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v))

@@ -12,7 +12,7 @@ import * as store from "./store.ts"
 
 const EDIT_DEADLINE_SECONDS = 3600
 const REVEAL_DEADLINE_SECONDS = 7 * 86400
-const DISPUTE_DAYS: Record<store.OrderRecord["method"], number> = { card: 120, btc: 14, xmr: 14, code: 14 }
+const DISPUTE_DAYS: Record<store.OrderRecord["method"], number> = { card: 120, btc: 14, ln: 14, xmr: 14, code: 14 }
 
 // signed timestamps and deadlines are judged by the service's clock
 const now = api.serviceSeconds

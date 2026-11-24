@@ -87,14 +87,15 @@ describe("changeOf", () => {
     expect(changeOf(s, { type: "saved", saved: false })).toEqual({ saved: false })
     expect(changeOf(s, { type: "agreed", agreed: true })).toEqual({ agreed: true })
     expect(changeOf(s, { type: "method-chosen", method: "xmr" })).toEqual({ method: "xmr" })
+    expect(changeOf(s, { type: "method-chosen", method: "ln" })).toEqual({ method: "ln" })
     expect(changeOf(s, { type: "order-refused", reason: "code", error: "This code was already used." })).toEqual({ code: null, codeError: "This code was already used." })
     expect(changeOf(s, { type: "price-changed", price: 2500 })).toEqual({ price: 2500 })
   })
   it("a method refused marks it unavailable and chooses the next one", () => {
-    for (const method of ["card", "btc", "xmr"] as const) {
+    for (const method of ["card", "btc", "ln", "xmr"] as const) {
       expect(changeOf(open({ checkout: checkout({ method }) }), { type: "order-refused", reason: "method" })).toEqual({ unavailable: method, method: FALLBACK_METHOD[method] })
     }
-    expect(FALLBACK_METHOD).toEqual({ card: "btc", btc: "xmr", xmr: "btc" })
+    expect(FALLBACK_METHOD).toEqual({ card: "btc", btc: "xmr", ln: "btc", xmr: "btc" })
   })
   it("a link is written even when the state has it, as a field saves it again before the page takes the first save", () => {
     expect(changeOf(open({ checkout: checkout({ contact: CONTACT }) }), { type: "link-set", kind: "contact", link: CONTACT })).toEqual({ contact: CONTACT })

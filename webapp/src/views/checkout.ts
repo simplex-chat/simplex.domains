@@ -219,7 +219,7 @@ function methodsBlock({ checkout: c, openOrder: order, sending }: CheckoutState)
     methodMark(m), el("b", {}, methodName(m)))
   })
   return el("section", { class: "pay-with" },
-    order ? el("p", { class: "note other-order" }, `Another order ${order.confirming ? "is confirming its payment" : "is waiting for its payment"}. `,
+    order ? el("p", { class: "note other-order" }, `Another order ${order.confirming ? "is completing its payment" : "is waiting for its payment"}. `,
       el("a", { class: "nowrap", href: store.invoiceUrl(order.invoiceId) }, "Open that order")) : null,
     c.unavailable ? line("warn", "alert", `${methodName(c.unavailable)} is temporarily unavailable. Try another method, or come back later.`) : null,
     el("div", { class: "methods", role: "radiogroup", "aria-label": "Pay with" }, ...radios))

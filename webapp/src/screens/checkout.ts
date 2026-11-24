@@ -4,7 +4,7 @@ import type { AppliedCode, Checkout } from "../session.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
 import type { CheckoutStep } from "./routes.ts"
 
-export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
+export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", ln: "btc", xmr: "btc" }
 
 export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only" | `link-${LinkKind}`
 export type CheckoutKind = CheckoutStep | `status:${Refusal}`
@@ -100,7 +100,7 @@ export function reduce(s: CheckoutState, e: CheckoutEvent): CheckoutState {
   }
 }
 
-export const METHODS: Method[] = ["card", "btc", "xmr"]
+export const METHODS: Method[] = ["card", "btc", "ln", "xmr"]
 
 // The review's code field, once opened, or the link that opens it, offered where the order is paid: not where the name
 // is registered for free with the tab's code, which the header takes off, nor for a name selected for a taken order. In

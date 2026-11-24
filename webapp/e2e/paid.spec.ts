@@ -311,7 +311,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.locator(".card.order .chat")).toHaveCount(2)
   await expect(step.getByRole("button", { name: "Contact F1Y8m3, contact address" })).toBeVisible()
   await expect(step.getByRole("button", { name: /^Change/ })).toHaveCount(0)
-  await expect(step.getByRole("radio")).toHaveText(["Card", "Bitcoin", "Monero"])
+  await expect(step.getByRole("radio")).toHaveText(["Card", "Bitcoin", "Lightning", "Monero"])
   // the ETH link ends the note under the methods, and nothing sits under Pay
   const dapp = step.locator(".notes").getByRole("link", { name: "Pay with ETH" })
   await expect(dapp).toHaveAttribute("href", "https://app.simplex.domains")
@@ -707,6 +707,26 @@ test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and
   await page.setViewportSize(FIT_SIZES[1])
   await expect(wallet).toHaveClass(/\bwallet\b/)
   await expect(wallet).toHaveAttribute("href", `monero:${address}?tx_amount=${cryptoAmount}`)
+})
+
+test("the BOLT11 of a Lightning invoice is shown as an invoice, scanned and linked as lightning:, and the registration is started once it is settled", async ({ page, request }) => {
+  const label = uniqueLabel("lnpay")
+  const { invoiceId } = await startOrder(page, label, { method: "ln" })
+  await expect(page.getByRole("heading", { name: "Pay with Lightning" })).toBeVisible()
+  const view = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; requiredConfirmations?: number }
+  expect(view.requiredConfirmations, "no confirmation is required for a Lightning payment").toBeUndefined()
+  await expect(onStep(page).getByRole("link", { name: "Open in wallet" })).toHaveAttribute("href", `lightning:${view.address}`)
+  expect(await qrText(onStep(page).locator(".card.pay .qr svg")), "the QR").toBe(`lightning:${view.address}`)
+  await expect(onStep(page).locator(".copy-field .label", { hasText: "Lightning invoice" })).toBeVisible()
+  expect((await request.post(`${MOCK}/control/partial/${invoiceId}`, { data: {} })).status(), "a BOLT11 is paid in full or not at all").toBe(400)
+  await control(request, `settle/${invoiceId}`)
+  await waitRegistered(page, label)
+})
+
+test("for a cancelled Lightning invoice, the buyer is warned that it can still be paid until it expires", async ({ page }) => {
+  await startOrder(page, uniqueLabel("lncx"), { method: "ln" })
+  await page.getByRole("button", { name: "Cancel this invoice" }).click()
+  await expect(page.getByText(/^This invoice was cancelled and nothing was received\. Its Lightning invoice can still be paid until \d\d:\d\d: don't pay it\.$/)).toBeVisible()
 })
 
 test("the owner code restores an order in another browser, and a bad code is refused", async ({ page, browser, request }) => {
@@ -1283,6 +1303,7 @@ test("a card form that does not load says so and offers a new invoice", async ({
   await expect(page.getByText("Stripe's form was blocked or failed to load. Nothing was charged.")).toBeVisible()
   // or the coins: the card invoice is cancelled and the name ordered again, paid with the coin chosen
   const card = new URL(page.url()).searchParams.get("order")!
+  await expect(page.getByRole("button", { name: "Pay with Lightning" })).toBeVisible()
   await page.getByRole("button", { name: "Pay with Monero" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== card)
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()

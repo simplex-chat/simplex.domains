@@ -1,4 +1,5 @@
-import { committedOf, type Community, type FailReason, type Found, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, type Terms, toSignOf } from "../api.ts"
+import { type Coin, committedOf, type Community, type FailReason, type Found, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, type Terms, toSignOf } from "../api.ts"
+import { methodName } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -193,7 +194,31 @@ export const retryDue =(s: OrderState) => s.view !== null && lapsedOf(s.view) &&
 
 export const unpaidOrClosed = (view: RegistrationView) => view.phase.type === "unpaid" || view.phase.type === "closed"
 
-export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
+export const coinOf = (invoice: InvoiceView): Coin | null => invoice.cryptoCurrency === "card" ? null : invoice.cryptoCurrency ?? null
+
+export const TICKER: Record<Coin, string> = { btc: "BTC", ln: "BTC", xmr: "XMR" }
+
+const INVOICE_HEAD = 8
+const INVOICE_TAIL = 6
+
+export const destinationOf = (coin: Coin, address: string): { label: string; shown: string } =>
+  coin === "ln"
+    ? { label: "Lightning invoice", shown: `${address.slice(0, INVOICE_HEAD)}…${address.slice(-INVOICE_TAIL)}` }
+    : { label: `${methodName(coin)} address`, shown: address }
+
+export function lightningPayableUntil(invoice: InvoiceView, now: number): number | null {
+  const until = Date.parse(invoice.expiresAt)
+  return invoice.cryptoCurrency === "ln" && until > now ? until : null
+}
+
+// the count stays with its word on one line; a payment taken on first sight waits for no confirmation at all
+const confirmations = (n: number) => (n === 1 ? "Waiting for 1\u00a0confirmation" : n > 1 ? `Waiting for ${n}\u00a0confirmations` : "Waiting for the payment to settle")
+
+export function seenWords(invoice: InvoiceView, coin: Coin): { title: string; alert: string; text: string } {
+  const arrived = `${invoice.cryptoAmount} ${TICKER[coin]} arrived`
+  if (coin === "ln") return { title: "Payment received", alert: "Starting registration", text: `${arrived} by Lightning. Registration starts in a moment; this page moves on by itself.` }
+  return { title: "Confirming your payment", alert: confirmations(invoice.requiredConfirmations ?? 1), text: `${arrived}. Registration starts once it confirms; this page moves on by itself.` }
+}
 
 // What the order's name costs; null for a code, which costs nothing.
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null

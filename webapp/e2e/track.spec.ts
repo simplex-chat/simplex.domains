@@ -547,7 +547,10 @@ async function backInView(page: Page, name: string): Promise<void> {
 }
 
 // the tops of the home's headline and search
-const homeTops = (page: Page) => page.evaluate(() => ["h1", ".search-field"].map((s) => Math.round(document.querySelector(`.home ${s}`)!.getBoundingClientRect().top)))
+const homeTops = async (page: Page) => {
+  await expect(page.locator(".home .search-field")).toBeVisible()
+  return page.evaluate(() => ["h1", ".search-field"].map((s) => Math.round(document.querySelector(`.home ${s}`)!.getBoundingClientRect().top)))
+}
 
 test("a step's lead breaks where the mockup does on a laptop: in two even lines, or at its line break", async ({ page }) => {
   await search(page, uniqueLabel("lead"))
@@ -817,6 +820,7 @@ test("Check your code keeps its heading and main button still as a verdict comes
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
     await page.goto("/#/code")
+    await expect(page.locator("body > main .actions-row .btn")).toBeVisible()
     const at = () => page.evaluate(() => ["body > main h1", "body > main .actions-row .btn"].map((s) => Math.round(document.querySelector(s)!.getBoundingClientRect().top)))
     const before = await at()
     for (const [typed, verdict] of [["Q", ".verdict.bad"], [code, ".verdict.ok"], ["SN-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA", ".verdict.bad"], ["", ".verdict:empty"]]) {

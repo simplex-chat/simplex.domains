@@ -1,7 +1,9 @@
 // Each invoice its own address, as BTCPay gives one: a Bitcoin regtest or a Monero stagenet address with a valid checksum,
-// so a wallet on those test networks takes it, derived from the invoice id and payable by nobody here.
+// or a signed regtest BOLT11 invoice, so a wallet on those test networks takes it, derived from the invoice id and payable
+// by nobody here.
 import { createHash } from "node:crypto"
 import { ed25519 } from "@noble/curves/ed25519"
+import { secp256k1 } from "@noble/curves/secp256k1"
 import { keccak_256 } from "@noble/hashes/sha3"
 
 // BIP-173: the regtest prefix, and bech32's alphabet and checksum generator
@@ -39,12 +41,13 @@ function toFiveBits(bytes: Uint8Array): number[] {
   return out
 }
 
-function regtestAddress(program: Uint8Array): string {
-  const data = [WITNESS_V0, ...toFiveBits(program)]
-  const mod = polymod([...hrpExpand(REGTEST_HRP), ...data, 0, 0, 0, 0, 0, 0]) ^ 1
+function bech32(hrp: string, data: number[]): string {
+  const mod = polymod([...hrpExpand(hrp), ...data, 0, 0, 0, 0, 0, 0]) ^ 1
   const checksum = Array.from({ length: 6 }, (_, i) => (mod >>> (5 * (5 - i))) & 31)
-  return `${REGTEST_HRP}1${[...data, ...checksum].map((v) => BECH32[v]).join("")}`
+  return `${hrp}1${[...data, ...checksum].map((v) => BECH32[v]).join("")}`
 }
+
+const regtestAddress = (program: Uint8Array) => bech32(REGTEST_HRP, [WITNESS_V0, ...toFiveBits(program)])
 
 // Monero's stagenet standard address: network byte 24, the public spend and view keys, and 4 bytes of keccak-256 checksum,
 // in Monero's base58, which encodes each 8-byte block alone
@@ -82,6 +85,66 @@ function stagenetAddress(seed: Uint8Array): string {
   const view = publicKey(keccak_256(seed.slice(0, 32)))
   const body = new Uint8Array([STAGENET_STANDARD, ...spend, ...view])
   return moneroBase58(new Uint8Array([...body, ...keccak_256(body).slice(0, CHECKSUM_BYTES)]))
+}
+
+const LIGHTNING_HRP = "lnbcrt"
+const MULTIPLIERS: [string, bigint][] = [["m", 10n ** 9n], ["u", 10n ** 6n], ["n", 10n ** 3n], ["p", 1n]]
+const PICO_DECIMALS = 12
+const TIMESTAMP_GROUPS = 7
+const LENGTH_GROUPS = 2
+const VAR_ONION_BIT = 8
+const PAYMENT_SECRET_BIT = 14
+const FEATURES = (1 << VAR_ONION_BIT) | (1 << PAYMENT_SECRET_BIT)
+const GROUP_VALUES = 32
+const DESCRIPTION = "SimpleX name"
+const HASH_BYTES = 32
+const TAG = { paymentHash: "p", paymentSecret: "s", description: "d", expiry: "x", features: "9" } as const
+
+function fiveBitsOf(n: number, groups = 1): number[] {
+  const out: number[] = []
+  for (let rest = n; rest > 0 || out.length < groups; rest = Math.floor(rest / GROUP_VALUES)) out.unshift(rest % GROUP_VALUES)
+  return out
+}
+
+function fromFiveBits(groups: number[]): Uint8Array {
+  const out: number[] = []
+  let acc = 0
+  let bits = 0
+  for (const g of groups) {
+    acc = (acc << 5) | g
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      out.push((acc >>> bits) & 0xff)
+    }
+  }
+  if (bits > 0) out.push((acc << (8 - bits)) & 0xff)
+  return new Uint8Array(out)
+}
+
+const tagged = (type: string, data: number[]) => [BECH32.indexOf(type), ...fiveBitsOf(data.length, LENGTH_GROUPS), ...data]
+
+function lightningAmount(btc: string): string {
+  const [whole, fraction = ""] = btc.split(".")
+  const pico = BigInt(whole + fraction.padEnd(PICO_DECIMALS, "0"))
+  const [unit, size] = MULTIPLIERS.find(([, size]) => pico % size === 0n)!
+  return `${pico / size}${unit}`
+}
+
+export function lightningInvoice(invoiceId: string, btc: string, createdAt: number, expirySeconds: number): string {
+  const seed = createHash("sha512").update(`ln ${invoiceId}`).digest()
+  const hrp = `${LIGHTNING_HRP}${lightningAmount(btc)}`
+  const data = [
+    ...fiveBitsOf(createdAt, TIMESTAMP_GROUPS),
+    ...tagged(TAG.paymentHash, toFiveBits(createHash("sha256").update(seed.subarray(0, HASH_BYTES)).digest())),
+    ...tagged(TAG.paymentSecret, toFiveBits(seed.subarray(HASH_BYTES, 2 * HASH_BYTES))),
+    ...tagged(TAG.description, toFiveBits(new TextEncoder().encode(DESCRIPTION))),
+    ...tagged(TAG.expiry, fiveBitsOf(expirySeconds)),
+    ...tagged(TAG.features, fiveBitsOf(FEATURES)),
+  ]
+  const signed = createHash("sha256").update(Buffer.concat([Buffer.from(hrp), fromFiveBits(data)])).digest()
+  const signature = secp256k1.sign(signed, createHash("sha256").update(seed).digest())
+  return bech32(hrp, [...data, ...toFiveBits(new Uint8Array([...signature.toBytes("compact"), signature.recovery]))])
 }
 
 export function addressFor(method: "btc" | "xmr", invoiceId: string): string {
