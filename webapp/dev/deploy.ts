@@ -41,10 +41,10 @@ const COMMUNITY_NAMES = ["bakers", "bakehouse"]
 // anvil's well-known development mnemonic
 const MNEMONIC = "test test test test test test test test test test test junk"
 
-if (!ENS_CONTRACTS_DIR) throw new Error("set ENS_CONTRACTS_DIR to the compiled ens-contracts submodule of a simplex-namespace-contract checkout")
-// the terms the name policy links, the namespace repository's fixtures beside its ens-contracts as files this machine
-// serves, and their hashes, which orders sign
-const TERMS_FIXTURES = join(ENS_CONTRACTS_DIR, "..", "test", "fixtures", "terms")
+if (!ENS_CONTRACTS_DIR) throw new Error("set ENS_CONTRACTS_DIR to a compiled ens-contracts checkout")
+// the terms the name policy links, this directory's dummy fixtures as files this machine serves, and their hashes,
+// which orders sign
+const TERMS_FIXTURES = new URL("./fixtures/terms/", import.meta.url).pathname
 const GENERAL_TERMS_LINK = savedTerms(readFileSync(join(TERMS_FIXTURES, "general-terms.md")))
 const COMMUNITY_TERMS_LINK = savedTerms(readFileSync(join(TERMS_FIXTURES, "community-terms.md")))
 const GENERAL_TERMS_HASH = keccak256(Buffer.from(GENERAL_TERMS_LINK))
