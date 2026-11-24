@@ -462,7 +462,7 @@ screen(164, "home-own-unpaid-order", async ({ page, id }) => {
 })
 screen(166, "home-reserved", async ({ page }) => {
   await search(page, "support")
-  await shown(page, "Reserved names are not sold here.")
+  await shown(page, "If you want to use this name, please contact us via")
 })
 screen(168, "home-taken-chats-read", async ({ page }) => {
   await answerName(page, "bakery", takenWith(BAKERY))

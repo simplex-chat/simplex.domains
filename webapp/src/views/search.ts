@@ -17,7 +17,7 @@ import {
 } from "../screens/search.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
-import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, throughHistory } from "./shell.ts"
+import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, SIMPLEX_SUPPORT, throughHistory } from "./shell.ts"
 import { chatButton } from "./chats.ts"
 import { CODES_ONLY_LINE } from "./codes.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
@@ -272,10 +272,16 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (answer?.kind !== "found") return answer?.kind === "checking" ? line("", "clock", "Checking the name…") : null
   const available = flow.availableOf(answer.answer)
   if (available) return availableAnswer(s, answer.label, available, signal)
-  if (answer.answer.found.type === "reserved") {
-    return line("info", "info", "Reserved names are not sold here. If it is yours to use, write to ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), ".")
-  }
+  if (answer.answer.found.type === "reserved") return reservedAnswer(answer.label, answer.answer)
   return takenAnswer(s, answer, answer.answer)
+}
+
+function reservedAnswer(label: string, answer: api.SearchAnswer): Kid[] {
+  return [
+    el("div", { class: "card row" }, rowName(label, readSite().tld, answer.community, "community"), el("span", { class: "soft" }, "Reserved")),
+    line("info", "info", "If you want to use this name, please contact us via ", el("a", { class: "nowrap", href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL),
+      " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX"), "."),
+  ]
 }
 
 function ruleLine({ label, problem }: Extract<Answer, { kind: "rule" }>): HTMLElement {
