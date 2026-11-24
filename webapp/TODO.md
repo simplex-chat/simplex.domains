@@ -15,7 +15,7 @@ All screens: how each one makes people feel, the criterion the language audit ap
 | # | Screen | Issue |
 |---|---|---|
 | 1 | checkout-code-no-storage | Show the public address the name is stored at, and recommend checking on Etherscan that the name landed there. The link opens the page where the person sees the name owned by their address. The private key alone is not enough. |
-| 2 | checkout-community-accepted | The community terms shown make no sense. In the screenshots they are the contracts repository's test fixtures (test/fixtures/terms/community-terms.md and general-terms.md), which dev/deploy.ts publishes; the deployed page shows the terms linked on chain. Make the screenshots show the real terms texts, and rewrite the community terms page where its own text is wrong. |
+| 2 | checkout-community-accepted | The community terms shown make no sense. In the screenshots they are the dummy terms in dev/fixtures/terms/ (community-terms.md and general-terms.md), which dev/deploy.ts publishes; the deployed page shows the terms linked on chain. Make the screenshots show the real terms texts, and rewrite the community terms page where its own text is wrong. |
 | 3 | checkout-community-unreadable | The screen says the terms cannot be shown; find why it reaches that state, and change what the person sees. |
 | 4 | checkout-links-scan-dialog (phone), checkout-review-code-scan-dialog (phone) | The screenshots show no QR code; find whether the scan dialogs are broken or only the screenshots. |
 | 7 | checkout-review-bonus-tip (phone) | The tooltip is black in the light theme; restyle it to suit the light theme. |
