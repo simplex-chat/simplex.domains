@@ -787,7 +787,7 @@ screen(1074, "checkout-review-open-order-confirming", async (r) => {
   await search(r.page, r.id)
   await toReview(r.page)
   await control(r.request, `confirming/${invoiceId}`)
-  await shown(r.page, "is confirming its payment")
+  await shown(r.page, "is completing its payment")
 })
 screen(1076, "checkout-review-method-unavailable", async (r) => {
   await review(r)
