@@ -8,7 +8,8 @@ import * as store from "../store.ts"
 
 // Past the HTTP cache; the worker answers from the network while it is there.
 async function servedMode(): Promise<Mode | null> {
-  return (await readConfig({ cache: "no-store" }))?.mode ?? null
+  const config = await readConfig({ cache: "no-store" })
+  return config && (config.names?.codesOnly ? "codes" : "open")
 }
 
 // a field typed into since it was drawn holds what the page has not kept

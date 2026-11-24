@@ -3,8 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
-  cancelInvoice, checkCode, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlTake, createInvoice, currentTerms, dump, editRecords, find,
-  HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retarget, retry, reveal, search, spend,
+  cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, controlUnregister, createInvoice, currentTerms, dump, editRecords, find, findLimited,
+  HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retry, reveal, search, selectName, signFor, siteConfig,
 } from "./mock/service.ts"
 
 const PORT = Number(process.env.MOCK_PORT ?? "8099")
@@ -33,6 +33,7 @@ type Limit = (client: string) => void
 
 const routes: [string, RegExp, Handler, Limit?][] = [
   ["GET", /^\/api\/name\/([^/]+)$/, (m, _, q) => search(m[1], q.get("length"))],
+  ["GET", /^\/api\/name\/([^/]+)\/sign$/, (m, _, q) => signFor(m[1], q.get("owner"))],
   ["POST", /^\/api\/link\/preview$/, (_, b) => previewLink(b)],
   ["GET", /^\/api\/terms\/([^/]+)$/, (m) => currentTerms(m[1])],
   ["POST", /^\/api\/code\/check$/, (_, b) => checkCode(b), codeLimited],
@@ -41,14 +42,14 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/api\/invoice\/([^/]+)\/cancel$/, (m) => cancelInvoice(m[1])],
   ["POST", /^\/api\/name\/register$/, (_, b) => oneOrderAtATime(() => registerWithCode(b)), codeLimited],
   ["POST", /^\/api\/name\/records$/, (_, b) => editRecords(b)],
-  ["POST", /^\/api\/registration\/find$/, (_, b) => find(b)],
+  ["POST", /^\/api\/registration\/find$/, (_, b) => find(b), findLimited],
   ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], versionOf(q))],
   ["POST", /^\/api\/registration\/([^/]+)\/reveal$/, (m, b) => reveal(m[1], b)],
-  ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => retarget(m[1], b))],
+  ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => selectName(m[1], b))],
   ["POST", /^\/api\/registration\/([^/]+)\/retry$/, (m) => retry(m[1])],
-  ["POST", /^\/api\/registration\/([^/]+)\/spend$/, (m, b) => oneOrderAtATime(() => spend(m[1], b))],
   ["POST", /^\/control\/(settle|partial|confirming|expire|overdue)\/([^/]+)$/, (m, b) => controlInvoice(m[1], m[2], b)],
-  ["POST", /^\/control\/(fail|lapse)\/([^/]+)$/, (m) => controlRegistration(m[1], m[2])],
+  ["POST", /^\/control\/(fail|stale|unread|lapse)\/([^/]+)$/, (m) => controlRegistration(m[1], m[2])],
+  ["POST", /^\/control\/unregister\/([^/]+)$/, (m) => controlUnregister(m[1])],
   ["POST", /^\/control\/late\/([^/]+)$/, (m, b) => controlLate(m[1], b.waiting ?? null)],
   ["POST", /^\/control\/credit\/([^/]+)$/, (m, b) => controlCredit(m[1], b.cents)],
   ["POST", /^\/control\/take$/, (_, b) => controlTake(b.label)],
@@ -58,10 +59,12 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/control\/general-terms$/, (_, b) => controlGeneralTerms(b)],
   ["POST", /^\/control\/mode$/, (_, b) => controlMode(b)],
   ["GET", /^\/control\/mode$/, () => modeNow()],
-  ["GET", /^\/api\/config$/, () => ({ ...modeNow(), stripePublishableKey: null })],
+  ["GET", /^\/api\/config$/, () => siteConfig()],
   ["POST", /^\/control\/community$/, (_, b) => controlCommunity(b)],
   ["POST", /^\/control\/community-terms$/, (_, b) => controlCommunityTerms(b)],
   ["POST", /^\/control\/edits$/, (_, b) => controlEdits(b)],
+  ["POST", /^\/control\/clock$/, (_, b) => controlClock(b)],
+  ["POST", /^\/control\/seed$/, (_, b) => controlSeed(b)],
   ["POST", /^\/control\/code\/state$/, (_, b) => setCodeState(b.code, b.state)],
   ["POST", /^\/control\/code$/, (_, b) => ({ code: issueCode(Number(b.minLength), Number(b.years ?? 2), (b.state ?? "unused") as never) })],
   ["GET", /^\/control\/state$/, () => dump()],
@@ -85,22 +88,31 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function reply(res: ServerResponse, status: number, body: unknown, retryAfter: number | null = null): void {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", date: new Date().toUTCString(), ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
   res.end(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? v.toString() : v)))
+}
+
+function refused(res: ServerResponse, e: HttpError): void {
+  reply(res, e.status, { ...e.body, ...e.retryAfter ? { retryAfter: e.retryAfter } : {} }, e.retryAfter)
 }
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://mock")
   const route = routes.find(([method, path]) => method === req.method && path.test(url.pathname))
-  if (!route) return reply(res, 404, { error: "not_found" })
+  if (!route) return reply(res, 404, { type: "not_found" })
   try {
     route[3]?.(clientOf(req))
+  } catch (e) {
+    if (e instanceof HttpError) return refused(res, e)
+    throw e
+  }
+  try {
     const body = req.method === "POST" ? await readBody(req) : {}
     reply(res, 200, await route[2](url.pathname.match(route[1])!, body, url.searchParams))
   } catch (e) {
-    if (e instanceof HttpError) return reply(res, e.status, e.body, e.retryAfter)
+    if (e instanceof HttpError) return refused(res, e)
     console.error(e)
-    reply(res, 500, { error: "internal" })
+    reply(res, 500, { type: "internal" })
   }
 })
 

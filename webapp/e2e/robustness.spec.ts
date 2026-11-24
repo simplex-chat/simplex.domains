@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from "@playwright/test"
 import {
-  agreeToTerms, brokenNames, CHAIN, channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, failedOrder, FIT_SIZES, mockRegistration, onStep, payButton, REGISTRATION_MS, registrationOf, rowFit, savedToReview, search, shot,
-  shownCode, startOrder, restoreOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registrationView, withStripeKey,
+  channelLink, contactLink, recordedFrames, recordFrames, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, control, mockRegistration, okPreview, onStep, payButton, REGISTRATION_MS, registeredAnswer, registrationOf, savedToReview, search, selectedToReview, shot,
+  shownCode, startOrder, restoreOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, useCode, waitRegistered, keepOrder, registeredPhase, registrationView, withStripeKey,
 } from "./helpers.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 
@@ -132,8 +132,8 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
   const answers = [
-    { status: 409, body: { error: "funded" }, text: "A payment has reached this invoice, so it is kept." },
-    { status: 503, body: { error: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
+    { status: 409, body: { type: "funded" }, text: "A payment has reached this invoice, so it is kept." },
+    { status: 503, body: { type: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
   ]
   for (const answer of answers) {
     await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: answer.status, json: answer.body }))
@@ -142,7 +142,7 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
     await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
     await page.unroute("**/api/invoice/*/cancel")
   }
-  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The invoice is still open\. Try again in/ })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
@@ -176,59 +176,17 @@ test("a registered order opened in a browser without its code offers restore", a
   await other.close()
 })
 
-test("a failed retarget shows one message below the result, however often it is tried", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("rtf"))
-  await page.goto(`/#/?retarget=${registrationId}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 503, json: { error: "provider_unavailable" } }))
-  await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtf2"))
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(page)
-  for (let i = 0; i < 2; i++) {
-    await page.getByRole("button", { name: "Register with your payment" }).click()
-    await expect(page.getByText("That did not go through")).toHaveCount(1)
-  }
-  await expect(page.locator(".answer .row .notice"), "the message stays out of the name's row").toHaveCount(0)
-  // the name whole on its own line where the long button leaves it too little room beside it
-  for (const size of FIT_SIZES) {
-    await page.setViewportSize(size)
-    expect(await brokenNames(page), `the names broken at ${size.width}x${size.height}`).toEqual([])
-    const { spill, clipped } = await rowFit(page)
-    expect({ spill, clipped }, `the row's parts past it or too narrow at ${size.width}x${size.height}`).toEqual({ spill: 0, clipped: [] })
-  }
-  await page.setViewportSize(FIT_SIZES[0])
-  await shot(page, "N8a2-retarget-failed")
-})
-
-test("a retarget refused for a name taken meanwhile says the name is no longer available", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("rtt"))
-  await page.goto(`/#/?retarget=${registrationId}`)
-  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { error: "name_taken" } }))
-  await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtt2"))
-  await page.getByLabel("Name", { exact: true }).press("Enter")
-  await agreeToTerms(page)
-  await page.getByRole("button", { name: "Register with your payment" }).click()
-  await expect(page.getByText("This name is no longer available. Search another one.")).toBeVisible()
-})
-
-test("a move refused for its code says what happened to the code and where to write, never to try again", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("rtc"))
-  const cases: [string, number, string][] = [
-    ["code_used", 409, "This code was already used"], ["code_reserved", 409, "This code is being used for a name now"],
-    ["code_expired", 409, "This code has expired"], ["code_invalid", 400, "This code is not valid: SimpleX withdrew it"],
-  ]
-  for (const [error, status, title] of cases) {
-    await page.unrouteAll({ behavior: "wait" })
-    await page.route("**/api/registration/*/name", (route) => route.fulfill({ status, json: { error } }))
-    await page.goto(`/#/?retarget=${registrationId}`)
-    await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("rtc2"))
-    await page.getByLabel("Name", { exact: true }).press("Enter")
-    await agreeToTerms(page)
-    await page.getByRole("button", { name: "Register with your payment" }).click()
-    const note = page.locator(".answer .notice", { hasText: title })
-    await expect(note, error).toContainText(`Write to SimpleX support with this order's reference, chat@simplex.chat: `)
-    await expect(note.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
-    await expect(page.getByText("Try again in a moment"), error).toHaveCount(0)
-  }
+test("a selection refused for a name taken meanwhile says the name is no longer available, and the next search is for the same order", async ({ page, request }) => {
+  const { invoiceId } = await takenOrder(page, request, uniqueLabel("rtt"))
+  const registrationId = await registrationOf(request, invoiceId)
+  await page.goto(`/#/?order=${registrationId}`)
+  await page.route("**/api/registration/*/name", (route) => route.fulfill({ status: 409, json: { type: "name_taken" } }))
+  await selectedToReview(page, uniqueLabel("rtt2"))
+  await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
+  await expect(onStep(page).getByRole("heading", { name: "This name is no longer available" })).toBeVisible()
+  await onStep(page).getByRole("button", { name: "Search another name" }).click()
+  await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
+  await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
 test("a partly paid invoice offers no cancel", async ({ page, request }) => {
@@ -295,7 +253,7 @@ test("Forget everything also drops the tab's unfinished checkout", async ({ page
   await expect(page.getByText("No names in this browser yet", { exact: true })).toBeVisible()
 })
 
-test("a payment that arrives after expiry turns the open page into the late page, whose balance buys another name, and no new invoice is made", async ({ page, request }) => {
+test("a payment that arrives after expiry turns the open page into the late page, whose balance support refunds, and no new invoice is made", async ({ page, request }) => {
   const label = uniqueLabel("late")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
@@ -303,10 +261,10 @@ test("a payment that arrives after expiry turns the open page into the late page
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByText("The payment arrived after this invoice had closed")).toBeVisible()
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
-  // credited to the order's balance, the late money offers another name and a refund, as a taken order's does
+  // credited to the order's balance, the late money offers a refund beside a new invoice
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  await expect(page.locator(".code-chip")).toContainText("Balance: $100")
+  await expect(onStep(page).getByRole("button", { name: "Get a new invoice" })).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await page.goto("/#/names")
   const order = page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` })
   await expect(order).toHaveCount(1)
@@ -320,24 +278,25 @@ test("money paid after the close that the service cannot credit by itself sends 
   await control(request, `expire/${invoiceId}`)
   await control(request, `late/${invoiceId}`, { waiting: "support" })
   await control(request, `settle/${invoiceId}`)
-  await expect(onStep(page).getByText("It is not credited to your balance by itself: write to chat@simplex.chat with the reference below.")).toBeVisible()
+  await expect(onStep(page).getByText(`It is not credited to your balance by itself: contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toHaveCount(0)
   const reads: string[] = []
   page.on("request", (r) => { if (r.url().includes(`/api/invoice/${invoiceId}`)) reads.push(r.url()) })
   await page.waitForTimeout(7_000)
   expect(reads, "no reads once only support can credit it").toEqual([])
   await page.goto("/#/names")
-  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText("Paid after the invoice closed; write to support to have it credited")
+  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText(`Paid after the invoice closed; contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}, to have it credited`)
 })
 
 test("an order left before its wait ends asks for this browser in Your names", async ({ page, request }) => {
   const label = uniqueLabel("left")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await page.goto("/#/")
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await control(request, `settle/${invoiceId}`)
   await expect.poll(async () => {
-    const { phase, revealAfter } = await mockRegistration(request, invoiceId)
-    return phase === "committed" && revealAfter !== null && Date.now() / 1000 >= revealAfter
+    const { phase, revealAfter, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null && revealAfter !== null && Date.now() / 1000 >= revealAfter
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -359,7 +318,7 @@ const UNREAD_ROUND_MS = 8_000
 test("a row Your names could not read is read again while the page stays open", async ({ page }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("unread"), { method: "btc" })
   let refused = true
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => refused ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => refused ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   await page.goto("/#/names")
   const chip = page.locator(".list-row .chip")
   await expect(chip).toHaveText("Not checked")
@@ -367,12 +326,30 @@ test("a row Your names could not read is read again while the page stays open", 
   await expect(chip, "the row read again by itself").toHaveText("Waiting for payment", { timeout: UNREAD_ROUND_MS })
 })
 
+test("Your names draws a row as last read while the service's config cannot be read, and reads the row once it can", async ({ page }) => {
+  const order = await keepOrder(page, "reg-config", null, "configunread")
+  const expiresAt = Math.floor(Date.now() / 1000) + ROW_YEAR_S
+  const registered = registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" })
+  await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registered] as const)
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registered }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(order.owner, expiresAt, { contact: "", channel: "" }) }))
+  let unread = true
+  await page.route("**/api/config", (route) => unread ? route.fulfill({ status: 500, json: { type: "internal" } }) : route.continue())
+  await page.goto("about:blank")
+  await page.goto("/#/names")
+  const row = page.locator(".list-row", { hasText: "configunread" })
+  await expect(row).toContainText("configunread.simplex")
+  await expect(row.locator(".chip")).toHaveText("Not checked")
+  unread = false
+  await expect(row.locator(".chip"), "the row read again once the config is read").toHaveCount(0, { timeout: UNREAD_ROUND_MS })
+})
+
 test("a code Your names could not check is checked again while the page stays open", async ({ page, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   await page.goto("/")
   await page.evaluate((c) => localStorage.setItem(`simplex-names:code:${c}`, JSON.stringify({ code: c, minLength: 6, years: 2, addedAt: new Date().toISOString() })), code)
   let refused = true
-  await page.route("**/api/code/check", (route) => refused ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route("**/api/code/check", (route) => refused ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   await page.goto("/#/names")
   const chip = page.locator(".list-row", { hasText: code }).locator(".chip")
   await expect(chip).toHaveText("Not checked")
@@ -469,7 +446,7 @@ test("paying by card during an outage keeps the order on screen", async ({ page 
 test("a rate-limited cancel holds, and the hold outlives the page drawing itself again", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("hold"), { method: "btc" })
   let cancels = 0
-  await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { error: "rate_limited" } }) })
+  await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) })
   await page.getByText("Cancel this invoice").click()
   await expect(page.getByText("Too many attempts")).toBeVisible()
   await page.getByText("Cancel this invoice").click()
@@ -490,7 +467,7 @@ test("a rate-limited cancel holds, and the hold outlives the page drawing itself
 test("Back from a paused order keeps the order paused", async ({ page }) => {
   await search(page, uniqueLabel("pause"))
   await toReview(page)
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { error: "rate_limited" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
   await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many orders were tried from here\. Try again in \d+ seconds\.$/)
   await page.goBack()
@@ -509,7 +486,7 @@ test("an order on its way keeps its method as sent until it is answered", async 
   await page.route("**/api/invoice", async (route) => {
     if (route.request().method() !== "POST") return route.continue()
     await answered
-    await route.fulfill({ status: 500, json: { error: "internal" } })
+    await route.fulfill({ status: 500, json: { type: "internal" } })
   })
   await payButton(page).click()
   for (const radio of await page.getByRole("radio").all()) await expect(radio).toHaveAttribute("aria-disabled", "true")
@@ -651,21 +628,20 @@ test("a Continue checkout drawn before its checkout ended draws the list anew ra
 const ROW_READ_MS = 1500
 const ROW_YEAR_S = 365 * 86400
 
-const linkedChat = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", kind, displayName: kind, fullName: "", image: null,
-  subscribers: kind === "channel" ? 12 : null, link: kind === "contact" ? contactLink("R1") : channelLink("R2"), deepLink: "simplex:/a#x", profile: "ok" })
+const linkedChat = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("R1") : channelLink("R2"), deepLink: "simplex:/a#x" })
 
 test("Your names moves no row once drawn as its reads answer, on a browser's first opening and in a new tab after it", async ({ browser }) => {
   for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
     const context = await browser.newContext({ viewport: size })
     const page = await context.newPage()
     const now = Math.floor(Date.now() / 1000)
-    const registered = { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }
+    const registered = { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }
     const kept = [
       [await keepOrder(page, "reg-still0", null, "studio42", { contact: contactLink("R1"), channel: channelLink("R2") }), registered],
       [await keepOrder(page, "reg-still1", "inv-still1", "bakerypaidwithbitcoin"), registered],
       [await keepOrder(page, "reg-still4", "inv-still4", "bakerypaidbycard"), registered],
-      [await keepOrder(page, "reg-still2", null, "w".repeat(MAX_LABEL_LENGTH)), { phase: "committed", commitTx: "0x02" }],
-      [await keepOrder(page, "reg-still3", null, "bakerycodeorder"), { phase: "queued" }],
+      [await keepOrder(page, "reg-still2", null, "w".repeat(MAX_LABEL_LENGTH)), { phase: { type: "committed", revealAfter: now + 3600, revealBefore: now + 86400, signature: { type: "signed" } }, commitTx: "0x02" }],
+      [await keepOrder(page, "reg-still3", null, "bakerycodeorder"), { phase: { type: "queued" } }],
     ] as const
     let answered = 0
     const slowly = async <T>(json: T, route: Route) => {
@@ -682,9 +658,8 @@ test("Your names moves no row once drawn as its reads answer, on a browser's fir
           : { cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bcrt1q", cryptoAmountPaid: "0.00156", paidInFull: true }) }, route))
     }
     // the first name has its two chats, the other none
-    await context.route("**/api/name/**", (route) => slowly({ status: "registered", entities: route.request().url().includes(kept[0][0].request.labelHash)
-      ? [linkedChat("contact"), linkedChat("channel")] : [], owner: kept[0][0].owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId,
-    records: { contact: "", channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, tld: "simplex", community: null }, route))
+    await context.route("**/api/name/**", (route) => slowly(registeredAnswer(kept[0][0].owner, now + ROW_YEAR_S, { contact: "", channel: "" },
+      route.request().url().includes(kept[0][0].request.labelHash) ? [linkedChat("contact"), linkedChat("channel")] : []), route))
     const reads = kept.length + 3
     for (const [tab, opening] of [[page, "first opening"], [await context.newPage(), "new tab"]] as const) {
       const before = answered
@@ -770,13 +745,12 @@ test("a row drawn from the last reads stays drawn as it was, until its name regi
     await page.setViewportSize(size)
     const order = await keepOrder(page, "reg-stays", null, "staysregistering")
     const now = Math.floor(Date.now() / 1000)
-    const registering = registrationView(order, { phase: "registering", commitTx: "0x02", registerTx: "0x03" })
+    const registering = registrationView(order, { phase: { type: "registering" }, commitTx: "0x02", registerTx: "0x03" })
     await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registering] as const)
-    await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
+    await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }) }))
     await page.route("**/api/name/**", async (route) => {
       await new Promise((wait) => setTimeout(wait, ROW_READ_MS))
-      await route.fulfill({ json: { status: "registered", entities: [linkedChat("contact")], owner: order.owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId,
-        records: { contact: contactLink("R1"), channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, tld: "simplex", community: null } })
+      await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
     })
     await rowFrames(page)
     await page.goto("about:blank")
@@ -801,11 +775,10 @@ test("a row drawn not read after the bound keeps its height on a phone when its 
   await page.setViewportSize(SIZES[1])
   const order = await keepOrder(page, "reg-late", null, "lateanswername", { contact: contactLink("R1"), channel: "" })
   const now = Math.floor(Date.now() / 1000)
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: "registered", commitTx: "0x02", registerTx: "0x03", expiresAt: now + ROW_YEAR_S }) }))
+  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: registeredPhase(now + ROW_YEAR_S), commitTx: "0x02", registerTx: "0x03" }) }))
   await page.route("**/api/name/**", async (route) => {
     await new Promise((wait) => setTimeout(wait, LATE_ANSWER_MS))
-    await route.fulfill({ json: { status: "registered", entities: [linkedChat("contact")], owner: order.owner, resolver: CHAIN.resolver, chainId: CHAIN.chainId,
-      records: { contact: contactLink("R1"), channel: "" }, recordsNonce: 0, expiresAt: now + ROW_YEAR_S, tld: "simplex", community: null } })
+    await route.fulfill({ json: registeredAnswer(order.owner, now + ROW_YEAR_S, { contact: contactLink("R1"), channel: "" }, [linkedChat("contact")]) })
   })
   await rowFrames(page)
   await page.goto("about:blank")

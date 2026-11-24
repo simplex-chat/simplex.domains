@@ -1,5 +1,5 @@
 // The registration, its commitment and the signed intents, from simplexmq PR #1942's names-web (which mirrors
-// simplex-chat PR #7693's Registration.hs), with the record edits and the store's derived secret added.
+// simplex-chat PR #7693's Registration.hs), with the record edits, the store's derived secret and the dispute days added.
 import { concatBytes, numberToBytesBE, utf8ToBytes } from "@noble/curves/utils"
 import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha2"
@@ -17,8 +17,8 @@ export interface Registration {
   duration: bigint
   secret: Uint8Array
   resolver: Uint8Array
-  contactLinks: string[]
-  channelLinks: string[]
+  contactLink: string | null
+  channelLink: string | null
 }
 
 // The contract counts a duration from the block's time, so the free days until the term starts are added to the paid years.
@@ -46,24 +46,25 @@ export function makeCommitment(r: Registration): Uint8Array {
 
 export function recordCalls(r: Registration): Uint8Array[] {
   const node = namehash(r.tld, r.label)
-  const records: [string, string[]][] = [[CONTACT_KEY, r.contactLinks], [CHANNEL_KEY, r.channelLinks]]
+  const records: [string, string | null][] = [[CONTACT_KEY, r.contactLink], [CHANNEL_KEY, r.channelLink]]
   return records
-    .filter(([, links]) => links.length > 0)
-    .map(([key, links]) =>
+    .filter((record): record is [string, string] => record[1] !== null)
+    .map(([key, link]) =>
       concatBytes(
         selector("setText(bytes32,string,string)"),
-        abiTuple([fixed(node), dynamic(abiBytes(utf8ToBytes(key))), dynamic(abiBytes(utf8ToBytes(links.join(";"))))]),
+        abiTuple([fixed(node), dynamic(abiBytes(utf8ToBytes(key))), dynamic(abiBytes(utf8ToBytes(link)))]),
       ),
     )
 }
 
-export function registerIntentDigest(chainId: bigint, sponsor: Uint8Array, r: Registration, nonce: bigint, deadline: bigint): Uint8Array {
-  const intent = hashStruct("RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)", [
+export function registerIntentDigest(chainId: bigint, sponsor: Uint8Array, r: Registration, disputeDays: bigint, nonce: bigint, deadline: bigint): Uint8Array {
+  const intent = hashStruct("RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 disputeDays,uint256 nonce,uint256 deadline)", [
     keccak_256(utf8ToBytes(r.label)),
     addressWord(r.owner),
     uint256(r.duration),
     addressWord(r.resolver),
     keccak_256(concatBytes(...recordCalls(r).map((c) => keccak_256(c)))),
+    uint256(disputeDays),
     uint256(nonce),
     uint256(deadline),
   ])
@@ -78,11 +79,6 @@ export function setTextDigest(chainId: bigint, resolver: Uint8Array, node: Uint8
     uint256(nonce),
     uint256(deadline),
   ])
-  return typedDigest(domainSeparator("SimplexResolver", chainId, resolver), intent)
-}
-
-export function clearRecordsDigest(chainId: bigint, resolver: Uint8Array, node: Uint8Array, nonce: bigint, deadline: bigint): Uint8Array {
-  const intent = hashStruct("ClearRecords(bytes32 node,uint256 nonce,uint256 deadline)", [node, uint256(nonce), uint256(deadline)])
   return typedDigest(domainSeparator("SimplexResolver", chainId, resolver), intent)
 }
 

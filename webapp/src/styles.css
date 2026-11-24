@@ -180,8 +180,8 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
   .menu > .theme-line { margin: 0; font-size: 18px; padding-block: 14px; }
   .theme-line::before { content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset -7px -3px 0 0 var(--toggle); rotate: -20deg; }
   .topbar:has(> .menu:not([hidden])) { background: var(--menu-bg); }
-  /* the chip says what its code pays for; its word "Code" is for screen readers only, while "Balance" stays */
-  .code-chip:not(.balance) .code-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  /* the chip says what its code pays for; its word "Code" is for screen readers only */
+  .code-chip .code-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 
 /* the invest note under the page, and the footer's links after a rule (badges styles.css .invest, footer) */
@@ -417,9 +417,6 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .review:has(.order .name:not(.whole)) { gap: 8px; }
 .review:has(.order .name:not(.whole)) .trow { padding-block: 4px; }
 .screen-body:has(> .review .line) { --body-gap: 8px; }
-/* the balance's live region keeps its place in the review empty, taking no gap */
-.review > .balance-note:empty { margin-top: -14px; }
-.review:has(.line) > .balance-note:empty { margin-top: -8px; }
 .screen-body:has(> .review .line) > [role="status"]:empty { margin-top: -8px; }
 /* the link to a code just under the payment choices, and the field it opens in their place */
 .have-code { display: grid; justify-items: center; font-size: var(--fs-small); }

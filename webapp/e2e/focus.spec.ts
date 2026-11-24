@@ -116,7 +116,7 @@ test("an order refused for its method draws the checkout again in place, with fo
   await search(page, uniqueLabel("unav"))
   await toReview(page)
   await page.getByRole("radio", { name: "Card" }).click()
-  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+  await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
   const entries = await page.evaluate(() => history.length)
   await payButton(page).focus()
   await page.keyboard.press("Enter")
@@ -127,7 +127,7 @@ test("an order refused for its method draws the checkout again in place, with fo
 
 test("a well-formed code the service does not know is not called a typo", async ({ page, request }) => {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
-  await page.route("**/api/code/check", (route) => route.fulfill({ status: 400, json: { error: "code_invalid" } }))
+  await page.route("**/api/code/check", (route) => route.fulfill({ status: 400, json: { type: "code_invalid" } }))
   await page.goto("/#/code")
   await codeField(page).fill(code)
   await expect(page.locator(".verdict.bad")).toHaveText("This code is not valid: SimpleX did not issue it.")

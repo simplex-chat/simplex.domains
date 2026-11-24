@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { bonusDays, bonusHint, clock, dateOf, dollars, freeDays, letters, methodName, seconds, shortAddress, termEnd, timeOf } from "../src/format.ts"
-import { deepLinkOf } from "../dev/mock/links.ts"
+import { coreLink, deepLinkOf } from "../dev/mock/links.ts"
 import { foldLabel, labelProblem, linkKind, linkProblem, LINK_MAX_BYTES, linkTooLong } from "../src/names.ts"
 
 describe("label rules", () => {
@@ -26,8 +26,8 @@ describe("label rules", () => {
 })
 
 describe("link rules", () => {
-  const contact = "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS"
-  const channel = "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm?v=1"
+  const contact = "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"
+  const channel = "simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?h=smp9.simplex.im"
 
   it("accepts one short link of the field's kind", () => {
     expect(linkProblem("contact", contact)).toBeNull()
@@ -36,13 +36,23 @@ describe("link rules", () => {
     expect(linkKind(channel)).toBe("channel")
   })
 
-  it("accepts a link of several servers, their hosts joined by an escaped comma, and no other escape", () => {
+  it("accepts a link of several servers, their hosts joined by a comma, escaped or not, as the chat core reads them", () => {
     const hosts = "smp4.simplex.im%2Co5vmywmrnaxalvz6wi3zicyftgio6psuvyniis6gco6bp6ekl4cqj4id.onion"
-    const multi = `simplex:/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS?h=${hosts}&p=5223&c=1234-w`
+    const multi = `simplex:/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA?h=${hosts}&p=5223&c=1234-w`
     expect(linkKind(multi)).toBe("contact")
-    expect(linkKind(`https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm?h=${hosts}`)).toBe("channel")
-    expect(linkKind(multi.replace("%2C", ","))).toBeNull()
-    expect(linkKind(multi.replace("%2C", "%2F"))).toBeNull()
+    expect(linkKind(`https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?h=${hosts}`)).toBe("channel")
+    expect(linkKind(multi.replace("%2C", ","))).toBe("contact")
+    expect(linkKind(multi.replace("%2C", "%2c"))).toBe("contact")
+  })
+
+  it("reads a link's type in either case and a slash before its key, and refuses a key or a server the chat core cannot read", () => {
+    expect(linkKind("https://smp6.simplex.im/A#lrdvu2d8A1GumSmoKb2krQmtKhWXq-tyGpHuM7aMwsw")).toBe("contact")
+    expect(linkKind("https://smp6.simplex.im/c/#lrdvu2d8A1GumSmoKb2krQmtKhWXq-tyGpHuM7aMwsw")).toBe("channel")
+    expect(linkKind("https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS"), "a stray last character").toBeNull()
+    expect(linkKind("https://smp8.simplex.im/a#x"), "a length no bytes encode to").toBeNull()
+    expect(linkKind("simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?v=1"), "a simplex:/ link without its server").toBeNull()
+    expect(linkKind("simplex:/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA?h="), "an empty server").toBeNull()
+    expect(linkKind("https://smp8.simplex.im/g#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA"), "a group link").toBeNull()
   })
 
   it("refuses the other kind, full links, two links and oversized links", () => {
@@ -69,13 +79,17 @@ describe("the mock's deep link", () => {
   it("keeps the server as the chat core writes it, so the app can open the link", () => {
     expect(deepLinkOf(`https://smp8.simplex.im/a#${key}`)).toBe(`simplex:/a#${key}?h=smp8.simplex.im`)
     expect(deepLinkOf(`https://smp9.simplex.im/c#${key}`)).toBe(`simplex:/c#${key}?h=smp9.simplex.im`)
+    expect(deepLinkOf(`https://smp9.simplex.im/C/#${key}`), "its type in lower case, without a slash before the key").toBe(`simplex:/c#${key}?h=smp9.simplex.im`)
   })
 
   it("puts the link's host before its other hosts, then its port and key hash, and passes a page-accepted link", () => {
     const deep = `simplex:/a#${key}?h=smp4.simplex.im%2C${onion}&p=5223&c=1234-w`
-    expect(deepLinkOf(`https://smp4.simplex.im/a#${key}?c=1234-w&h=${onion}&p=5223`)).toBe(deep)
+    const link = `https://smp4.simplex.im/a#${key}?c=1234-w&h=${onion}&p=5223`
+    expect(deepLinkOf(link)).toBe(deep)
+    expect(coreLink(link), "an https:// link keeps its first host before the path").toBe(`https://smp4.simplex.im/a#${key}?h=${onion}&p=5223&c=1234-w`)
     expect(linkKind(deep)).toBe("contact")
     expect(deepLinkOf(deep), "a simplex:/ link is in that form already").toBe(deep)
+    expect(coreLink(deep)).toBe(deep)
   })
 
   it("is null for a link the chat core cannot parse", () => {

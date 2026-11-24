@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
-# The names webapp with its whole dev backend: a local chain with the PR #47 contracts and the mock names service.
+# The names webapp with its whole dev backend: a local chain with the PR #51 contracts and the mock names service.
 # Built from the simplex.domains repository root, as compose.yaml does: the page's fonts and images live there.
 
 FROM node:24-bookworm AS contracts
 ARG NAMESPACE_COMMIT=e3ba0a50d9475dab8336b5a4026ab0fc5f79ebd4
-ARG ENS_CONTRACTS_COMMIT=6ccb5c52c80619493db32a4128ee5067f4274ac2
+ARG ENS_CONTRACTS_COMMIT=ebf76989ec5cab1c7dd49085b4c18faf303657d0
 WORKDIR /src
-RUN git clone https://github.com/brenzi/simplex-namespace-contract.git . \
+RUN git clone https://github.com/simplex-chat/simplex-namespace-contract.git . \
  && git fetch origin "$NAMESPACE_COMMIT" \
  && git checkout "$NAMESPACE_COMMIT" \
  && git submodule update --init ens-contracts \

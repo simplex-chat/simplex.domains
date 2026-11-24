@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test"
 import {
-  agreeToTerms, CODE_HEADING, contactLink, control, LINKS_HEADING, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
+  agreeToTerms, CODE_HEADING, contactLink, control, LINKS_HEADING, okPreview, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
   takenHeading, test, toFullReview, toReview, uniqueLabel,
 } from "./helpers.ts"
 
@@ -122,7 +122,7 @@ test("the purchase steps and other screens swap without a near-empty frame", asy
   })
 })
 
-test("a name taken first, its balance's search and Your names swap without a near-empty frame", async ({ page, request }) => {
+test("a name taken first, its search for another name and Your names swap without a near-empty frame", async ({ page, request }) => {
   const label = uniqueLabel("frbal")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, "take", { label })
@@ -130,7 +130,7 @@ test("a name taken first, its balance's search and Your names swap without a nea
     await control(request, `settle/${invoiceId}`)
     await expect(page.getByRole("heading", { name: takenHeading(label) })).toBeVisible({ timeout: REGISTRATION_MS })
   })
-  await expectNoEmptyFrame(page, "taken to the search with the balance", async () => {
+  await expectNoEmptyFrame(page, "taken to the search for another name", async () => {
     await onStep(page).getByRole("button", { name: "Choose another name" }).click()
     await heading(page, "Your SimpleX domain")
   })
@@ -159,7 +159,7 @@ const NON_LATIN_NAME = "Łukasz Żak"
 
 test("a font face that a step's change loads leaves the step where it holds, after a refused link", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.route("**/api/link/preview", (route) => route.fulfill({ json: { type: "address", kind: "contact", displayName: NON_LATIN_NAME, fullName: "", image: null, subscribers: null, profile: "ok" } }))
+  await page.route("**/api/link/preview", (route) => route.fulfill({ json: okPreview("contact", NON_LATIN_NAME) }))
   await search(page, uniqueLabel("face"))
   await onStep(page).getByRole("button", { name: "Register" }).click()
   await heading(page, LINKS_HEADING)

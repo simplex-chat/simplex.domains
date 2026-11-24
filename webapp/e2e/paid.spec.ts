@@ -1,13 +1,12 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test"
 import { walletOf } from "../src/flow.ts"
-import { CONTACT_KEY } from "../src/crypto/registration.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
 import { LINK_MAX_BYTES } from "../src/names.ts"
 import { CARD_FORM_TIMEOUT_MS } from "../src/stripe.ts"
 import {
   blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, mockRegistration, onStep, oracleQuote, payButton, previewsShown, REGISTRATION_MS,
-  offCentre, orderOwnerCode, qrText, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
+  offCentre, orderOwnerCode, qrText, registeredAnswer, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
 } from "./helpers.ts"
 
 // the card form these tests pay with is the dev server's stand-in; a production build loads Stripe's own
@@ -74,7 +73,7 @@ test("a stage with no timed wait, as the register transaction being mined, draws
   await page.route(`**/api/invoice/${invoiceId}*`, async (route) => {
     const response = await route.fetch()
     const json = await response.json()
-    await route.fulfill({ response, json: { ...json, registration: { ...json.registration, phase: "registering" } } })
+    await route.fulfill({ response, json: { ...json, registration: { ...json.registration, phase: { type: "registering" } } } })
   })
   await page.reload()
   const mined = page.locator("body > main .stage.active")
@@ -130,9 +129,9 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await shot(page, "N7-registered")
 
   const answer = await searchName(request, label)
-  expect(answer.status).toBe("registered")
+  expect(answer.type).toBe("registered")
   expect(answer.owner).toBe(checksumAddress(walletOf(ownerCode)!.address))
-  expect(answer.records, "a name whose links were skipped is registered with none").toEqual({ contact: "", channel: "" })
+  expect(answer.records, "a name whose links were skipped is registered with none").toMatchObject({ contact: "", channel: "" })
   const registrationId = await registrationOf(request, invoiceId)
 
   // edit links: both links, signed in the page, sent by the mock's relayer
@@ -155,7 +154,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(saved).toBeFocused()
   await expect(saved).toBeInViewport()
   await shot(page, "N12b-edit-links")
-  expect((await searchName(request, label)).records).toEqual({ contact, channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact, channel })
 
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer").getByRole("button", { name: "Contact A1Y8m3, contact address" })).toBeVisible()
@@ -169,7 +168,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(channelField).toHaveValue(channel)
 
   // a rate-limited edit keeps Save off for the wait it was given, whatever is typed meanwhile
-  await page.route("**/api/name/records", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/name/records", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await link.fill("")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Too many attempts")).toBeVisible()
@@ -182,35 +181,35 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   // a second edit spends the next resolver nonce
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
 
   // a Save of both links is one request, so a refusal leaves both as the chain has them
   const nextChannel = channelLink("C3")
   const refused: { edits: { key: string }[] }[] = []
   await page.route("**/api/name/records", (route) => {
     refused.push(route.request().postDataJSON())
-    return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } })
+    return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } })
   })
   await link.fill(contact)
   await channelField.fill(nextChannel)
   await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The links were not saved\. Try again in/ })).toBeVisible({ timeout: 30_000 })
-  expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["simplex.contact", "simplex.channel"]])
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel })
+  expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["contact", "channel"]])
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
   await page.unroute("**/api/name/records")
   await expect(page.getByRole("button", { name: "Save links" })).toBeEnabled({ timeout: 10_000 })
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact, channel: nextChannel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact, channel: nextChannel })
 
   // a Save refused because an earlier one moved the nonce shows the links on chain in both fields
   const nonceMoved = (ahead: number, records: { contact: string; channel: string }) => page.route(/\/api\/name\/(0x)?[0-9a-f]{64}/, async (route) => {
     const res = await route.fetch()
-    const json = await res.json() as { recordsNonce: number }
-    await route.fulfill({ response: res, json: { ...json, recordsNonce: json.recordsNonce + ahead, records } })
+    const json = await res.json() as { found: { records: { nonce: number } } }
+    await route.fulfill({ response: res, json: { ...json, found: { ...json.found, records: { ...json.found.records, ...records, nonce: json.found.records.nonce + ahead } } } })
   })
-  await page.route("**/api/name/records", (route) => route.fulfill({ status: 400, json: { error: "bad_request" } }))
+  await page.route("**/api/name/records", (route) => route.fulfill({ status: 400, json: { type: "bad_request" } }))
   await nonceMoved(2, { contact, channel: nextChannel })
   await link.fill("")
   await channelField.fill(channelLink("D4"))
@@ -230,7 +229,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await link.fill("")
   await page.getByRole("button", { name: "Save links" }).click()
   await expect(page.getByText("Links saved")).toBeVisible({ timeout: 30_000 })
-  expect((await searchName(request, label)).records).toEqual({ contact: "", channel: nextChannel })
+  expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel: nextChannel })
 
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
@@ -316,7 +315,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   // the ETH link ends the note under the methods, and nothing sits under Pay
   const dapp = step.locator(".notes").getByRole("link", { name: "Pay with ETH" })
   await expect(dapp).toHaveAttribute("href", "https://app.simplex.domains")
-  await expect(step.locator(".notes")).toHaveText("After paying, keep this page open, or reopen its link within 24 hours. Pay with ETH")
+  await expect(step.locator(".notes")).toHaveText("After paying, keep this page open until the name is registered. Pay with ETH")
   await expect(step.locator(".actions-row .alt")).toHaveCount(0)
   // the one box to tick, the terms, holds Pay until it is ticked; its link opens the terms beside the order
   await expect(step.getByRole("checkbox")).toHaveCount(1)
@@ -353,9 +352,10 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   const main = page.locator("body > main")
   await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string } }
+  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
+  expect(paidInvoice.registration.phase.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
   // how to use the name in the app, with its code, and no buttons to go elsewhere
   await expect(main.locator(".card.use").getByRole("heading", { name: "Use in the app" })).toBeVisible()
   await expect(await shownCode(page)).toHaveText(ownerCode)
@@ -365,7 +365,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(main.getByRole("link", { name: "Edit links" })).toHaveCount(0)
   const answer = await searchName(request, label)
   expect(answer.owner, "the code saved before paying owns the name").toBe(checksumAddress(walletOf(ownerCode)!.address))
-  expect(answer.records, "the links set before paying are on chain").toEqual({ contact, channel })
+  expect(answer.records, "the links set before paying are on chain").toMatchObject({ contact, channel })
 
   // Your names, opened from the header, draws the name as registered from its first frame, never as a row still being
   // checked, and its line as it stays once the name's links are read
@@ -402,7 +402,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(link).toHaveValue(contact)
 
   // a link of the kind the other field holds is refused, and Save takes focus to it
-  await link.fill("https://smp8.simplex.im/c#notacontact")
+  await link.fill("https://smp8.simplex.im/c#notacontactA")
   await expect(page.getByText("This is a channel link. Paste a contact address here.")).toBeVisible()
   await shot(page, "N12f-link-wrong-kind")
   await page.getByRole("button", { name: "Save links" }).click()
@@ -410,7 +410,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   // a link preview the service cannot answer now is checked again by itself
   let refused = 0
   await page.route("**/api/link/preview", async (route) => {
-    if (refused++ === 0) return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } })
+    if (refused++ === 0) return route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } })
     return route.continue()
   })
   await link.fill(contactLink("prev"))
@@ -644,12 +644,12 @@ test("Edit links keeps several links on chain as the contact address they hold, 
   await step.locator(".link-field").first().getByRole("button", { name: "Remove link" }).click()
   await step.getByRole("button", { name: "Save links" }).click()
   await expect(step.getByText("Links saved")).toBeVisible()
-  expect(sent.map(({ edits }) => edits.map(({ key, value }) => ({ key, value }))), "the edits sent").toEqual([[{ key: CONTACT_KEY, value: "" }]])
+  expect(sent.map(({ edits }) => edits.map(({ key, value }) => ({ key, value }))), "the edits sent").toEqual([[{ key: "contact", value: "" }]])
 })
 
 test("Check your order draws a link whose profile cannot be read as its kind's default picture, named by the link", async ({ page }) => {
   await toFullReview(page, uniqueLabel("unread"))
-  await page.route("**/api/link/preview", (route) => route.fulfill({ status: 503, json: { error: "unavailable" } }))
+  await page.route("**/api/link/preview", (route) => route.fulfill({ status: 503, json: { type: "unavailable" } }))
   await page.reload()
   const chats = onStep(page).locator(".card.order .chat")
   await expect(chats).toHaveCount(2)
@@ -738,7 +738,9 @@ test("the owner code restores an order in another browser, and a bad code is ref
   await control(request, `confirming/${invoiceId}`)
   await expect(page.getByText("Waiting for 1 confirmation")).toBeVisible()
   await shot(page, "N5-confirming")
-  // the buying browser goes away before the payment settles, so nothing reveals the name
+  // the order's stored reveal is cleared at its register, and the buying browser goes away before the payment settles, so
+  // nothing signs it again
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
   await page.close()
   await control(request, `settle/${invoiceId}`)
 
@@ -914,11 +916,14 @@ test("a name searched again after its invoice was cancelled keeps that order's n
   await expect(page.locator(".list-row", { hasText: "Checkout not finished" }), "no new code is left pending").toHaveCount(0)
 })
 
+const ORDER_SECOND_MS = 1000
+
 test("a replaced invoice leads to its new order until a late payment reaches it", async ({ page, browser, request }) => {
   const label = uniqueLabel("late")
   const row = (p: typeof page) => p.locator(".list-row:visible", { hasText: `${label}.simplex` })
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "xmr" })
   await control(request, `expire/${invoiceId}`)
+  await page.waitForTimeout(ORDER_SECOND_MS)
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
@@ -936,7 +941,7 @@ test("a replaced invoice leads to its new order until a late payment reaches it"
   await restored.waitForURL((url) => url.searchParams.get("order") === second)
 
   // the service has forgotten the old invoice; this browser still knows what replaced it
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
   await page.goto(`/?order=${invoiceId}`)
   await page.waitForURL((url) => url.searchParams.get("order") === second)
   await page.unroute(`**/api/invoice/${invoiceId}*`)
@@ -1007,9 +1012,9 @@ test("an overpaid invoice registers its name, even where the service reads its d
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
-const KEPT_LATE = "kept as your balance for this name or another, or refunded on request; Your names shows it."
+const KEPT_LATE = "kept as your balance, or refunded on request; Your names shows it."
 
-test("a part payment on a closed invoice, once credited, says so and gets an invoice for the rest of the same name in the main button's place", async ({ page, request }) => {
+test("a part payment on a closed invoice, once credited, says so and gets an invoice for the whole price of the same name in the main button's place", async ({ page, request }) => {
   const label = uniqueLabel("rest")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `partial/${invoiceId}`)
@@ -1021,30 +1026,28 @@ test("a part payment on a closed invoice, once credited, says so and gets an inv
   await expect(page.getByText(`0.00078 BTC arrived, which is not the full amount. It is ${KEPT_LATE}`)).toBeVisible()
   await expect(actions.locator(".btn"), "one main action").toHaveText(["Get a new invoice"])
   expect(await actions.locator(".btn").boundingBox(), "the main button stays where it was").toEqual(place)
-  await expect(actions.locator(".alt a")).toHaveText(["Choose another name", "Get a refund"])
+  await expect(actions.locator(".alt a")).toHaveText(["Get a refund"])
   await shot(page, "N4g-part-credited")
   await actions.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
   const invoice = async (id: string) => (await request.get(`${MOCK}/api/invoice/${id}`)).json()
-  const [closed, rest] = [await invoice(invoiceId), await invoice(second)]
-  expect([rest.amount, rest.registration.price, rest.registration.fromBalance, rest.registration.labelHash], "the difference, for the same name")
-    .toEqual([5000, 10000, 5000, closed.registration.labelHash])
+  const [closed, whole] = [await invoice(invoiceId), await invoice(second)]
+  expect([whole.amount, whole.registration.price, whole.registration.payment, whole.registration.labelHash], "the whole price, for the same name")
+    .toEqual([10000, 10000, { type: "invoice", method: "btc" }, closed.registration.labelHash])
   await control(request, `settle/${second}`)
   await waitRegistered(page, label)
 })
 
-test("a whole payment after the close, once credited, says so and registers the same name with the balance", async ({ page, request }) => {
+test("a whole payment after the close, once credited, says so and offers a new invoice beside the refund", async ({ page, request }) => {
   const label = uniqueLabel("whole")
   const { invoiceId } = await startOrder(page, label, { method: "xmr" })
   await control(request, `expire/${invoiceId}`)
   await control(request, `settle/${invoiceId}`)
   await expect(page.getByText(`The payment arrived after this invoice had closed, so nothing was registered. It is ${KEPT_LATE}`)).toBeVisible()
   await expect(onStep(page).getByText(/Once confirmed|not the full amount/)).toHaveCount(0)
-  await expect(onStep(page).locator(".actions-row .alt a")).toHaveText(["Choose another name", "Get a refund"])
-  await onStep(page).getByRole("button", { name: "Register with your balance" }).click()
-  await page.waitForURL(/\?registration=/)
-  await waitRegistered(page, label)
+  await expect(onStep(page).locator(".actions-row .alt a")).toHaveText(["Get a refund"])
+  await expect(onStep(page).getByRole("button", { name: "Get a new invoice" })).toBeVisible()
 })
 
 const INVOICE_EXPIRED = "The invoice expired before the full amount arrived. Don't send more; what you sent is kept as your balance."
@@ -1182,7 +1185,7 @@ test("Cancel this invoice reads as working while its request runs, and as itself
   const answered = new Promise<void>((resolve) => { answer = resolve })
   await page.route("**/cancel", async (route) => {
     await answered
-    await route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
+    await route.fulfill({ status: 503, json: { type: "provider_unavailable" } })
   })
   const link = onStep(page).locator("a[data-focus=cancel]")
   await link.click()
@@ -1197,7 +1200,7 @@ test("Cancel this invoice reads as working while its request runs, and as itself
 
 test("a cancel refused for a rate limit keeps the invoice payable and says so until the wait is over", async ({ page }) => {
   await startOrder(page, uniqueLabel("cxh"), { method: "btc" })
-  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { error: "rate_limited" } }))
+  await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   const cancel = onStep(page).getByText("Cancel this invoice")
   await cancel.click()
   await expect(page.locator("[aria-hidden=true]", { hasText: /^The invoice is still open\. Try again in/ })).toBeVisible()
@@ -1225,7 +1228,7 @@ test("a restored browser that never opened another browser's newer invoice finds
   await waitRegistered(page, label)
 
   // the service has forgotten the old invoice by now; the code still finds the order that replaced it
-  await restored.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+  await restored.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
   await restored.goto(`/?order=${invoiceId}`)
   await restored.waitForURL((url) => url.searchParams.get("order") === second)
   await restored.unroute(`**/api/invoice/${invoiceId}*`)
@@ -1240,6 +1243,7 @@ test("a forgotten empty invoice never leads back to the older invoice it replace
   const label = uniqueLabel("loopb")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
+  await page.waitForTimeout(ORDER_SECOND_MS)
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
@@ -1247,7 +1251,7 @@ test("a forgotten empty invoice never leads back to the older invoice it replace
   await control(request, `expire/${second}`)
   await control(request, `settle/${invoiceId}`)
   // the service forgets the empty invoice and keeps the late-paid one
-  await page.route(`**/api/invoice/${second}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+  await page.route(`**/api/invoice/${second}*`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
   await page.route("**/api/registration/find", async (route) => {
     const res = await route.fetch()
     const body = await res.json()
@@ -1260,15 +1264,15 @@ test("a forgotten empty invoice never leads back to the older invoice it replace
 
 test("a forgotten order whose code's lookup is refused says the link does not work", async ({ page }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("refuse"), { method: "btc" })
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
-  await page.route("**/api/registration/find", (route) => route.fulfill({ status: 400, json: { error: "bad_request" } }))
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
+  await page.route("**/api/registration/find", (route) => route.fulfill({ status: 400, json: { type: "bad_request" } }))
   await page.goto(`/?order=${invoiceId}`)
   await expect(page.getByRole("heading", { name: "This link does not work" })).toBeVisible()
 })
 
 test("a forgotten order whose code's lookup is rate limited waits as asked, then answers", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("limit"), { method: "btc" })
-  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+  await page.route(`**/api/invoice/${invoiceId}*`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
   await control(request, "search", { findLimitSeconds: 2 })
   await page.goto(`/?order=${invoiceId}`)
   await expect(page.getByRole("heading", { name: "This order could not be loaded" })).toBeVisible()
@@ -1411,7 +1415,7 @@ test("on a phone, a long name wraps beside its chats on Check your order, the ch
 const NAME_CHECK_MINUTES = 5
 const AVAILABLE = /^The name is available \(checked at \d\d:\d\d\)\. If someone registers it before you pay and the registration succeeds, what you paid is kept as your balance for another name, or refunded on request\.$/
 const TAKEN = /^Someone has registered this name \(checked at \d\d:\d\d\)\. Don't pay this invoice: cancel it and choose another name\.$/
-const takenAnswer = (route: Route) => route.fulfill({ json: { status: "registered", entities: [], tld: "simplex", community: null } })
+const takenAnswer = (route: Route) => route.fulfill({ json: registeredAnswer(`0x${"00".repeat(19)}01`, Math.floor(Date.now() / 1000) + 365 * 86400, { contact: "", channel: "" }) })
 // the heading, the note, the payment's details and the link under them: where each is and how tall
 const payPlaces = (page: Page) => page.evaluate(() => ["h1", ".name-check", ":is(.card.pay, .stripe)", ".actions-row .alt"]
   .map((s) => { const b = document.querySelector(`body > main ${s}`)!.getBoundingClientRect(); return `${s} ${Math.round(b.top)} ${Math.round(b.height)}` }))
@@ -1492,4 +1496,12 @@ test("a card page whose name was taken meanwhile says so in brief and turns its 
   await expect(onStep(page).locator(".stripe")).toHaveJSProperty("inert", true)
   await expect(onStep(page).getByRole("button", { name: /^Pay \$/ })).toBeDisabled()
   await expect(onStep(page).getByRole("button", { name: "Cancel this invoice" })).toBeEnabled()
+})
+
+test("a Bitcoin page whose name another buyer's paid order holds says so in brief", async ({ page }) => {
+  await startOrder(page, uniqueLabel("chkheld"), { method: "btc" })
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: { found: { type: "taken" } } }))
+  await page.reload()
+  await expect(onStep(page).locator(".name-check:not(.unchecked) > :not(.sizer)")).toHaveText(TAKEN_BRIEF)
+  await expect(onStep(page).locator(".card.pay")).toHaveJSProperty("inert", true)
 })

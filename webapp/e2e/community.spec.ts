@@ -4,10 +4,11 @@
 import { createHash } from "node:crypto"
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test"
 import {
-  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, contactLink, control, failedOrder, MOCK, onStep, payButton, previewsShown, REGISTRATION_MS, registrationOf, restoreOrder, savedToReview, search, sevenLetters,
+  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, control, MOCK, onStep, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search,
   SAVED, startOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, waitRegistered, withStripeKey, acceptedOnChain, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, PLAIN_TERMS,
 } from "./helpers.ts"
 import { keccak256, toHex } from "viem"
+import * as api from "../src/api.ts"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import { RETRY_MS } from "../src/screens/order.ts"
@@ -62,8 +63,9 @@ async function orderBeforeTermsChange(page: Page, request: APIRequestContext, pr
   })
 }
 
-const viewOf = async (request: APIRequestContext, registrationId: string) => (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as Promise<Record<string, unknown>>
-const invoiceViewOf = async (request: APIRequestContext, invoiceId: string) => (await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { registration: Record<string, unknown> }).registration
+const viewOf = async (request: APIRequestContext, registrationId: string) => (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as Promise<api.RegistrationView>
+const invoiceViewOf = async (request: APIRequestContext, invoiceId: string) => (await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { registration: api.RegistrationView }).registration
+const revealAfterOf = async (request: APIRequestContext, invoiceId: string) => api.committedOf(await invoiceViewOf(request, invoiceId))!.revealAfter
 
 // Where a community name's marker stands: its baseline against the name's, its gap after the name's TLD, its gap to the
 // right of the name's box, and its icon's middle against its word's, in pixels.
@@ -180,7 +182,7 @@ for (const [host, file, commitPage] of [
     await page.route("**/api/name/*", async (route) => {
       const response = await route.fetch()
       const json = await response.json()
-      await route.fulfill({ response, json: json.status === "available" ? { ...json, terms: { hash, link } } : json })
+      await route.fulfill({ response, json: json.found.type === "available" ? { ...json, found: { ...json.found, terms: { hash, link } } } : json })
     })
     await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ json: { link, text } }))
     await search(page, COMMUNITY_LABEL)
@@ -217,7 +219,7 @@ test("an order refused for terms changed meanwhile unticks the box and says so i
     await payButton(page).click()
     await page.waitForURL(/\?order=/)
     const invoiceId = new URL(page.url()).searchParams.get("order")!
-    expect((await invoiceViewOf(request, invoiceId)).terms).toBe(hash.slice(2))
+    expect(api.signedTermsOf((await invoiceViewOf(request, invoiceId)).terms)).toBe(hash.slice(2))
   })
 })
 
@@ -255,7 +257,7 @@ test("a name put on the list meanwhile is refused for the community terms, which
     await payButton(page).click()
     await page.waitForURL(/\?order=/)
     const view = await invoiceViewOf(request, new URL(page.url()).searchParams.get("order")!)
-    expect([view.terms, view.community]).toEqual([COMMUNITY_TERMS, { for: LISTED_FOR, years: 2 }])
+    expect([api.signedTermsOf(view.terms), view.community]).toEqual([COMMUNITY_TERMS, { for: LISTED_FOR, years: 2 }])
     await page.goto("/#/names")
     const marker = page.locator(".list-row", { hasText: `${label}.simplex` }).getByRole("button", { name: MARKER })
     await marker.click()
@@ -263,34 +265,29 @@ test("a name put on the list meanwhile is refused for the community terms, which
   })
 })
 
-test("a failed order moved through the search to another name asks for that name's terms first, a community name's own box in place of the general terms' one, whose words open the terms, and signs them anew after they changed", async ({ page, request }) => {
-  const { registrationId } = await failedOrder(page, request, uniqueLabel("cm"))
+test("a name selected for a taken order asks for that name's terms first, a community name's on their own step in place of the general terms' box, and signs them anew after they changed", async ({ page, request }) => {
+  const registrationId = await registrationOf(request, (await takenOrder(page, request, uniqueLabel("cm"))).invoiceId)
   const target = uniqueLabel("cmt")
   await listed(request, [target], async () => {
-    await page.goto(`/#/?retarget=${registrationId}`)
+    await onStep(page).getByRole("button", { name: "Choose another name" }).click()
     await page.getByLabel("Name", { exact: true }).fill(target)
     await page.getByLabel("Name", { exact: true }).press("Enter")
-    const move = page.getByRole("button", { name: "Register with your payment" })
-    await expect(page.locator(".answer .check.terms")).toHaveText([ACCEPT_WORDS])
-    await page.locator(".answer .check.terms").getByRole("button", { name: "Names Conditions" }).click()
-    const popup = page.getByRole("dialog", { name: "Community terms" })
-    await expect(popup.locator(".terms-text h3"), "the terms of the hash the move signs").toHaveText(headingOf((await termsOnChain(page)).text))
-    await popup.getByRole("button", { name: "Close" }).click()
-    await expect(page.getByRole("checkbox", { name: ACCEPT }), "the words' button does not tick the box").not.toBeChecked()
     await expect(page.locator(".answer .row .name").getByRole("button", { name: MARKER })).toBeVisible()
-    await expect(move, "a move waits for the tick").toBeDisabled()
-    const parts = [".answer .row", ".answer .check.terms .box"]
-    const before = await places(page, parts)
-    await withCommunityTerms(request, `the community terms, changed for the move to ${target}`, async (hash) => {
-      await agreeToTerms(page)
-      await move.click()
-      await expect(page.getByText(TERMS_CHANGED)).toBeVisible()
-      await expect(move).toBeDisabled()
-      expect(await places(page, parts), "with the notice under the box").toEqual(before)
-      await agreeToTerms(page)
-      await move.click()
+    await onStep(page).getByRole("button", { name: "Register", exact: true }).click()
+    await onStep(page).getByRole("button", { name: "Skip for now" }).click()
+    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+    await expect(onStep(page).locator(".terms-text h3"), "the terms of the hash the selection signs").toHaveText(headingOf((await termsOnChain(page)).text))
+    await acceptCommunityTerms(page)
+    await expect(onStep(page).locator(".check.terms"), "the community terms include the general terms").toHaveCount(0)
+    const select = onStep(page).getByRole("button", { name: "Register with your payment" })
+    await withCommunityTerms(request, `the community terms, changed for the selection of ${target}`, async (hash) => {
+      await select.click()
+      await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+      await expect(onStep(page).getByText(TERMS_CHANGED)).toBeVisible()
+      await acceptCommunityTerms(page)
+      await select.click()
       await page.waitForURL(/\?order=/)
-      await expect.poll(async () => (await viewOf(request, registrationId)).terms, { timeout: REGISTRATION_MS }).toBe(`community/${hash.slice(2)}`)
+      await expect.poll(async () => api.signedTermsOf((await viewOf(request, registrationId)).terms), { timeout: REGISTRATION_MS }).toBe(`community/${hash.slice(2)}`)
     })
   })
 })
@@ -308,7 +305,7 @@ test("a new invoice for the same name signs the order's own terms without asking
   await away.waitForURL((url) => (url.searchParams.get("order") ?? invoiceId) !== invoiceId)
   await expect(onStep(away).locator(".check.terms"), "nothing asked at the same version").toHaveCount(0)
   const second = new URL(away.url()).searchParams.get("order")!
-  expect((await invoiceViewOf(request, second)).terms).toBe(PLAIN_TERMS)
+  expect(api.signedTermsOf((await invoiceViewOf(request, second)).terms)).toBe(PLAIN_TERMS)
   await other.close()
 
   await control(request, `expire/${second}`)
@@ -327,7 +324,7 @@ test("a new invoice for the same name signs the order's own terms without asking
     await again.click()
     await page.waitForURL((url) => url.searchParams.get("order") !== second)
     const third = new URL(page.url()).searchParams.get("order")!
-    expect((await invoiceViewOf(request, third)).terms).toBe(hash.slice(2))
+    expect(api.signedTermsOf((await invoiceViewOf(request, third)).terms)).toBe(hash.slice(2))
   })
 })
 
@@ -347,35 +344,7 @@ test("a card form that did not load asks for changed terms before cancelling its
     await again.click()
     await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
     expect((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()).status).toBe("expired")
-    expect((await invoiceViewOf(request, new URL(page.url()).searchParams.get("order")!)).terms).toBe(hash.slice(2))
-  })
-})
-
-test("a new invoice paid partly from a balance asks for changed terms before spending it again, and asks nothing when the balance is gone and the search opens", async ({ page, request }) => {
-  const taken = await takenOrder(page, request, uniqueLabel("cb"))
-  await onStep(page).getByRole("button", { name: "Choose another name" }).click()
-  const dearer = sevenLetters()
-  await search(page, dearer)
-  await toReview(page)
-  await payButton(page).click()
-  await page.waitForURL(/\?order=/)
-  const first = new URL(page.url()).searchParams.get("order")!
-  await control(request, `expire/${first}`)
-  const again = onStep(page).getByRole("button", { name: "Get a new invoice" })
-  await withGeneralTerms(request, `the general terms, changed for ${dearer}`, async (hash) => {
-    await again.click()
-    await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
-    await agreeToTerms(page)
-    await again.click()
-    await page.waitForURL((url) => url.searchParams.get("order") !== first)
-    const second = new URL(page.url()).searchParams.get("order")!
-    expect(await invoiceViewOf(request, second)).toMatchObject({ terms: hash.slice(2), fromBalance: 10000 })
-    await control(request, `expire/${second}`)
-    await control(request, `refund/${taken.invoiceId}`)
-    await control(request, "general-terms", { text: `the general terms, changed again for ${dearer}` })
-    // asking would keep the page; the search opening at once shows it asked nothing
-    await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
-    await page.waitForURL((url) => url.hash.includes(`name=${dearer}`))
+    expect(api.signedTermsOf((await invoiceViewOf(request, new URL(page.url()).searchParams.get("order")!)).terms)).toBe(hash.slice(2))
   })
 })
 
@@ -403,38 +372,6 @@ test("Your names draws a community name's row with its marker on the name's last
   })
 })
 
-test("Register without links asks for the terms once they changed, and the order registers under the new ones", async ({ page, request }) => {
-  const label = uniqueLabel("cw")
-  await search(page, label)
-  await onStep(page).getByRole("button", { name: "Register" }).click()
-  await onStep(page).getByRole("textbox", { name: "Link", exact: true }).fill(contactLink("CW"))
-  await previewsShown(page)
-  await onStep(page).getByRole("button", { name: "Continue" }).click()
-  await savedToReview(page)
-  await payButton(page).click()
-  await page.waitForURL(/\?order=/)
-  const invoiceId = new URL(page.url()).searchParams.get("order")!
-  await control(request, "search", { refuseLinks: true })
-  try {
-    await control(request, `settle/${invoiceId}`)
-    await expect(page.getByText("The service refused this order's links")).toBeVisible({ timeout: REGISTRATION_MS })
-  } finally {
-    await control(request, "search", { refuseLinks: false })
-  }
-  const move = onStep(page).getByRole("button", { name: "Register without links" })
-  await withGeneralTerms(request, `the general terms, changed for ${label}`, async (hash) => {
-    await move.click()
-    await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
-    await expect(move).toBeDisabled()
-    await agreeToTerms(page)
-    await move.click()
-    await waitRegistered(page, label)
-    const view = await viewOf(request, await registrationOf(request, invoiceId))
-    expect(view.terms).toBe(hash.slice(2))
-    expect((await acceptedOnChain(view.registerTx as string))?.termsHash, "the register recorded the new general terms").toBe(hash)
-  })
-})
-
 test("community terms changed on chain between the order and its reveal are agreed to again on the order's page before it signs, and the name registers under them", async ({ page, request }) => {
   let reveals = 0
   page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/reveal")) reveals++ })
@@ -446,74 +383,59 @@ test("community terms changed on chain between the order and its reveal are agre
     await expect(onStep(page).locator(".check.terms")).toHaveText([ACCEPT_WORDS])
     await expect(onStep(page).getByRole("checkbox", { name: ACCEPT })).not.toBeChecked()
     // past the wait after which the reveal would have gone, nothing is signed before the tick
-    const { revealAfter } = await invoiceViewOf(request, invoiceId) as { revealAfter: number }
+    const revealAfter = await revealAfterOf(request, invoiceId)
     await page.waitForTimeout(Math.max(0, revealAfter * 1000 - Date.now()) + 3000)
     expect([(await invoiceViewOf(request, invoiceId)).label, reveals]).toEqual([null, 0])
     await expect(onStep(page).getByText("The registration is not signed yet.")).toBeVisible()
     await agreeToTerms(page)
     await waitRegistered(page, label)
     const view = await invoiceViewOf(request, invoiceId)
-    expect(view.terms, "the order keeps the terms it signed").toBe(COMMUNITY_TERMS)
+    expect(api.signedTermsOf(view.terms), "the order keeps the terms it signed").toBe(COMMUNITY_TERMS)
     expect((await acceptedOnChain(view.registerTx as string))?.termsHash, "the register recorded the new terms").toBe(hash)
   })
 })
 
 test("changed community terms whose searches fail for now are asked for once a search is made again after a pause", async ({ page, request }) => {
   await orderBeforeTermsChange(page, request, "cs", async (_, invoiceId) => {
-    // the pay page checks the name too, so only the searches once the order is committed fail, and past the tick at
-    // revealAfter, so that only a search made again after a pause can bring the notice
-    let failing = true
+    // the pay page checks the name too, so only the first two searches once the order awaits its owner's signature fail,
+    // after its register met the changed terms, so that only a search made again after a pause can bring the notice
     let failed = 0
     await page.route("**/api/name/*", async (route) => {
-      if (!failing || (await invoiceViewOf(request, invoiceId)).phase !== "committed") return route.fallback()
+      if (failed >= 2 || api.committedOf(await invoiceViewOf(request, invoiceId))?.signature.type !== "awaiting") return route.fallback()
       failed++
-      await route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
+      await route.fulfill({ status: 503, json: { type: "provider_unavailable" } })
     })
     await control(request, `settle/${invoiceId}`)
-    await expect.poll(async () => (await invoiceViewOf(request, invoiceId)).phase, { timeout: REGISTRATION_MS }).toBe("committed")
-    const { revealAfter } = await invoiceViewOf(request, invoiceId) as { revealAfter: number }
-    await page.waitForTimeout(Math.max(0, revealAfter * 1000 - Date.now()) + 1000)
-    failing = false
-    await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: 2 * RETRY_MS })
-    expect(failed).toBeGreaterThan(1)
+    await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS + 2 * RETRY_MS })
+    expect(failed).toBe(2)
   })
 })
 
-test("changed community terms that a search answers otherwise than the view are asked for once the view is read again", async ({ page, request }) => {
-  await orderBeforeTermsChange(page, request, "cr", async (_, invoiceId) => {
-    // the first search once the order is committed answers yet other terms, as if they changed again after the view
-    let answered = false
-    await page.route("**/api/name/*", async (route) => {
-      if (answered || (await invoiceViewOf(request, invoiceId)).phase !== "committed") return route.fallback()
-      const response = await route.fetch()
-      const json = await response.json()
-      const link = `http://127.0.0.1:8098/terms/${"d8".repeat(32)}.md#sha256=${"d8".repeat(32)}`
-      json.terms = { hash: keccak256(toHex(link)), link }
-      answered = true
-      await route.fulfill({ response, json })
+test("changed community terms are asked for by the hash the order's view asks to accept, the view read again while the service has no terms of that hash", async ({ page, request }) => {
+  await orderBeforeTermsChange(page, request, "cr", async (_, invoiceId, hash) => {
+    let refused = false
+    await page.route(`**/api/terms/${hash}`, async (route) => {
+      if (refused) return route.fallback()
+      refused = true
+      await route.fulfill({ status: 404, json: { type: "not_found" } })
     })
     let reads = 0
-    page.on("request", (r) => { if (answered && r.url().endsWith(`/api/invoice/${invoiceId}`)) reads++ })
+    page.on("request", (r) => { if (refused && r.url().endsWith(`/api/invoice/${invoiceId}`)) reads++ })
     await control(request, `settle/${invoiceId}`)
     await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
-    expect([answered, reads > 0], "the view is read again after that search").toEqual([true, true])
+    expect([refused, reads > 0], "the view is read again after its terms were not found").toEqual([true, true])
   })
 })
 
-test("changed community terms of a name reserved meanwhile are not asked for: the page says the order cannot register it, and searches no more", async ({ page, request }) => {
+test("changed community terms of the name an order holds are asked for whatever a search answers for the name", async ({ page, request }) => {
   await orderBeforeTermsChange(page, request, "cz", async (_, invoiceId) => {
-    let searches = 0
     await page.route("**/api/name/*", async (route) => {
-      if ((await invoiceViewOf(request, invoiceId)).phase !== "committed") return route.fallback()
-      searches++
-      await route.fulfill({ json: { status: "reserved", community: null } })
+      if ((await invoiceViewOf(request, invoiceId)).phase.type !== "committed") return route.fallback()
+      await route.fulfill({ json: { found: { type: "reserved" } } })
     })
     await control(request, `settle/${invoiceId}`)
-    await expect(onStep(page).locator(".notice", { hasText: "The name was reserved meanwhile" })).toContainText("This order can't register it.", { timeout: REGISTRATION_MS })
-    await expect(onStep(page).locator(".screen-head .lead"), "no lead asks to keep the page open for the name").toHaveCount(0)
-    await page.waitForTimeout(3 * RETRY_MS)
-    expect(searches, "one search, not one after each pause").toBe(1)
-    await expect(onStep(page).getByText(TERMS_CHANGED)).toHaveCount(0)
+    await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
+    await expect(onStep(page).getByText("The name was reserved meanwhile")).toHaveCount(0)
   })
 })
 
@@ -523,7 +445,7 @@ test("community terms changed after the reveal, before its relay, are agreed to 
     const { invoiceId } = await startOrder(page, label)
     try {
       await control(request, `settle/${invoiceId}`)
-      await expect.poll(async () => (await invoiceViewOf(request, invoiceId)).phase, { timeout: REGISTRATION_MS }).toBe("committed")
+      await expect.poll(async () => (await invoiceViewOf(request, invoiceId)).phase.type, { timeout: REGISTRATION_MS }).toBe("committed")
       // the relay is held back while the reveal is stored and the terms change, then refused for the old terms
       await control(request, "search", { unsentSeconds: REGISTRATION_MS / 1000 })
       await expect.poll(async () => (await invoiceViewOf(request, invoiceId)).label, { timeout: REGISTRATION_MS }).toBe(label)

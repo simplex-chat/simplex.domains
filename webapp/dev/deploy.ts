@@ -1,5 +1,5 @@
-// Deploys the .simplex contracts (ens-contracts PR #47) to a running local node for the names webapp,
-// wired as the PR's test fixture wires them, and seeds names in every state search can answer.
+// Deploys the .simplex contracts (ens-contracts PR #51) to a running local node for the names webapp,
+// with the controller and the name policy behind their proxies and the other contracts deployed directly, and seeds names in every state search can answer.
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
@@ -10,6 +10,7 @@ import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
 import { durationFor } from "../src/crypto/registration.ts"
 import { BLOCK_POLL_MS, TERM_START_S, untilChainTime } from "./chain-time.ts"
+import { registerNameTypedData } from "./register-name.ts"
 import { savedTerms } from "./serve-terms.ts"
 
 const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8545"
@@ -30,6 +31,7 @@ const PRICE_BASE = 5000n
 const PRICE_EXCEPTIONS = [{ labelLength: 7n, priceCentsPerYear: 10000n }, { labelLength: 6n, priceCentsPerYear: 20000n }]
 // the seeded names are registered as a paid order is, for paid years from the term start
 const SEED_YEARS = 2
+const SEED_DISPUTE_DAYS = 120n
 // the registrar's credit in USD with 18 decimals, more than any number of test runs spends
 const ALLOWANCE = 1_000_000n * 10n ** 18n
 // SimplexNamePolicy.Reason.Internal
@@ -118,14 +120,6 @@ await write(owner, namePolicy, "addCommunityNames", [COMMUNITY_NAMES])
 const chainId = await publicClient.getChainId()
 const holderAccount = privateKeyToAccount(holderKey)
 
-const REGISTER_TYPES = {
-  RegisterName: [
-    { name: "label", type: "string" }, { name: "owner", type: "address" }, { name: "duration", type: "uint256" },
-    { name: "resolver", type: "address" }, { name: "data", type: "bytes[]" }, { name: "nonce", type: "uint256" },
-    { name: "deadline", type: "uint256" },
-  ],
-} as const
-
 // A name registered to the holder through the sponsor, as the store's service registers names.
 function seedRegistration(label: string, records: Record<string, string>, now: number) {
   const node = namehash(`${label}.${TLD}`)
@@ -140,13 +134,13 @@ function seedRegistration(label: string, records: Record<string, string>, now: n
 const seededAt = Number((await publicClient.getBlock()).timestamp)
 const seeds = [
   seedRegistration("bakery", {
-    "simplex.contact": "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS",
-    "simplex.channel": "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm",
+    "simplex.contact": "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA",
+    "simplex.channel": "https://smp9.simplex.im/c#Rk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA",
   }, seededAt),
   seedRegistration("harbour", {}, seededAt),
   seedRegistration("bakehouse", {
-    "simplex.contact": "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rS",
-    "simplex.channel": "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4Lm",
+    "simplex.contact": "https://smp8.simplex.im/a#H8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA",
+    "simplex.channel": "https://smp9.simplex.im/c#Hk27xN4pDe9Tz1Wb3Yc5Vd7Xf9Hg2Jk4LmAAAAAAAAA",
   }, seededAt),
 ]
 // the controller makes every registration wait after its commit, by block time; the last commit is the latest
@@ -164,12 +158,10 @@ for (const registration of seeds) {
   const nonce = await publicClient.readContract({ ...sponsor, functionName: "nonces", args: [holder.address] }) as bigint
   const deadline = (await publicClient.getBlock()).timestamp + 3600n
   const signature = await holderAccount.signTypedData({
-    domain: { name: "SimplexSponsor", version: "1", chainId, verifyingContract: sponsor.address },
-    types: REGISTER_TYPES,
-    primaryType: "RegisterName",
-    message: { ...registration, nonce, deadline },
+    ...registerNameTypedData(chainId, sponsor.address),
+    message: { ...registration, disputeDays: SEED_DISPUTE_DAYS, nonce, deadline },
   })
-  await write(registrar, sponsor, "registerWithCredit", [registration, nonce, deadline, signature])
+  await write(registrar, sponsor, "registerWithCredit", [registration, SEED_DISPUTE_DAYS, nonce, deadline, signature])
 }
 
 const deployment = {

@@ -1,9 +1,10 @@
 import { expect } from "@playwright/test"
+import { deepLinkOf } from "../dev/mock/links.ts"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
 import {
-  agreeToTerms, checkoutOwnerCode, codeField, control, LINKS_HEADING, onStep, orderOwnerCode, payButton, recordedFrames, recordFrames, REGISTRATION_MS, search, searchName, shot, startOrder, test, toCodeStep, toReview, uniqueLabel,
+  agreeToTerms, checkoutOwnerCode, codeField, control, LINKS_HEADING, onStep, orderOwnerCode, payButton, recordedFrames, recordFrames, REGISTRATION_MS, registeredAnswer, search, searchName, shot, startOrder, test, toCodeStep, toReview, uniqueLabel,
   waitRegistered,
 } from "./helpers.ts"
 
@@ -29,11 +30,11 @@ test("search answers every kind of name", async ({ page, request }) => {
   // the chats the name opens, as the app's own pictures in its row, and whose it is
   await expect(page.locator(".answer .row .chat")).toHaveCount(2)
   await expect(page.locator(".answer .row")).toContainText("Taken")
-  // the seeded links are no short links the chat core parses, so no chat's profile is read and each opens its own text
-  await expect(page.locator(".answer").getByRole("button", { name: "Contact address", exact: true })).toBeVisible()
-  await page.locator(".answer").getByRole("button", { name: "Channel", exact: true }).click()
+  // each chat is named by its profile, and opens the chat core's form of its seeded link, which keeps the link's server
+  await expect(page.locator(".answer").getByRole("button", { name: "Contact Y8m3qT, contact address", exact: true })).toBeVisible()
+  await page.locator(".answer").getByRole("button", { name: "Channel Rk27xN, channel", exact: true }).click()
   const { records } = await searchName(request, "bakery") as { records: { channel: string } }
-  await expect(page.getByRole("dialog", { name: "Channel" }).getByRole("link", { name: "Open channel in SimpleX" })).toHaveAttribute("href", records.channel)
+  await expect(page.getByRole("dialog", { name: "Channel Rk27xN" }).getByRole("link", { name: "Open channel in SimpleX" })).toHaveAttribute("href", deepLinkOf(records.channel)!)
   await page.keyboard.press("Escape")
   await shot(page, "N2a-taken")
   await search(page, "harbour")
@@ -123,6 +124,8 @@ test("the checkout explains every refusal and keeps the order", async ({ page, r
   await control(request, "search", { invoiceError: "internal" })
   await pay()
   await expect(page.getByRole("heading", { name: "That did not go through" })).toBeVisible()
+  await expect(page.getByText("Nothing was charged. If this happens again, contact support via chat@simplex.chat or SimpleX.")).toBeVisible()
+  await expect(page.locator(".notice", { hasText: "Nothing was charged" }).getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", /^https:\/\/smp6\.simplex\.im\/a#/)
   await shot(page, "N3d-failed")
   // Try again sends the same order again, which meets the next refusal
   await control(request, "search", { invoiceError: "catalog_changed" })
@@ -136,7 +139,7 @@ test("a name registered by someone else while its order is checked says so at Pa
   await search(page, label)
   await toReview(page)
   await control(request, "take", { label })
-  await expect.poll(async () => (await searchName(request, label)).status, { timeout: REGISTRATION_MS }).toBe("registered")
+  await expect.poll(async () => (await searchName(request, label)).type, { timeout: REGISTRATION_MS }).toBe("registered")
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "This name is no longer available" })).toBeVisible()
   await expect(onStep(page).getByText(`${label}.simplex became unavailable after you searched for it. Nothing was charged.`)).toBeVisible()
@@ -319,9 +322,7 @@ test("search shows an expired name of yours with when it ran out and when it can
     years: 2, tld: "simplex", createdAt: new Date().toISOString(),
     request: { labelHash: hash, length: label.length, owner, commitment: "0x01", sealed: "sealed" },
   })), { label, hash, owner: OWNER })
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: {
-    status: "registered", entities: [], owner: OWNER, records: { contact: "", channel: "" }, recordsNonce: 0, expiresAt, gracePeriod: GRACE_S, tld: "simplex", community: null,
-  } }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(OWNER, expiresAt, { contact: "", channel: "" }, [], 0, GRACE_S) }))
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer .row")).toContainText("Expired")
   await expect(page.locator(".answer .line")).toHaveText(`Its registration ran out on ${dateOf(expiresAt)}. It can be registered again from ${dateOf(expiresAt + GRACE_S)}.`)

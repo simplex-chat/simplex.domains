@@ -1,9 +1,10 @@
 import { type APIRequestContext, expect, type Locator, type Page } from "@playwright/test"
+import { YEAR_S } from "../src/crypto/registration.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
 import {
-  agreeToTerms, AVAILABLE_BRIEF, brokenNames, CHAIN, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, onStep, payButton, previewsShown, SAVED,
-  lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registrationOf, registrationView, rowFit, savedToReview, search, sevenLetters, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
+  AVAILABLE_BRIEF, brokenNames, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, okPreview, onStep, payButton, previewsShown, SAVED,
+  lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registeredAnswer, registrationOf, registrationView, rowFit, savedToReview, search, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
   TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey,
 } from "./helpers.ts"
 
@@ -177,52 +178,10 @@ test("every purchase step fits a laptop's and a phone's window, its heading and 
   oneFrame(frames)
 })
 
-test("the balance's steps fit both windows, their heading, main button and link where every step's are", async ({ page, request }) => {
-  test.skip(!!process.env.BASE_URL, "the production build has no stand-in card form, and its card step needs Stripe's")
+test("a taken order's step fits both windows, its heading, main button and link where every step's are", async ({ page, request }) => {
   const frames: Record<string, Frame[]> = {}
   await takenOrder(page, request, uniqueLabel("fitbal"))
   await fitsWindow(page, "b1-taken", frames)
-  await page.getByRole("button", { name: "Choose another name" }).click()
-  await search(page, uniqueLabel("fitbal2"))
-  await toReview(page)
-  const register = onStep(page).getByRole("button", { name: "Register with your balance" })
-  await expect(register).toBeVisible()
-  await fitsWindow(page, "b2-review-balance", frames)
-  // another tab's invoice for a dearer name holds the balance, which the review says until that invoice is cancelled
-  const other = await page.context().newPage()
-  await other.goto("/#/names")
-  await other.locator(".list-row[data-key^='balance-']").getByRole("button", { name: "Use" }).click()
-  await search(other, sevenLetters())
-  await toReview(other)
-  await payButton(other).click()
-  await other.waitForURL(/\?order=/)
-  await register.click()
-  await expect(onStep(page).locator(".line", { hasText: "Your balance is in use by" })).toBeVisible()
-  await fitsWindow(page, "b2b-review-balance-held", frames)
-  await onStep(other).getByRole("button", { name: "Cancel this invoice" }).click()
-  await expect(register).toBeEnabled()
-  await other.close()
-  await search(page, sevenLetters())
-  await toReview(page)
-  await expect(payButton(page)).toHaveText("Pay $100 with Bitcoin")
-  await fitsWindow(page, "b3-review-balance-more", frames)
-  await payButton(page).click()
-  await page.waitForURL(/\?order=/)
-  await expect(page.getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
-  await expect(page.locator(".name-check:not(.unchecked)")).toBeVisible()
-  await fitsWindow(page, "b4-pay-difference", frames)
-  // the same difference by card, whose lead takes a second line on a phone
-  await onStep(page).getByRole("button", { name: "Cancel this invoice" }).click()
-  await onStep(page).getByRole("button", { name: "Order the name again" }).click()
-  await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
-  await page.getByRole("radio", { name: "Card" }).click()
-  await agreeToTerms(page)
-  await payButton(page).click()
-  await expect(onStep(page).getByRole("heading", { name: "Pay by card" })).toBeVisible()
-  await expect(onStep(page).locator(".screen-head .lead")).toContainText("$100 from your balance")
-  await expect(page.locator(".name-check:not(.unchecked)")).toBeVisible()
-  await fitsWindow(page, "b5-pay-difference-card", frames)
-  headOnly(frames, "b5-pay-difference-card")
   oneFrame(frames)
 })
 
@@ -261,7 +220,7 @@ const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
   } }),
 })`
 const loadCard = async (page: Page) => {
-  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: () => void }).__loadCard === "function")
+  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: unknown }).__loadCard === "function")
   await page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
 }
 const cardSeen = (page: Page) => page.evaluate(() => {
@@ -365,19 +324,19 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
 
 const CARD_INVOICE = "inv-cardfit"
 const CARD_REGISTRATION = "reg-cardfit"
-interface CardOrder { label: string; price: number; fromBalance: number; taken?: boolean; forgetful?: boolean }
+interface CardOrder { label: string; price: number; taken?: boolean; forgetful?: boolean }
 
 // A card order of this browser's, answered by routes, whose page opens at `/?order=`; the name is available or taken,
 // and the browser can keep a record or not.
 async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<void>> {
   const order = await keepOrder(page, CARD_REGISTRATION, CARD_INVOICE, o.label)
   await page.evaluate((r) => localStorage.setItem(`simplex-names:order:${r.registrationId}`, JSON.stringify({ ...r, method: "card" })), order)
-  const registration = registrationView(order, { price: o.price, fromBalance: o.fromBalance })
-  const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: o.price - o.fromBalance, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
+  const registration = registrationView(order, { price: o.price, payment: { type: "invoice", method: "card" } })
+  const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: o.price, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
   await page.route(`**/api/registration/${CARD_REGISTRATION}*`, (route) => route.fulfill({ json: registration }))
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? { status: "registered", entities: [], tld: "simplex", community: null } : homeAnswers(order.owner).available }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? homeAnswers(order.owner).taken : homeAnswers(order.owner).available }))
   if (o.forgetful) await page.addInitScript(() => {
     const keep = Storage.prototype.setItem
     Storage.prototype.setItem = function (key: string, value: string) {
@@ -416,14 +375,14 @@ test.describe(() => {
 // the service worker of a production build answers these pages before Playwright's routes in WebKit
 test.describe(() => {
   test.use({ serviceWorkers: "block" })
-  const tenLetters = { label: "cardfitabc", price: 10000, fromBalance: 0 }
-  const sixWide = { label: "w".repeat(6), price: 10000, fromBalance: 0 }
-  const longFromBalance = { label: "w".repeat(MAX_LABEL_LENGTH), price: 20000, fromBalance: 10000 }
+  const tenLetters = { label: "cardfitabc", price: 10000 }
+  const sixWide = { label: "w".repeat(6), price: 10000 }
+  const longest = { label: "w".repeat(MAX_LABEL_LENGTH), price: 20000 }
   const CARD_CASES: [string, CardOrder, RegExp][] = [
     ["a name of 10 letters", tenLetters, AVAILABLE_BRIEF],
     ["a name of 6 wide letters", sixWide, AVAILABLE_BRIEF],
-    [`a name of ${MAX_LABEL_LENGTH} wide letters part paid from its balance`, longFromBalance, AVAILABLE_BRIEF],
-    [`a name of ${MAX_LABEL_LENGTH} wide letters part paid from its balance, taken meanwhile`, { ...longFromBalance, taken: true }, TAKEN_BRIEF],
+    [`a name of ${MAX_LABEL_LENGTH} wide letters`, longest, AVAILABLE_BRIEF],
+    [`a name of ${MAX_LABEL_LENGTH} wide letters, taken meanwhile`, { ...longest, taken: true }, TAKEN_BRIEF],
     ["a browser that cannot remember a card payment", { ...tenLetters, forgetful: true }, FORGETFUL],
     ["a browser that cannot remember a card payment, the name taken meanwhile", { ...tenLetters, forgetful: true, taken: true }, TAKEN_BRIEF],
   ]
@@ -504,20 +463,16 @@ test.describe(() => {
     await shown("o1-partial-bitcoin", invoice, "Pay with Bitcoin")
     await shown("o2-closed-part-paid", invoiceOf(order, "expired", {}, PART), "Invoice closed")
     // as BTCPay keeps an invoice paid after it closed
-    await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } },
+    await shown("o2b-paid-late", invoiceOf(order, "expired", { balance: { amount: 10000, refunded: 0 } },
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
-    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: "failed", commitTx: "0x02", error: "The registration transaction reverted on chain" }), "Paid, not registered")
-    await page.route("**/api/registration/reg-fitall/retry", (route) => route.fulfill({ status: 500, json: { error: "internal" } }))
-    await onStep(page).getByRole("button", { name: "Try again" }).click()
-    await expect(onStep(page).getByText("That did not go through")).toBeVisible()
-    await fitsWindow(page, "o3b-not-registered-retry-refused", frames)
-    await shown("o4-taken", invoiceOf(order, "paid", { phase: "taken", commitTx: "0x02", balance: { amount: 10000, held: false, heldUntil: null, refunded: 0 } }), /was taken$/)
+    await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "registryRefused" }, commitTx: "0x02" }), "Paid, not registered")
+    await shown("o4-taken", invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } }), /was taken$/)
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     // a taken order seen in a browser without its code, which says where to add the code
     const elsewhere = await browser.newContext()
     const stranger = await elsewhere.newPage()
-    await stranger.route(`**/api/invoice/${FIT_INVOICE}*`, (route) => route.fulfill({ json: invoiceOf(order, "paid", { phase: "taken", commitTx: "0x02" }) }))
+    await stranger.route(`**/api/invoice/${FIT_INVOICE}*`, (route) => route.fulfill({ json: invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } }) }))
     await stranger.goto(`/?order=${FIT_INVOICE}`)
     await expect(onStep(stranger).getByText("The name code is not in this browser")).toBeVisible()
     await fitsWindow(stranger, "o5-taken-without-code", frames)
@@ -528,23 +483,23 @@ test.describe(() => {
     await useCode(page, code)
     await search(page, label)
     await toReview(page)
-    await page.route("**/api/name/register", (route) => route.fulfill({ status: 400, json: { error: "code_used" } }))
+    await page.route("**/api/name/register", (route) => route.fulfill({ status: 400, json: { type: "code_used" } }))
     await onStep(page).getByRole("button", { name: "Register with your code" }).click()
     await expect(onStep(page).getByText("This code was already used.")).toBeVisible()
     await page.getByRole("radio", { name: "Card" }).click()
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByText("Card is temporarily unavailable")).toBeVisible()
     await fitsWindow(page, "o6-review-code-and-method-refused", frames)
     await page.unroute("**/api/invoice")
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { error: "catalog_changed", price: 12345 } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: 12345 } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
     await fitsWindow(page, "o7-price-changed", frames)
     // the review opened again takes the new price
     await page.reload()
     await page.unroute("**/api/invoice")
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "60" }, json: { error: "rate_limited" } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "60" }, json: { type: "rate_limited" } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "Too many attempts" })).toBeVisible()
     await fitsWindow(page, "o8-too-many", frames)
@@ -560,7 +515,7 @@ test(`Edit links fits both windows with its answer, for a name of ${MAX_LABEL_LE
   const { registrationId } = await fakeRegisteredName(page, label, links, () => saved ? { links: { ...links, contact: contactLink("E3") }, nonce: 1 } : { links, nonce: 0 })
   await page.route("**/api/name/records", (route) => {
     saved += 1
-    return route.fulfill({ status: 400, json: { error: "bad_request" } })
+    return route.fulfill({ status: 400, json: { type: "bad_request" } })
   })
   await page.goto(`/#/edit/${registrationId}`)
   await previewsShown(page)
@@ -632,13 +587,12 @@ test("the home keeps its headline and search still as each kind of answer comes,
   }
 })
 
-const linked = (kind: "contact" | "channel") => ({ type: kind === "contact" ? "address" : "channel", kind, displayName: kind, fullName: "", image: null,
-  subscribers: kind === "channel" ? 12 : null, link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x", profile: "ok" })
+const linked = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x" })
 // the search's answers for a name: available, taken with two chats, and this browser's, of `owner`, with two chats
 const homeAnswers = (owner: string) => ({
-  available: { status: "available", price: 10000, currency: "usd", years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, ...CHAIN, community: null, terms: TERMS },
-  taken: { status: "registered", entities: [linked("contact"), linked("channel")], owner: `0x${"00".repeat(19)}01`, tld: "simplex", community: null },
-  yours: { status: "registered", entities: [linked("contact"), linked("channel")], owner, tld: "simplex", community: null },
+  available: { found: { type: "available", price: 10000, years: 2, terms: TERMS } },
+  taken: registeredAnswer(`0x${"00".repeat(19)}01`, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
+  yours: registeredAnswer(owner, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
 })
 
 // a name of six letters that fits one row beside two chats on a phone, as most do
@@ -656,7 +610,7 @@ test.describe(() => {
   test("each home answer holds its name inside its row with the same room above and under it, and a name of six letters on one line, at a laptop's and a phone's size", async ({ page }) => {
     for (const label of [SHORT_NAME, wideLabel(6), wideLabel(MAX_LABEL_LENGTH)]) {
       const { owner } = await keepOrder(page, "reg-rowfit", null, label)
-      await page.route("**/api/registration/reg-rowfit*", (route) => route.fulfill({ status: 404, json: { error: "not_found" } }))
+      await page.route("**/api/registration/reg-rowfit*", (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
       for (const [state, answer] of Object.entries(homeAnswers(owner))) {
         await page.unroute("**/api/name/**")
         await page.route("**/api/name/**", (route) => route.fulfill({ json: answer }))
@@ -1064,6 +1018,20 @@ test("the payment's line keeps its separator dot at the end of a line, never sta
     expect(dots, `the dots of a name of ${length} letters`).toBe(1)
     expect(starting, `dots starting a line, for a name of ${length} letters`).toBe(0)
   }
+})
+
+test("a month-ended order's balance row keeps its name on one line on a phone", async ({ page }) => {
+  await page.setViewportSize(FIT_SIZES[1])
+  const order = await keepOrder(page, "reg-ended", "inv-ended", "alicebakery")
+  const view = registrationView(order, { phase: { type: "failed", reason: "monthEnded" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } })
+  await page.route("**/api/invoice/inv-ended*", (route) => route.fulfill({ json: {
+    invoiceId: "inv-ended", status: "paid", amount: 10000, currency: "usd", expiresAt: new Date().toISOString(), kind: "name", registration: view, cryptoCurrency: "btc",
+    cryptoAmount: "0.00156", cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true, address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s",
+  } }))
+  await page.goto("/#/names")
+  const name = page.locator('.list-row[data-key="balance-reg-ended"] .sub .nt')
+  await expect(name).toHaveText("alicebakery.simplex")
+  expect(await name.evaluate((n) => new Set([...n.getClientRects()].map((r) => Math.round(r.top))).size), "the lines the name is drawn on").toBe(1)
 })
 
 // the share of its field a focused link's text has, all but the field's icon and padding

@@ -63,10 +63,10 @@ function notChecked(e: unknown): CodeVerdict {
 async function judgeNameCode(text: string): Promise<CodeVerdict> {
   try {
     const found = await flow.codeOrderOf(text)
-    if (!found) return { kind: "refused", title: "This code does not open the order", line: "The order found for it was made with another code." }
+    if (found === "none") return { kind: "refused", title: "No order was found for this code", line: "The service has no order registered to its wallet." }
+    if (found === "other") return { kind: "refused", title: "This code does not open the order", line: "The order found for it was made with another code." }
     return { kind: "owner", found, line: ownerLine(found.name) }
   } catch (e) {
-    if (e instanceof api.ApiError && e.code === "not_found") return { kind: "refused", title: "No order was found for this code", line: "The service has no order registered to its wallet." }
     holdFrom(e)
     return notChecked(e)
   }
