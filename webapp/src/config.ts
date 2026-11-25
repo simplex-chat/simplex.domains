@@ -116,7 +116,7 @@ declare const __MAINNET__: boolean
 
 export const SITE: Deployment = typeof __MAINNET__ === "undefined" ? LOCAL
   : __MAINNET__ ? MAINNET
-  : { ...LOCAL, codesOnly: import.meta.env.VITE_CODES_ONLY === "true", stripeKey: import.meta.env.VITE_STRIPE_KEY ?? "" }
+  : { ...LOCAL, codesOnly: import.meta.env?.VITE_CODES_ONLY === "true", stripeKey: import.meta.env?.VITE_STRIPE_KEY ?? "" }
 
 export const heldPrice = (length: number) => (SITE.priceExceptions.find((e) => e.labelLength === length)?.centsPerYear ?? SITE.priceBaseCentsPerYear) * SITE.paidYears
 
