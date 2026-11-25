@@ -22,7 +22,7 @@ import type { MountedCard } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
-import { downtimeNow, inDowntime, loadNextRouteAfresh, NEW_ORDERS_SOON, PAYMENT_SOON, UNKEPT_TICKS } from "./served-mode.ts"
+import { downtimeNow, inDowntime, loadNextRouteAfresh, NEW_ORDERS_SOON, PAYMENT_SOON, SIGNING_SOON, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
   asStep, type Builder, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
@@ -277,7 +277,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
 async function statusNow(view: api.RegistrationView, record: store.OrderRecord | null): Promise<api.Found["type"] | null> {
   const label = labelOf(view, record)
   if (label === null) return null
-  const answer = await api.searchName(view.labelHash, label.length).catch(() => null)
+  const answer = await api.searchName(record?.request.labelHash ?? view.labelHash, label.length).catch(() => null)
   return answer?.found.type ?? null
 }
 
@@ -286,13 +286,17 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const reference = state.reference
   const agreed = termsAskedAgain(state) ? api.currentTerms(state.ask!) : record.terms
   dispatch({ type: "reveal-sent", key })
-  flow.revealOrder(view, record, agreed).catch((e) => {
+  flow.revealOrder(view, record, agreed).then(() => keepAgreed(record, agreed), (e) => {
     const refused = e instanceof flow.Unsignable || (e instanceof api.ApiError && e.code === "bad_request")
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
       if (isRoute(pageRoute) && state.reference === reference) refresh()
     }, e instanceof api.ApiError && e.retryAfter ? e.retryAfter * 1000 : RETRY_MS)
   })
+}
+
+const keepAgreed =(record: store.OrderRecord, agreed: string | undefined) => {
+  if (agreed !== record.terms) store.updateOrder(record.registrationId, { terms: agreed })
 }
 
 function retryLapsed(view: api.RegistrationView, record: store.OrderRecord): void {
@@ -317,7 +321,7 @@ function askAgain(record: store.OrderRecord): void {
   // after a pause, a search that failed for now is made again
   const later = (delay: number, again: () => void) => setTimeout(() => { done(); again() }, delay)
   const tick = () => answer(gen, { type: "tick", now: api.serviceNow() })
-  api.searchName(state.view!.labelHash, record.label.length).then((searched) => {
+  api.searchName(record.request.labelHash, record.label.length).then((searched) => {
     if (!isOpen(gen) || !askAgainDue(state)) return done()
     done()
     const { acceptance } = readToSign(state.view!)!
@@ -361,7 +365,7 @@ function buildPaidByInvoice({ view, record }: OrderState): HTMLElement {
 }
 
 // a browser without the order's record learns the name only once it is revealed on chain
-const labelOf = (view: api.RegistrationView, record: store.OrderRecord | null) => view.label ?? record?.label ?? null
+const labelOf = (view: api.RegistrationView, record: store.OrderRecord | null) => record?.label ?? view.label ?? null
 const UNKNOWN_NAME = "The name shows once it is registered"
 
 // what the order is for and what it cost, after its name where the screen has not said it already
@@ -1158,7 +1162,8 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
   const { view: failed, invoice } = s
   const view = failed!
   const settled = supportCase(s)
-  const continued = setAction(btn("Continue", "", () => void continueOrder()), s.busy === "continue", s.hold !== null)
+  const continues = settled === "unread" && s.record !== null
+  const continued = setAction(btn("Continue", "", () => void continueOrder()), s.busy === "continue", s.hold !== null || s.downtime || unagreed(s))
   // with a code refused for good the order registers no name, so the page offers another search as the other endings do
   const action = settled === "unread" ? (s.record ? continued : withoutRecord(""))
     : s.codeRefused ? btn("Search a name", "quiet", () => go(searchLink(""))) : null
@@ -1169,8 +1174,10 @@ function buildFailed(s: OrderState, signal: AbortSignal): HTMLElement {
     el("p", { class: "note center" }, ...orderLine(s)),
     stages(failedAt),
     alertBox("danger", "alert", failedAlert(s), settled ? supportText(settled, view, reference) : [...contactSupport("Contact", reference), "."]),
+    continues && s.downtime ? alertBox("info", "clock", null, `${SIGNING_SOON}.`) : null,
     actionNote(s, signal),
-    referenceLine(reference))
+    referenceLine(reference, proofOf(s)),
+    continues && s.ask?.label === s.record!.label ? agreement(s, TERMS_AGAIN) : null)
 }
 
 function supportText(settled: SupportCase, view: api.RegistrationView, reference: string): Kid[] {
@@ -1188,18 +1195,37 @@ function supportText(settled: SupportCase, view: api.RegistrationView, reference
 }
 
 async function continueOrder(): Promise<void> {
+  if (unagreed(state)) return
   const gen = opened
   const record = state.record!
   const view = state.view!
   dispatch({ type: "continue-started" })
   try {
-    await api.reveal(view.id, flow.revealFor(record, view, await api.signFor(view.labelHash, view.owner), record.terms))
+    const toSign = await api.signFor(record.request.labelHash, record.owner)
+    const agreed = await continuedTerms(gen, record, toSign.acceptance)
+    if (agreed === null) return
+    await api.reveal(view.id, flow.revealFor(record, view, toSign, agreed))
+    keepAgreed(record, agreed)
     reread(gen)
   } catch (e) {
     if (holdOn(e, "Nothing changed. ", gen)) return
     answer(gen, { type: "continue-failed", note: warning("That did not go through. Nothing changed. Try again in a moment.") })
     reread(gen)
   }
+}
+
+const TERMS_AGAIN = "terms-again"
+
+async function continuedTerms(gen: number, record: store.OrderRecord, acceptance: api.Acceptance): Promise<string | undefined | null> {
+  const held = api.heldTerms(acceptance.termsHash, acceptance.community)
+  if (acceptance.termsHash === api.signedHash(record.terms) || !held) return record.terms
+  const { community } = await api.searchName(record.request.labelHash, record.label.length)
+  const quote = { terms: held, community }
+  const terms = termsToSign(record.label, api.currentTerms(quote), record.terms, state.ask)
+  if (terms !== null) return terms
+  askTerms(gen, record.label, quote, true)
+  if (isOpen(gen)) focusOn(TERMS_AGAIN)
+  return null
 }
 
 // Another order may have spent the code since this one failed, which Continue would only find out. A code revoked or

@@ -3,8 +3,9 @@ import { walletOf } from "../src/flow.ts"
 import { labelHash } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
+import { ALTERNATE_GENERAL_TERMS } from "./terms.ts"
 import {
-  addNameCode, answersReserved, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, REGISTRATION_MS, registrationOf,
+  addNameCode, agreeToTerms, answersReserved, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, REGISTRATION_MS, registrationOf,
   registrationView, offCentre, search, searchName, selectedToReview, sevenLetters, shot, startOrder, takenHeading, takenOrder, test, uniqueLabel, waitRegistered,
 } from "./helpers.ts"
 
@@ -182,6 +183,42 @@ test("an order failed while its page was not read says until when the name stays
   await page.unrouteAll({ behavior: "wait" })
   await onStep(page).getByRole("button", { name: "Continue" }).click()
   await waitRegistered(page, label)
+})
+
+test("an order failed unread offers Continue only outside the service's downtime, asks at Continue for terms changed since, and signs and registers it once they are accepted", async ({ page, request }) => {
+  const label = uniqueLabel("unt")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  const registrationId = await registrationOf(request, invoiceId)
+  await page.route("**/api/registration/*/reveal", (route) => route.abort())
+  await control(request, `stale/${registrationId}`)
+  await control(request, `settle/${invoiceId}`)
+  await expect.poll(async () => {
+    const { phase, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null
+  }, { timeout: REGISTRATION_MS }).toBe(true)
+  await control(request, `unread/${registrationId}`)
+  await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
+  await page.unrouteAll({ behavior: "wait" })
+  const continued = onStep(page).getByRole("button", { name: "Continue" })
+  await page.route("**/api/config", (route) => route.fulfill({ json: { stripePublishableKey: null, names: { downtime: true } } }))
+  await page.reload()
+  await expect(onStep(page).getByText("Signing opens again soon.")).toBeVisible()
+  await expect(continued).toBeDisabled()
+  await page.unrouteAll({ behavior: "wait" })
+  await page.reload()
+  await control(request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
+  try {
+    await continued.click()
+    const notice = onStep(page).locator(".line", { hasText: "The Names Conditions changed. Accept them again." })
+    await expect(notice).toBeVisible()
+    await expect(notice, "the notice takes the focus of Continue, which waits for the tick").toBeFocused()
+    await expect(continued).toBeDisabled()
+    await agreeToTerms(page)
+    await continued.click()
+    await waitRegistered(page, label)
+  } finally {
+    await control(request, "general-terms", { text: null })
+  }
 })
 
 // a chain that fails each transaction before it goes out, as an RPC provider down for a while, and a look half way through

@@ -15,6 +15,7 @@ const reloadKeeps = () => !changeOnItsWay() && !session.anySending() && session.
 
 export const NEW_ORDERS_SOON = "New orders open again soon"
 export const PAYMENT_SOON = "Payment opens again soon"
+export const SIGNING_SOON = "Signing opens again soon"
 
 let downtime = false
 let afresh = false

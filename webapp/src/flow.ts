@@ -150,7 +150,7 @@ async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pi
   if (!opened) throw new Error("the code does not open this order")
   const r = registrationOf(opened.label, wallet.address, commitmentSecret(wallet.seed, opened.label), opened, BigInt(view.duration))
   if (hex(makeCommitment(r)) !== view.commitment) throw new Error("the order's commitment does not match the code")
-  const request = { labelHash: view.labelHash, length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
+  const request = { labelHash: hex(labelHash(opened.label)), length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
   return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms), ...opened.method ? { method: opened.method } : {} }
 }
 
