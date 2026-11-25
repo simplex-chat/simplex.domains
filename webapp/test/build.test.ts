@@ -32,7 +32,7 @@ describe("the card form", () => {
     expect(names, "Stripe's note under Pay").toContain(STRIPE_NOTE)
     expect(names).toContain(MAINNET.cardOrigin)
     expect(names).not.toContain("js.stripe.com")
-    expect(await shipped("production", CARD_CONFIG)).toContain("https://js.stripe.com/")
+    expect(await shipped("devchain", CARD_CONFIG), "a card page with a key to mount with").toContain("https://js.stripe.com/")
   }, BUILD_MS)
 
   it("has a stand-in labelled as a test in the card page's development build, which the dev server serves, and in no other build", async () => {
