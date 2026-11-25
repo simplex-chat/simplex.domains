@@ -29,6 +29,7 @@ describe("configOf", () => {
     expect(configOf({ stripePublishableKey: null, names: { ...NAMES, downtime: false } })).toEqual({ downtime: false })
     expect(configOf({ stripePublishableKey: null, names: null })).toEqual({ downtime: false })
     expect(configOf({ stripePublishableKey: null, names: NAMES }), "a service from before the downtime").toEqual({ downtime: false })
+    expect(configOf({ names: { downtime: true } }), "an answer without the badge page's Stripe key").toEqual({ downtime: true })
   })
   it("takes nothing else the service answers: with another sponsor, resolver, chain, TLD, term, mode or Stripe key, only the downtime differs", () => {
     const changes = [{ sponsor: "0x000000000000000000000000000000000000dEaD" }, { resolver: "0x000000000000000000000000000000000000dEaD" }, { chainId: 1 }, { tld: "other" },
@@ -44,6 +45,7 @@ describe("configOf", () => {
     expect(configOf({ type: "not_found" })).toBeNull()
     expect(configOf({ stripePublishableKey: null })).toBeNull()
     expect(configOf({ stripePublishableKey: null, names: "simplex" })).toBeNull()
+    expect(configOf({ stripePublishableKey: null, names: [{ downtime: true }] })).toBeNull()
   })
 })
 
@@ -83,6 +85,9 @@ describe("the deployment the page holds", () => {
     expect(MAINNET.stripeKey === "" || MAINNET.stripeKey.startsWith("pk_live_"), "a live key, once set").toBe(true)
     expect([new URL(LOCAL.cardOrigin).hostname, LOCAL.stripeKey, LOCAL.stripeLive]).toEqual(["127.0.0.1", "", false])
     for (const origin of [...MAINNET.pageOrigins, ...LOCAL.pageOrigins]) expect(new URL(origin).origin, origin).toBe(origin)
+  })
+  it("takes payments in production only with a live Stripe key and the keys of both coins' wallets", () => {
+    expect(MAINNET.codesOnly || (MAINNET.stripeKey.startsWith("pk_live_") && MAINNET.bitcoinReceiveKeys.length > 0 && MAINNET.moneroPrimaryAddresses.length > 0)).toBe(true)
   })
   it("holds each payee key as a public key of its curve: a compressed Bitcoin key, and a Monero primary address of its network", () => {
     for (const [d, primaryPrefix, subaddressPrefix, hrp] of [[MAINNET, 18, 42, "bc"], [LOCAL, 24, 36, "bcrt"]] as const) {

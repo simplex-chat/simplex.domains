@@ -131,10 +131,10 @@ export const heldPrice = (length: number) => (SITE.priceExceptions.find((e) => e
 
 export interface SiteConfig { downtime: boolean }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 
 export function configOf(body: unknown): SiteConfig | null {
-  if (!isObject(body) || !("stripePublishableKey" in body) || !("names" in body)) return null
+  if (!isObject(body) || !("names" in body)) return null
   const { names } = body
   if (names !== null && !isObject(names)) return null
   return { downtime: names?.downtime === true }

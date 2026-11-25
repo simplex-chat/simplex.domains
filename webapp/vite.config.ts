@@ -1,12 +1,12 @@
 /// <reference types="vitest/config" />
 import { createHash } from "node:crypto"
-import { defineConfig, type Plugin } from "vite"
+import { defineConfig, loadEnv, type Plugin } from "vite"
 import { type Deployment, LOCAL, MAINNET } from "./src/config.ts"
 import { serviceWorker } from "./sw/plugin.ts"
 
 const MOCK = process.env.MOCK_URL ?? "http://127.0.0.1:8099"
 
-const siteOf = (mode: string): Deployment => mode === "production" ? MAINNET : { ...LOCAL, apiOrigin: process.env.VITE_API_ORIGIN ?? "" }
+const siteOf = (mode: string): Deployment => mode === "production" ? MAINNET : { ...LOCAL, apiOrigin: loadEnv(mode, process.cwd(), "VITE_").VITE_API_ORIGIN ?? "" }
 
 const INLINE_SCRIPT = /<script>([\s\S]*?)<\/script>/g
 const hashOf = (script: string) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`
