@@ -1,6 +1,9 @@
 // The header's parts that change: the phone's menu, which its button opens over the page, and the tab's active code.
 import { el } from "../dom.ts"
+import { dollars } from "../format.ts"
+import { codeCover } from "../screens/search.ts"
 import * as session from "../session.ts"
+import * as store from "../store.ts"
 import { onDrawn, onPageLeft, refresh } from "./shell.ts"
 
 const menuButton = () => document.querySelector<HTMLButtonElement>(".menu-button")!
@@ -29,13 +32,28 @@ function keepFocusIn(e: KeyboardEvent): void {
 
 const chip = () => document.querySelector<HTMLElement>(".code-chip")!
 
+function choosingFor(): store.OrderRecord | null {
+  const [path, query] = location.hash.slice(1).split("?")
+  const id = (path || "/") === "/" && query ? new URLSearchParams(query).get("order") : null
+  return id ? store.orderByRegistration(id) ?? null : null
+}
+
+function orderWords(order: store.OrderRecord): (Node | string)[] {
+  const cover = codeCover(order)
+  if (!cover) return [`${dollars(order.paid)} / ${order.years} years`]
+  return [el("span", { class: "code-word" }, "Code: "), cover.minLength === null ? `${cover.years} years` : `${cover.minLength}+ letters, ${cover.years} years`]
+}
+
 // the active code takes the place of Check your code, with what it pays
 function showChip(): void {
+  const order = choosingFor()
   const code = session.activeCode()
-  chip().hidden = code === null
+  chip().hidden = order === null && code === null
   document.querySelector<HTMLElement>(".check-link")!.hidden = !chip().hidden
+  chip().querySelector<HTMLElement>(".unlink")!.hidden = order !== null
   const what = chip().querySelector(".what")!
-  if (code) what.replaceChildren(el("span", { class: "code-word" }, "Code: "), `${code.minLength}+ letters, ${code.years} years`)
+  if (order) what.replaceChildren(...orderWords(order))
+  else if (code) what.replaceChildren(el("span", { class: "code-word" }, "Code: "), `${code.minLength}+ letters, ${code.years} years`)
 }
 
 // a code taken off leaves the checkout it pays for too, unless its order is on its way
