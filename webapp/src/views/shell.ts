@@ -318,8 +318,8 @@ export function showPopup(key: string, kids: Kid[], first: HTMLElement | null): 
 }
 
 // Support refunds a balance by hand, on a message that quotes the order's reference.
-export function showRefund(reference: string, key: string): void {
-  const copy = copyButton(reference, "field-copy", "Copy reference")
+export function showRefund(reference: string, key: string, proof?: unknown): void {
+  const copy = proof === undefined ? copyButton(reference, "field-copy", "Copy reference") : copyButton(withProof(reference, proof), "field-copy", WITH_PROOF)
   showPopup(key, [
     el("h2", { id: POPUP_TITLE }, "Refund"),
     el("p", {}, ...contactSupport("Contact", reference), ". Support refunds what is left of your balance."),
@@ -327,8 +327,11 @@ export function showRefund(reference: string, key: string): void {
   ], copy)
 }
 
+const WITH_PROOF = "Copy the order reference and address proof for support"
+const withProof = (reference: string, proof: unknown) => `Order reference ${reference}, address proof ${JSON.stringify(proof)}`
+
 export const referenceLine = (reference: string, proof?: unknown) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference),
-  ...proof === undefined ? [] : [SEP, copyButton(`Order reference ${reference}, address proof ${JSON.stringify(proof)}`, "text-link", "Copy the order reference and address proof for support", "Copy for support")])
+  ...proof === undefined ? [] : [SEP, copyButton(withProof(reference, proof), "text-link", WITH_PROOF, "Copy for support")])
 
 // shown only before a document's first draw, placed as the screen after it will be, so its heading stays put
 export function drawLoading(title: string, place = (screen: HTMLElement) => screen): void {

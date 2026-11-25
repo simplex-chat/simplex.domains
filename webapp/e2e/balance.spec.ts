@@ -5,6 +5,7 @@ import {
 } from "./helpers.ts"
 
 const balanceRow = (page: Page) => onStep(page).locator(".list-row[data-key^='balance-']")
+const WITH_PROOF = "Copy the order reference and address proof for support"
 
 // Your names, its rows read
 async function yourNames(page: Page): Promise<void> {
@@ -36,6 +37,7 @@ const ROW_GAP = 14
 test("a paid order taken first keeps its price as its balance, which support refunds", async ({ page, request }) => {
   const label = sevenLetters()
   const { invoiceId } = await takenOrder(page, request, label)
+  await expect(onStep(page).getByRole("button", { name: WITH_PROOF }), "the taken order's page gives support its address proof").toBeVisible()
   await yourNames(page)
   await expect(balanceRow(page)).toHaveCount(1)
   await expect(balanceRow(page).locator(".main")).toHaveText(`$200From ${label}.simplex, someone has taken this name`)
@@ -54,7 +56,7 @@ test("a paid order taken first keeps its price as its balance, which support ref
   const popup = page.getByRole("dialog", { name: "Refund" })
   await expect(popup).toContainText(`Contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}. Support refunds what is left of your balance.`)
   await expect(popup.locator(".code-text")).toHaveText(invoiceId)
-  await expect(popup.getByRole("button", { name: "Copy reference" })).toBeFocused()
+  await expect(popup.getByRole("button", { name: WITH_PROOF }), "a Bitcoin order's copy holds its address proof").toBeFocused()
   await shot(page, "B2-refund")
   await popup.getByRole("button", { name: "Close" }).click()
   await expect(balanceRow(page).getByRole("button", { name: "Refund" })).toBeFocused()

@@ -891,7 +891,7 @@ function buildConfirming(s: OrderState): HTMLElement {
     : alertBox("info", "clock", "Waiting for Stripe to\u00a0confirm", "Stripe usually confirms within a minute. Registration starts by itself; this page moves on.")
   // a card Stripe has not confirmed can still be cancelled while nothing is paid, as an unpaid crypto invoice can
   const cancel = !coin && !invoice.amountPaid ? cancelLink(s) : null
-  return screen({ title: coin ? "Confirming your payment" : "Paying by card", lead: orderLine(s), alt: cancel }, notice, referenceLine(invoice.invoiceId), actionNote(s, null))
+  return screen({ title: coin ? "Confirming your payment" : "Paying by card", lead: orderLine(s), alt: cancel }, notice, referenceLine(invoice.invoiceId, proofOf(s)), actionNote(s, null))
 }
 
 function enterCardAgain(): void {
@@ -1048,7 +1048,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     // the note keeps the height of its longest words, so the page keeps still as they change
     el("div", { class: "countdown" }, clockNode, el("p", {}, note, el("span", { class: "sizer", "aria-hidden": "true" }, WAIT_NOTE))),
     refused ? alertBox("danger", "alert", "The name could not be signed", "The service refused the signed registration.") : null,
-    referenceLine(s.invoice?.invoiceId ?? view.id),
+    referenceLine(s.invoice?.invoiceId ?? view.id, proofOf(s)),
     termsAskedAgain(s) ? agreement(s, "reveal") : null)
 }
 
@@ -1119,7 +1119,7 @@ function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
   const label = labelOf(view!, record)
   return outcome({ tone: "warn", icon: "alert", title: "Registration ended",
     text: ["The registration of ", label ? nameText(label, SITE.tld) : "the name", " was ended because a payment for it was disputed, reversed or refunded in full."],
-    action: codesOnly() ? codeAction() : btn("Search a name", "", () => go(searchLink(""))), reference: invoice?.invoiceId ?? view!.id })
+    action: codesOnly() ? codeAction() : btn("Search a name", "", () => go(searchLink(""))), reference: invoice?.invoiceId ?? view!.id, proof: proofOf({ record, invoice }) })
 }
 
 // An order taken first keeps its payment or its code: a name is selected for the order, or support refunds the payment;
@@ -1139,7 +1139,7 @@ function buildTaken(s: OrderState): HTMLElement {
     api.takenByOrder(view) ? stages(["failed", "", ""]) : stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,
     record ? null : alertBox("info", "key", "The name code is not in this browser", `Add it in Check your code to ${invoice ? "use the balance" : "choose another name"}.`),
-    referenceLine(invoice?.invoiceId ?? view.id))
+    referenceLine(invoice?.invoiceId ?? view.id, proofOf(s)))
 }
 
 const REFUND = "refund"
@@ -1150,7 +1150,7 @@ const REFUND = "refund"
 function balanceActions({ view, invoice, record }: OrderState, same?: HTMLButtonElement): { action: HTMLButtonElement; alt: HTMLElement | null } {
   const kept = same !== undefined || api.paymentKept(view!)
   const another = () => go(searchLink("", api.selectable(view!) ? view!.id : undefined))
-  const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND)) : null
+  const refund = record && kept ? link("Get a refund", () => showRefund(invoice?.invoiceId ?? view!.id, REFUND, proofOf({ record, invoice }))) : null
   refund?.setAttribute("data-focus", REFUND)
   refund?.setAttribute("aria-haspopup", "dialog")
   if (codesOnly() && invoice) return { action: codeAction(), alt: refund }

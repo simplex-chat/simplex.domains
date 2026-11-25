@@ -164,7 +164,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   if (!isRoute(route)) return
   dispatchList({ type: "row-read", id, view, invoice, now: api.serviceNow() })
   if (view.phase.type !== "registered") return
-  const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length).catch(() => null)
+  const answer = await api.searchName(synced.request.labelHash, synced.label.length).catch(() => null)
   answerList(route, { type: "row-answered", id, answer })
 }
 
@@ -375,7 +375,7 @@ const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
 function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
   const { view } = s.seen[b.id]
-  const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
+  const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`, o.invoiceId ? o.addressProof : undefined), true)] : []
   const from = BALANCE_FROM[b.from]
   const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null]
