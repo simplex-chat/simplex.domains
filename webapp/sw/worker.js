@@ -104,7 +104,8 @@ async function configFirst(event) {
     fresh = await fetch(event.request)
   } catch {}
   if (fresh?.ok) {
-    event.waitUntil(caches.open(CACHE).then((cache) => cache.put(CONFIG, fresh.clone())))
+    const kept = fresh.clone()
+    event.waitUntil(caches.open(CACHE).then((cache) => cache.put(CONFIG, kept)))
     return fresh
   }
   const hit = await (await caches.open(CACHE)).match(CONFIG, MATCH)

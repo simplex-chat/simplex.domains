@@ -99,9 +99,11 @@ class FakeCache {
 
 class FakeCaches {
   readonly stores = new Map<string, FakeCache>()
+  gate: Promise<void> = Promise.resolve()
   private readonly net: FakeNet
   constructor(net: FakeNet) { this.net = net }
   async open(name: string) {
+    await this.gate
     if (!this.stores.has(name)) this.stores.set(name, new FakeCache(this.net))
     return this.stores.get(name)!
   }
@@ -296,6 +298,18 @@ describe("service worker answers", () => {
     w.net.offline = false
     w.net.serve("/api/config", 502, "bad gateway")
     expect(await (await w.request("/api/config", "GET", "cors"))!.text(), "a failing service, the last answer").toBe(CODES_CONFIG)
+  })
+
+  it("keeps the config's answer that the page read before the cache opened", async () => {
+    const w = await installed()
+    let open!: () => void
+    w.caches.gate = new Promise((resolve) => { open = resolve })
+    w.net.serve("/api/config", 200, CODES_CONFIG)
+    expect(await (await w.request("/api/config", "GET", "cors"))!.text()).toBe(CODES_CONFIG)
+    open()
+    await w.settled()
+    w.net.offline = true
+    expect(await (await w.request("/api/config", "GET", "cors"))!.text(), "offline, the answer read").toBe(CODES_CONFIG)
   })
 
   it("answers the config with the service's error, or fails as the network, when it holds no earlier answer", async () => {
