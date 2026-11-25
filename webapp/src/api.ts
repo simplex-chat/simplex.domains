@@ -2,6 +2,7 @@
 import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
+import { SITE } from "./config.ts"
 import { MAX_LABEL_LENGTH } from "./names.ts"
 
 const REFUSALS = [
@@ -57,13 +58,6 @@ export function retryDelay(e: unknown, usual: number): number | null {
 
 export type Phase = "unpaid" | "closed" | "queued" | "committing" | "committed" | "registering" | "registered" | "ended" | "taken" | "failed"
 export type Method = "card" | "btc" | "xmr"
-
-export interface ChainInfo {
-  resolver: string
-  sponsor: string
-  chainId: number
-  tld: string
-}
 
 export const LINK_KINDS = ["contact", "channel"] as const
 export interface Links {
@@ -420,7 +414,7 @@ const isBalance = (v: unknown) => isObject(v) && isAmount(v.amount) && isAmount(
 const isPayment = (v: unknown) => isObject(v) && ((v.type === "invoice" && METHODS.includes(v.method as Method)) || v.type === "code")
 const isHash = (v: unknown) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v)
 const isAgreedTerms = (v: unknown) => isObject(v) && typeof v.communityName === "boolean" && isHash(v.termsHash)
-const isTerms = (v: unknown, chainId: number) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, chainId) !== null && keccakOf(v.link) === v.hash
+const isTerms = (v: unknown) => isObject(v) && isHash(v.hash) && typeof v.link === "string" && termsLink(v.link, SITE.chainId) !== null && keccakOf(v.link) === v.hash
 const isCommunity = (v: unknown) => v === null || (isObject(v) && optional(v.for, (f) => typeof f === "string" && f !== "") && isCount(v.years))
 const isAcceptance = (v: unknown) => isObject(v) && typeof v.community === "boolean" && isText(v.policy) && isHash(v.termsHash) && Number.isInteger(v.nonce) && (v.nonce as number) >= 0
 const isToSign = (v: unknown) => isObject(v) && (v.type === "unread" || (v.type === "read" && isAmount(v.intentNonce) && isAcceptance(v.acceptance)))
@@ -443,8 +437,8 @@ const isTime = (v: unknown) => typeof v === "string" && Number.isFinite(Date.par
 // none left only while an edit is counted, which returns at nextAt
 const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && optional(v.nextAt, isTime) && (v.left !== 0 || v.nextAt !== undefined)
 const isResolverRecords = (v: unknown) => isObject(v) && (v.type === "other" || (v.type === "own" && isText(v.contact) && isText(v.channel) && isAmount(v.nonce) && isRecordEdits(v.edits)))
-const isNameFound = (v: unknown, chainId: number) => isObject(v) && (v.type === "reserved" || v.type === "taken"
-  || (v.type === "available" && isAmount(v.price) && isCount(v.years) && optional(v.terms, (t) => isTerms(t, chainId)))
+const isNameFound = (v: unknown) => isObject(v) && (v.type === "reserved" || v.type === "taken"
+  || (v.type === "available" && isAmount(v.price) && isCount(v.years) && optional(v.terms, isTerms))
   || (v.type === "registered" && isText(v.owner) && isText(v.resolver) && isAmount(v.expiresAt) && isAmount(v.gracePeriod) && Array.isArray(v.entities) && v.entities.every(isEntity)
     && isResolverRecords(v.records)))
 
@@ -465,24 +459,24 @@ function foundOf(f: WireFound): Found {
   }
 }
 
-export const searchName = (labelHash: string, length: number, chainId: number) =>
-  checked<{ found: WireFound; community?: Community }>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => optional(a.community, isCommunity) && isNameFound(a.found, chainId))
+export const searchName = (labelHash: string, length: number) =>
+  checked<{ found: WireFound; community?: Community }>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => optional(a.community, isCommunity) && isNameFound(a.found))
     .then((a): SearchAnswer => ({ found: foundOf(a.found), community: a.community ?? null }))
 export const previewLink = (link: string) => checked<Preview>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 
 // The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very
 // text whose acceptance the owner signs.
-export async function termsText(terms: Terms, chainId: number, signal?: AbortSignal): Promise<string> {
+export async function termsText(terms: Terms, signal?: AbortSignal): Promise<string> {
   const read = await call<Record<string, unknown>>("GET", `/api/terms/${terms.hash}`, undefined, signal)
-  const digest = termsLink(terms.link, chainId)?.digest
+  const digest = termsLink(terms.link, SITE.chainId)?.digest
   if (read.link !== terms.link || keccakOf(terms.link) !== terms.hash || typeof read.text !== "string" || bytesToHex(sha256(utf8ToBytes(read.text))) !== digest) throw noAnswer()
   return read.text
 }
 
-export async function currentTermsOf(hash: string, chainId: number): Promise<Terms> {
+export async function currentTermsOf(hash: string): Promise<Terms> {
   const read = await call<Record<string, unknown>>("GET", `/api/terms/${hash}`)
   const terms = { hash, link: read.link }
-  if (!isTerms(terms, chainId)) throw noAnswer()
+  if (!isTerms(terms)) throw noAnswer()
   return terms as Terms
 }
 const CODE_STATES = ["unused", "used", "reserved", "expired", "unpaid", "revoked"] as const
@@ -496,16 +490,16 @@ export async function checkCode(code: string, signal?: AbortSignal): Promise<Cod
   return answer as unknown as CodeAnswer
 }
 
-const signingTerms = (sent: Promise<unknown>, chainId: number) => sent.catch((e: unknown) => {
+const signingTerms = (sent: Promise<unknown>) => sent.catch((e: unknown) => {
   if (!(e instanceof ApiError && e.code === "terms_changed")) throw e
-  if (!isTerms(e.body.terms, chainId) || !isCommunity(e.body.community)) throw noAnswer()
+  if (!isTerms(e.body.terms) || !isCommunity(e.body.community)) throw noAnswer()
   throw new TermsChanged(e, e.body.terms as Terms, e.body.community as Community | null)
 })
 
-export const createOrder = (order: SignedOrder, method: Method, price: number, chainId: number) =>
-  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", order: orderOf(order), method, price, reveal: order.reveal }), chainId))
-export const registerWithCode = (order: SignedOrder, code: string, chainId: number) =>
-  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { order: orderOf(order), code, reveal: order.reveal }), chainId), (a) => isText(a.registrationId))
+export const createOrder = (order: SignedOrder, method: Method, price: number) =>
+  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", order: orderOf(order), method, price, reveal: order.reveal })))
+export const registerWithCode = (order: SignedOrder, code: string) =>
+  checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { order: orderOf(order), code, reveal: order.reveal })), (a) => isText(a.registrationId))
 
 export type ToSignRead = Extract<ToSign, { type: "read" }>
 export const signFor = (labelHash: string, owner: string) =>
@@ -529,8 +523,8 @@ export function readRegistration(registrationId: string, seenVersion?: number, s
 
 export const reveal = (registrationId: string, body: RevealBody) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
-export const selectName = (registrationId: string, body: Omit<SignedOrder, "owner">, chainId: number) =>
-  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal }), chainId), isRegistration)
+export const selectName = (registrationId: string, body: Omit<SignedOrder, "owner">) =>
+  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal })), isRegistration)
 export const retry = (registrationId: string) => checked<RegistrationView>(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/retry`), isRegistration)
 const isFound = (r: unknown) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText) && PHASES.includes(r.phase as Phase) && isText(r.createdAt)
   && isText(r.labelHash) && isText(r.sealed)

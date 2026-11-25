@@ -8,6 +8,7 @@ import {
 } from "viem"
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
+import { LOCAL } from "../src/config.ts"
 import { durationFor } from "../src/crypto/registration.ts"
 import { BLOCK_POLL_MS, TERM_START_S, untilChainTime } from "./chain-time.ts"
 import { registerNameTypedData } from "./register-name.ts"
@@ -118,6 +119,12 @@ await write(owner, namePolicy, "setCommunityTerms", [COMMUNITY_TERMS_LINK])
 await write(owner, namePolicy, "addCommunityNames", [COMMUNITY_NAMES])
 
 const chainId = await publicClient.getChainId()
+const differs = ([
+  ["chainId", chainId, LOCAL.chainId], ["tld", TLD, LOCAL.tld], ["sponsor", sponsor.address, LOCAL.sponsor], ["resolver", resolver.address, LOCAL.resolver],
+  ["namePolicy", namePolicy.address, LOCAL.namePolicy], ["general terms", GENERAL_TERMS_LINK, LOCAL.generalTerms[0].link],
+  ["community terms", COMMUNITY_TERMS_LINK, LOCAL.communityTerms[0].link],
+] as const).filter(([, deployed, held]) => deployed !== held)
+if (differs.length) throw new Error(`the deployment differs from LOCAL in src/config.ts: ${differs.map(([what, deployed, held]) => `${what} ${deployed}, not ${held}`).join("; ")}`)
 const holderAccount = privateKeyToAccount(holderKey)
 
 // A name registered to the holder through the sponsor, as the store's service registers names.

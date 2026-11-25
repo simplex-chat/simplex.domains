@@ -6,10 +6,9 @@ import {
   zeroHash, type Address, type Hex,
 } from "viem"
 import { communityAgreed, type FailReason, type Preview, signedHash, termsLink } from "../../src/api.ts"
-import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
-import { CODES_ONLY, type Mode } from "../../src/mode.ts"
+import { CODES_ONLY } from "../../src/mode.ts"
 import { labelProblem, LINK_MAX_BYTES, linkKind, type LinkKind, linkProblem, MAX_LABEL_LENGTH, MIN_LABEL_LENGTH } from "../../src/names.ts"
 import {
   baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, moveChainTo, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
@@ -172,7 +171,7 @@ const taking = new Map<string, Promise<void>>()
 // a fetch of a link in fetchDelays takes that many milliseconds;
 // a late payment is credited at the lower of its invoice's rate and the coin's current rate in cents, when one is set;
 // in codes mode, as the service's [names] codes_only, names are registered only with prepaid codes
-const control: { mode: Mode; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
+const control: { mode: "open" | "codes"; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
   { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
@@ -1545,7 +1544,7 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
   return { ok: true }
 }
 
-// The service's mode as a restart with codes_only on or off sets it; the dev server reads it into the page it serves.
+// The service's mode as a restart with codes_only on or off sets it.
 export function controlMode(body: Record<string, unknown>): Record<string, unknown> {
   if (body.mode !== "open" && body.mode !== "codes") throw badRequest()
   control.mode = body.mode
@@ -1554,9 +1553,9 @@ export function controlMode(body: Record<string, unknown>): Record<string, unkno
 
 export const modeNow = () => ({ mode: control.mode })
 
-export const siteConfig = (): { stripePublishableKey: null; names: NamesSite } => ({
+export const siteConfig = () => ({
   stripePublishableKey: null,
-  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S },
+  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S, downtime: false },
 })
 
 export async function controlClock(body: Record<string, unknown>): Promise<Record<string, unknown>> {

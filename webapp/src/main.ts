@@ -34,8 +34,7 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
   })
 }
-// The mode decides the first screen, so nothing between the header and the footer is drawn before it is known.
-await loadConfig()
+const config = await loadConfig()
 setUpChrome()
 window.addEventListener("popstate", (e) => {
   if (historyMoved(e) && !reloadedForRoute()) render()
@@ -62,4 +61,4 @@ document.addEventListener("click", (e) => {
   go(href)
 })
 render()
-followServedMode()
+followServedMode(config)

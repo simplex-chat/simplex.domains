@@ -98,8 +98,6 @@ async function keepShell(shell) {
   if (await isThisBuildsShell(shell)) await (await caches.open(CACHE)).put(SHELL, shell)
 }
 
-// Network first, as the mode decides what a page offers; offline, the service's last answer, so the page opens in
-// the mode it gave then.
 async function configFirst(event) {
   let fresh
   try {

@@ -9,7 +9,7 @@
 <meta property="og:site_name" content="simplex.domains">
 <meta property="og:title" content="SimpleX names">
 <meta property="og:description" content="One name for your SimpleX channel and contact address, registered to a wallet only you hold.">
-<!-- the service's mode and Stripe key, which the page needs before it draws, asked for while its modules load -->
+<!-- the service's Stripe key, which the page needs before it draws, asked for while its modules load -->
 <link rel="preload" href="/api/config" as="fetch" crossorigin>
 <link rel="icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
@@ -24,7 +24,7 @@
      its hash is in the README's CSP -->
 <script>try{const t=localStorage.getItem("theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch{if(matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.classList.add("dark")}document.documentElement.style.backgroundColor=document.documentElement.classList.contains("dark")?"var(--page-color, #000832)":"var(--page-color, #F3FAFF)"</script>
 <!-- a page opening on a step's frame, by routes.ts and session.ts, holds it before its first draw; hash in the README's CSP -->
-<script>try{const q=new URLSearchParams(location.search),p=location.hash.replace(/^#/,"").split("?")[0],c=JSON.parse(sessionStorage.getItem("simplex-names-checkout")??"null");if(q.get("order")||q.get("registration")||p==="/names"||p==="/code"||/^\/edit\/[\w-]+$/.test(p)||(/^\/checkout(?:\/(links|code))?$/.test(p)&&c?.label&&c.chain&&c.terms&&typeof c.termStart==="number"))document.documentElement.classList.add("framed")}catch{}</script>
+<script>try{const q=new URLSearchParams(location.search),p=location.hash.replace(/^#/,"").split("?")[0],c=JSON.parse(sessionStorage.getItem("simplex-names-checkout")??"null");if(q.get("order")||q.get("registration")||p==="/names"||p==="/code"||/^\/edit\/[\w-]+$/.test(p)||(/^\/checkout(?:\/(links|code))?$/.test(p)&&c?.label&&c.terms))document.documentElement.classList.add("framed")}catch{}</script>
 <!-- in the head, so the page waits for it before its first paint; after the inline scripts, so they need not wait -->
 <link rel="stylesheet" href="/src/styles.css">
 <script type="module" src="/src/main.ts"></script>

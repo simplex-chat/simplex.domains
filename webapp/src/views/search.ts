@@ -1,6 +1,6 @@
 // The home: the landing's headline, the search box and every answer it can show.
 import * as api from "../api.ts"
-import { loadedSite, namesSite, readSite } from "../config.ts"
+import { SITE } from "../config.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
 import { btn, el, icon, type Kid, line, link, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
@@ -47,7 +47,7 @@ export function searchPage(params: URLSearchParams): void {
   const fresh = !isRedraw() || shown === null || state.opening !== opening
   const returned = fresh && throughHistory()
   if (fresh) {
-    state = returned ? returnedTo(state, opening, name, loadedSite()?.tld, store.orders()) : initialSearch()
+    state = returned ? returnedTo(state, opening, name, SITE.tld, store.orders()) : initialSearch()
     shown = null
     opens += 1
   }
@@ -98,7 +98,7 @@ async function runSearch(label: string, seq: number): Promise<void> {
   const hash = hex(labelHash(label))
   let answer: api.SearchAnswer
   try {
-    answer = await api.searchName(hash, label.length, (await namesSite()).chainId)
+    answer = await api.searchName(hash, label.length)
   } catch (e) {
     if (!awaited()) return
     if (holdFrom(e)) return dispatch({ type: "search-held", seq, until: holdEnd() })
@@ -174,16 +174,14 @@ async function register(): Promise<void> {
 }
 
 function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode: string | null): void {
-  const site = readSite()
-  const chain = flow.chainOf(site)
   const code = codeFor(s, label)
   const taken = s.order
   const { ownerCode, saved } = taken ? { ownerCode: taken.ownerCode, saved: true } : orderCode(closedCode)
   const order = taken ? { registrationId: taken.registrationId, method: taken.method, paid: taken.paid } : undefined
   const started = session.checkout()
-  const quote = { price: answer.price, years: taken?.years ?? answer.years, termStart: site.termStart, chain, terms: answer.terms, community: answer.community }
+  const quote = { price: answer.price, years: taken?.years ?? answer.years, terms: answer.terms, community: answer.community }
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
-  if (started && started.label === label && started.price === answer.price && started.chain.chainId === chain.chainId && !session.isSending(started) && sameCode) {
+  if (started && started.label === label && started.price === answer.price && !session.isSending(started) && sameCode) {
     const agreed = started.agreed && api.currentTerms(started) === api.currentTerms(answer)
     const accepted = started.accepted && api.currentTerms(started) === api.currentTerms(answer)
     session.updateCheckout(label, {
@@ -310,7 +308,7 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
   return [
-    el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
+    el("div", { class: "card row buy" }, rowName(label, SITE.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
@@ -329,7 +327,7 @@ function takenAnswer(s: SearchState, found: Found, answer: api.SearchAnswer): Ki
   const own = answer.found.type === "taken" ? s.ownOrder : null
   const whose = own ? null : mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
     : el("span", { class: "soft" }, "Taken")
-  const { tld } = readSite()
+  const { tld } = SITE
   const name = `${label}.${tld}`
   const entities = registered?.entities ?? []
   return [

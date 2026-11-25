@@ -1,6 +1,7 @@
 // The checkout's steps: the links the name opens, its name code, a community name's community terms, and Check your order
 // with how it pays, and Pay.
 import * as api from "../api.ts"
+import { SITE } from "../config.ts"
 import { alertBox, announce, btn, codeDisplay, el, type Kid, line, link, nameText, setAction } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { bonusDays, bonusHint, dateOf, dollars, freeDays, methodName, termEnd } from "../format.ts"
@@ -57,7 +58,7 @@ export function checkoutPage(asked: CheckoutStep): void {
   session.setCheckout({ ...stored, step, ownerCode: stored.ownerCode ?? (step === "code" ? flow.newOwnerCode() : null) })
   const c = session.checkout()!
   // a name code that already has an order, as one ordered again, is no pending code
-  if (c.ownerCode && !store.orders().some((o) => o.ownerCode === c.ownerCode)) store.addPending({ ownerCode: c.ownerCode, label: c.label, tld: c.chain.tld, createdAt: new Date().toISOString() })
+  if (c.ownerCode && !store.orders().some((o) => o.ownerCode === c.ownerCode)) store.addPending({ ownerCode: c.ownerCode, label: c.label, tld: SITE.tld, createdAt: new Date().toISOString() })
   if (!isRedraw() || shown === null || state.checkout.label !== c.label) {
     state = initialState(c, step, codesOnly())
     shown = null
@@ -75,7 +76,7 @@ export function checkoutPage(asked: CheckoutStep): void {
 
 // the community terms' text for their step
 async function readTerms(c: session.Checkout, signal: AbortSignal): Promise<void> {
-  const text = await api.termsText(c.terms, c.chain.chainId, signal).catch(() => null)
+  const text = await api.termsText(c.terms, signal).catch(() => null)
   if (!signal.aborted) dispatch({ type: "community-read", hash: c.terms.hash, text })
 }
 
@@ -178,14 +179,14 @@ function term(years: number, termStart: number, now: number): Kid {
 function orderCard(c: session.Checkout, codesOnly: boolean): HTMLElement {
   const y = years(c)
   const now = api.serviceNow() / 1000
-  const name = `${c.label}.${c.chain.tld}`
+  const name = `${c.label}.${SITE.tld}`
   const chats = api.LINK_KINDS.filter((kind) => c[kind]).map((kind) => linkChat(c[kind], kind, name, `chat-${kind}`))
   const side = chats.length ? el("span", { class: "chats" }, chats) : null
   return el("section", { class: "card order" },
-    el("div", { class: "row" }, rowName(c.label, c.chain.tld, c.community, "community"), side),
+    el("div", { class: "row" }, rowName(c.label, SITE.tld, c.community, "community"), side),
     el("div", { class: "table" },
-      row("Term", term(y, c.termStart, now)),
-      row("Registered until", dateOf(termEnd(y, c.termStart, now))),
+      row("Term", term(y, SITE.termStart, now)),
+      row("Registered until", dateOf(termEnd(y, SITE.termStart, now))),
       c.code || codesOnly || c.order?.method === "code" ? el("div", { class: "trow total" }, el("span", {}, "Free SimpleX name"))
         : row("Total", c.order?.paid === c.price ? "Paid" : dollars(c.price), "total"),
       c.code && y < c.code.years ? el("p", { class: "hint" }, `A community name is registered for ${y} years, not your code's ${c.code.years}.`) : null))
@@ -288,7 +289,7 @@ function payButton(s: CheckoutState, blocked: boolean): HTMLButtonElement {
 function agreement({ checkout: c, sending }: CheckoutState): HTMLElement | null {
   if (c.community) return null
   const agree = (agreed: boolean) => { if (!state.sending && !act({ type: "agreed", agreed })) refresh() }
-  return termsBox({ terms: c.terms, community: c.community, agreed: c.agreed, changed: c.termsChanged === true, label: c.label, tld: c.chain.tld, chainId: c.chain.chainId, disabled: sending }, agree, "pay")
+  return termsBox({ terms: c.terms, community: c.community, agreed: c.agreed, changed: c.termsChanged === true, label: c.label, disabled: sending }, agree, "pay")
 }
 
 function payNote(s: CheckoutState, blocked: boolean, signal: AbortSignal): HTMLElement {
@@ -337,7 +338,7 @@ function buildCode(s: CheckoutState): HTMLElement {
   const c = s.checkout
   const box = el("input", { type: "checkbox", checked: c.saved, disabled: s.sending, "data-focus": "saved" })
   box.addEventListener("change", () => { if (!state.sending && !act({ type: "saved", saved: box.checked })) refresh() })
-  return screen({ title: "Save your name code", lead: ["It is the only key to ", nameText(c.label, c.chain.tld, "."), " If you lose it, nothing can recover it."], back: checkoutUrl("links"),
+  return screen({ title: "Save your name code", lead: ["It is the only key to ", nameText(c.label, SITE.tld, "."), " If you lose it, nothing can recover it."], back: checkoutUrl("links"),
     action: continueButton(() => go(checkoutUrl("review")), !c.saved) },
     codeDisplay(c.ownerCode!, "owner-code", true),
     store.canPersist() ? el("p", { class: "note center" }, "Private windows and Tor Browser forget it when closed.")
@@ -353,12 +354,12 @@ function buildCommunity(s: CheckoutState): HTMLElement {
   const accept = (accepted: boolean) => { if (!state.sending && !act({ type: "accepted", accepted })) refresh() }
   const text = !read ? el("p", { class: "note center" }, "Loading the terms…")
     : read.text === null ? line("bad", "alert", CANT_SHOW)
-    : [termsText(read.text), commitLink(c.terms, c.chain.chainId)]
-  return screen({ title: "Community terms", lead: [nameText(c.label, c.chain.tld), " is a community name. Its owner accepts these conditions."], back: checkoutUrl("code"),
+    : [termsText(read.text), commitLink(c.terms)]
+  return screen({ title: "Community terms", lead: [nameText(c.label, SITE.tld), " is a community name. Its owner accepts these conditions."], back: checkoutUrl("code"),
     action: continueButton(() => go(checkoutUrl("review")), !c.accepted) },
     c.termsChanged ? termsChangedLine("continue") : null,
     text,
-    communityCheck({ ...c, community, changed: false, tld: c.chain.tld, chainId: c.chain.chainId, disabled: s.sending || !read?.text }, accept, true))
+    communityCheck({ ...c, community, changed: false, disabled: s.sending || !read?.text }, accept, true))
 }
 
 function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
@@ -380,7 +381,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
 
 function buildPriceChanged({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "warn", icon: "alert", title: "The price changed",
-    text: [nameText(c.label, c.chain.tld), ` costs ${dollars(c.price)} now; it changed while you were deciding. Nothing was charged.`],
+    text: [nameText(c.label, SITE.tld), ` costs ${dollars(c.price)} now; it changed while you were deciding. Nothing was charged.`],
     action: btn("Search again", "", () => go(searchLink(c.label, c.order?.registrationId))) })
 }
 
@@ -390,7 +391,7 @@ function buildTooMany({ checkout: c, hold }: CheckoutState, signal: AbortSignal)
 }
 
 function buildTaken({ checkout: c }: CheckoutState): HTMLElement {
-  return outcome({ tone: "info", icon: "info", title: "This name is no longer available", text: [nameText(c.label, c.chain.tld), " became unavailable after you searched for it. Nothing was charged."],
+  return outcome({ tone: "info", icon: "info", title: "This name is no longer available", text: [nameText(c.label, SITE.tld), " became unavailable after you searched for it. Nothing was charged."],
     action: btn("Search another name", "", () => go(searchLink("", c.order?.registrationId))) })
 }
 
@@ -414,7 +415,7 @@ function buildUnavailable(s: CheckoutState): HTMLElement {
 // a page opened before the service took codes only; the code entered there registers the name searched again for free
 function buildCodesOnly({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE,
-    text: [nameText(c.label, c.chain.tld), " can be registered with an investor code for now. Nothing was charged."],
+    text: [nameText(c.label, SITE.tld), " can be registered with an investor code for now. Nothing was charged."],
     action: btn("Enter a code", "", () => go(CODE_URL)) })
 }
 
@@ -469,7 +470,7 @@ async function sendOrder(): Promise<void> {
   }
   const method = c.method
   const chosen = c.code ? "code" : c.order?.method ?? method
-  const draft: flow.Draft = { label: c.label, links, chain: c.chain, years: years(c), termStart: c.termStart, ownerCode: c.ownerCode!, terms, method: chosen }
+  const draft: flow.Draft = { label: c.label, links, years: years(c), ownerCode: c.ownerCode!, terms, method: chosen }
   const of = JSON.stringify([draft, c.code?.display ?? method, c.price])
   try {
     const fresh = c.sent?.of === of && api.serviceNow() / 1000 - c.sent.request.timestamp < SIGNED_WINDOW_S
@@ -488,13 +489,13 @@ async function sendOrder(): Promise<void> {
         return done(store.orderUrl(taken))
       }
       if (c.code) {
-        const res = await api.registerWithCode(built.request, c.code.display, c.chain.chainId)
+        const res = await api.registerWithCode(built.request, c.code.display)
         // the code is the order's now, so this tab registers no other name with it
         session.dropActiveCode(c.code.display)
         store.saveOrder({ ...flow.recordFor(draft, built, "code", 0, { registrationId: res.registrationId, invoiceId: null }), years: c.code.years, prepaidCode: c.code.display })
         return done(store.orderUrl({ invoiceId: null, registrationId: res.registrationId }))
       }
-      const res = await api.createOrder(built.request, method, c.price, c.chain.chainId)
+      const res = await api.createOrder(built.request, method, c.price)
       const paidBy = flow.paidWith(res)
       store.saveOrder({ ...flow.recordFor(draft, built, paidBy.method, paidBy.paid, { registrationId: res.registration.id, invoiceId: res.invoiceId }), years: c.years })
       done(store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id }))
