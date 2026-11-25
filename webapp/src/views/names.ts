@@ -484,7 +484,7 @@ function buildCheck(c: typeof check, signal: AbortSignal): HTMLElement {
   const note = c.restore.hold ? holdNotice(c.restore.hold, signal) : refusal ? alertBox("danger", "alert", refusal.title, refusal.text)
     : c.verdict?.kind === "prepaid" ? el("p", { class: "note center" }, "Search for a name; it shows as Free.") : null
   return screen({ title: "Check your code", lead: checkLead(), back: HOME, action: checkAction(c) },
-    codeField(`${CHECK_CODE}-field`, "Code", heard), keptLive("check-note", undefined, note))
+    codeField(`${CHECK_CODE}-field`, "Code", heard), c.verdict?.kind === "owner" ? nameAddressLine(c.verdict.found.code) : null, keptLive("check-note", undefined, note))
 }
 
 let edit: EditState = initialEdit("", null)
