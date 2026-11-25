@@ -92,7 +92,7 @@ test("a closed invoice's page holding changed terms ticked again stays as a down
     await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
     await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
     await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-    expect(seen.count, "the next screen is the page loaded again").toBe(1)
+    await expect.poll(() => seen.count, "the next screen is the page loaded again").toBe(1)
   } finally {
     await control(request, "general-terms", { text: null })
   }
