@@ -395,10 +395,9 @@ describe("paymentChecked", () => {
     expect(paymentChecked(unchecked)).toBe(false)
   })
 
-  it("is checked for its currency and address alone in a browser without the order, which cannot tell its name or payment", () => {
-    expect(paymentChecked(read(coin({ amount: 1500 }), undefined, { record: null }))).toBe(true)
-    expect(paymentChecked(read(coin({ addressProof: undefined }), undefined, { record: null }))).toBe(false)
-    expect(paymentChecked(read(coin({ currency: "eur" }), undefined, { record: null }))).toBe(false)
+  it("is not an invoice whose order the page holds no record of, as its name and payment are then the service's alone", () => {
+    expect(paymentChecked(read(coin(), undefined, { record: null }))).toBe(false)
+    expect(paymentChecked(read(priced(), undefined, { record: null }))).toBe(false)
   })
 })
 

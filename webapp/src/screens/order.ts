@@ -206,9 +206,9 @@ export const unpaidOrClosed = (view: RegistrationView) => view.phase.type === "u
 
 export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
 
-export const paymentChecked = ({ invoice, record, cardUnchecked }: OrderState) => invoice === null || (!cardUnchecked && invoice.currency === SITE.currency && addressProven(invoice) && (record === null
-  || (invoiceMethod(invoice) === record.method && invoice.amount === heldPrice(record.label.length)
-    && (record.invoiceId !== invoice.invoiceId || record.address === undefined || record.address === invoice.address))))
+export const paymentChecked = ({ invoice, record, cardUnchecked }: OrderState) => invoice === null || (!cardUnchecked && record !== null
+  && invoice.currency === SITE.currency && addressProven(invoice) && invoiceMethod(invoice) === record.method && invoice.amount === heldPrice(record.label.length)
+  && (record.invoiceId !== invoice.invoiceId || record.address === undefined || record.address === invoice.address))
 
 // What the order's name costs; null for a code, which costs nothing.
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null
