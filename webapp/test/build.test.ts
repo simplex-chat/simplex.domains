@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { build, type Rollup } from "vite"
@@ -23,8 +24,44 @@ async function shipped(mode: "development" | "production" | "devchain", configFi
 }
 const CARD_CONFIG = join(ROOT, "card", "vite.config.ts")
 
+async function pageOf(mode: "production" | "devchain"): Promise<string> {
+  const env = process.env.NODE_ENV
+  process.env.NODE_ENV = "production"
+  try {
+    const outputs = await build({ root: ROOT, mode, logLevel: "silent", build: { write: false } }) as Rollup.RollupOutput | Rollup.RollupOutput[]
+    const page = [outputs].flat().flatMap((o) => o.output).find((file) => file.fileName === "index.html")!
+    return page.type === "asset" ? String(page.source) : ""
+  } finally {
+    process.env.NODE_ENV = env
+  }
+}
+const inlineHashes = (html: string) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash("sha256").update(m[1]).digest("base64")}'`)
+const policyIn = (html: string) => /<head>\s*<meta http-equiv="Content-Security-Policy" content="([^"]*)">/.exec(html)?.[1] ?? null
+
+describe("the page's own policy", () => {
+  it("is the first element of a production build's head: the API's and the card page's origins, and the hashes of its inline scripts", async () => {
+    const html = await pageOf("production")
+    const policy = policyIn(html)
+    expect(policy, "a meta element first in the head").not.toBeNull()
+    expect(policy).toContain(`frame-src ${MAINNET.cardOrigin};`)
+    expect(policy).toContain(`connect-src 'self' ${MAINNET.apiOrigin};`)
+    expect(policy).not.toContain("stripe")
+    const hashes = inlineHashes(html)
+    expect(hashes.length, "the inline scripts").toBeGreaterThan(0)
+    for (const hash of hashes) expect(policy).toContain(hash)
+    expect(html).toContain('<meta name="referrer" content="strict-origin-when-cross-origin">')
+    expect(html).toContain(`<link rel="preload" href="${MAINNET.apiOrigin}/api/config"`)
+  }, BUILD_MS)
+
+  it("asks the page's own origin in a build for the dev chain, through Vite's proxy", async () => {
+    const html = await pageOf("devchain")
+    expect(policyIn(html)).toContain(`frame-src ${LOCAL.cardOrigin}; connect-src 'self';`)
+    expect(html).toContain('<link rel="preload" href="/api/config"')
+  }, BUILD_MS)
+})
+
 const held = (d: Deployment) => [d.sponsor, d.resolver, d.namePolicy, d.baseRegistrar, ...[...d.generalTerms, ...d.communityTerms].map((t) => t.link), ...d.bitcoinReceiveKeys, ...d.moneroPrimaryAddresses,
-  d.cardOrigin]
+  d.cardOrigin, ...d.apiOrigin ? [d.apiOrigin] : []]
 
 describe("the card form", () => {
   it("is the card page's, which loads Stripe.js; the names page frames it from the card page's origin and never loads Stripe.js", async () => {

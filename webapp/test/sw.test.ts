@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { serviceWorker, WORKER_TEMPLATE, workerSource, type WorkerBuild } from "../sw/plugin.ts"
 
 const ORIGIN = "https://simplex.domains"
-const BUILD: WorkerBuild = { build: "0123456789abcdef", entry: "/assets/index-AAAA.js", precache: ["/assets/index-AAAA.js", "/assets/index-BBBB.css", "/fonts/Manrope/Manrope-Medium-latin.woff2"] }
+const API = "https://api.simplex.domains"
+const BUILD: WorkerBuild = { build: "0123456789abcdef", entry: "/assets/index-AAAA.js", precache: ["/assets/index-AAAA.js", "/assets/index-BBBB.css", "/fonts/Manrope/Manrope-Medium-latin.woff2"], api: API }
 const SHELL_HTML = `<!doctype html><script type="module" src="${BUILD.entry}"></script>`
 // the same build's shell, served again after the worker kept it
 const NEWER_SHELL_HTML = `${SHELL_HTML}<!-- served again -->`
@@ -52,7 +53,7 @@ class FakeNet {
   serve(path: string, status: number, body: string, redirected = false): void { this.routes.set(path, { status, body, redirected }) }
   readonly fetch = async (input: unknown, init?: unknown): Promise<FakeResponse> => {
     const url = keyOf(input)
-    const path = url.slice(ORIGIN.length)
+    const path = url.startsWith(`${ORIGIN}/`) ? url.slice(ORIGIN.length) : url
     const cache = (init as { cache?: string } | undefined)?.cache ?? (input instanceof FakeRequest ? input.cache : "default")
     this.requests.push({ path, init, cache })
     if (this.offline) throw new TypeError("Failed to fetch")
@@ -171,6 +172,12 @@ describe("service worker routing", () => {
     for (const path of ["/api", "/api/name/ab", "/api/invoice/x?wait=1", "/api/configs", "/control/search"]) expect(sw.strategyFor(new URL(path, ORIGIN)), path).toBe("network-only")
     expect(sw.strategyFor(new URL("/api/config", ORIGIN))).toBe("config")
     expect(sw.strategyFor(new URL("/apiary", ORIGIN))).toBe("bypass")
+  })
+
+  it("takes the config from the API's own origin as its own, and leaves the API's other answers and other origins to the network", () => {
+    const { sw } = startWorker()
+    expect(sw.strategyFor(new URL("/api/config", API))).toBe("config")
+    for (const url of [`${API}/api/name/ab`, `${API}/api/configs`, "https://other.example/api/config"]) expect(sw.strategyFor(new URL(url)), url).toBe("bypass")
   })
 })
 
@@ -300,6 +307,15 @@ describe("service worker answers", () => {
     expect(await (await w.request("/api/config", "GET", "cors"))!.text(), "a failing service, the last answer").toBe(CODES_CONFIG)
   })
 
+  it("answers the API origin's config from the network while it answers, and offline with its last answer", async () => {
+    const w = await installed()
+    w.net.serve(`${API}/api/config`, 200, CODES_CONFIG)
+    expect(await (await w.request(`${API}/api/config`, "GET", "cors"))!.text()).toBe(CODES_CONFIG)
+    await w.settled()
+    w.net.offline = true
+    expect(await (await w.request(`${API}/api/config`, "GET", "cors"))!.text(), "offline, the last answer").toBe(CODES_CONFIG)
+  })
+
   it("keeps the config's answer that the page read before the cache opened", async () => {
     const w = await installed()
     let open!: () => void
@@ -365,7 +381,7 @@ describe("the build's worker", () => {
   const PUBLIC = new URL("../public/", import.meta.url).pathname
   // generateBundle as Vite calls it, on a bundle of the given file names
   const build = (files: { fileName: string; type: "chunk" | "asset"; isEntry?: boolean }[]) => {
-    const plugin = serviceWorker() as unknown as { configResolved(c: unknown): void; generateBundle(this: unknown, o: unknown, b: unknown): void }
+    const plugin = serviceWorker(API) as unknown as { configResolved(c: unknown): void; generateBundle(this: unknown, o: unknown, b: unknown): void }
     plugin.configResolved({ publicDir: PUBLIC })
     let emitted = ""
     const context = { emitFile: (f: { fileName: string; source: string }) => { expect(f.fileName).toBe("sw.js"); emitted = f.source }, error: (m: string) => { throw new Error(m) } }

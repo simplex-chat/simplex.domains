@@ -5,14 +5,14 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import type { Plugin } from "vite"
 
-export interface WorkerBuild { build: string; entry: string; precache: string[] }
+export interface WorkerBuild { build: string; entry: string; precache: string[]; api: string }
 
 export const WORKER_TEMPLATE = new URL("./worker.js", import.meta.url)
 // the shell is fetched and checked on its own; the rest the page never asks for
 const NOT_PRECACHED = /^(index\.html|robots\.txt|sw\.js)$|\.map$/
 const BUILD_ID_LENGTH = 16
 
-export function workerSource(template: string, { build, entry, precache }: WorkerBuild): string {
+export function workerSource(template: string, { build, entry, precache, api }: WorkerBuild): string {
   let source = template
   const set = (name: string, value: unknown) => {
     const line = new RegExp(`^const ${name} = .*$`, "m")
@@ -22,6 +22,7 @@ export function workerSource(template: string, { build, entry, precache }: Worke
   set("BUILD", build)
   set("ENTRY", entry)
   set("PRECACHE", precache)
+  set("API", api)
   return source
 }
 
@@ -33,7 +34,7 @@ function filesIn(dir: string, under = ""): string[] {
   })
 }
 
-export function serviceWorker(): Plugin {
+export function serviceWorker(api: string): Plugin {
   let publicDir = ""
   return {
     name: "service-worker",
@@ -59,7 +60,7 @@ export function serviceWorker(): Plugin {
       }
       if (!entry) this.error("sw: the build has no entry module")
       const build = hash.digest("hex").slice(0, BUILD_ID_LENGTH)
-      this.emitFile({ type: "asset", fileName: "sw.js", source: workerSource(readFileSync(WORKER_TEMPLATE, "utf8"), { build, entry, precache: precache.sort() }) })
+      this.emitFile({ type: "asset", fileName: "sw.js", source: workerSource(readFileSync(WORKER_TEMPLATE, "utf8"), { build, entry, precache: precache.sort(), api }) })
     },
   }
 }

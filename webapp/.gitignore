@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-card/
+dist-api/
 test-results/
 playwright-report/
 dev/local-chain*.json

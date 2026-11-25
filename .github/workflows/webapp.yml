@@ -36,6 +36,32 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: webapp/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -90,7 +116,14 @@ jobs:
           npx vite build --mode devchain
           npx vite preview --host 127.0.0.1 &
           curl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4173/
-          BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts e2e/card.spec.ts
+          BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts e2e/card.spec.ts e2e/pages.spec.ts
+      - name: API on its own origin
+        run: |
+          ulimit -c 0
+          VITE_API_ORIGIN=http://127.0.0.1:8099 npx vite build --mode devchain --outDir dist-api
+          npx vite preview --host 127.0.0.1 --port 4174 --outDir dist-api &
+          curl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4174/
+          API_ORIGIN=http://127.0.0.1:8099 BASE_URL=http://127.0.0.1:4174 npx playwright test --project=${{ matrix.browser }} e2e/pages.spec.ts
       - name: Screens
         id: screens
         if: ${{ !cancelled() && matrix.browser == 'chromium' }}

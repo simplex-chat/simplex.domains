@@ -365,7 +365,7 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
   try {
     let res: Response
     try {
-      res = await fetch(path, {
+      res = await fetch(`${SITE.apiOrigin}${path}`, {
         method, signal: stop.signal,
         headers: body === undefined ? {} : { "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),

@@ -1,6 +1,6 @@
 // The service worker: the page and its files from this browser's cache when the network is not there, so the page,
 // and Your names read from this browser's storage, open offline. A classic worker script, so its export is the
-// worker's own global. sw/plugin.ts writes the three constants below into the built copy; test/sw.test.ts runs that
+// worker's own global. sw/plugin.ts writes the four constants below into the built copy; test/sw.test.ts runs that
 // copy in a Node vm with a fake Cache API and reads self.sw.
 
 const BUILD = "dev"
@@ -8,6 +8,7 @@ const BUILD = "dev"
 const ENTRY = "/src/main.ts"
 // every file of the build but the shell, each named by its content or kept under this build's cache
 const PRECACHE = []
+const API = ""
 
 // one cache per build, so clearing out is "everything that is not this one"
 const CACHE = `names-${BUILD}`
@@ -17,7 +18,7 @@ const PRECACHED = new Set(PRECACHE)
 
 // The whole routing decision, from the URL alone.
 function strategyFor(url) {
-  if (url.origin !== self.location.origin) return "bypass"
+  if (url.origin !== self.location.origin) return API && url.origin === API && url.pathname === CONFIG ? "config" : "bypass"
   if (url.pathname === CONFIG) return "config"
   // before anything that could reach a cache: an order, a name or a code read from a cache would show a past state
   if (/^\/(api|control)(\/|$)/.test(url.pathname)) return "network-only"
@@ -122,4 +123,4 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(strategy === "config" ? configFirst(event) : strategy === "shell" ? shellFirst(event) : fromPrecache(request))
 })
 
-self.sw = { BUILD, CACHE, CONFIG, ENTRY, PRECACHE, SHELL, strategyFor }
+self.sw = { API, BUILD, CACHE, CONFIG, ENTRY, PRECACHE, SHELL, strategyFor }

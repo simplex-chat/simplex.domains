@@ -57,8 +57,9 @@ test("a paid message from another origin, or from the names page itself, is igno
 })
 
 test("the names page admits the card page's origin alone among the frames, and no Stripe host", async ({ page }) => {
-  test.skip(!process.env.BASE_URL, "the policy is the built page's, which vite preview sends")
-  const policy = (await page.goto("/"))!.headers()["content-security-policy"]
+  test.skip(!process.env.BASE_URL, "the policy is the built page's")
+  await page.goto("/")
+  const policy = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content")
   expect(policy).toContain(`frame-src ${LOCAL.cardOrigin};`)
   expect(policy).not.toContain("stripe")
 })

@@ -25,6 +25,7 @@ export interface Deployment {
   stripeLive: boolean
   cardOrigin: string
   pageOrigins: string[]
+  apiOrigin: string
   bitcoinHrp: string
   bitcoinReceiveKeys: string[]
   moneroSubaddressPrefix: number
@@ -65,6 +66,7 @@ export const MAINNET: Deployment = {
   stripeLive: true,
   cardOrigin: "https://pay.simplex.domains",
   pageOrigins: ["https://simplex.domains"],
+  apiOrigin: "https://api.simplex.domains",
   bitcoinHrp: "bc",
   bitcoinReceiveKeys: [],
   moneroSubaddressPrefix: 42,
@@ -112,6 +114,7 @@ export const LOCAL: Deployment = {
   stripeLive: false,
   cardOrigin: "http://127.0.0.1:5180",
   pageOrigins: ["http://127.0.0.1", "http://localhost"],
+  apiOrigin: "",
   bitcoinHrp: "bcrt",
   bitcoinReceiveKeys: ["0x036bf340760eb0da07d4d2bbb9d9aee7b7c27891cb72b6388cc0ee8d2a82d33e46"],
   moneroSubaddressPrefix: 36,
@@ -122,7 +125,7 @@ declare const __MAINNET__: boolean
 
 export const SITE: Deployment = typeof __MAINNET__ === "undefined" ? LOCAL
   : __MAINNET__ ? MAINNET
-  : { ...LOCAL, codesOnly: import.meta.env?.VITE_CODES_ONLY === "true", stripeKey: import.meta.env?.VITE_STRIPE_KEY ?? "" }
+  : { ...LOCAL, codesOnly: import.meta.env?.VITE_CODES_ONLY === "true", stripeKey: import.meta.env?.VITE_STRIPE_KEY ?? "", apiOrigin: import.meta.env?.VITE_API_ORIGIN ?? "" }
 
 export const heldPrice = (length: number) => (SITE.priceExceptions.find((e) => e.labelLength === length)?.centsPerYear ?? SITE.priceBaseCentsPerYear) * SITE.paidYears
 
@@ -139,7 +142,7 @@ export function configOf(body: unknown): SiteConfig | null {
 
 export async function readConfig(init?: RequestInit): Promise<SiteConfig | null> {
   try {
-    const res = await fetch(CONFIG_PATH, init)
+    const res = await fetch(`${SITE.apiOrigin}${CONFIG_PATH}`, init)
     return res.ok ? configOf(await res.json()) : null
   } catch {
     return null
