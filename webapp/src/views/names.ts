@@ -94,7 +94,7 @@ function showList(): void {
   lastChecked = list.checked
   if (!isRoute(listRoute)) return
   draw("names", (signal) => buildNames(list, signal))
-  readRows()
+  requestAnimationFrame(() => setTimeout(readRows))
 }
 
 const answerList = (route: number, event: ListEvent) => { if (isRoute(route)) dispatchList(event) }
