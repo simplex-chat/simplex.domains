@@ -365,7 +365,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const c = s.checkout
   const blocked = blockedBy(s)
   const paid = !(c.code || c.order || codeEntry(c, s.codesOnly) === "field")
-  // the other way to pay is the note under the methods
+  // the other way to pay ends the note under the methods
   const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
     el("div", { class: "review" }, orderCard(c, s.codesOnly),
@@ -373,7 +373,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
         : line("bad", "alert", `${c.codeError} Pay for the name here, or `, codeLink("check another code"), "."),
       !paid ? null : blocked ? waitingNotice(blocked) : methodsBlock(s),
       codeBlock(s),
-      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, eth))),
+      !paid || blocked ? null : el("div", { class: "notes" }, el("p", {}, "After paying, keep this page open until the name is registered. ", eth))),
     payNote(s, blocked !== null, signal),
     agreement(s))
 }

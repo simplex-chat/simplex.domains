@@ -1080,10 +1080,8 @@ test("an order restored in a browser without its code promises nothing of the co
   }
 })
 
-test("the registering page's clock tells the time left from the commit's wait, and it asks to keep the page open only while it awaits a signature", async ({ page, request }) => {
+test("the registering page's clock tells the time left from the commit's wait", async ({ page, request }) => {
   const { registrationId } = await registerWithCode(page, request, "cwait")
-  await expect(page.getByRole("heading", { name: /^Registering/ })).toBeVisible()
-  await expect(page.locator(".screen-head .lead"), "an order signed when it was placed").toHaveCount(0)
   await page.route(`**/api/registration/${registrationId}*`, async (route) => {
     const response = await route.fetch()
     const view = await response.json()
