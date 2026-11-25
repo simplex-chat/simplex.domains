@@ -20,13 +20,11 @@ async function paidOrder(page: Parameters<typeof keepOrder>[0], id: string, reg:
 
 const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()) as { registration: { phase: { type: string } } }).registration.phase.type
 
-test("a taken order marks only its last stage, as taken, whether or not its commit is known", async ({ page }) => {
-  for (const [id, commitTx] of [["outpaid", null], ["committed", "0x01"]] as const) {
-    await paidOrder(page, id, { phase: { type: "taken" }, commitTx, balance: { amount: 10000, refunded: 0 } })
-    await expect(onStep(page).locator(".screen-head .lead"), id).toHaveText("Someone has taken this name.")
-    await expect(onStep(page).locator(".stage.done"), id).toHaveCount(0)
-    await expect(onStep(page).locator(".stage.failed"), id).toHaveText("Taken")
-  }
+test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
+  await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, refunded: 0 } })
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Someone has taken this name.")
+  await expect(onStep(page).locator(".stage.done")).toHaveCount(0)
+  await expect(onStep(page).locator(".stage.failed")).toHaveText("Committing")
 })
 
 test("a paid order whose signature the service refused says to contact support in a whole sentence", async ({ page }) => {

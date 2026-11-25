@@ -1162,7 +1162,7 @@ function buildTaken(s: OrderState): HTMLElement {
   const title = label ? [gradName(label, readSite().tld), reserved ? " is\u00a0reserved" : " was\u00a0taken"] : reserved ? "The name is reserved" : "The name was taken"
   return screen({ title, lead: reserved ? "It was reserved meanwhile, so it can't be registered." : "Someone has taken this name.",
     ...balanceActions(s) },
-    stages(["", "", "failed"], reserved ? "Reserved" : "Taken"),
+    api.takenByOrder(view) ? stages(["failed", "", ""]) : stages(["done", "done", "failed"], reserved ? "Reserved" : "Taken"),
     note,
     record ? null : alertBox("info", "key", "The name code is not in this browser", `Add it in Check your code to ${invoice ? "use the balance" : "choose another name"}.`),
     referenceLine(invoice?.invoiceId ?? view.id))
