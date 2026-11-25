@@ -1,4 +1,4 @@
-// The order's name and links, sealed under a key from the owner code, so the code alone restores the order in another browser.
+// The order's name, links and payment method, sealed under a key from the owner code, so the code alone restores the order in another browser.
 import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha2"
 import { utf8ToBytes } from "@noble/hashes/utils"
@@ -6,6 +6,7 @@ import type { OrderRecord } from "../store.ts"
 import { base64url, fromBase64url } from "./code.ts"
 
 const IV_BYTES = 12
+const METHODS: OrderRecord["method"][] = ["card", "btc", "xmr", "code"]
 
 interface SealedOrder {
   label: string
@@ -31,7 +32,7 @@ export async function unseal(seed: Uint8Array, sealed: string): Promise<SealedOr
     const raw = fromBase64url(sealed)
     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, IV_BYTES) }, await sealingKey(seed, "decrypt"), raw.slice(IV_BYTES))
     const order = JSON.parse(new TextDecoder().decode(plain))
-    return typeof order?.label === "string" && typeof order.contact === "string" && typeof order.channel === "string" ? order : null
+    return typeof order?.label === "string" && typeof order.contact === "string" && typeof order.channel === "string" && (order.method === undefined || METHODS.includes(order.method)) ? order : null
   } catch {
     return null
   }

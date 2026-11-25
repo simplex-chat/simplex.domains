@@ -72,7 +72,7 @@ export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
   const duration = durationFor(draft.years, SITE.termStart, timestamp)
   const r = registrationOf(draft.label, wallet.address, commitmentSecret(wallet.seed, draft.label), draft.links, duration)
   const commitment = makeCommitment(r)
-  const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links })
+  const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links, method: draft.method })
   const owner = checksumAddress(wallet.address)
   const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(commitment), sealed, terms: draft.terms }
   const toSign = await api.signFor(order.labelHash, owner)
@@ -96,9 +96,6 @@ function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, t
     nonce: toSign.intentNonce, deadline, signature: hex(signDigest(wallet.privateKey, digest)), acceptance,
   }
 }
-
-// what the order is worth
-export const paidWith = (res: api.InvoiceView): { method: api.Method; paid: number } => ({ method: res.cryptoCurrency ?? "card", paid: res.registration.price })
 
 export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRecord["method"], paid: number, ids: { registrationId: string; invoiceId: string | null }): store.OrderRecord {
   return {
@@ -139,14 +136,15 @@ export async function selectName(record: store.OrderRecord, draft: Draft, built:
 
 type RestoreResult = { record: store.OrderRecord; view: api.RegistrationView }
 
-// The order's name and links, unsealed with the code, after checking that they rebuild the order's commitment.
-async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pick<store.OrderRecord, "label" | "contact" | "channel" | "request" | "terms">> {
+// The order's name and links, and the payment it asked for once that is sealed too, unsealed with the code, after checking
+// that they rebuild the order's commitment.
+async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pick<store.OrderRecord, "label" | "contact" | "channel" | "request" | "terms"> & Partial<Pick<store.OrderRecord, "method">>> {
   const opened = await unseal(wallet.seed, view.sealed)
   if (!opened) throw new Error("the code does not open this order")
   const r = registrationOf(opened.label, wallet.address, commitmentSecret(wallet.seed, opened.label), opened, BigInt(view.duration))
   if (hex(makeCommitment(r)) !== view.commitment) throw new Error("the order's commitment does not match the code")
   const request = { labelHash: view.labelHash, length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
-  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms) }
+  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms), ...opened.method ? { method: opened.method } : {} }
 }
 
 // A name selected for the order elsewhere (another browser, or a selection whose answer was lost) is read back from the
@@ -265,7 +263,7 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const known = store.orderByRegistration(view.id)
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
-    method: known?.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
+    method: opened.method ?? known?.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
     tld: SITE.tld, createdAt: chosen.createdAt,
   }
   store.saveOrder(record)

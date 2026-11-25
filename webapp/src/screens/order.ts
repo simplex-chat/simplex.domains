@@ -1,5 +1,5 @@
 import {
-  committedOf, type Community, type FailReason, type Found, heldTerms, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, signedHash, type Terms, toSignOf,
+  committedOf, type Community, type FailReason, type Found, heldTerms, holdsPayment, invoiceMethod, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, signedHash, type Terms, toSignOf,
 } from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
@@ -199,7 +199,7 @@ export const unpaidOrClosed = (view: RegistrationView) => view.phase.type === "u
 
 export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
 
-export const paymentChecked = (_s: OrderState) => true
+export const paymentChecked = ({ invoice, record }: OrderState) => invoice === null || record === null || invoiceMethod(invoice) === record.method
 
 // What the order's name costs; null for a code, which costs nothing.
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null

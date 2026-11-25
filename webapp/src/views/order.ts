@@ -7,7 +7,7 @@ import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from ".
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
-  type OrderState, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
+  type OrderState, paymentChecked, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
@@ -579,17 +579,19 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
   return cancel
 }
 
-const paymentSoon = (s: OrderState, title: string, alt: HTMLElement | null) =>
-  screen({ title, lead: orderLine(s), alt }, alertBox("info", "clock", null, `${PAYMENT_SOON}.`), referenceLine(s.invoice!.invoiceId), actionNote(s, null))
+const UNCHECKED = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
+
+const withheld =(s: OrderState, title: string, alt: HTMLElement | null) => screen({ title, lead: orderLine(s), alt },
+  paymentChecked(s) ? alertBox("info", "clock", null, `${PAYMENT_SOON}.`) : alertBox("danger", "alert", null, UNCHECKED), referenceLine(s.invoice!.invoiceId), actionNote(s, null))
 
 function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const coin = coinOf(inv)!
   const partial = Number(inv.cryptoAmountPaid ?? "0") > 0
   holdEnds(signal)(s.hold !== null)
-  if (s.downtime) {
+  if (s.downtime || !paymentChecked(s)) {
     payDetails = null
-    return paymentSoon(s, `Pay with ${methodName(coin)}`, partial ? null : cancelLink(s))
+    return withheld(s, `Pay with ${methodName(coin)}`, partial ? null : cancelLink(s))
   }
   const due = partial ? inv.cryptoAmountDue! : inv.cryptoAmount!
   const uri = paymentUri(coin, inv.address!, due)
@@ -680,7 +682,7 @@ const STRIPE_NOTE = "The card form is Stripe's. Nothing is charged until you pay
 
 function buildPayCard(s: OrderState): HTMLElement {
   const invoice = s.invoice!
-  if (s.downtime && cardIn === null) return paymentSoon(s, "Pay by card", cancelLink(s))
+  if ((s.downtime && cardIn === null) || !paymentChecked(s)) return withheld(s, "Pay by card", cancelLink(s))
   const form = kept("stripe-form", () => el("div", { class: "stripe" }))
   if (cardIn !== form) mountInto(form, invoice)
   const notice = nameNote(s)
@@ -951,8 +953,9 @@ function buildPriceChanged({ record, invoice, price }: OrderState): HTMLElement 
     action: btn("Search again", "", () => go(searchLink(label))), reference: invoice!.invoiceId })
 }
 
-async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | undefined, gen: number, method: api.Method = invoice.cryptoCurrency ?? "card"): Promise<void> {
-  if (!isOpen(gen) || !record) return
+async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | undefined, gen: number, asked?: api.Method): Promise<void> {
+  if (!isOpen(gen) || !record || record.method === "code") return
+  const method = asked ?? record.method
   try {
     // the invoice as it is now: one still open, or paid into a registration, is the order; one paid after it closed
     // registered nothing, so the name is ordered again and the late payment is kept as the old order's balance
@@ -974,7 +977,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const res = await api.createOrder(built.request, method, invoice.amount)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
-    store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, ...flow.paidWith(res), cancelled: false, cardSubmittedAt: undefined, replacedBy: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
+    store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, method, paid: res.registration.price, cancelled: false, cardSubmittedAt: undefined, replacedBy: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
     // Your names lists the old order only while money it received needs its reference; its page leads to the new one
     if (res.registration.id !== record.registrationId) store.updateOrder(record.registrationId, { replacedBy: next })
     if (isOpen(gen)) go(next)

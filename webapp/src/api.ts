@@ -263,6 +263,11 @@ export const paymentKept = ({ balance, price }: RegistrationView) => balance !==
 
 export const selectable = (view: RegistrationView) => view.phase.type === "taken" && (view.payment.type === "code" || paymentKept(view))
 
+export const invoiceMethod = (inv: InvoiceView): Method | null =>
+  inv.clientSecret !== undefined && inv.address === undefined && (inv.cryptoCurrency ?? "card") === "card" ? "card"
+  : (inv.cryptoCurrency === "btc" || inv.cryptoCurrency === "xmr") && inv.address !== undefined && inv.clientSecret === undefined ? inv.cryptoCurrency
+  : null
+
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 
 // All of a closed invoice's amount arrived after it closed and is credited, or waits on support alone. BTCPay keeps such an
