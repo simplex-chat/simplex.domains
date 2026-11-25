@@ -38,7 +38,9 @@ const ownerCodes = new Map<string, string>()
 const orderOwners = new Map<string, string>()
 const ORDER_ROUTE = /^\/api\/(invoice|registration)\/([^/?]+)(?:\/(cancel|retry))?(?:\?|$)/
 
-function noteOrders(json: Json): void {
+function noteOrders(json: Json, body: unknown): void {
+  const sent = (body as { order?: { owner?: unknown } } | undefined)?.order?.owner
+  if (typeof json.registrationId === "string" && typeof sent === "string") orderOwners.set(json.registrationId, sent)
   const reg = (json.registration ?? json) as Json
   if (typeof reg.id !== "string" || typeof reg.owner !== "string") return
   orderOwners.set(reg.id, reg.owner)
@@ -58,7 +60,7 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
   const request = signed(method, path, body)
   const res = await send(method, request.path, request.body)
   const json = await res.json() as Json
-  noteOrders(json)
+  noteOrders(json, body)
   return { status: res.status, json }
 }
 

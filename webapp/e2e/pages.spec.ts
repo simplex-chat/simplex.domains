@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test"
 import { onStep, startOrder, test, uniqueLabel } from "./helpers.ts"
 
-const FRAMER = "http://framer.invalid"
+const FRAMER = "http://127.0.0.2:5998"
 const API_ORIGIN = process.env.API_ORIGIN
 const SKEW_MS = 20 * 60_000
 
