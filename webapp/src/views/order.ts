@@ -113,8 +113,8 @@ const cardSubmittedAt = (invoice: api.InvoiceView | null, record: store.OrderRec
   record?.cardSubmittedAt ?? (invoice ? store.cardSubmittedAt(invoice.invoiceId) : undefined) ?? null
 
 async function follow(mine: number, invoiceId: string | null, registrationId: string | null, signal: AbortSignal): Promise<void> {
-  let invoice: api.InvoiceView | null = null
-  let view: api.RegistrationView | null = null
+  let invoice = null as api.InvoiceView | null
+  let view = null as api.RegistrationView | null
   let downtime = inDowntime()
   let drawn = ""
   let drawnRecord = ""
