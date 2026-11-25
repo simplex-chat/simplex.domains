@@ -55,7 +55,7 @@ export const LOCAL: Deployment = {
   tld: "simplex",
   sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016",
   resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
-  namePolicy: "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE",
+  namePolicy: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
   termStart: 1798761600,
   paidYears: 2,
   communityYears: 2,
