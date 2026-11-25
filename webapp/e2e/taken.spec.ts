@@ -140,8 +140,11 @@ test("a failed registration keeps its payment for support, also in another tab",
   const other = await page.context().newPage()
   await other.goto(`/?order=${invoiceId}`)
   await expect(other.getByRole("heading", { name: "Paid, not registered" })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
+  await expect(onStep(other).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
+  for (const tab of [page, other]) {
+    await expect(tab.getByRole("button", { name: "Try again" })).toHaveCount(0)
+    await expect(tab.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
+  }
 })
 
 test("an order whose commitment lapses before its page signs is committed again by that page, which signs it then", async ({ page, request }) => {
@@ -182,7 +185,7 @@ test("an order failed while its page was not read says until when the name stays
 })
 
 // a chain that fails each transaction before it goes out, as an RPC provider down for a while, and a look half way through
-const UNSENT_S = 4
+const UNSENT_S = 30
 const UNSENT_CHECK_MS = UNSENT_S * 1000 / 2
 test("a chain that sends nothing for a moment keeps the order where it was, then registers it", async ({ page, request }) => {
   const label = uniqueLabel("ns")
@@ -198,22 +201,6 @@ test("a chain that sends nothing for a moment keeps the order where it was, then
     await control(request, "search", { unsentSeconds: 0 })
   }
   await waitRegistered(page, label)
-})
-
-test("a chain that sends nothing for longer than its resends fails the order in plain words, leaving it to support", async ({ page, request }) => {
-  test.setTimeout(240_000)
-  const label = uniqueLabel("nd")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  try {
-    await control(request, "search", { unsentSeconds: 120 })
-    await control(request, `settle/${invoiceId}`)
-    await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: 120_000 })
-    await expect(page.getByText("The name could not be registered", { exact: true })).toBeVisible()
-  } finally {
-    await control(request, "search", { unsentSeconds: 0 })
-  }
-  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
-  await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
 })
 
 test("a late payment to a replaced invoice is kept by a restored browser after another name was selected for the order", async ({ page, browser, request }) => {
@@ -258,17 +245,21 @@ test("a late payment to a replaced invoice is kept by a restored browser after a
 })
 
 
-test("a name of another price than a taken order's is refused as the price changed, and its search goes on for the order", async ({ page, request }) => {
+test("a name of another price than a taken order's cannot be registered for it, and its search says the price the payment covers", async ({ page, request }) => {
   const { invoiceId } = await takenOrder(page, request, sevenLetters())
-  const registrationId = await registrationOf(request, invoiceId)
   await onStep(page).getByRole("button", { name: "Choose another name" }).click()
+  const register = onStep(page).getByRole("button", { name: "Register", exact: true })
   for (const [label, price] of [[uniqueLabel("cheap"), "$100"], [`q${Math.random().toString(36).slice(2, 7).padEnd(5, "q")}`, "$400"]]) {
-    await selectedToReview(page, label)
-    await expect(onStep(page).locator(".card.order .trow.total"), "a name of another price shows its price").toHaveText(`Total${price}`)
-    await onStep(page).getByRole("button", { name: "Register with your payment" }).click()
-    await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
-    await onStep(page).getByRole("button", { name: "Search again" }).click()
-    await expect(page).toHaveURL(new RegExp(`[?&]order=${registrationId}`))
+    await page.getByLabel("Name", { exact: true }).fill(label)
+    await page.getByLabel("Name", { exact: true }).press("Enter")
+    await expect(page.locator(".answer .deal"), "a name of another price shows its price").toHaveText(`${price} / 2 years`)
+    await expect(register).toBeDisabled()
+    await expect(page.locator(".answer .hint")).toHaveText("Your payment covers names at $200 for 2 years.")
   }
+  await page.getByLabel("Name", { exact: true }).fill(sevenLetters())
+  await page.getByLabel("Name", { exact: true }).press("Enter")
+  await expect(page.locator(".answer .deal"), "a name of the order's price").toHaveText("Paid / 2 years")
+  await expect(register).toBeEnabled()
+  await expect(page.locator(".answer .hint")).toHaveCount(0)
   expect(await phaseOf(request, invoiceId), "nothing selected").toBe("taken")
 })

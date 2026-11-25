@@ -462,7 +462,7 @@ screen(164, "home-own-unpaid-order", async ({ page, id }) => {
 })
 screen(166, "home-reserved", async ({ page }) => {
   await search(page, "support")
-  await shown(page, "Reserved names are not sold here.")
+  await shown(page, "If you want to use this name, please contact us via")
 })
 screen(168, "home-taken-chats-read", async ({ page }) => {
   await answerName(page, "bakery", takenWith(BAKERY))
@@ -613,6 +613,10 @@ screen(218, "home-select-code-short", async (r) => {
   await selectCode(r)
   await searchHere(r.page, "hscsht7")
   await answerLine(r.page)
+})
+screen(220, "home-select-paid-other-price", async (r) => {
+  await selectTo(r, `${r.id}-from`, "hsdear7")
+  await shown(r.page, "Your payment covers names at $100 for 2 years.")
 })
 const selectReview = async (r: Reach) => {
   await selectPaid(r, `${r.id}-from`)

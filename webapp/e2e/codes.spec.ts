@@ -1025,17 +1025,23 @@ test("a failed code order whose code check meets the rate limit counts down its 
   expect(checks(), "the refused check and the one after its wait").toBe(2)
 })
 
-test("a code held by this browser's failed order says it is in use and links to the order; a revoked code says SimpleX withdrew it", async ({ page, request }) => {
-  const { code, registrationId } = await registerWithCode(page, request, "cinuse")
+test("a code held by this browser's failed order is noted as held by it, with a link to the order; one another order holds is refused; a revoked code says SimpleX withdrew it", async ({ page, request }) => {
+  const { code, registrationId, label } = await registerWithCode(page, request, "cinuse")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
   await page.goto("/#/code")
   await codeField(page).fill(code)
   const verdict = page.locator(".code-entry .verdict")
-  await expect(verdict).toHaveText("This code is being used for a name now. Each code registers one name; this one is held by an unfinished registration. Open that order")
-  await verdict.getByRole("link", { name: "Open that order" }).click()
+  await expect(verdict).toHaveText(`This code is held by your order for ${label}.simplex. Open your order`)
+  await expect(verdict).toHaveClass(/\binfo\b/)
+  await verdict.getByRole("link", { name: "Open your order" }).click()
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible()
   expect(new URL(page.url()).searchParams.get("registration")).toBe(registrationId)
+  const { code: held } = await control(request, "code", { minLength: 6, state: "reserved" }) as { code: string }
+  await page.goto("/#/code")
+  await codeField(page).fill(held)
+  await expect(verdict).toHaveText("This code is being used for a name now. Each code registers one name; this one is held by an unfinished registration.")
+  await expect(verdict).toHaveClass(/\bbad\b/)
   const { code: revoked } = await control(request, "code", { minLength: 6, state: "revoked" }) as { code: string }
   await page.goto("/#/code")
   await codeField(page).fill(revoked)

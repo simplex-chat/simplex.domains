@@ -267,12 +267,11 @@ describe("reduce", () => {
       const refused = reduce(STATES.failed, { type: "record-changed", record: kept, cardSubmittedAt: null })
       expect(reduce(refused, { type: "tick", now: NOW + 1000 })).toMatchObject({ codeRefused: true, note: USED })
     })
-    it("retryRefusal: each code error of a retry has its note, saying why for each kept for good; all but one held elsewhere are kept", () => {
+    it("retryRefusal: each code error of a retry that a page kept has its note, saying why", () => {
       expect(retryRefusal("code_used")).toEqual({ note: USED, kept: "code_used" })
       expect(retryRefusal("code_invalid")).toEqual({ note: { ...USED, title: "This code is not valid", text: "The service no longer accepts it." }, kept: "code_invalid" })
       expect(retryRefusal("code_expired")).toEqual({ note: { ...USED, title: "This code has expired", text: "An expired code cannot register a name." }, kept: "code_expired" })
-      expect(retryRefusal("code_reserved")).toEqual({ note: { ...USED, title: "Your code is held by another registration; try again later", text: "" }, kept: null })
-      for (const other of ["network", "bad_request", "constructor", "toString"]) expect(retryRefusal(other), other).toBeNull()
+      for (const other of ["network", "bad_request", "code_reserved", "constructor", "toString"]) expect(retryRefusal(other), other).toBeNull()
     })
     it("a kept value that is no service error, as a title an older page kept, is no refusal", () => {
       const old = record({ codeRefusal: "Your code was used for another name" as CodeRefusal })

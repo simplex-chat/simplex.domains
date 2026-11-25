@@ -140,19 +140,18 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
   }
 }
 
-const RETRY_CODE_NOTES: Record<CodeRefusal | "code_reserved", [string, string]> = {
+const RETRY_CODE_NOTES: Record<CodeRefusal, [string, string]> = {
   code_used: ["Your code was used for another name", "A code registers one name only."],
-  code_reserved: ["Your code is held by another registration; try again later", ""],
   code_invalid: ["This code is not valid", "The service no longer accepts it."],
   code_expired: ["This code has expired", "An expired code cannot register a name."],
 }
 
 // The service's refusal of a retry for the order's code, with the error to keep when no later retry gets past it.
-export function retryRefusal(error: string): { note: Note; kept: CodeRefusal | null } | null {
+export function retryRefusal(error: string): { note: Note; kept: CodeRefusal } | null {
   if (!Object.hasOwn(RETRY_CODE_NOTES, error)) return null
   const known = error as keyof typeof RETRY_CODE_NOTES
   const [title, text] = RETRY_CODE_NOTES[known]
-  return { note: { tone: "warn", icon: "key", title, text }, kept: known === "code_reserved" ? null : known }
+  return { note: { tone: "warn", icon: "key", title, text }, kept: known }
 }
 
 // A refusal this browser kept shows with the failed page itself, so a reload never offers Try again first.

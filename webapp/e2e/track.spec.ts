@@ -660,8 +660,7 @@ test("the registering page keeps its heading still on a phone from the commit to
   expect([...new Set(frames.map(([top]) => top))], "the heading's top in each frame").toHaveLength(1)
 })
 
-// A code order held at its commit while no transaction goes out, until the mock's resends (MOCK_RESEND_MS × MOCK_RESENDS)
-// run out; `stuck` runs within them.
+// A code order held at its commit while no transaction goes out; `stuck` runs while it is held.
 async function heldAtCommit(page: Page, request: APIRequestContext, prefix: string, stuck: () => Promise<void>): Promise<void> {
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   await useCode(page, code)

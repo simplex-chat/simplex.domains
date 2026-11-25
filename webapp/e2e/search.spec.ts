@@ -42,8 +42,11 @@ test("search answers every kind of name", async ({ page, request }) => {
   await expect(page.locator(".answer .chat")).toHaveCount(0)
   await shot(page, "N2b-unlinked")
   await search(page, "support")
-  await expect(page.locator(".answer .line")).toHaveText("Reserved names are not sold here. If it is yours to use, write to chat@simplex.chat.")
+  await expect(page.locator(".answer .row")).toHaveText("support.simplexReserved")
+  await expect(page.locator(".answer").getByRole("button", { name: "Register" })).toHaveCount(0)
+  await expect(page.locator(".answer .line")).toHaveText("If you want to use this name, please contact us via chat@simplex.chat or SimpleX.")
   await expect(page.locator(".answer").getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
+  await expect(page.locator(".answer").getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", "https://smp6.simplex.im/a#lrdvu2d8A1GumSmoKb2krQmtKhWXq-tyGpHuM7aMwsw")
   await shot(page, "N2c-reserved")
 
   const label = uniqueLabel("free")
