@@ -10,10 +10,10 @@ test("the page in another page's frame draws one line, with a link that opens it
   const url = new URL("/#/names", baseURL).href
   await page.route(`${FRAMER}/**`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><iframe src="${url}" width="600" height="400"></iframe>` }))
   await page.goto(`${FRAMER}/`)
-  const framed = page.frameLocator("iframe")
-  await expect(framed.locator("p.framed")).toHaveText("This page opens only in its own tab. Open it")
-  await expect(framed.getByRole("link", { name: "Open it" })).toHaveAttribute("href", url)
-  await expect(framed.locator("main, header, input")).toHaveCount(0)
+  const inOtherPage = page.frameLocator("iframe")
+  await expect(inOtherPage.locator("p.own-tab")).toHaveText("This page opens only in its own tab. Open it")
+  await expect(inOtherPage.getByRole("link", { name: "Open it" })).toHaveAttribute("href", url)
+  await expect(inOtherPage.locator("main, header, input")).toHaveCount(0)
 })
 
 test("a build for an API on its own origin orders a name across origins, and reads the service's clock from its Date", async ({ page }) => {

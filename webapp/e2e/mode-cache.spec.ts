@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { extname, join, normalize } from "node:path"
+import { loads } from "./helpers.ts"
 
 // The production build, which has the worker, served by this spec as the store service serves it.
 test.skip(!process.env.BASE_URL, "needs the production build in dist/, which runs with BASE_URL")
@@ -73,13 +74,6 @@ const nameField = (page: Page) => page.getByLabel("Name", { exact: true })
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 // the page's own check of the service's mode, answered
 const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config")
-
-// Every document the page loads from now on, counted as it fires load.
-function loads(page: Page): { count: number } {
-  const seen = { count: 0 }
-  page.on("load", () => { seen.count += 1 })
-  return seen
-}
 
 // A reader's page, opened once the service is in or out of its downtime, and controlled by the worker it installed then.
 async function installedIn(page: Page, service: Service, downtime: boolean): Promise<void> {

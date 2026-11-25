@@ -1,21 +1,20 @@
 import { SITE } from "./config.ts"
 import { el } from "./dom.ts"
-import type { ConfirmOutcome, FromCard, MountedCard, Theme, ToCard } from "./stripe.ts"
+import { CONFIRM_FAILED, type ConfirmOutcome, type FromCard, type MountedCard, type Theme, type ToCard, UNCHECKED } from "./stripe.ts"
 
 export const CARD_FRAME_TIMEOUT_MS = 25_000
-const CONFIRM_FAILED = "The card was not accepted. Check the details and try again."
 
 const isFromCard = (m: unknown): m is FromCard => typeof m === "object" && m !== null && "type" in m && (
   m.type === "mounted" || m.type === "invalid"
   || (m.type === "height" && "px" in m && typeof m.px === "number" && Number.isFinite(m.px) && m.px >= 0)
   || (m.type === "paid" && "id" in m && typeof m.id === "string")
   || (m.type === "declined" && "message" in m && typeof m.message === "string")
-  || (m.type === "failed" && "reason" in m && (m.reason === "unchecked" || m.reason === "unloaded")))
+  || (m.type === "failed" && "reason" in m && (m.reason === UNCHECKED || m.reason === "unloaded")))
 
 const outcomeOf = (m: FromCard): ConfirmOutcome => m.type === "paid" ? { kind: "submitted", id: m.id } : m.type === "invalid" ? { kind: "invalid" }
   : { kind: "error", message: m.type === "declined" ? m.message : CONFIRM_FAILED }
 
-export function mountCardFrame(clientSecret: string, amount: number, target: HTMLElement, theme: Theme): Promise<MountedCard | "unchecked" | null> {
+export function mountCardFrame(clientSecret: string, amount: number, target: HTMLElement, theme: Theme): Promise<MountedCard | typeof UNCHECKED | null> {
   const frame = el("iframe", { src: `${SITE.cardOrigin}/`, title: "Card form", class: "card-frame" })
   const post = (message: ToCard) => frame.contentWindow?.postMessage(message, SITE.cardOrigin)
   let answer: ((m: FromCard) => void) | null = null
@@ -36,13 +35,13 @@ export function mountCardFrame(clientSecret: string, amount: number, target: HTM
     }),
     destroy: stop,
   }
-  let settle: (result: MountedCard | "unchecked" | null) => void = () => undefined
+  let settle: (result: MountedCard | typeof UNCHECKED | null) => void = () => undefined
   function onMessage(e: MessageEvent<unknown>): void {
     const m = e.data
     if (e.origin !== SITE.cardOrigin || e.source !== frame.contentWindow || !isFromCard(m)) return
     if (m.type === "height") frame.style.height = `${m.px}px`
     else if (m.type === "mounted") settle(card)
-    else if (m.type === "failed" && answer === null) settle(m.reason === "unchecked" ? "unchecked" : null)
+    else if (m.type === "failed" && answer === null) settle(m.reason === UNCHECKED ? UNCHECKED : null)
     else answer?.(m)
   }
   return new Promise((resolve) => {

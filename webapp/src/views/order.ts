@@ -18,7 +18,7 @@ import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { mountCardFrame } from "../card-frame.ts"
 import { explorerLine, nameAddressLine } from "./name-address.ts"
-import type { MountedCard } from "../stripe.ts"
+import { type MountedCard, UNCHECKED } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
@@ -553,11 +553,11 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
   return cancel
 }
 
-const UNCHECKED = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
+const UNCHECKED_DETAILS = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
 const proofOf = ({ record, invoice }: Pick<OrderState, "record" | "invoice">) => invoice !== null && record?.invoiceId === invoice.invoiceId ? record.addressProof : undefined
 
 const withheld = (s: OrderState, title: string, alt: HTMLElement | null) => screen({ title, lead: orderLine(s), alt },
-  paymentChecked(s) ? alertBox("info", "clock", null, `${PAYMENT_SOON}.`) : alertBox("danger", "alert", null, UNCHECKED), referenceLine(s.invoice!.invoiceId, proofOf(s)), actionNote(s, null))
+  paymentChecked(s) ? alertBox("info", "clock", null, `${PAYMENT_SOON}.`) : alertBox("danger", "alert", null, UNCHECKED_DETAILS), referenceLine(s.invoice!.invoiceId, proofOf(s)), actionNote(s, null))
 
 function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
@@ -613,8 +613,8 @@ function mountInto(form: HTMLElement, invoice: api.InvoiceView): void {
   const mine = ++cardMounts
   cardIn = form
   void mountCardFrame(invoice.clientSecret ?? "", invoice.amount, form, pageTheme).then((mounted) => {
-    if (mine !== cardMounts) return mounted !== null && mounted !== "unchecked" ? mounted.destroy() : undefined
-    if (mounted === "unchecked") return dispatch({ type: "card-unchecked" })
+    if (mine !== cardMounts) return mounted !== null && mounted !== UNCHECKED ? mounted.destroy() : undefined
+    if (mounted === UNCHECKED) return dispatch({ type: "card-unchecked" })
     if (!mounted) return dispatch({ type: "card-failed" })
     card = mounted
     showCard()

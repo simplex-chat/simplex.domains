@@ -15,7 +15,7 @@ const KEEP_ALIVE_MS = 75_000
 
 // a seenVersion that is not a whole number is no version, so the poll answers at once
 const versionOf = (q: URLSearchParams) => /^\d+$/.test(q.get("seenVersion") ?? "") ? Number(q.get("seenVersion")) : null
-const proofOf = (q: URLSearchParams) => ({ timestamp: /^\d+$/.test(q.get("timestamp") ?? "") ? Number(q.get("timestamp")) : q.get("timestamp"), signature: q.get("signature") })
+const querySignature = (q: URLSearchParams) => ({ timestamp: /^\d+$/.test(q.get("timestamp") ?? "") ? Number(q.get("timestamp")) : q.get("timestamp"), signature: q.get("signature") })
 
 // A client is the last address in X-Forwarded-For, as the service with trust_forwarded_for takes it, else the peer.
 function clientOf(req: IncomingMessage): string {
@@ -39,14 +39,14 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["GET", /^\/api\/terms\/([^/]+)$/, (m) => currentTerms(m[1])],
   ["POST", /^\/api\/code\/check$/, (_, b) => checkCode(b), codeLimited],
   ["POST", /^\/api\/invoice$/, (_, b) => oneOrderAtATime(() => createInvoice(b))],
-  ["GET", /^\/api\/invoice\/([^/]+)$/, (m, _, q) => readInvoice(m[1], proofOf(q), q.get("wait"), versionOf(q), q.get("seenPaid"), q.get("seenFull") === "1")],
+  ["GET", /^\/api\/invoice\/([^/]+)$/, (m, _, q) => readInvoice(m[1], querySignature(q), q.get("wait"), versionOf(q), q.get("seenPaid"), q.get("seenFull") === "1")],
   ["POST", /^\/api\/invoice\/([^/]+)\/cancel$/, (m, b) => cancelInvoice(m[1], b)],
   ["GET", /^\/control\/invoice\/([^/]+)$/, (m) => invoiceOf(m[1])],
   ["GET", /^\/control\/registration\/([^/]+)$/, (m) => registrationOf(m[1])],
   ["POST", /^\/api\/name\/register$/, (_, b) => oneOrderAtATime(() => registerWithCode(b)), codeLimited],
   ["POST", /^\/api\/name\/records$/, (_, b) => editRecords(b)],
   ["POST", /^\/api\/registration\/find$/, (_, b) => find(b), findLimited],
-  ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], proofOf(q), versionOf(q))],
+  ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], querySignature(q), versionOf(q))],
   ["POST", /^\/api\/registration\/([^/]+)\/reveal$/, (m, b) => reveal(m[1], b)],
   ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => selectName(m[1], b))],
   ["POST", /^\/api\/registration\/([^/]+)\/retry$/, (m, b) => retry(m[1], b)],

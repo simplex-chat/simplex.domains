@@ -26,9 +26,9 @@ function render(): void {
   }
 }
 
-const framed = window.top !== window.self
-if (framed) {
-  document.body.replaceChildren(el("p", { class: "framed" }, "This page opens only in its own tab. ", el("a", { href: location.href, target: "_blank", rel: "noopener" }, "Open it")))
+const inOtherPage = window.top !== window.self
+if (inOtherPage) {
+  document.body.replaceChildren(el("p", { class: "own-tab" }, "This page opens only in its own tab. ", el("a", { href: location.href, target: "_blank", rel: "noopener" }, "Open it")))
 }
 setRenderer(render)
 // The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
@@ -40,7 +40,7 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   })
 }
 const config = await readConfig()
-if (!framed) setUpChrome()
+if (!inOtherPage) setUpChrome()
 window.addEventListener("popstate", (e) => {
   if (historyMoved(e) && !reloadedForRoute()) render()
 })
@@ -65,7 +65,7 @@ document.addEventListener("click", (e) => {
   e.preventDefault()
   go(href)
 })
-if (!framed) {
+if (!inOtherPage) {
   followServedMode(config)
   render()
 }
