@@ -1161,7 +1161,7 @@ screen(1224, "checkout-status-failed-retrying", async (r) => {
 })
 screen(1226, "checkout-status-unavailable", (r) => refusedOrder(r, () => control(r.request, "general-terms", { link: UNREADABLE_TERMS }), "Names can't be ordered right now"))
 screen(1228, "checkout-status-unavailable-retrying", async (r) => {
-  await refusedOrder(r, () => control(r.request, "general-terms", { link: UNREADABLE_TERMS }), "Names can't be ordered right now")
+  await refusedOrder(r, () => r.page.route("**/api/invoice", posting(/\/api\/invoice$/, (route) => answer(route, 503, "terms_unavailable"))), "Names can't be ordered right now")
   await r.page.route("**/api/invoice", posting(/\/api\/invoice$/, held))
   await press(r.page, "Try again")
   await expect(onStep(r.page).getByRole("button", { name: "Try again" })).toHaveAttribute("aria-busy", "true")

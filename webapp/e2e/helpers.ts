@@ -388,7 +388,7 @@ export async function savedToReview(page: Page, agree = true): Promise<void> {
   await expect(box).toBeChecked()
   await onStep(page).getByRole("button", { name: "Continue" }).click()
   const review = onStep(page).getByRole("heading", { name: "Check your order" })
-  const community = onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })
+  const community = onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })
   await expect(review.or(community)).toBeVisible()
   const listed = await community.isVisible()
   if (listed) await acceptCommunityTerms(page)
