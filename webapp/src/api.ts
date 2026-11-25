@@ -2,7 +2,7 @@
 import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
-import { SITE } from "./config.ts"
+import { heldPrice, SITE } from "./config.ts"
 import { MAX_LABEL_LENGTH } from "./names.ts"
 
 const REFUSALS = [
@@ -90,6 +90,8 @@ export function signedHash(terms: string | null | undefined): string | null {
   const hash = terms?.startsWith(COMMUNITY_TERMS) ? terms.slice(COMMUNITY_TERMS.length) : terms
   return hash && /^[0-9a-f]{64}$/.test(hash) ? `0x${hash}` : null
 }
+
+export const heldTerms = (hash: string, community: boolean): Terms | undefined => (community ? SITE.communityTerms : SITE.generalTerms).find((t) => t.hash === hash)
 
 const LOCAL_CHAIN_ID = 31337
 const MAX_PORT = 65535
@@ -446,9 +448,9 @@ type WireRecords = ({ type: "own"; nonce: number; edits: { left: number; nextAt?
 type WireFound = Extract<Found, { type: "registering" | "reserved" }> | { type: "available"; price: number; years: number; terms?: Terms }
   | (Omit<Extract<Found, { type: "registered" }>, "entities" | "records"> & { entities: LinkEntity[]; records: WireRecords })
 
-function foundOf(f: WireFound): Found {
+function foundOf(f: WireFound, community: boolean): Found {
   switch (f.type) {
-    case "available": return { type: "available", price: f.price, years: f.years, terms: f.terms ?? null }
+    case "available": return { type: "available", price: f.price, years: f.years, terms: (f.terms && heldTerms(f.terms.hash, community)) ?? null }
     case "registered": {
       const records: ResolverRecords = f.records.type === "own"
         ? { ...f.records, edits: { left: f.records.edits.left, nextAt: f.records.edits.nextAt === undefined ? null : Date.parse(f.records.edits.nextAt) / 1000 } }
@@ -461,7 +463,7 @@ function foundOf(f: WireFound): Found {
 
 export const searchName = (labelHash: string, length: number) =>
   checked<{ found: WireFound; community?: Community }>(call("GET", `/api/name/${labelHash}?length=${length}`), (a) => optional(a.community, isCommunity) && isNameFound(a.found))
-    .then((a): SearchAnswer => ({ found: foundOf(a.found), community: a.community ?? null }))
+    .then(({ found, community = null }): SearchAnswer => ({ found: foundOf(found, community !== null), community }))
 export const previewLink = (link: string) => checked<Preview>(call("POST", "/api/link/preview", { link }), isPreview).then(profileOf)
 
 // The terms' text, which the service fetches by their link, only when it is the file the link names: the page shows the very
@@ -473,31 +475,32 @@ export async function termsText(terms: Terms, signal?: AbortSignal): Promise<str
   return read.text
 }
 
-export async function currentTermsOf(hash: string): Promise<Terms> {
-  const read = await call<Record<string, unknown>>("GET", `/api/terms/${hash}`)
-  const terms = { hash, link: read.link }
-  if (!isTerms(terms)) throw noAnswer()
-  return terms as Terms
-}
 const CODE_STATES = ["unused", "used", "reserved", "expired", "unpaid", "revoked"] as const
 export type CodeState = typeof CODE_STATES[number]
 interface CodeAnswer { minLength: number; years: number; state: CodeState }
 export async function checkCode(code: string, signal?: AbortSignal): Promise<CodeAnswer> {
   const answer: unknown = await call("POST", "/api/code/check", { code }, signal)
   const drawable = isObject(answer) && isCount(answer.minLength) && (answer.minLength as number) <= MAX_LABEL_LENGTH && isCount(answer.years)
-    && CODE_STATES.includes(answer.state as CodeState)
+    && (answer.years as number) >= SITE.minCodeYears && (answer.years as number) <= SITE.maxCodeYears && CODE_STATES.includes(answer.state as CodeState)
   if (!drawable) throw noAnswer()
   return answer as unknown as CodeAnswer
 }
 
 const signingTerms = (sent: Promise<unknown>) => sent.catch((e: unknown) => {
   if (!(e instanceof ApiError && e.code === "terms_changed")) throw e
-  if (!isTerms(e.body.terms) || !isCommunity(e.body.community)) throw noAnswer()
-  throw new TermsChanged(e, e.body.terms as Terms, e.body.community as Community | null)
+  const community = e.body.community as Community | null
+  const terms = isTerms(e.body.terms) && isCommunity(community) ? heldTerms((e.body.terms as Terms).hash, community !== null) : undefined
+  if (!terms) throw noAnswer()
+  throw new TermsChanged(e, terms, community)
+})
+
+const pricing = (length: number, sent: Promise<unknown>) => sent.catch((e: unknown) => {
+  if (e instanceof ApiError && e.code === "catalog_changed" && e.body.price !== heldPrice(length)) throw noAnswer()
+  throw e
 })
 
 export const createOrder = (order: SignedOrder, method: Method, price: number) =>
-  checkedInvoice(signingTerms(call("POST", "/api/invoice", { kind: "name", order: orderOf(order), method, price, reveal: order.reveal })))
+  checkedInvoice(pricing(order.length, signingTerms(call("POST", "/api/invoice", { kind: "name", order: orderOf(order), method, price, reveal: order.reveal }))))
 export const registerWithCode = (order: SignedOrder, code: string) =>
   checked<{ registrationId: string }>(signingTerms(call("POST", "/api/name/register", { order: orderOf(order), code, reveal: order.reveal })), (a) => isText(a.registrationId))
 
@@ -524,7 +527,7 @@ export function readRegistration(registrationId: string, seenVersion?: number, s
 export const reveal = (registrationId: string, body: RevealBody) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
 export const selectName = (registrationId: string, body: Omit<SignedOrder, "owner">) =>
-  checked<RegistrationView>(signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal })), isRegistration)
+  checked<RegistrationView>(pricing(body.length, signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal }))), isRegistration)
 export const retry = (registrationId: string) => checked<RegistrationView>(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/retry`), isRegistration)
 const isFound = (r: unknown) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText) && PHASES.includes(r.phase as Phase) && isText(r.createdAt)
   && isText(r.labelHash) && isText(r.sealed)

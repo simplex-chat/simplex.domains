@@ -1,6 +1,6 @@
 // The home: the landing's headline, the search box and every answer it can show.
 import * as api from "../api.ts"
-import { SITE } from "../config.ts"
+import { heldPrice, SITE } from "../config.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
 import { btn, el, icon, type Kid, line, link, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
@@ -164,12 +164,12 @@ function offered({ answer }: SearchState): { label: string; answer: flow.Availab
 
 async function register(): Promise<void> {
   const shown = offered(state)
-  if (!shown || !flow.orderable(shown.answer)) return
+  if (!shown || !orderableBy(state, shown.label, shown.answer)) return
   const page = opens
   const closed = ownRead?.label === shown.label ? (await ownRead.orders).closed : null
   const still = offered(state)
   // an order of the name that the reads found still open is the buyer's, which the page points at instead
-  if (!onPage(page) || still?.label !== shown.label || state.ownOrder !== null || !flow.orderable(still.answer)) return
+  if (!onPage(page) || still?.label !== shown.label || state.ownOrder !== null || !orderableBy(state, still.label, still.answer)) return
   checkOut(state, still.label, still.answer, closed?.ownerCode ?? null)
 }
 
@@ -179,9 +179,10 @@ function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode:
   const { ownerCode, saved } = taken ? { ownerCode: taken.ownerCode, saved: true } : orderCode(closedCode)
   const order = taken ? { registrationId: taken.registrationId, method: taken.method, paid: taken.paid } : undefined
   const started = session.checkout()
-  const quote = { price: answer.price, years: taken?.years ?? answer.years, terms: answer.terms, community: answer.community }
+  const price = heldPrice(label.length)
+  const quote = { price, years: taken?.years ?? answer.years, terms: answer.terms, community: answer.community }
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
-  if (started && started.label === label && started.price === answer.price && !session.isSending(started) && sameCode) {
+  if (started && started.label === label && started.price === price && !session.isSending(started) && sameCode) {
     const agreed = started.agreed && api.currentTerms(started) === api.currentTerms(answer)
     const accepted = started.accepted && api.currentTerms(started) === api.currentTerms(answer)
     session.updateCheckout(label, {
@@ -294,15 +295,17 @@ const codeFor = (s: SearchState, label: string) => {
   const code = session.activeCode()
   return code && usesCode(s) && label.length >= code.minLength ? code : null
 }
+const freeBy = (s: SearchState, label: string) => codeFor(s, label) ?? (s.order && codeCover(s.order))
+const orderableBy = (s: SearchState, label: string, answer: flow.Available): answer is flow.Quote =>
+  flow.orderable(answer) && (freeBy(s, label) !== null || answer.price === heldPrice(label.length))
 
 function availableAnswer(s: SearchState, label: string, answer: flow.Available, signal: AbortSignal): Kid[] {
   const cover = s.order && codeCover(s.order)
   const own = s.ownOrder
-  const code = codeFor(s, label)
-  const free = code ?? cover
+  const free = freeBy(s, label)
   const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
-  const orderable = flow.orderable(answer)
+  const orderable = orderableBy(s, label, answer)
   const button = setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable)
   button.dataset.focus = "register"
   const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),

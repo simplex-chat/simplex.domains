@@ -28,8 +28,8 @@ const MAX_LABEL_LENGTH = 63n
 const FEED_DECIMALS = 8
 const FEED_PRICE = 100_000_000n
 // the launch prices in cents a year (owner, 2026-10-21): $100, $200 and $400 for 2 years at 8 or more, 7 and 6 letters
-const PRICE_BASE = 5000n
-const PRICE_EXCEPTIONS = [{ labelLength: 7n, priceCentsPerYear: 10000n }, { labelLength: 6n, priceCentsPerYear: 20000n }]
+const PRICE_BASE = BigInt(LOCAL.priceBaseCentsPerYear)
+const PRICE_EXCEPTIONS = LOCAL.priceExceptions.map((e) => ({ labelLength: BigInt(e.labelLength), priceCentsPerYear: BigInt(e.centsPerYear) }))
 // the seeded names are registered as a paid order is, for paid years from the term start
 const SEED_YEARS = 2
 const SEED_DISPUTE_DAYS = 120n

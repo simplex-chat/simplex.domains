@@ -1,4 +1,6 @@
-import { committedOf, type Community, type FailReason, type Found, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, type Terms, toSignOf } from "../api.ts"
+import {
+  committedOf, type Community, type FailReason, type Found, heldTerms, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, signedHash, type Terms, toSignOf,
+} from "../api.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -260,9 +262,10 @@ export const revealKey = (view: RegistrationView) => {
 }
 
 // The terms of the name's kind on chain are not the ones the order signed, so the buyer agrees to them again before the reveal.
-const termsChanged = ({ view }: OrderState) => {
+const termsChanged = ({ view, record }: OrderState) => {
   const read = view && readToSign(view)
-  return !!read && read.acceptance.termsHash !== view.terms.termsHash
+  const signed = record ? signedHash(record.terms) : view?.terms.termsHash
+  return !!read && read.acceptance.termsHash !== signed && heldTerms(read.acceptance.termsHash, read.acceptance.community) !== undefined
 }
 
 // The buyer is asked for the changed terms, ticked or not.

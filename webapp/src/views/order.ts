@@ -309,9 +309,10 @@ async function replaceOlder(view: api.RegistrationView, invoice: api.InvoiceView
 function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const key = revealKey(view)
   const reference = state.reference
+  const agreed = termsAskedAgain(state) ? api.currentTerms(state.ask!) : record.terms
   dispatch({ type: "reveal-sent", key })
-  flow.revealOrder(view, record, record.terms).catch((e) => {
-    const refused = e instanceof api.ApiError && e.code === "bad_request"
+  flow.revealOrder(view, record, agreed).catch((e) => {
+    const refused = e instanceof flow.Unsignable || (e instanceof api.ApiError && e.code === "bad_request")
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
       if (isRoute(pageRoute) && state.reference === reference) refresh()
@@ -338,16 +339,14 @@ function askAgain(record: store.OrderRecord): void {
   const gen = opened
   askingAgain = gen
   const done = () => { if (askingAgain === gen) askingAgain = null }
-  // after a pause, a search that failed for now is made again, and after terms the service no longer has for the view's
-  // hash, the view is read again
+  // after a pause, a search that failed for now is made again
   const later = (delay: number, again: () => void) => setTimeout(() => { done(); again() }, delay)
   const tick = () => answer(gen, { type: "tick", now: api.serviceNow() })
-  api.searchName(state.view!.labelHash, record.label.length).then(async (searched) => {
-    const terms = await api.currentTermsOf(readToSign(state.view!)!.acceptance.termsHash).catch(() => null)
+  api.searchName(state.view!.labelHash, record.label.length).then((searched) => {
     if (!isOpen(gen) || !askAgainDue(state)) return done()
-    if (terms === null) return later(RETRY_MS, () => reread(gen))
     done()
-    askTerms(gen, record.label, { terms, community: searched.community }, true)
+    const { acceptance } = readToSign(state.view!)!
+    askTerms(gen, record.label, { terms: api.heldTerms(acceptance.termsHash, acceptance.community)!, community: searched.community }, true)
     // the notice is focused only while the focus is on the page, not in the header, the footer or a dialog
     const active = document.activeElement
     if (active === document.body || active?.closest("body > main")) focusOn("reveal")
