@@ -130,12 +130,12 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     const seq = ++reads
     try {
       if (invoiceId) {
-        const [read, down] = await Promise.all([api.readInvoice(invoiceId, invoice ? api.seenOf(invoice) : undefined, signal), downtimeNow()])
+        const [read, down]: [api.InvoiceView, boolean] = await Promise.all([api.readInvoice(invoiceId, invoice ? api.seenOf(invoice) : undefined, signal), downtimeNow()])
         invoice = read
         view = read.registration
         downtime = down
       } else {
-        const [read, down] = await Promise.all([api.readRegistration(registrationId!, view?.version, signal), downtimeNow()])
+        const [read, down]: [api.RegistrationView, boolean] = await Promise.all([api.readRegistration(registrationId!, view?.version, signal), downtimeNow()])
         view = read
         downtime = down
       }
