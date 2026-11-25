@@ -1646,11 +1646,11 @@ screen(2196, "order-taken-code-reserved", async (r) => {
   await answersReserved(r.page, r.id)
   await heading(r.page, `${r.id}.simplex is reserved`)
 })
-screen(2198, "order-taken-code-no-record", async (r) => {
+screen(2198, "order-no-code", async (r) => {
   const registrationId = await codeTaken(r)
   await heading(r.page, `${r.id}.simplex was taken`)
   const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, `${r.id}.simplex was taken`)
+  await heading(other, "The name code is not in this browser")
   return other
 })
 const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
@@ -1661,12 +1661,6 @@ const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
 }
 screen(2200, "order-closed-expired-crypto", async (r) => { await closed(r) })
 screen(2202, "order-closed-expired-card", async (r) => { await closed(r, "card") })
-screen(2204, "order-closed-expired-no-record", async (r) => {
-  const invoiceId = await closed(r)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Invoice closed")
-  return other
-})
 screen(2206, "order-closed-cancelled", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
   await press(page, "Cancel this invoice")
@@ -1776,15 +1770,17 @@ screen(2246, "order-price-changed", async (r) => {
   await press(r.page, "Get a new invoice")
   await heading(r.page, "The price changed")
 })
-screen(2248, "order-unreadable", async ({ page, id }) => {
-  await page.route(`**/api/invoice/inv-${id}*`, (route) => answer(route, 500, "internal"))
-  await page.goto(`/?order=inv-${id}`)
-  await heading(page, "This order could not be loaded")
+screen(2248, "order-unreadable", async (r) => {
+  await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
+  await r.page.route(`**/api/invoice/inv-${r.id}*`, (route) => answer(route, 500, "internal"))
+  await r.page.goto(`/?order=inv-${r.id}`)
+  await heading(r.page, "This order could not be loaded")
 })
-screen(2250, "order-loading", async ({ page, id }) => {
-  await page.route(`**/api/invoice/inv-${id}*`, held)
-  await page.goto(`/?order=inv-${id}`)
-  await shown(page, "Opening the order")
+screen(2250, "order-loading", async (r) => {
+  await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
+  await r.page.route(`**/api/invoice/inv-${r.id}*`, held)
+  await r.page.goto(`/?order=inv-${r.id}`)
+  await shown(r.page, "Opening the order")
 })
 screen(2252, "order-unknown-link", async (r) => {
   await kept(r, `reg-${r.id}`, "nothing-here", r.id)
