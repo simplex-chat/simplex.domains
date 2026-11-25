@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test"
 import {
-  agreeToTerms, CODE_HEADING, contactLink, control, LINKS_HEADING, okPreview, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
+  agreeToTerms, ALTERNATE_GENERAL_TERMS, CODE_HEADING, contactLink, control, LINKS_HEADING, okPreview, onStep, payButton, recordedFrames, recordFrames, REGISTRATION_MS, SAVED, search, startOrder,
   takenHeading, test, toFullReview, toReview, uniqueLabel,
 } from "./helpers.ts"
 
@@ -143,7 +143,7 @@ test("a name taken first, its search for another name and Your names swap withou
 test("terms changed while ordering show their notice without a near-empty frame", async ({ page, request }) => {
   await search(page, uniqueLabel("frterms"))
   await toReview(page)
-  await control(request, "general-terms", { text: "# SimpleX general terms\n\nChanged while ordering.\n" })
+  await control(request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   try {
     await expectNoEmptyFrame(page, "review to its terms notice", async () => {
       await payButton(page).click()

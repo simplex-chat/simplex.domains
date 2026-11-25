@@ -4,11 +4,10 @@ import {
   startSending, stopSending, type Checkout,
 } from "../src/session.ts"
 
-const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const TERMS = { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` }
 
 function checkout(label: string, ownerCode: string | null): Checkout {
-  return { label, price: 10000, years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, chain: CHAIN, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode, saved: false, agreed: false, searchAt: 0, step: "code" }
+  return { label, price: 10000, years: 2, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode, saved: false, agreed: false, searchAt: 0, step: "code" }
 }
 
 describe("orders on their way", () => {

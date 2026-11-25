@@ -80,14 +80,14 @@ describe.skipIf(!RECORDED)("Appendix C vectors", () => {
 
 describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   const YEARS = 2
-  const CHAIN = { resolver: RESOLVER, sponsor: "0x9a676e781a523b5d0c0e43731313a708cb607508", chainId: 31337, tld: "simplex" }
+  const SPONSOR = "0x9a676e781a523b5d0c0e43731313a708cb607508"
   // the term's start that leaves the vector's free days at its timestamp
   const TERM_START = TIMESTAMP + DURATION - YEARS * YEAR_S
   const NO_LINKS = { contact: "", channel: "" }
   const vector = (kind: Kind, terms: string) => VECTORS.find((v) => v.kind === kind && v.terms === terms)!
   const TERMS = [...new Set(VECTORS.map((v) => v.terms))]
   let sent: Record<string, unknown>[]
-  const TO_SIGN = { type: "read", intentNonce: 0, acceptance: { community: false, policy: CHAIN.sponsor, termsHash: `0x${PLAIN}`, nonce: 0 } }
+  const TO_SIGN = { type: "read", intentNonce: 0, acceptance: { community: false, policy: SPONSOR, termsHash: `0x${PLAIN}`, nonce: 0 } }
 
   // the vector's clock and zero IV, storage for the order kept, and a service that answers a selection with its view
   async function builders() {
@@ -100,7 +100,6 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     } })
     sent = []
     vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
-      if (path === "/api/config") return new Response(JSON.stringify({ stripePublishableKey: null, names: { codesOnly: false, ...CHAIN, termStart: TERM_START } }), { status: 200 })
       if (path.startsWith(`/api/name/${LABEL_HASH}/sign?`)) return new Response(JSON.stringify(TO_SIGN), { status: 200 })
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       sent.push(body)
@@ -110,14 +109,19 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
       }), { status: 200 })
     })
     vi.resetModules()
+    vi.doMock("../src/config.ts", async (actual) => {
+      const config = await actual<typeof import("../src/config.ts")>()
+      return { ...config, SITE: { ...config.LOCAL, resolver: RESOLVER, sponsor: SPONSOR, termStart: TERM_START } }
+    })
     return { flow: await import("../src/flow.ts"), store: await import("../src/store.ts") }
   }
   afterEach(() => {
+    vi.doUnmock("../src/config.ts")
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
-  const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, chain: CHAIN, years: YEARS, termStart: TERM_START, ownerCode: OWNER_CODE, terms, method: "btc" as const })
+  const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, years: YEARS, ownerCode: OWNER_CODE, terms, method: "btc" as const })
 
   it.each(TERMS)("order with terms %s", async (terms) => {
     const { flow } = await builders()

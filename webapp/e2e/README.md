@@ -37,4 +37,4 @@ docker run --rm --network host --ipc host -v "$PWD/..:/work" -w /work/webapp -e 
   mcr.microsoft.com/playwright:v1.64.1-noble npx playwright test --project=screens --update-snapshots
 ```
 
-A new state takes the next free time slot in `screens.spec.ts`; states run in the order of their slots.
+A new state takes the next free time slot in `screens.spec.ts`; states run in the order of their slots. The state of a term already started runs last, at a slot past `SITE.termStart`, which the page holds.

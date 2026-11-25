@@ -2,11 +2,12 @@ import { chromium, expect, type APIRequestContext, type Browser, type BrowserCon
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { keccak256, toHex } from "viem"
+import { LOCAL } from "../src/config.ts"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { newOwnerCode, walletOf } from "../src/flow.ts"
 import {
-  addNameCode, agreeToTerms, answersReserved, CHAIN, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, COMMUNITY_HEADING, contactLink, contractsOwnerLists, control, fillLinks,
+  addNameCode, agreeToTerms, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, answersReserved, channelLink, CHECKOUT_KEY, CODES_PAGE, codesPageHolds, codesTest, onCodesPage, checkoutOwnerCode, CODE_HEADING, codeField, COMMUNITY_HEADING, contactLink, contractsOwnerLists, control, fillLinks,
   keepOrder, type KeptOrder, LINKS_HEADING, MOCK, mockRegistration, newClient, okPreview, onStep, ownerSetsResolver, ownerSetsText, payButton, previewsShown, registeredAnswer, registeredPhase,
   REGISTRATION_MS, registrationOf, registrationView, SAVED,
   savedToReview, search, searchName, selectedToReview, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey,
@@ -16,7 +17,6 @@ const START_S = Date.UTC(2026, 10, 2, 8) / 1000
 const STEP_S = 300
 const SIZES = [["desktop", { width: 1280, height: 800 }], ["phone", { width: 390, height: 844 }]] as const
 const LAPSED = "The name was not signed in time"
-const TERMS_TEXT = "The general terms, changed for the screens"
 const FLAT_BACKGROUND = fileURLToPath(new URL("screens.css", import.meta.url))
 
 interface Reach { page: Page; request: APIRequestContext; browser: Browser; baseURL: string; id: string; now: number }
@@ -47,10 +47,11 @@ interface ScreenOptions {
   before?: Size
   covers?: string[]
   timeout?: number
+  codes?: boolean
 }
 
-function screen(slot: number, id: string, reach: (r: Reach) => Promise<Page | void>, { sizes = ["desktop", "phone"], before, timeout }: ScreenOptions = {}): void {
-  test(id, async ({ page, request, browser, baseURL }) => {
+function screen(slot: number, id: string, reach: (r: Reach) => Promise<Page | void>, { sizes = ["desktop", "phone"], before, timeout, codes = false }: ScreenOptions = {}): void {
+  (codes ? codesTest : test)(id, async ({ page, request, browser, baseURL }) => {
     if (timeout) test.setTimeout(timeout)
     const now = START_S + slot * STEP_S
     await control(request, "clock", { now })
@@ -537,19 +538,19 @@ screen(194, "home-codes-only-locked", async ({ page, request }) => {
   await control(request, "mode", { mode: "codes" })
   await page.goto("/#/?name=bakery")
   await shown(page, "Names can be registered with an investor code for now.")
-})
+}, { codes: true })
 screen(196, "home-codes-only-uncovered", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   await withCode(r, 7)
   await searchHere(r.page, "abcdef")
   await answerLine(r.page)
-})
+}, { codes: true })
 screen(198, "home-codes-only-covered", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   await withCode(r, 7, { years: 2 })
   await searchHere(r.page, r.id)
   await answerRow(r.page)
-})
+}, { codes: true })
 screen(200, "home-header-code-chip", async (r) => { await withCode(r, 7) })
 screen(204, "home-phone-menu", async ({ page }) => {
   await page.goto("/")
@@ -634,7 +635,7 @@ screen(226, "checkout-select-busy", async (r) => {
 screen(234, "checkout-select-code", (r) => codeReview(r))
 screen(240, "checkout-select-terms-changed", async (r) => {
   await selectReview(r)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await press(r.page, "Register with your payment")
   await shown(r.page, "The Names Conditions changed.")
 })
@@ -724,15 +725,6 @@ screen(1016, "checkout-review-unticked", async ({ page, id }) => {
   await search(page, id)
   await toReview(page, false)
 })
-screen(1018, "checkout-review-term-started", async ({ page, id }) => {
-  await page.route("**/api/config", async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, names: { ...json.names, termStart: START_S - 86400 } } })
-  })
-  await search(page, id)
-  await toReview(page)
-})
 screen(1020, "checkout-review-bonus-tip", async (r) => {
   await review(r)
   await onStep(r.page).getByRole("button", { name: /^and (\d+ days|1 day)$/ }).focus()
@@ -806,7 +798,7 @@ screen(1078, "checkout-review-hold", async (r) => {
 })
 screen(1080, "checkout-review-terms-changed", async (r) => {
   await review(r)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await payButton(r.page).click()
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/, checked: false })).toBeVisible()
 })
@@ -1115,7 +1107,7 @@ screen(1196, "checkout-review-codes-only-code", async (r) => {
   await withCode(r, 6)
   await searchHere(r.page, r.id)
   await toReview(r.page)
-})
+}, { codes: true })
 screen(1198, "checkout-review-codes-only-field", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   await withCode(r, 6)
@@ -1123,7 +1115,7 @@ screen(1198, "checkout-review-codes-only-field", async (r) => {
   await toReview(r.page)
   await r.page.locator(".code-chip").getByRole("button", { name: "Remove code" }).click()
   await expect(codeField(r.page)).toBeVisible()
-})
+}, { codes: true })
 screen(1200, "checkout-review-codes-only-refused", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   const code = await withCode(r, 6)
@@ -1132,7 +1124,7 @@ screen(1200, "checkout-review-codes-only-refused", async (r) => {
   await control(r.request, "code/state", { code, state: "used" })
   await press(r.page, "Register with your code")
   await shown(r.page, "Enter another code.")
-})
+}, { codes: true })
 screen(1212, "checkout-review-waiting-card", async (r) => {
   await startOrder(r.page, `${r.id}-card`, { method: "card" })
   await onStep(r.page).getByRole("button", { name: /^Pay \$/ }).click()
@@ -1254,7 +1246,7 @@ screen(2014, "order-registering-signature-refused", async (r) => {
 
 const termsChangedOrder = async (r: Reach) => {
   const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await control(r.request, `settle/${invoiceId}`)
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/ })).toBeVisible({ timeout: REGISTRATION_MS })
   return invoiceId
@@ -1264,7 +1256,7 @@ screen(2016, "order-registering-terms-asked", async (r) => { await termsChangedO
 screen(2018, "order-registering-community-terms-asked", async (r) => {
   await control(r.request, "community", { label: r.id, for: "screens of the names page" })
   const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, "community-terms", { text: "The community terms, changed for the screens" })
+  await control(r.request, "community-terms", { text: ALTERNATE_COMMUNITY_TERMS })
   await control(r.request, `settle/${invoiceId}`)
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/ })).toBeVisible({ timeout: REGISTRATION_MS })
   await control(r.request, "community-terms", { text: null })
@@ -1278,7 +1270,7 @@ const goneWhileTermsWait = async (r: Reach, gone: Record<string, unknown>, says:
   const { invoiceId } = await ordered(r, r.id)
   let answered = false
   await r.page.route(`**/api/name/${hex(labelHash(r.id))}*`, (route) => answered ? route.fulfill({ json: gone }) : route.fallback())
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   answered = true
   await control(r.request, `settle/${invoiceId}`)
   await shown(r.page, says)
@@ -1612,7 +1604,10 @@ const cardFormFailed = async (r: Reach, before: () => Promise<unknown> = async (
 }
 screen(2156, "order-card-form-failed", (r) => cardFormFailed(r))
 screen(2158, "order-card-form-failed-no-record", (r) => cardFormFailed(r, () => r.page.evaluate(() => localStorage.clear())))
-screen(2160, "order-card-form-failed-codes-only", (r) => cardFormFailed(r, () => control(r.request, "mode", { mode: "codes" })))
+screen(2160, "order-card-form-failed-codes-only", (r) => cardFormFailed(r, async () => {
+  await control(r.request, "mode", { mode: "codes" })
+  await onCodesPage(r.page)
+}))
 const cardSlow = async (r: Reach) => {
   const invoiceId = await cardSubmitted(r.page, r.id)
   await r.page.evaluate(([id, at]) => {
@@ -1713,7 +1708,7 @@ screen(2186, "order-taken-balance-spent", async (r) => {
 screen(2190, "order-taken-codes-only", async (r) => {
   await takenOrder(r.page, r.request, r.id)
   await control(r.request, "mode", { mode: "codes" })
-  await r.page.reload()
+  await onCodesPage(r.page)
   await shown(r.page, "You can ask for a refund.")
 })
 const codeTaken = async (r: Reach) => {
@@ -1824,12 +1819,12 @@ screen(2222, "order-closed-replaced", async (r) => {
 screen(2224, "order-closed-codes-only", async (r) => {
   await closed(r)
   await control(r.request, "mode", { mode: "codes" })
-  await r.page.reload()
+  await onCodesPage(r.page)
   await heading(r.page, "Invoice closed")
 })
 screen(2226, "order-closed-terms-asked", async (r) => {
   await closed(r)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await press(r.page, "Get a new invoice")
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/, checked: false })).toBeVisible()
 })
@@ -2012,8 +2007,8 @@ screen(3030, "names-edit-field-noncanonical-kept", async (r) => {
 })
 
 const listRow = (page: Page, text: string) => page.locator(".list-row", { hasText: text }).first()
-const yourNames = async (page: Page, rows: string[] = []) => {
-  await page.goto("/#/names")
+const yourNames = async (page: Page, rows: string[] = [], origin = "") => {
+  await page.goto(`${origin}/#/names`)
   await heading(page, "Your names")
   for (const text of rows) await expect(listRow(page, text)).toBeVisible({ timeout: 30_000 })
   await page.waitForTimeout(2000)
@@ -2162,7 +2157,7 @@ screen(3046, "names-rows-registered", async (r) => {
   await registered(r, "rows-community")
   const expiresAt = START_S + 2 * YEAR_S
   const other = await faked(r, "rows-other-owner", { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" })
-  await answerName(r.page, "rows-other-owner", registeredFor(other, expiresAt, CHAIN.sponsor))
+  await answerName(r.page, "rows-other-owner", registeredFor(other, expiresAt, LOCAL.sponsor))
   const expired = await faked(r, "rows-expired", { phase: registeredPhase(r.now - 86400), commitTx: "0x02", registerTx: "0x03" })
   await answerName(r.page, "rows-expired", registeredFor(expired, r.now - 86400))
   await r.page.route(`**/api/name/${hex(labelHash("rows-answer-failed"))}*`, (route) => answer(route, 503, "unavailable"))
@@ -2248,7 +2243,8 @@ screen(3054, "names-pending-held", async (r) => {
 screen(3056, "names-balance-taken-codes-only", async (r) => {
   await takenOrder(r.page, r.request, r.id)
   await control(r.request, "mode", { mode: "codes" })
-  await yourNames(r.page, [r.id])
+  await codesPageHolds(r.page)
+  await yourNames(r.page, [r.id], CODES_PAGE)
 })
 screen(3058, "names-popup-refund", async (r) => {
   await takenOrder(r.page, r.request, r.id)
@@ -2643,5 +2639,10 @@ screen(3196, "names-row-failed-unread", async (r) => {
 screen(3198, "names-balance-ended", async (r) => {
   await faked(r, r.id, { ...failedFor("monthEnded"), balance: BALANCE }, {})
   await yourNames(r.page, [r.id])
+})
+
+screen(17200, "checkout-review-term-started", async ({ page, id }) => {
+  await search(page, id)
+  await toReview(page)
 })
 

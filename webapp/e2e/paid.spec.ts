@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test"
+import { LOCAL } from "../src/config.ts"
 import { walletOf } from "../src/flow.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
@@ -424,7 +425,6 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
 const reviewLayout = (page: Page) => onStep(page).locator(".screen-body, .card.order, .trow, .pay-with, .notes, .check.terms, .actions-row .btn")
   .evaluateAll((nodes) => nodes.map((n) => [n.className, ...Object.values(n.getBoundingClientRect().toJSON())]))
 const bonusOf = (page: Page) => onStep(page).getByRole("button", { name: /^and (\d+ days|1 day)$/ })
-const termStartOf = (page: Page) => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).termStart as number, CHECKOUT_KEY)
 const inWindow = async (page: Page, node: Locator) => {
   const box = (await node.boundingBox())!
   const { width, height } = page.viewportSize()!
@@ -436,7 +436,7 @@ const termLines = (page: Page) => onStep(page).locator(".trow").first().locator(
 test("the term's free days are the early adopter bonus, explained on hover, focus and tap, with nothing moving", async ({ page, browser, baseURL }) => {
   await search(page, uniqueLabel("bonus"))
   await toReview(page, false)
-  const hint = `Early adopter bonus: your 2 years start on ${dateOf(await termStartOf(page))}.`
+  const hint = `Early adopter bonus: your 2 years start on ${dateOf(LOCAL.termStart)}.`
   const bonus = bonusOf(page)
   const tip = onStep(page).getByRole("tooltip")
   await expect(bonus).toHaveAccessibleDescription(hint)
@@ -492,14 +492,17 @@ test("the term's free days are the early adopter bonus, explained on hover, focu
 test("a term that has started has no free days, so no bonus or hint, which come back with the days", async ({ page }) => {
   await search(page, uniqueLabel("nobonus"))
   await toReview(page, false)
-  const termStart = await termStartOf(page)
-  const startAt = (at: number) => page.evaluate(([key, start]) => sessionStorage.setItem(key as string, JSON.stringify({ ...JSON.parse(sessionStorage.getItem(key as string)!), termStart: start })), [CHECKOUT_KEY, at])
-  await startAt(Math.floor(Date.now() / 1000) - 86400)
+  await page.route("**/api/**", async (route) => {
+    const res = await route.fetch()
+    const { date: _, ...headers } = res.headers()
+    await route.fulfill({ response: res, headers })
+  })
+  await page.clock.install({ time: (LOCAL.termStart + 86400) * 1000 })
   await page.reload()
   await expect(onStep(page).locator(".trow").first()).toHaveText("Term2 years")
   await expect(bonusOf(page)).toHaveCount(0)
   await expect(onStep(page).locator("[role=tooltip]")).toHaveCount(0)
-  await startAt(termStart)
+  await page.clock.setSystemTime(Date.now())
   await page.reload()
   await expect(bonusOf(page)).toHaveAccessibleDescription(/^Early adopter bonus/)
 })

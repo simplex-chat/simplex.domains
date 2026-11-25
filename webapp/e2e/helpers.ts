@@ -4,17 +4,21 @@ import { mkdirSync, readFileSync } from "node:fs"
 import { createPublicClient, createTestClient, createWalletClient, encodeFunctionData, http, namehash, parseAbi, parseEventLogs, toFunctionSelector, type Hex } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
+import { LOCAL } from "../src/config.ts"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { KEYS, newOwnerCode, walletOf } from "../src/flow.ts"
 import { readQr } from "../src/scan.ts"
 import { qrPixels } from "../test/qr-image.ts"
-import { mockUrl, pageUrl } from "./slots.ts"
+import { codesPageUrl, mockUrl, pageUrl } from "./slots.ts"
+
+export { ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS } from "./terms.ts"
 
 const SCREENSHOTS = process.env.SCREENSHOTS_DIR ?? "screenshots"
 const TAKE_SHOTS = process.env.SHOTS === "1"
 const SLOT = Number(process.env.TEST_PARALLEL_INDEX ?? "0")
 export const MOCK = process.env.MOCK_URL ?? mockUrl(SLOT)
+export const CODES_PAGE = codesPageUrl(SLOT)
 const DESKTOP = { width: 1280, height: 800 }
 const PHONE = { width: 390, height: 844 }
 // the sizes a page must fit without scrolling, a laptop's and a phone's
@@ -261,6 +265,25 @@ export const rowFit = (page: Page) => page.evaluate(() => {
     nameLines: Math.round(name.getBoundingClientRect().height / parseFloat(getComputedStyle(name).lineHeight)),
     ownLine: Math.round(name.getBoundingClientRect().bottom) <= Math.round(rest.top) }
 })
+
+// Every document the page loads from now on, counted as it fires load.
+export function loads(page: Page): { count: number } {
+  const seen = { count: 0 }
+  page.on("load", () => { seen.count += 1 })
+  return seen
+}
+
+export async function codesPageHolds(page: Page): Promise<void> {
+  const kept = await page.evaluate(() => ({ ...localStorage }))
+  await page.goto(`${CODES_PAGE}/#/trademarks`)
+  await page.evaluate((items) => { for (const [key, value] of Object.entries(items)) localStorage.setItem(key, value) }, kept)
+}
+
+export async function onCodesPage(page: Page): Promise<void> {
+  const { search } = new URL(page.url())
+  await codesPageHolds(page)
+  await page.goto(`${CODES_PAGE}/${search}`)
+}
 
 export async function search(page: Page, label: string): Promise<void> {
   await page.goto("/")
@@ -520,6 +543,8 @@ export const test = base.extend<{ cspViolations: void }>({
   }, { auto: true }],
 })
 
+export const codesTest = test.extend({ baseURL: async ({}, use) => use(CODES_PAGE) })
+
 // a paid order's page once someone registered its name first, which keeps the payment as the order's balance
 export const takenHeading = (label: string) => `${label}.simplex was taken`
 
@@ -550,10 +575,8 @@ export async function waitRegistered(page: Page, label: string): Promise<void> {
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible({ timeout: REGISTRATION_MS })
 }
 
-export const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
-
 export const registeredAnswer = (owner: string, expiresAt: number, links: { contact: string; channel: string }, entities: unknown[] = [], nonce = 0, gracePeriod = 90 * 86400) =>
-  ({ found: { type: "registered", owner, resolver: CHAIN.resolver, expiresAt, gracePeriod, entities, records: { type: "own", ...links, nonce, edits: { left: 3 } } } })
+  ({ found: { type: "registered", owner, resolver: LOCAL.resolver, expiresAt, gracePeriod, entities, records: { type: "own", ...links, nonce, edits: { left: 3 } } } })
 
 export function okPreview(kind: "contact" | "channel", displayName: string, change: { fullName?: string; image?: string; chat?: "contact" | "business" | "bot"; publicMemberCount?: number } = {}) {
   const { fullName = "", image, chat = "contact", publicMemberCount = 12 } = change

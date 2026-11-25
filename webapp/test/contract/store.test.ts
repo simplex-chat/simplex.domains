@@ -33,19 +33,18 @@ const VIEW_FIELDS = ["balance", "commitTx", "commitment", "community", "disputeD
 describe.skipIf(!DIR)("the names page reads the service's recorded answers", () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  const chainId = () => configOf(fixture("config").body)!.names!.chainId
   const search = (name: string) => {
     answering(name)
-    return api.searchName(HASH, LABEL.length, chainId())
+    return api.searchName(HASH, LABEL.length)
   }
   const shown = (answer: api.SearchAnswer) => {
     const searching = reduce(initialSearch(), { type: "searched", label: LABEL, hold: null, minLength: null })
     return reduce(searching, { type: "answered", seq: searching.seq, label: LABEL, answer, mine: false, now: 0 }).answer
   }
 
-  it("reads the deployment, open and codes-only", () => {
-    expect(configOf(fixture("config").body)?.names?.codesOnly).toBe(false)
-    expect(configOf(fixture("config-codes-only").body)?.names?.codesOnly).toBe(true)
+  it("reads the service's Stripe key and downtime alone, open and codes-only", () => {
+    expect(configOf(fixture("config").body)).toEqual({ stripePublishableKey: "pk_test_injected", downtime: false })
+    expect(configOf(fixture("config-codes-only").body)).toEqual({ stripePublishableKey: "", downtime: false })
   })
 
   it.each([
@@ -71,12 +70,12 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   it.each([
     ["search-rate-limited", "rate_limited"], ["search-provider-unavailable", "provider_unavailable"], ["search-invalid-name", "invalid_name"], ["search-bad-request", "bad_request"],
   ])("reads the refusal %s as %s", async (name, code) => {
-    const e = await refusal(name, () => api.searchName(HASH, LABEL.length, chainId()))
+    const e = await refusal(name, () => api.searchName(HASH, LABEL.length))
     expect(e.code).toBe(code)
   })
 
   it("waits out a rate limit for its Retry-After", async () => {
-    expect((await refusal("search-rate-limited", () => api.searchName(HASH, LABEL.length, chainId()))).retryAfter).toBeGreaterThan(0)
+    expect((await refusal("search-rate-limited", () => api.searchName(HASH, LABEL.length))).retryAfter).toBeGreaterThan(0)
   })
 
   it.each([
@@ -93,10 +92,10 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   it("reads the terms' text only as the file their link names, and their refusals", async () => {
     const { link } = fixture("terms").body as { link: string }
     answering("terms")
-    expect(await api.termsText({ hash: keccak256(toHex(link)), link }, chainId())).toEqual((fixture("terms").body as { text: string }).text)
+    expect(await api.termsText({ hash: keccak256(toHex(link)), link })).toEqual((fixture("terms").body as { text: string }).text)
     const terms = { hash: keccak256(toHex(link)), link }
-    expect((await refusal("terms-not-found", () => api.termsText(terms, chainId()))).code).toBe("not_found")
-    const unavailable = await refusal("terms-unavailable", () => api.termsText(terms, chainId()))
+    expect((await refusal("terms-not-found", () => api.termsText(terms))).code).toBe("not_found")
+    const unavailable = await refusal("terms-unavailable", () => api.termsText(terms))
     expect([unavailable.code, unavailable.retryAfter]).toEqual(["terms_unavailable", 60])
   })
 
@@ -146,7 +145,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   })
 
   it("reads a code order refused for changed terms with the terms and the community entry now", async () => {
-    const e = await refusal("register-terms-changed", () => api.registerWithCode(order, "code", chainId()))
+    const e = await refusal("register-terms-changed", () => api.registerWithCode(order, "code"))
     expect(e).toBeInstanceOf(api.TermsChanged)
     expect((e as api.TermsChanged).community).not.toBeNull()
   })
@@ -154,17 +153,17 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   it.each([
     ["register-code-reserved", "code_reserved"], ["register-name-taken", "name_taken"], ["register-terms-unavailable", "terms_unavailable"],
   ])("reads the code order refusal %s as %s", async (name, code) => {
-    expect((await refusal(name, () => api.registerWithCode(order, "code", chainId()))).code).toBe(code)
+    expect((await refusal(name, () => api.registerWithCode(order, "code"))).code).toBe(code)
   })
 
   it.each([
     ["select-registration-changed", "registration_changed"], ["select-code-expired", "code_expired"], ["select-code-invalid", "code_invalid"],
   ])("reads the selection refusal %s as %s", async (name, code) => {
-    expect((await refusal(name, () => api.selectName("r1", order, chainId()))).code).toBe(code)
+    expect((await refusal(name, () => api.selectName("r1", order))).code).toBe(code)
   })
 
   it("reads the order a selection met changed with the fields the mock's view has", async () => {
-    const e = await refusal("select-registration-changed", () => api.selectName("r1", order, chainId()))
+    const e = await refusal("select-registration-changed", () => api.selectName("r1", order))
     expect(Object.keys(e.body.registration as object).sort()).toEqual(VIEW_FIELDS)
   })
 
@@ -187,7 +186,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   })
 
   it("reads a selection of a name at another price with that name's price", async () => {
-    const e = await refusal("select-catalog-changed", () => api.selectName("r1", order, chainId()))
+    const e = await refusal("select-catalog-changed", () => api.selectName("r1", order))
     expect([e.code, e.body.price]).toEqual(["catalog_changed", 20000])
   })
 })

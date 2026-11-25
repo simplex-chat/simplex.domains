@@ -6,7 +6,6 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import type { Checkout } from "../src/session.ts"
 
 const NOW = Date.parse("2026-10-17T12:00:00Z")
-const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const CODE = { display: "SN6-AAAAA-BBBBB-CCCCC", minLength: 6, years: 3 }
 const WAITING = { registrationId: "reg-0", invoiceId: "inv-0" }
 const OPEN_ORDER = { invoiceId: "inv-9", confirming: false }
@@ -16,7 +15,7 @@ const BAKERS = { for: "bakers and pastry chefs", years: 2 }
 
 function checkout(change: Partial<Checkout> = {}): Checkout {
   return {
-    label: "alice1", price: 1500, years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, chain: CHAIN, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF",
+    label: "alice1", price: 1500, years: 2, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF",
     saved: true, agreed: false, searchAt: 0, step: "review", ...change,
   }
 }

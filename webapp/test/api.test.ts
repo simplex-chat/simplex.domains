@@ -15,15 +15,14 @@ function answerWith(status: number, body: string, headers: Record<string, string
   vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status, headers })))
 }
 
-const CHAIN_ID = 31337
 const REVEAL = {
   label: "alicebakery", secret: `0x${"11".repeat(32)}`, records: { contact: null, channel: null }, nonce: 0, deadline: 1800000000, signature: "0x",
   acceptance: { termsHash: `0x${"ab".repeat(32)}`, nonce: 0, signature: "0x" },
 }
 const REGISTERED = { type: "registered", owner: "0x1", resolver: "0x2", expiresAt: 1, gracePeriod: 2, entities: [], records: { type: "other" } }
 
-async function errorOf(chainId = CHAIN_ID): Promise<ApiError> {
-  const e = await searchName(HASH, 8, chainId).then(() => null, (e: unknown) => e)
+async function errorOf(): Promise<ApiError> {
+  const e = await searchName(HASH, 8).then(() => null, (e: unknown) => e)
   expect(e).toBeInstanceOf(ApiError)
   return e as ApiError
 }
@@ -81,7 +80,7 @@ describe("termsText", () => {
   it("asks the service for the terms by their hash and reads the text once it is the file their link names", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify({ link: LINK, text: TEXT }), { status: 200 }))
     vi.stubGlobal("fetch", fetched)
-    await expect(termsText(terms, 1)).resolves.toBe(TEXT)
+    await expect(termsText(terms)).resolves.toBe(TEXT)
     expect((fetched.mock.calls[0] as unknown as [string])[0]).toBe(`/api/terms/${terms.hash}`)
   })
   it("is no answer for another text or link, terms whose hash is not their link's, or a link the page does not take", async () => {
@@ -90,14 +89,14 @@ describe("termsText", () => {
       [{ link: LINK, text: TEXT }, { ...terms, hash: zeroHash }], [{ link: LINK.replace("https:", "http:"), text: TEXT }, termsOf(LINK.replace("https:", "http:"))],
     ] as const) {
       answerWith(200, JSON.stringify(body))
-      await expect(termsText(asked, 1), JSON.stringify(body)).rejects.toMatchObject({ code: "network" })
+      await expect(termsText(asked), JSON.stringify(body)).rejects.toMatchObject({ code: "network" })
     }
   })
   it("passes the service's refusal, with its wait", async () => {
     answerWith(404, JSON.stringify({ type: "not_found" }))
-    await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "not_found" })
+    await expect(termsText(terms)).rejects.toMatchObject({ code: "not_found" })
     answerWith(503, JSON.stringify({ type: "terms_unavailable" }), { "retry-after": "30" })
-    await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "terms_unavailable", retryAfter: 30 })
+    await expect(termsText(terms)).rejects.toMatchObject({ code: "terms_unavailable", retryAfter: 30 })
   })
 })
 
@@ -188,7 +187,7 @@ describe("service errors", () => {
     for (const [edits, read] of [[{ left: 3 }, { left: 3, nextAt: null }], [{ left: 0, nextAt: "2027-10-23T00:00:00Z" }, { left: 0, nextAt: 1824249600 }],
       [{ left: 1, nextAt: "2027-10-23T00:00:00Z" }, { left: 1, nextAt: 1824249600 }]] as const) {
       answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
-      expect(await searchName(HASH, 8, CHAIN_ID), JSON.stringify(edits)).toMatchObject({ found: { records: { ...own, edits: read } } })
+      expect(await searchName(HASH, 8), JSON.stringify(edits)).toMatchObject({ found: { records: { ...own, edits: read } } })
     }
     for (const edits of [{ left: 0 }, { left: -1 }, { left: 1.5 }, {}, { left: 2, nextAt: "soon" }, { left: 2, nextAt: 1824249600 }, 3, undefined]) {
       answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
@@ -223,14 +222,14 @@ describe("service errors", () => {
   it("passes a search answer the page can draw", async () => {
     const available = { type: "available", price: 10000, years: 2, terms: TERMS }
     answerWith(200, JSON.stringify({ found: available }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: available, community: null })
+    expect(await searchName("ab".repeat(32), 8)).toEqual({ found: available, community: null })
     answerWith(200, JSON.stringify({ found: { type: "available", price: 10000, years: 2 } }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
+    expect(await searchName("ab".repeat(32), 8), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
     answerWith(200, registeredWith({ preview: PREVIEW, ...LINK }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
+    expect(await searchName("ab".repeat(32), 8)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
     for (const type of ["taken", "reserved"]) {
       answerWith(200, JSON.stringify({ found: { type } }))
-      expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { type }, community: null })
+      expect(await searchName("ab".repeat(32), 8)).toEqual({ found: { type }, community: null })
     }
   })
 
@@ -252,14 +251,14 @@ describe("service errors", () => {
     for (const [kind, type] of [["contact", "address"], ["channel", "channel"]]) {
       for (const profile of ["unread", "unavailable"]) {
         answerWith(200, registeredWith({ preview: { kind, profile: { type: profile } }, ...LINK }))
-        expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
+        expect(await searchName("ab".repeat(32), 8), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
       }
     }
     // an address opens a contact, a business or a bot, as the service tells them apart
     const contactPreview = (kind: unknown) => ({ kind: "contact", profile: { type: "ok", linkProfile: { kind, displayName: "Alice", fullName: "" } } })
     for (const kind of ["contact", "business", "bot"]) {
       answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
-      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), kind).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
+      expect(await searchName("ab".repeat(32), 8), kind).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
     }
     for (const kind of [undefined, "robot", 5]) {
       answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
@@ -446,10 +445,10 @@ describe("service errors", () => {
         { ...AVAILABLE, community: { years: 2 } }, { ...availableWith(TERMS), community: null }, availableWith(LOCAL_TERMS),
       ]) {
         answerWith(200, JSON.stringify(body))
-        expect(await searchName(HASH, 6, CHAIN_ID), JSON.stringify(body)).toEqual(body)
+        expect(await searchName(HASH, 6), JSON.stringify(body)).toEqual(body)
       }
       answerWith(200, JSON.stringify({ found: REGISTERED }))
-      expect(await searchName(HASH, 6, CHAIN_ID), "a name off the community list").toEqual({ found: REGISTERED, community: null })
+      expect(await searchName(HASH, 6), "a name off the community list").toEqual({ found: REGISTERED, community: null })
     })
 
     it("takes a community entry that cannot be so, or the available answer with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
@@ -463,8 +462,6 @@ describe("service errors", () => {
         answerWith(200, JSON.stringify(body))
         expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
       }
-      answerWith(200, JSON.stringify(availableWith(LOCAL_TERMS)))
-      expect((await errorOf(1)).code, "terms on this machine, on another chain").toBe("network")
     })
 
     it("passes an order's community entry and the terms it signed", async () => {
@@ -498,9 +495,9 @@ describe("service errors", () => {
     })
 
     const SENDS: [string, () => Promise<unknown>][] = [
-      ["an order", () => createOrder(ORDER, "btc", 10000, 31337)],
-      ["a code order", () => registerWithCode(ORDER, "SN6-X", 31337)],
-      ["a selection", () => selectName("r1", ORDER, 31337)],
+      ["an order", () => createOrder(ORDER, "btc", 10000)],
+      ["a code order", () => registerWithCode(ORDER, "SN6-X")],
+      ["a selection", () => selectName("r1", ORDER)],
     ]
 
     it.each(SENDS)("sends %s with the terms the buyer agreed to and the reveal", async (_, send) => {

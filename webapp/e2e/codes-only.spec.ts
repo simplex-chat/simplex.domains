@@ -2,8 +2,8 @@ import { type APIRequestContext, expect, type Page } from "@playwright/test"
 import { labelHash } from "../src/crypto/registration.ts"
 import { hex } from "../src/crypto/wallet.ts"
 import {
-  AGREE, agreeToTerms, CHECKOUT_KEY, codeField, control, keepOrder, MOCK, onStep, payButton, recordedFrames, recordFrames, registrationView, savedToReview, search, shot, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview,
-  uniqueLabel, useCode, waitRegistered,
+  CODES_PAGE, codeField, codesPageHolds, codesTest, control, keepOrder, loads, MOCK, onStep, payButton, recordedFrames, recordFrames, registrationView, savedToReview, search, shot, startOrder, takenOrder, test,
+  toCodeStep, toReview, uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
 const CODES_ONLY_LINE = "Names can be registered with an investor code for now."
@@ -15,26 +15,9 @@ const nameField = (page: Page) => page.getByLabel("Name", { exact: true })
 const lens = (page: Page) => page.getByRole("button", { name: "Search", exact: true })
 
 const setMode = (request: APIRequestContext, mode: "open" | "codes") => control(request, "mode", { mode })
-// the tab coming back into view, as a reader switching back to it; headless browsers keep every tab in view
-const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
-// the page loaded again, in the mode the service gives, as the tab comes back into view
-const reloadedOnView = (page: Page) => Promise.all([page.waitForEvent("load"), becomeVisible(page)])
-// the page's own check of the service's mode, answered
-const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config")
-// Every document the page loads from now on, counted as it fires load: a page loaded again runs the service's mode.
-function loads(page: Page): { count: number } {
-  const seen = { count: 0 }
-  page.on("load", () => { seen.count += 1 })
-  return seen
-}
 // long enough for a load the check started to have finished
 const RELOAD_MS = 1000
-// long enough for several frames to paint before the page knows its mode
 const SLOW_CONFIG_MS = 400
-const checkoutKept = (page: Page) => page.evaluate((key) => {
-  const { label, contact, channel, ownerCode, saved, agreed, step } = JSON.parse(sessionStorage.getItem(key)!)
-  return { label, contact, channel, ownerCode, saved, agreed, step }
-}, CHECKOUT_KEY)
 
 // the mock of this worker's slot goes back to open, whatever a test left, for the specs after it
 test.afterEach(async ({ request }) => {
@@ -89,11 +72,11 @@ test("each mode's home is drawn from its first frame, never the other mode's fir
     const field = document.querySelector<HTMLInputElement>("body > main input")
     return { header: document.querySelector("body > header .brand") !== null, field: field === null ? "none" : field.disabled ? "codes" : "open" }
   }, true)
-  for (const mode of ["codes", "open"] as const) {
+  for (const [mode, origin] of [["codes", CODES_PAGE], ["open", ""]] as const) {
     await setMode(request, mode)
     for (const route of ["/", "/#/?name=bakery"]) {
       await page.goto("about:blank")
-      await page.goto(route)
+      await page.goto(`${origin}${route}`)
       await expect(nameField(page)).toBeVisible()
       await page.evaluate(() => new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn))))
       const frames = await recordedFrames<{ header: boolean; field: string }>(page)
@@ -106,7 +89,7 @@ test("each mode's home is drawn from its first frame, never the other mode's fir
   }
 })
 
-test("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request, browserName }) => {
+codesTest("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request, browserName }) => {
   test.skip(browserName === "webkit", "WebKit asks the service again rather than hand the preloaded answer to the page")
   await setMode(request, "codes")
   const asked: string[] = []
@@ -117,7 +100,7 @@ test("a load asks the service's mode once, as the preload's answer is the one th
   expect(asked, "one request, the preload's").toHaveLength(1)
 })
 
-test("without a code, the home's search is greyed, takes no pointer, focus or Enter, and Register with code leads on", async ({ page, request }) => {
+codesTest("without a code, the home's search is greyed, takes no pointer, focus or Enter, and Register with code leads on", async ({ page, request }) => {
   await setMode(request, "codes")
   const calls = apiCalls(page)
   // a link naming a name searches nothing either
@@ -165,7 +148,7 @@ test("without a code, the home's search is greyed, takes no pointer, focus or En
   await expect(page).toHaveURL(/#\/code$/)
 })
 
-test("#/code opens Check your code from a cold load, its field ready for the code", async ({ page, request }) => {
+codesTest("#/code opens Check your code from a cold load, its field ready for the code", async ({ page, request }) => {
   await setMode(request, "codes")
   await page.goto("/#/code")
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
@@ -175,7 +158,7 @@ test("#/code opens Check your code from a cold load, its field ready for the cod
   await shot(page, "C2-codes-only-check-code")
 })
 
-test("a valid prepaid code opens the search for the names it covers and registers one as a free code order", async ({ page, request }) => {
+codesTest("a valid prepaid code opens the search for the names it covers and registers one as a free code order", async ({ page, request }) => {
   await setMode(request, "codes")
   const { code } = await control(request, "code", { minLength: 7, years: 2 }) as { code: string }
   const calls = apiCalls(page)
@@ -210,7 +193,7 @@ test("a valid prepaid code opens the search for the names it covers and register
   expect(calls).toContain("POST /api/name/register")
 })
 
-test("a code taken off on Check your order leaves the code field in place of payment, and a code there registers", async ({ page, request }) => {
+codesTest("a code taken off on Check your order leaves the code field in place of payment, and a code there registers", async ({ page, request }) => {
   await setMode(request, "codes")
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   await useCode(page, code)
@@ -240,7 +223,8 @@ test("an order paid before codes only shows no new invoice or other name, only R
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
 
   await setMode(request, "codes")
-  await page.goto(`/?order=${invoiceId}`)
+  await codesPageHolds(page)
+  await page.goto(`${CODES_PAGE}/?order=${invoiceId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex was taken` })).toBeVisible()
   await expect(onStep(page).getByText("What you paid is kept as your balance. You can ask for a refund. Your names shows the balance.")).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: REGISTER_WITH_CODE })).toBeVisible()
@@ -249,14 +233,14 @@ test("an order paid before codes only shows no new invoice or other name, only R
   await noPaymentUi(page)
   await shot(page, "C7-codes-only-taken")
 
-  await page.goto(`/?order=${expired.invoiceId}`)
+  await page.goto(`${CODES_PAGE}/?order=${expired.invoiceId}`)
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
   await expect(onStep(page).getByRole("checkbox")).toHaveCount(0)
   await noPaymentUi(page)
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
 
-  await page.goto("/#/names")
+  await page.goto(`${CODES_PAGE}/#/names`)
   const balance = page.locator(".balance-row")
   await expect(balance).toBeVisible()
   await expect(balance.getByRole("button", { name: "Refund" })).toBeVisible()
@@ -264,7 +248,7 @@ test("an order paid before codes only shows no new invoice or other name, only R
   await shot(page, "C8-codes-only-names")
 })
 
-test("a registration ended in its dispute period is shown with Register with code alone, as the other endings are", async ({ page, request }) => {
+codesTest("a registration ended in its dispute period is shown with Register with code alone, as the other endings are", async ({ page, request }) => {
   await setMode(request, "codes")
   const label = uniqueLabel("endc")
   const order = await keepOrder(page, `reg-${label}`, null, label)
@@ -307,65 +291,4 @@ test("a closed invoice's page opened before codes only, refused a new invoice, s
   await note.getByRole("link", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
   expect(seen.count, "the screen after the refusal is the service's page again").toBe(1)
-})
-
-test("a checkout open as the service takes codes only loads again in codes mode with its name, links, name code and terms", async ({ page, request }) => {
-  const label = uniqueLabel("keep")
-  await toFullReview(page, label)
-  await page.getByRole("radio", { name: "Bitcoin" }).click()
-  const before = await checkoutKept(page)
-  expect(before.agreed && before.saved && before.contact && before.channel).toBeTruthy()
-  await setMode(request, "codes")
-  await reloadedOnView(page)
-  await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeVisible()
-  expect(await checkoutKept(page)).toEqual(before)
-  await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
-  await expect(codeField(page), "a code pays in place of the payment choices").toBeVisible()
-  await noPaymentUi(page)
-})
-
-test("an order paid as the service takes codes only loads again with its invoice, and registers", async ({ page, request }) => {
-  const label = uniqueLabel("paid")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  await setMode(request, "codes")
-  await reloadedOnView(page)
-  await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
-  await control(request, `settle/${invoiceId}`)
-  await waitRegistered(page, label)
-})
-
-test("a codes-only page open as the service opens loads again with the search on", async ({ page, request }) => {
-  await setMode(request, "codes")
-  const checked = modeChecked(page)
-  await page.goto("/")
-  await checked
-  await expect(nameField(page)).toBeDisabled()
-  await setMode(request, "open")
-  await reloadedOnView(page)
-  await expect(nameField(page)).toBeEnabled()
-})
-
-test("a closed invoice's page holding changed terms ticked again stays as the service takes codes only, until the reader leaves it", async ({ page, request }) => {
-  const label = uniqueLabel("tick")
-  const { invoiceId } = await startOrder(page, label, { method: "btc" })
-  await control(request, `expire/${invoiceId}`)
-  await expect(onStep(page).getByRole("heading", { name: "Invoice closed" })).toBeVisible()
-  await control(request, "general-terms", { text: `the general terms, changed for ${label}` })
-  try {
-    await onStep(page).getByRole("button", { name: "Get a new invoice" }).click()
-    await agreeToTerms(page)
-    await setMode(request, "codes")
-    const seen = loads(page)
-    const checked = modeChecked(page)
-    await becomeVisible(page)
-    await checked
-    await page.waitForTimeout(RELOAD_MS)
-    expect(seen.count, "the tick is in the page only, so the page stays").toBe(0)
-    await expect(onStep(page).getByRole("checkbox", { name: AGREE })).toBeChecked()
-    await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
-    await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
-    expect(seen.count, "the next screen is the service's page again").toBe(1)
-  } finally {
-    await control(request, "general-terms", { text: null })
-  }
 })
