@@ -161,6 +161,7 @@ html.dark .theme-switch .sun, html.dark .to-light { display: block; }
 .code-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 6px 4px 14px; border: 1px solid var(--surface-line); border-radius: 999px;
   background: var(--surface); font-size: var(--fs-small); font-weight: 600; white-space: nowrap; }
 .code-chip .unlink { width: 26px; height: 26px; }
+.code-chip:has(> .unlink[hidden]) { min-height: 36px; padding-right: 14px; }
 body > main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
 html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-top)); }
 /* a phone's header, as simplex.chat's: the symbol, and a menu button that opens the menu over the page */
