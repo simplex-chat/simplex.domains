@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { keccak256, toHex } from "viem"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS } from "../e2e/terms.ts"
-import { CONFIG_PATH, configOf, LOCAL, loadConfig, MAINNET, readConfig, SITE } from "../src/config.ts"
+import { CONFIG_PATH, configOf, heldPrice, LOCAL, loadConfig, MAINNET, readConfig, SITE } from "../src/config.ts"
 import { publishableKey, setPublishableKey } from "../src/stripe.ts"
 
 const INDEX = readFileSync(new URL("../index.html", import.meta.url), "utf8")
@@ -86,6 +86,10 @@ describe("the deployment the page holds", () => {
       const digest = createHash("sha256").update(text).digest("hex")
       expect(held.link).toBe(`http://127.0.0.1:8098/terms/${digest}.md#sha256=${digest}`)
     }
+  })
+  it("prices a name for its paid years at the exception of its length, else at the base, as the price oracle does", () => {
+    expect([6, 7, 8, 63].map(heldPrice)).toEqual([40000, 20000, 10000, 10000])
+    expect([MAINNET.priceBaseCentsPerYear * MAINNET.paidYears, MAINNET.priceExceptions], "mainnet: $100 for every name").toEqual([10000, []])
   })
 })
 

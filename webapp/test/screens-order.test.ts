@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Acceptance, Community, InvoiceView, RegistrationView } from "../src/api.ts"
+import { LOCAL } from "../src/config.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
@@ -36,7 +37,7 @@ function record(change: Partial<OrderRecord> = {}): OrderRecord {
   return {
     registrationId: "reg-1", invoiceId: "inv-1", label: "alice", ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", owner: OWNER, contact: "", channel: "",
     method: "btc", paid: 1500, years: 2, request: { labelHash: "0x4f1b", length: 5, duration: 2 * 365 * 86400, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box" },
-    tld: "simplex", createdAt: "2026-10-17T11:59:00Z", ...change,
+    terms: SIGNED.slice(2), tld: "simplex", createdAt: "2026-10-17T11:59:00Z", ...change,
   }
 }
 
@@ -51,7 +52,7 @@ const submittedAgo = (ms: number) => new Date(NOW - ms).toISOString()
 // the community terms an order signed, others on chain, a community entry, the view's acceptance of some terms, and the
 // buyer's ask of them
 const SIGNED = `0x${"c7".repeat(32)}`
-const CHANGED = `0x${"d8".repeat(32)}`
+const CHANGED = LOCAL.communityTerms[1].hash
 const communityEntry = (text?: string): Community => ({ ...text === undefined ? {} : { for: text }, years: 2 })
 const termsOf = (hash: string) => ({ hash, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
 const acceptanceFor = (termsHash: string, community = true): Acceptance => ({ community, policy: "0x3", termsHash, nonce: 0 })
@@ -546,12 +547,21 @@ describe("reveal helpers", () => {
   })
   it("revealDue and askAgainDue for a plain name: the reveal waits for changed general terms to be ticked", () => {
     const PLAIN = `0x${"21".repeat(32)}`
+    const CHANGED_PLAIN = LOCAL.generalTerms[1].hash
     const plain = (termsHash: string, change: Partial<OrderState> = {}) =>
-      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash, false), terms: { communityName: false, termsHash: PLAIN } }), change)
+      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash, false), terms: { communityName: false, termsHash: PLAIN } }), { record: record({ terms: PLAIN.slice(2) }), ...change })
     expect([revealDue(plain(PLAIN)), askAgainDue(plain(PLAIN))]).toEqual([true, false])
-    expect([revealDue(plain(CHANGED)), askAgainDue(plain(CHANGED))], "terms changed on chain since the order").toEqual([false, true])
-    const ask = { ...askFor(record().label, termsOf(CHANGED), null, true), agreed: true }
-    expect(revealDue(plain(CHANGED, { ask })), "ticked").toBe(true)
+    expect([revealDue(plain(CHANGED_PLAIN)), askAgainDue(plain(CHANGED_PLAIN))], "terms changed on chain since the order").toEqual([false, true])
+    const ask = { ...askFor(record().label, termsOf(CHANGED_PLAIN), null, true), agreed: true }
+    expect(revealDue(plain(CHANGED_PLAIN, { ask })), "ticked").toBe(true)
+  })
+  it("takes the terms the order signed from this browser's record, whatever terms the view names, and asks only for terms the page holds", () => {
+    const claimed = (termsHash: string, change: Partial<OrderState> = {}) =>
+      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash), terms: { communityName: true, termsHash } }), change)
+    expect([revealDue(claimed(CHANGED)), askAgainDue(claimed(CHANGED))], "a view naming the changed terms as the order's").toEqual([false, true])
+    expect([revealDue(claimed(CHANGED, { record: null })), askAgainDue(claimed(CHANGED, { record: null }))], "no name code in this browser").toEqual([false, false])
+    const unheld = `0x${"d8".repeat(32)}`
+    expect([revealDue(claimed(unheld)), askAgainDue(claimed(unheld))], "terms the page does not hold, which its own check refuses").toEqual([true, false])
   })
   it("unreadDelay reads a view with unread fields again after 5 s, 15 s, then every 30 s", () => {
     expect([0, 1, 2, 3, 10].map(unreadDelay)).toEqual([5000, 15000, 30000, 30000, 30000])

@@ -21,7 +21,7 @@ async function shipped(mode: "development" | "production" | "devchain"): Promise
   }
 }
 
-const held = (d: Deployment) => [d.sponsor, d.resolver, d.namePolicy]
+const held = (d: Deployment) => [d.sponsor, d.resolver, d.namePolicy, ...[...d.generalTerms, ...d.communityTerms].map((t) => t.link)]
 
 describe("the stand-in card form", () => {
   it("is labelled as a test in a development build, which the dev server serves", async () => {

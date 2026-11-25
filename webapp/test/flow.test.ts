@@ -1,5 +1,5 @@
 import { recoverAddress, recoverMessageAddress, type Hex } from "viem"
-import type { Phase, RevealBody } from "../src/api.ts"
+import type { Acceptance, Phase, RevealBody } from "../src/api.ts"
 import type { CodeOrder } from "../src/flow.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { LOCAL } from "../src/config.ts"
@@ -14,24 +14,24 @@ const ENTROPY = fromHex("6f2d1c9a4b7e3f80d15a2c6e9b04f7a3")
 const OWNER_CODE = formatOwnerCode(ENTROPY)
 const WALLET = walletFromEntropy(ENTROPY)
 const OWNER = checksumAddress(WALLET.address)
-const TERMS = {
-  hash: "0x67b989cccc7ae150142daa4029304c7b7e78ab0a4ccebeba2ec1ef8a30f8147e",
-  link: "https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/5fb3fb63fa5a059abf6e397621ba4d7c3618c702/docs/terms.md#sha256=8b6cf03192081aa7b2cd3a82fd665fdd0f28c1ced65792837a5ac2492e6a8070",
-}
+const TERMS = LOCAL.generalTerms[0]
 const SIGNED = TERMS.hash.slice(2)
-const COMMUNITY_SIGNED = `community/${"c7".repeat(32)}`
-const COMMUNITY_AGREED = { communityName: true, termsHash: `0x${"c7".repeat(32)}` }
+const COMMUNITY_HASH = LOCAL.communityTerms[0].hash
+const COMMUNITY_SIGNED = `community/${COMMUNITY_HASH.slice(2)}`
+const COMMUNITY_AGREED = { communityName: true, termsHash: COMMUNITY_HASH }
 const QUOTE = { type: "available" as const, price: 20000, years: 2, community: null, terms: TERMS }
 const LINKS = { contact: "https://smp8.simplex.im/a#Y8m3qT0vLw2Ab7cD9eF1gH3jK5mN7pQ9rSAAAAAAAAA", channel: "" }
 
 type Call = { method: string; path: string; body: Record<string, unknown> }
 let calls: Call[]
 let answers: Record<string, unknown>
-const TO_SIGN = { type: "read", intentNonce: 5, acceptance: { community: false, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: TERMS.hash, nonce: 1 } }
+const GENERAL: Acceptance = { community: false, policy: LOCAL.namePolicy, termsHash: TERMS.hash, nonce: 1 }
+const COMMUNITY: Acceptance = { community: true, policy: LOCAL.namePolicy, termsHash: COMMUNITY_HASH, nonce: 1 }
+let acceptance: Acceptance
 let signReads: string[]
 
 // localStorage for store.ts, and a fetch that records each call and answers from `answers` by "METHOD path", and every
-// signing read with TO_SIGN
+// signing read with `acceptance`
 function fakeBrowser(): void {
   const data = new Map<string, string>()
   vi.stubGlobal("window", {
@@ -46,7 +46,7 @@ function fakeBrowser(): void {
   vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
     if (/^\/api\/name\/[^/]+\/sign\?/.test(path)) {
       signReads.push(path)
-      return new Response(JSON.stringify(TO_SIGN), { status: 200 })
+      return new Response(JSON.stringify({ type: "read", intentNonce: 5, acceptance }), { status: 200 })
     }
     const method = init?.method ?? "GET"
     const body = init?.body ? JSON.parse(String(init.body)) : {}
@@ -67,6 +67,7 @@ async function modules() {
 beforeEach(() => {
   calls = []
   answers = {}
+  acceptance = GENERAL
   signReads = []
   fakeBrowser()
 })
@@ -110,6 +111,7 @@ describe("orderRequest", () => {
 
   it("is signed by the code's key over every field but the signature, the terms agreed to included, at the service's time", async () => {
     const { flow } = await modules()
+    acceptance = COMMUNITY
     const { request } = await flow.orderRequest(draft("dynamis", COMMUNITY_SIGNED))
     expect(request.terms).toBe(COMMUNITY_SIGNED)
     expect(Math.abs(request.timestamp - Date.now() / 1000)).toBeLessThan(2)
@@ -120,6 +122,7 @@ describe("orderRequest", () => {
 
   it("keeps the terms the order signed with its record", async () => {
     const { flow } = await modules()
+    acceptance = COMMUNITY
     const built = await flow.orderRequest(draft("dynamis", COMMUNITY_SIGNED))
     expect(flow.recordFor(draft("dynamis", COMMUNITY_SIGNED), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" }).terms).toBe(COMMUNITY_SIGNED)
   })
@@ -132,22 +135,57 @@ describe("orderRequest", () => {
     expect(reveal).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 5 })
     expect(Math.abs(reveal.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
     expect(await revealSigner(reveal, request.duration, days)).toBe(OWNER)
-    const a = TO_SIGN.acceptance
+    const a = GENERAL
     expect(reveal.acceptance).toMatchObject({ termsHash: a.termsHash, nonce: 1 })
     const accepted = acceptTermsDigest(false, BigInt(LOCAL.chainId), fromHex(LOCAL.namePolicy), fromHex(request.commitment), fromHex(a.termsHash), 1n, BigInt(reveal.deadline))
     expect(await recoverAddress({ hash: hex(accepted) as Hex, signature: reveal.acceptance.signature as Hex })).toBe(OWNER)
   })
+
+  it.each([
+    ["under another policy", { ...GENERAL, policy: LOCAL.sponsor }, SIGNED],
+    ["of other terms than the buyer agreed to", { ...GENERAL, termsHash: LOCAL.generalTerms[1].hash }, SIGNED],
+    ["of the other kind", { ...GENERAL, community: true }, SIGNED],
+    ["of terms the page does not hold", { ...GENERAL, termsHash: `0x${"d8".repeat(32)}` }, "d8".repeat(32)],
+  ])("signs and sends nothing for a sign answer %s", async (_, asked, terms) => {
+    const { flow } = await modules()
+    acceptance = asked
+    await expect(flow.orderRequest(draft("dynamis", terms))).rejects.toBeInstanceOf(flow.Unsignable)
+    expect(calls).toEqual([])
+  })
+})
+
+describe("quoteOf", () => {
+  const answering = (found: Record<string, unknown>, community: Record<string, unknown> | null = null) => {
+    answers[`GET /api/name/${hex(labelHash("dynamis"))}`] = { found: { type: "available", price: 20000, years: 2, terms: TERMS, ...found }, ...community ? { community } : {} }
+  }
+
+  it("quotes a name at the price the page holds for its length, for the paid years, under the terms the page holds", async () => {
+    const { flow } = await modules()
+    answering({})
+    expect(await flow.quoteOf("dynamis")).toEqual(QUOTE)
+    answering({ terms: LOCAL.communityTerms[0] }, { years: 2 })
+    expect(await flow.quoteOf("dynamis")).toEqual({ ...QUOTE, terms: LOCAL.communityTerms[0], community: { years: 2 } })
+  })
+
+  it.each([
+    ["another price", { price: 10000 }, null], ["a higher price", { price: 40000 }, null], ["other years", { years: 3 }, null],
+    ["terms the page does not hold for the name's kind", { terms: LOCAL.communityTerms[0] }, null], ["a community name's other years", { terms: LOCAL.communityTerms[0] }, { years: 3 }],
+  ])("takes a search answer with %s as names not orderable now", async (_, found, community) => {
+    const { flow } = await modules()
+    answering(found, community)
+    await expect(flow.quoteOf("dynamis")).rejects.toMatchObject({ code: "terms_unavailable" })
+  })
 })
 
 describe("revealOrder", () => {
-  const general = { community: false, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: `0x${"c7".repeat(32)}`, nonce: 0 }
+  const general = { ...GENERAL, nonce: 0 }
 
   it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("sends the label, secret and links with a RegisterName signature from the code's key over the dispute days of a %s payment, %i, a week ahead of the service's clock", async (method, days) => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId: method === "code" ? null : "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
-    await flow.revealOrder(view(built.request, { acceptance: general }), record)
+    await flow.revealOrder(view(built.request, { acceptance: general }), record, record.terms)
     const body = calls[0].body as SentReveal
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
@@ -159,12 +197,12 @@ describe("revealOrder", () => {
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
-    const acceptance = { community, policy: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707", termsHash: `0x${"c7".repeat(32)}`, nonce: 2 }
-    await flow.revealOrder(view(built.request, { acceptance }), record)
+    const accepted = { ...community ? COMMUNITY : GENERAL, nonce: 2 }
+    await flow.revealOrder(view(built.request, { acceptance: accepted }), record, community ? COMMUNITY_SIGNED : SIGNED)
     const sent = calls[0].body as { deadline: number; acceptance: { termsHash: string; nonce: number; signature: Hex } }
-    expect(sent.acceptance).toMatchObject({ termsHash: acceptance.termsHash, nonce: 2 })
-    const digest = acceptTermsDigest(community, BigInt(LOCAL.chainId), fromHex(LOCAL.namePolicy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, BigInt(sent.deadline))
-    const other = acceptTermsDigest(!community, BigInt(LOCAL.chainId), fromHex(LOCAL.namePolicy), fromHex(built.request.commitment), fromHex(acceptance.termsHash), 2n, BigInt(sent.deadline))
+    expect(sent.acceptance).toMatchObject({ termsHash: accepted.termsHash, nonce: 2 })
+    const digest = acceptTermsDigest(community, BigInt(LOCAL.chainId), fromHex(LOCAL.namePolicy), fromHex(built.request.commitment), fromHex(accepted.termsHash), 2n, BigInt(sent.deadline))
+    const other = acceptTermsDigest(!community, BigInt(LOCAL.chainId), fromHex(LOCAL.namePolicy), fromHex(built.request.commitment), fromHex(accepted.termsHash), 2n, BigInt(sent.deadline))
     expect(await recoverAddress({ hash: hex(digest) as Hex, signature: sent.acceptance.signature })).toBe(OWNER)
     expect(await recoverAddress({ hash: hex(other) as Hex, signature: sent.acceptance.signature })).not.toBe(OWNER)
   })
@@ -182,9 +220,25 @@ describe("revealOrder", () => {
     answers["POST /api/registration/reg1/reveal"] = {}
     const record = await flow.ownOrderFor(OWNER_CODE, built.request.labelHash)
     expect(record?.method).toBe(method)
-    await flow.revealOrder(reopened, record!)
+    await flow.revealOrder(reopened, record!, record!.terms)
     const sent = calls.find((c) => c.path === "/api/registration/reg1/reveal")!.body as SentReveal
     expect(await revealSigner(sent, built.request.duration, days)).toBe(OWNER)
+  })
+
+  it.each([
+    ["of another term than the order's", { duration: 1 }, SIGNED],
+    ["under another policy", { acceptance: { ...general, policy: LOCAL.sponsor } }, SIGNED],
+    ["of other terms than the buyer agreed to", { acceptance: { ...general, termsHash: LOCAL.generalTerms[1].hash } }, SIGNED],
+    ["of the other kind", { acceptance: { ...general, community: true } }, SIGNED],
+    ["of terms the page does not hold", { acceptance: { ...general, termsHash: `0x${"d8".repeat(32)}` } }, "d8".repeat(32)],
+  ])("signs and sends nothing for a view %s", async (_, change, agreed) => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
+    answers["POST /api/registration/reg1/reveal"] = {}
+    const { duration = built.request.duration, ...shown } = change as ShortView
+    await expect(flow.revealOrder(view({ ...built.request, duration }, { acceptance: general, ...shown }), record, agreed)).rejects.toBeInstanceOf(flow.Unsignable)
+    expect(calls).toEqual([])
   })
 })
 
@@ -196,11 +250,12 @@ describe("selectName", () => {
     store.saveOrder(record)
     answers["POST /api/registration/reg1/name"] = view(built.request)
     const another = draft("another", COMMUNITY_SIGNED)
+    acceptance = COMMUNITY
     await flow.selectName(record, another, await flow.orderRequest(another))
     const body = calls[0].body as { fields: { labelHash: string; length: number; duration: number; commitment: string; sealed: string; terms: unknown }; timestamp: number; signature: Hex }
     const { fields } = body
     expect(fields.labelHash).toBe(hex(labelHash("another")))
-    expect(fields.terms).toEqual({ communityName: true, termsHash: `0x${"c7".repeat(32)}` })
+    expect(fields.terms).toEqual(COMMUNITY_AGREED)
     const sealedHash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fields.sealed))).toString("hex")
     const message = `simplex.domains name reg1 ${fields.labelHash} 7 ${fields.duration} ${fields.commitment} 0x${sealedHash} ${COMMUNITY_SIGNED} ${body.timestamp}`
     expect(await recoverMessageAddress({ message, signature: body.signature })).toBe(OWNER)
@@ -213,6 +268,7 @@ describe("selectName", () => {
     const record = flow.recordFor(fiveYears, await flow.orderRequest(fiveYears), "code", 0, { registrationId: "reg1", invoiceId: null })
     store.saveOrder(record)
     const community = { ...draft("another", COMMUNITY_SIGNED), years: 2 }
+    acceptance = COMMUNITY
     const built = await flow.orderRequest(community)
     answers["POST /api/registration/reg1/name"] = view(built.request)
     await flow.selectName(record, community, built)
@@ -383,14 +439,13 @@ describe("syncRecord", () => {
     expect(store.orderByRegistration("reg1")?.label).toBe("another")
   })
 
-  it("takes the terms the order signed from the view, which other terms alone change", async () => {
+  it("keeps the terms the order signed in this browser, whatever terms a view of its commitment names", async () => {
     const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
     store.saveOrder(record)
-    const synced = await flow.syncRecord(record, view(built.request, { terms: COMMUNITY_AGREED }))
-    expect(synced).toMatchObject({ label: "dynamis", terms: COMMUNITY_SIGNED })
-    expect(store.orderByRegistration("reg1")?.terms).toBe(COMMUNITY_SIGNED)
+    expect(await flow.syncRecord(record, view(built.request, { terms: COMMUNITY_AGREED }))).toBe(record)
+    expect(store.orderByRegistration("reg1")?.terms).toBe(SIGNED)
   })
 
   it("gives up on an order the code does not open", async () => {

@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect, type Locator, type Page } from "@playwright/test"
+import { heldPrice } from "../src/config.ts"
 import { YEAR_S } from "../src/crypto/registration.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
@@ -336,7 +337,7 @@ async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
   await page.route(`**/api/registration/${CARD_REGISTRATION}*`, (route) => route.fulfill({ json: registration }))
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? homeAnswers(order.owner).taken : homeAnswers(order.owner).available }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? homeAnswers(order.owner, o.label).taken : homeAnswers(order.owner, o.label).available }))
   if (o.forgetful) await page.addInitScript(() => {
     const keep = Storage.prototype.setItem
     Storage.prototype.setItem = function (key: string, value: string) {
@@ -492,7 +493,7 @@ test.describe(() => {
     await expect(onStep(page).getByText("Card is temporarily unavailable")).toBeVisible()
     await fitsWindow(page, "o6-review-code-and-method-refused", frames)
     await page.unroute("**/api/invoice")
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: 12345 } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: heldPrice(label.length) } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
     await fitsWindow(page, "o7-price-changed", frames)
@@ -586,8 +587,8 @@ test("the home keeps its headline and search still as each kind of answer comes,
 
 const linked = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x" })
 // the search's answers for a name: available, taken with two chats, and this browser's, of `owner`, with two chats
-const homeAnswers = (owner: string) => ({
-  available: { found: { type: "available", price: 10000, years: 2, terms: TERMS } },
+const homeAnswers = (owner: string, label: string) => ({
+  available: { found: { type: "available", price: heldPrice(label.length), years: 2, terms: TERMS } },
   taken: registeredAnswer(`0x${"00".repeat(19)}01`, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
   yours: registeredAnswer(owner, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
 })
@@ -608,7 +609,7 @@ test.describe(() => {
     for (const label of [SHORT_NAME, wideLabel(6), wideLabel(MAX_LABEL_LENGTH)]) {
       const { owner } = await keepOrder(page, "reg-rowfit", null, label)
       await page.route("**/api/registration/reg-rowfit*", (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
-      for (const [state, answer] of Object.entries(homeAnswers(owner))) {
+      for (const [state, answer] of Object.entries(homeAnswers(owner, label))) {
         await page.unroute("**/api/name/**")
         await page.route("**/api/name/**", (route) => route.fulfill({ json: answer }))
         for (const size of FIT_SIZES) {

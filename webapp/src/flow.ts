@@ -59,6 +59,8 @@ export const draftAgain = (record: store.OrderRecord, quote: Quote, terms: strin
 
 export type BuiltOrder = { request: api.SignedOrder; owner: string }
 
+export class Unsignable extends Error {}
+
 // The order and its owner's signature over it, which proves that the code's wallet placed it, with the signed registration
 // and terms acceptance the service registers with after payment.
 export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
@@ -99,16 +101,16 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
   }
 }
 
-export function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method">, duration: number, toSign: api.ToSignRead): api.RevealBody {
+export function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method" | "request">, view: api.RegistrationView, toSign: api.ToSignRead, _agreed: string | undefined): api.RevealBody {
   const wallet = walletOf(record.ownerCode)!
-  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, BigInt(duration))
+  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, BigInt(view.duration))
   return signedReveal(wallet, r, makeCommitment(r), toSign, record.method)
 }
 
-export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
+export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord, agreed: string | undefined): Promise<void> {
   const toSign = api.toSignOf(view)
   if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
-  await api.reveal(view.id, revealFor(record, view.duration, toSign))
+  await api.reveal(view.id, revealFor(record, view, toSign, agreed))
 }
 
 async function sha256Hex(text: string): Promise<string> {

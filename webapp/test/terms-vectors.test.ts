@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { hashMessage, recoverMessageAddress, type Hex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { LOCAL } from "../src/config.ts"
 import { formatOwnerCode } from "../src/crypto/code.ts"
 import { commitmentSecret, labelHash, makeCommitment, YEAR_S } from "../src/crypto/registration.ts"
 import { seal, unseal } from "../src/crypto/seal.ts"
@@ -30,7 +31,6 @@ const OWNER = RECORDED?.owner ?? ""
 const { label: LABEL, duration: DURATION, resolver: RESOLVER, registrationId: REGISTRATION_ID, timestamp: TIMESTAMP, labelHash: LABEL_HASH, commitment: COMMITMENT, sealed: SEALED, sealedHash: SEALED_HASH } =
   RECORDED?.order ?? { label: "", duration: 0, resolver: "", registrationId: "", timestamp: 0, labelHash: "", commitment: "", sealed: "", sealedHash: "" }
 const VECTORS: Vector[] = (RECORDED?.messages ?? []).flatMap((m) => m.kind === "find" || m.terms === null ? [] : [{ ...m, kind: m.kind, terms: m.terms }])
-const PLAIN = VECTORS.find((v) => !v.terms.startsWith("community/"))?.terms ?? ""
 
 // The contract's formats: `simplex.domains order <labelHash> <length> <duration> <commitment> <sha256(sealed)> <terms> <timestamp>`,
 // and for name the registration id after the kind.
@@ -86,11 +86,13 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   const NO_LINKS = { contact: "", channel: "" }
   const vector = (kind: Kind, terms: string) => VECTORS.find((v) => v.kind === kind && v.terms === terms)!
   const TERMS = [...new Set(VECTORS.map((v) => v.terms))]
+  const COMMUNITY = "community/"
+  const heldOf = (community: boolean) => TERMS.filter((t) => t.startsWith(COMMUNITY) === community).map((t) => ({ hash: `0x${t.replace(COMMUNITY, "")}`, link: "" }))
   let sent: Record<string, unknown>[]
-  const TO_SIGN = { type: "read", intentNonce: 0, acceptance: { community: false, policy: SPONSOR, termsHash: `0x${PLAIN}`, nonce: 0 } }
 
   // the vector's clock and zero IV, storage for the order kept, and a service that answers a selection with its view
-  async function builders() {
+  async function builders(terms: string) {
+    const toSign = { type: "read", intentNonce: 0, acceptance: { community: terms.startsWith(COMMUNITY), policy: LOCAL.namePolicy, termsHash: `0x${terms.replace(COMMUNITY, "")}`, nonce: 0 } }
     vi.useFakeTimers({ toFake: ["Date"], now: TIMESTAMP * 1000 })
     vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => array)
     const data = new Map<string, string>()
@@ -100,7 +102,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     } })
     sent = []
     vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
-      if (path.startsWith(`/api/name/${LABEL_HASH}/sign?`)) return new Response(JSON.stringify(TO_SIGN), { status: 200 })
+      if (path.startsWith(`/api/name/${LABEL_HASH}/sign?`)) return new Response(JSON.stringify(toSign), { status: 200 })
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       sent.push(body)
       return new Response(JSON.stringify({
@@ -111,7 +113,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
     vi.resetModules()
     vi.doMock("../src/config.ts", async (actual) => {
       const config = await actual<typeof import("../src/config.ts")>()
-      return { ...config, SITE: { ...config.LOCAL, resolver: RESOLVER, sponsor: SPONSOR, termStart: TERM_START } }
+      return { ...config, SITE: { ...config.LOCAL, resolver: RESOLVER, sponsor: SPONSOR, termStart: TERM_START, generalTerms: heldOf(false), communityTerms: heldOf(true) } }
     })
     return { flow: await import("../src/flow.ts"), store: await import("../src/store.ts") }
   }
@@ -124,14 +126,14 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   const draft = (terms: string) => ({ label: LABEL, links: NO_LINKS, years: YEARS, ownerCode: OWNER_CODE, terms, method: "btc" as const })
 
   it.each(TERMS)("order with terms %s", async (terms) => {
-    const { flow } = await builders()
+    const { flow } = await builders(terms)
     const { request: { reveal, ...request } } = await flow.orderRequest(draft(terms))
     expect(request).toEqual({ labelHash: LABEL_HASH, length: LABEL.length, duration: DURATION, owner: OWNER, commitment: COMMITMENT, sealed: SEALED, terms, timestamp: TIMESTAMP, signature: vector("order", terms).signature })
     expect(reveal.label).toBe(LABEL)
   })
 
   it.each(TERMS)("name with terms %s", async (terms) => {
-    const { flow, store } = await builders()
+    const { flow, store } = await builders(terms)
     const built = await flow.orderRequest(draft(terms))
     const record = flow.recordFor(draft(terms), built, "btc", 10000, { registrationId: REGISTRATION_ID, invoiceId: "inv" })
     store.saveOrder(record)

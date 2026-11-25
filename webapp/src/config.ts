@@ -10,9 +10,20 @@ export interface Deployment {
   resolver: string
   namePolicy: string
   termStart: number
+  paidYears: number
+  communityYears: number
+  minCodeYears: number
+  maxCodeYears: number
   codesOnly: boolean
+  priceBaseCentsPerYear: number
+  priceExceptions: PriceException[]
   generalTerms: Terms[]
   communityTerms: Terms[]
+}
+
+export interface PriceException {
+  labelLength: number
+  centsPerYear: number
 }
 
 export const MAINNET: Deployment = {
@@ -22,7 +33,13 @@ export const MAINNET: Deployment = {
   resolver: "0x9BDa37F19b59Cbc58BA75932B3c598947fD88B0A",
   namePolicy: "0x5147b65F547b766DBaf520127e8f59834475021E",
   termStart: 1798761600,
+  paidYears: 2,
+  communityYears: 2,
+  minCodeYears: 2,
+  maxCodeYears: 10,
   codesOnly: true,
+  priceBaseCentsPerYear: 5000,
+  priceExceptions: [],
   generalTerms: [{
     hash: "0x70e0396b0a83f6c4e624b2e43d537b7c9816c6868bf705080237d93f5aa2541d",
     link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/7cfd522f0f26454fc913f978a45f5f6028017b10/docs/NAMES-CONDITIONS.md#sha256=6871119c6e4088d2b6f2d7890443a82a4b8e65dd1ccb73456ce8f13c3434e6ee",
@@ -40,7 +57,13 @@ export const LOCAL: Deployment = {
   resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
   namePolicy: "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE",
   termStart: 1798761600,
+  paidYears: 2,
+  communityYears: 2,
+  minCodeYears: 2,
+  maxCodeYears: 10,
   codesOnly: false,
+  priceBaseCentsPerYear: 5000,
+  priceExceptions: [{ labelLength: 7, centsPerYear: 10000 }, { labelLength: 6, centsPerYear: 20000 }],
   generalTerms: [{
     hash: "0xb0ecf1bb8f71f387d7d56ea055cb44378c91a8ad2e66b9c0c6497adccaa599e9",
     link: "http://127.0.0.1:8098/terms/00516a11b53ad775b7a51fc8a96c9199529e7b53424eec791df0755a15645bda.md#sha256=00516a11b53ad775b7a51fc8a96c9199529e7b53424eec791df0755a15645bda",
@@ -54,6 +77,12 @@ export const LOCAL: Deployment = {
   }, {
     hash: "0xc84fc8765b05721378152c7f369ce2e3fb8ce48f37d3abe888347274e5d41897",
     link: "http://127.0.0.1:8098/terms/c4aa8c69a695870643ceb72badbd1fcbfd866879379eb3c38ea0b9f17b2a1a59.md#sha256=c4aa8c69a695870643ceb72badbd1fcbfd866879379eb3c38ea0b9f17b2a1a59",
+  }, {
+    hash: "0x43c5f541d45cc6b0430acd28d29255eb65f90ac414d448f3f06be712a59a8788",
+    link: "https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/4cb24444a1f2e3d4c5b6a7980716253443526170/docs/community-terms.md#sha256=a081d9e2a2eb4c63f9dfa01f092724323ed8d24f8459f1626226e33d6198e8ab",
+  }, {
+    hash: "0xda08ab458b060f08de0ebe328d20d10b6f1d275237f1b3c03d2cc1177f5e3ba8",
+    link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/4cb24444a1f2e3d4c5b6a7980716253443526170/docs/community-terms.md#sha256=a081d9e2a2eb4c63f9dfa01f092724323ed8d24f8459f1626226e33d6198e8ab",
   }],
 }
 
@@ -62,6 +91,8 @@ declare const __MAINNET__: boolean
 export const SITE: Deployment = typeof __MAINNET__ === "undefined" ? LOCAL
   : __MAINNET__ ? MAINNET
   : { ...LOCAL, codesOnly: import.meta.env.VITE_CODES_ONLY === "true" }
+
+export const heldPrice = (length: number) => (SITE.priceExceptions.find((e) => e.labelLength === length)?.centsPerYear ?? SITE.priceBaseCentsPerYear) * SITE.paidYears
 
 export interface SiteConfig { stripePublishableKey: string; downtime: boolean }
 

@@ -8,6 +8,16 @@ import { initialSearch, reduce } from "../../src/screens/search.ts"
 
 const DIR = process.env.STORE_FIXTURES
 
+vi.mock("../../src/config.ts", async (actual) => {
+  const config = await actual<typeof import("../../src/config.ts")>()
+  const dir = process.env.STORE_FIXTURES
+  if (!dir) return config
+  const fs = await import("node:fs")
+  const path = await import("node:path")
+  const termsOf = (name: string) => JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), "utf8")).body.found.terms
+  return { ...config, SITE: { ...config.SITE, generalTerms: [termsOf("search-available")], communityTerms: [termsOf("search-available-community")] } }
+})
+
 interface Fixture { status: number; body: unknown; retryAfter?: string }
 
 const fixture = (name: string): Fixture => JSON.parse(readFileSync(join(DIR!, `${name}.json`), "utf8")) as Fixture
@@ -185,8 +195,9 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect((await api.readRegistration("registration")).phase).toEqual({ type: "ended" })
   })
 
-  it("reads a selection of a name at another price with that name's price", async () => {
-    const e = await refusal("select-catalog-changed", () => api.selectName("r1", order))
+  it("reads a selection of a name at another price with that name's price, the price the page holds for its length", async () => {
+    const e = await refusal("select-catalog-changed", () => api.selectName("r1", { ...order, length: 7 }))
     expect([e.code, e.body.price]).toEqual(["catalog_changed", 20000])
+    expect((await refusal("select-catalog-changed", () => api.selectName("r1", order))).code, "another length's price").toBe("network")
   })
 })

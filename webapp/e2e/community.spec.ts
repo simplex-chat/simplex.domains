@@ -411,19 +411,11 @@ test("changed community terms whose searches fail for now are asked for once a s
   })
 })
 
-test("changed community terms are asked for by the hash the order's view asks to accept, the view read again while the service has no terms of that hash", async ({ page, request }) => {
+test("changed community terms are asked for by the hash the order's view asks to accept, as the page holds them, whatever the service answers for that hash", async ({ page, request }) => {
   await orderBeforeTermsChange(page, request, "cr", async (_, invoiceId, hash) => {
-    let refused = false
-    await page.route(`**/api/terms/${hash}`, async (route) => {
-      if (refused) return route.fallback()
-      refused = true
-      await route.fulfill({ status: 404, json: { type: "not_found" } })
-    })
-    let reads = 0
-    page.on("request", (r) => { if (refused && r.url().endsWith(`/api/invoice/${invoiceId}`)) reads++ })
+    await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
     await control(request, `settle/${invoiceId}`)
     await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
-    expect([refused, reads > 0], "the view is read again after its terms were not found").toEqual([true, true])
   })
 })
 

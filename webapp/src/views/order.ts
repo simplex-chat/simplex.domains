@@ -310,7 +310,7 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const key = revealKey(view)
   const reference = state.reference
   dispatch({ type: "reveal-sent", key })
-  flow.revealOrder(view, record).catch((e) => {
+  flow.revealOrder(view, record, record.terms).catch((e) => {
     const refused = e instanceof api.ApiError && e.code === "bad_request"
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
@@ -1221,7 +1221,7 @@ async function continueOrder(): Promise<void> {
   const view = state.view!
   dispatch({ type: "continue-started" })
   try {
-    await api.reveal(view.id, flow.revealFor(record, view.duration, await api.signFor(view.labelHash, view.owner)))
+    await api.reveal(view.id, flow.revealFor(record, view, await api.signFor(view.labelHash, view.owner), record.terms))
     reread(gen)
   } catch (e) {
     if (holdOn(e, "Nothing changed. ", gen)) return

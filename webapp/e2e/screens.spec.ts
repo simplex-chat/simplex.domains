@@ -641,7 +641,7 @@ screen(240, "checkout-select-terms-changed", async (r) => {
 })
 const selectionRefusals: [number, string, number, string, Record<string, unknown>?][] = [
   [242, "checkout-select-refused-taken", 409, "name_taken"],
-  [244, "checkout-select-refused-price", 409, "catalog_changed", { price: 20000 }],
+  [244, "checkout-select-refused-price", 409, "catalog_changed", { price: 10000 }],
   [248, "checkout-select-refused-unavailable", 503, "terms_unavailable"],
   [250, "checkout-select-refused-failed", 503, "name_check_unavailable"],
 ]

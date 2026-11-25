@@ -176,9 +176,10 @@ const control: { mode: "open" | "codes"; chainDown: boolean; limitedUntil: numbe
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 
+const mismatch: { price: number | null; policy: boolean; termsHash: boolean } = { price: null, policy: false, termsHash: false }
+const OTHER_TERMS_HASH = keccak256(toHex("other terms"))
+
 const INVOICE_ERRORS: Record<string, number> = { provider_unavailable: 503, rate_limited: 429, catalog_changed: 409, internal: 500 }
-// the raised price an injected catalog_changed reports, in cents
-const RAISED_PRICE_CENTS = 5000
 const RETRY_AFTER_SECONDS = wholeEnv("MOCK_RETRY_AFTER_SECONDS", 30)
 
 export class HttpError extends Error {
@@ -361,7 +362,7 @@ async function answerFor(hash: Hex, length: number, terms: Terms | null, listed:
     const years = listed ? COMMUNITY_YEARS : YEARS
     const price = await priceOf(length, years).catch(unavailable)
     const readable = terms && await termsText(terms).catch(() => null) !== null ? terms : null
-    return { type: "available", price, years, ...readable ? { terms: readable } : {} }
+    return { type: "available", price: mismatch.price ?? price, years, ...readable ? { terms: readable } : {} }
   }
   const registered = { type: "registered", owner: found.owner, resolver: found.resolver, expiresAt: found.expires, gracePeriod: found.grace }
   // Records are read only from the store's own resolver: calling whatever contract a name points at would let anyone
@@ -444,7 +445,10 @@ async function acceptanceOf(reg: Pick<Registration, "labelHash" | "owner">): Pro
   const { listed, terms } = await nameTerms(reg.labelHash)
   // before the policy has these terms there are none to accept: the view reads unread, and a reveal waits
   if (!terms) throw new Error("the name policy has not set these terms yet")
-  return { community: listed, policy: deployment.namePolicy, termsHash: terms.hash, nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])) }
+  return {
+    community: listed, policy: mismatch.policy ? deployment.sponsor : deployment.namePolicy, termsHash: mismatch.termsHash ? OTHER_TERMS_HASH : terms.hash,
+    nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])),
+  }
 }
 
 // the chain reads the owner signs with, unread when either fails: the view still answers
@@ -687,7 +691,7 @@ async function injectedRefusal(length: number): Promise<void> {
   const injected = control.invoiceError
   if (!injected) return
   control.invoiceError = null
-  const extra = injected === "catalog_changed" ? { price: await chainPrice(length, YEARS) + RAISED_PRICE_CENTS } : {}
+  const extra = injected === "catalog_changed" ? { price: await chainPrice(length, YEARS) } : {}
   throw new HttpError(INVOICE_ERRORS[injected], injected, extra, injected === "rate_limited" ? RETRY_AFTER_SECONDS : null)
 }
 
@@ -1542,6 +1546,13 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
   const delays = body.fetchDelays
   if (typeof delays === "object" && delays !== null && Object.values(delays).every((ms) => Number.isInteger(ms) && ms >= 0)) control.fetchDelays = delays as Record<string, number>
   return { ok: true }
+}
+
+export function controlMismatch(body: Record<string, unknown>): Record<string, unknown> {
+  const { price = null, policy = false, termsHash = false } = body
+  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || typeof policy !== "boolean" || typeof termsHash !== "boolean") throw badRequest()
+  Object.assign(mismatch, { price, policy, termsHash })
+  return { ...mismatch }
 }
 
 // The service's mode as a restart with codes_only on or off sets it.

@@ -4,6 +4,7 @@ import {
   ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
   communityAgreed, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
+import { LOCAL } from "../src/config.ts"
 
 const HASH = "ab".repeat(32)
 const COMMIT = "4cb24444a1f2e3d4c5b6a7980716253443526170"
@@ -210,8 +211,8 @@ describe("service errors", () => {
     }
   })
 
-  const TERMS = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
-  const GROUP = { kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
+  const TERMS = LOCAL.generalTerms[0]
+  const GROUP ={ kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
   const channelPreview = (profile: Record<string, unknown> = GROUP) => ({ kind: "channel", profile: { type: "ok", linkProfile: profile } })
   const PREVIEW = channelPreview()
   // the profile as the page draws it
@@ -274,6 +275,17 @@ describe("service errors", () => {
     }
     answerWith(200, JSON.stringify({ state: "unused", minLength: 6, years: 2 }))
     expect(await checkCode("SN6-X")).toEqual({ state: "unused", minLength: 6, years: 2 })
+  })
+
+  it("takes a code check only for the years a code may give", async () => {
+    for (const years of [LOCAL.minCodeYears, LOCAL.maxCodeYears]) {
+      answerWith(200, JSON.stringify({ state: "unused", minLength: 6, years }))
+      expect((await checkCode("SN6-X")).years).toBe(years)
+    }
+    for (const years of [LOCAL.minCodeYears - 1, LOCAL.maxCodeYears + 1]) {
+      answerWith(200, JSON.stringify({ state: "unused", minLength: 6, years }))
+      expect(((await checkCode("SN6-X").then(() => null, (e: unknown) => e)) as ApiError).code, String(years)).toBe("network")
+    }
   })
 
   it("takes a success whose body was cut off as no answer", async () => {
@@ -407,8 +419,8 @@ describe("service errors", () => {
 
   describe("terms and community names", () => {
     const COMMUNITY = { for: "bakers and pastry chefs", years: 2 }
-    const COMMUNITY_TERMS = termsOf(`${FORGEJO}/docs/community-terms.md#sha256=${"c7".repeat(32)}`)
-    const LOCAL_TERMS = termsOf(`http://127.0.0.1:8098/terms/${"c7".repeat(32)}.md#sha256=${"c7".repeat(32)}`)
+    const COMMUNITY_TERMS = LOCAL.communityTerms[2]
+    const LOCAL_TERMS = LOCAL.communityTerms[0]
     const SIGNED = `community/${COMMUNITY_TERMS.hash.slice(2)}`
     const OLDER_SIGNED = `2026-10-23/community/${"c7".repeat(32)}`
     const AVAILABLE = { found: { type: "available", price: 10000, years: 2, terms: COMMUNITY_TERMS }, community: COMMUNITY }
@@ -451,12 +463,20 @@ describe("service errors", () => {
       expect(await searchName(HASH, 6), "a name off the community list").toEqual({ found: REGISTERED, community: null })
     })
 
+    it("reads the terms of an available answer as none unless they are the page's own terms of the name's kind", async () => {
+      const unheld = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
+      for (const body of [availableWith(TERMS), availableWith(LOCAL.generalTerms[1]), { ...availableWith(COMMUNITY_TERMS), community: null }, { ...availableWith(unheld), community: null }]) {
+        answerWith(200, JSON.stringify(body))
+        expect((await searchName(HASH, 6)).found, JSON.stringify(body)).toEqual({ ...body.found, terms: null })
+      }
+    })
+
     it("takes a community entry that cannot be so, or the available answer with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
       for (const body of [
         { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, for: null } },
         { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } }, { ...AVAILABLE, community: { for: COMMUNITY.for } }, availableWith({ link: TERMS.link }), availableWith({ hash: TERMS.hash }),
         availableWith(null), availableWith({ ...TERMS, hash: COMMUNITY_TERMS.hash }), availableWith({ ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") }),
-        availableWith(termsOf(TERMS.link.replace("https:", "http:"))), availableWith(termsOf("https://simplex.chat/terms")),
+        availableWith(termsOf(COMMUNITY_TERMS.link.replace("https:", "http:"))), availableWith(termsOf("https://simplex.chat/terms")),
         { found: { type: "registered" } }, { community: COMMUNITY },
       ]) {
         answerWith(200, JSON.stringify(body))
@@ -511,7 +531,7 @@ describe("service errors", () => {
     })
 
     it.each(SENDS)("gives %s refused for changed terms the terms of the name's kind and the community entry as they are now", async (_, send) => {
-      for (const [terms, community] of [[COMMUNITY_TERMS, COMMUNITY], [TERMS, null], [LOCAL_TERMS, null]] as const) {
+      for (const [terms, community] of [[COMMUNITY_TERMS, COMMUNITY], [TERMS, null], [LOCAL_TERMS, COMMUNITY]] as const) {
         answerWith(409, JSON.stringify({ type: "terms_changed", terms, community }))
         const e = await send().then(() => null, (e: unknown) => e)
         expect(e).toBeInstanceOf(TermsChanged)
@@ -522,6 +542,26 @@ describe("service errors", () => {
         answerWith(409, JSON.stringify(body))
         const e = await send().then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
+      }
+    })
+
+    it.each(SENDS)("takes %s refused for changed terms as no answer unless they are the page's own terms of the name's kind", async (_, send) => {
+      const unheld = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
+      for (const [terms, community] of [[TERMS, COMMUNITY], [COMMUNITY_TERMS, null], [unheld, null]] as const) {
+        answerWith(409, JSON.stringify({ type: "terms_changed", terms, community }))
+        const e = await send().then(() => null, (e: unknown) => e)
+        expect((e as ApiError).code, JSON.stringify(terms)).toBe("network")
+      }
+    })
+
+    it.each(SENDS.filter(([name]) => name !== "a code order"))("takes %s refused for a changed price only at the price the page holds for the name's length", async (_, send) => {
+      const held = LOCAL.priceExceptions.find((e) => e.labelLength === ORDER.length)!.centsPerYear * LOCAL.paidYears
+      answerWith(409, JSON.stringify({ type: "catalog_changed", price: held }))
+      expect(await send().then(() => null, (e: unknown) => e)).toMatchObject({ code: "catalog_changed", body: { price: held } })
+      for (const price of [held - 1, LOCAL.priceBaseCentsPerYear * LOCAL.paidYears, undefined]) {
+        answerWith(409, JSON.stringify({ type: "catalog_changed", price }))
+        const e = await send().then(() => null, (e: unknown) => e)
+        expect((e as ApiError).code, String(price)).toBe("network")
       }
     })
 
