@@ -174,8 +174,8 @@ const control: { mode: "open" | "codes"; downtime: boolean; chainDown: boolean; 
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 
-const mismatch: { price: number | null; policy: boolean; termsHash: boolean; method: boolean; address: boolean; amount: boolean } =
-  { price: null, policy: false, termsHash: false, method: false, address: false, amount: false }
+const mismatch: { price: number | null; policy: boolean; termsHash: boolean; method: boolean; address: Coin | null; amount: boolean } =
+  { price: null, policy: false, termsHash: false, method: false, address: null, amount: false }
 const OTHER_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
 const OTHER_AMOUNT_CENTS = 100
 const OTHER_TERMS_HASH = keccak256(toHex("other terms"))
@@ -725,8 +725,8 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   if (body.price !== price) throw new HttpError(409, "catalog_changed", { price })
   const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS[method] }, body.reveal)
   const invoiced = mismatch.method ? OTHER_METHOD[method] : method
-  const [amount, outside] = [mismatch.amount ? price + OTHER_AMOUNT_CENTS : price, mismatch.address]
-  Object.assign(mismatch, { method: false, address: false, amount: false })
+  const [amount, outside] = [mismatch.amount ? price + OTHER_AMOUNT_CENTS : price, mismatch.address === invoiced]
+  Object.assign(mismatch, { method: false, amount: false }, outside ? { address: null } : {})
   const reg = newRegistration(order, { years: YEARS, paid: price, method: invoiced, prepaidCode: null, phase: "unpaid", orderHash, disputeDays: DISPUTE_DAYS[method] }, rv)
   return invoiceView(openInvoice(reg, invoiced, amount, outside))
 }
@@ -1555,8 +1555,9 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
 }
 
 export function controlMismatch(body: Record<string, unknown>): Record<string, unknown> {
-  const { price = null, policy = false, termsHash = false, method = false, address = false, amount = false } = body
-  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || [policy, termsHash, method, address, amount].some((flag) => typeof flag !== "boolean")) throw badRequest()
+  const { price = null, policy = false, termsHash = false, method = false, address = null, amount = false } = body
+  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || [policy, termsHash, method, amount].some((flag) => typeof flag !== "boolean")
+    || (address !== null && address !== "btc" && address !== "xmr")) throw badRequest()
   Object.assign(mismatch, { price, policy, termsHash, method, address, amount })
   return { ...mismatch }
 }

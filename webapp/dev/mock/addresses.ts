@@ -5,7 +5,7 @@ import { createHash } from "node:crypto"
 import { ed25519 } from "@noble/curves/ed25519"
 import { bytesToNumberLE, numberToBytesBE, numberToBytesLE } from "@noble/curves/utils"
 import { hmac } from "@noble/hashes/hmac"
-import { sha512 } from "@noble/hashes/sha2"
+import { sha256, sha512 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils"
 import { base58xmr } from "@scure/base"
@@ -34,18 +34,23 @@ export function bitcoinPayee(branch: HDKey, hrp: string, index: number): Payee<B
 }
 
 export const devReceiving = HDKey.fromExtendedKey(DEV_XPUB, TESTNET_VERSIONS).deriveChild(0)
+const otherReceiving = HDKey.fromMasterSeed(sha256(utf8ToBytes("another Bitcoin wallet")), TESTNET_VERSIONS).deriveChild(0)
 
 const scalarHex = (v: bigint) => bytesToHex(numberToBytesLE(v, KEY_BYTES))
-const primary = moneroKeys(DEV_MONERO_PRIMARY)!
-const [spendKey, viewKey] = [ed25519.Point.fromBytes(primary.spend), ed25519.Point.fromBytes(primary.view)]
-const viewSecret = bytesToNumberLE(DEV_VIEW_KEY)
+interface MoneroWallet { spendKey: typeof G; viewKey: Uint8Array }
+const devWallet: MoneroWallet = { spendKey: ed25519.Point.fromBytes(moneroKeys(DEV_MONERO_PRIMARY)!.spend), viewKey: DEV_VIEW_KEY }
+const otherMonero: MoneroWallet = {
+  spendKey: G.multiply(hashToScalar(utf8ToBytes("another Monero wallet's spend key"))),
+  viewKey: numberToBytesLE(hashToScalar(utf8ToBytes("another Monero wallet's view key")), KEY_BYTES),
+}
 
-export function moneroPayee(account: number, index: number): Payee<MoneroProof> {
-  const m = hashToScalar(utf8ToBytes("SubAddr\0"), DEV_VIEW_KEY, numberToBytesLE(account, INDEX_BYTES), numberToBytesLE(index, INDEX_BYTES))
+export function moneroPayee(account: number, index: number, { spendKey, viewKey } = devWallet): Payee<MoneroProof> {
+  const viewSecret = bytesToNumberLE(viewKey)
+  const m = hashToScalar(utf8ToBytes("SubAddr\0"), viewKey, numberToBytesLE(account, INDEX_BYTES), numberToBytesLE(index, INDEX_BYTES))
   const D = spendKey.add(G.multiply(m))
   const C = D.multiply(viewSecret)
-  const k = hashToScalar(utf8ToBytes("simplex.domains view proof nonce"), DEV_VIEW_KEY, D.toBytes())
-  const c = hashToScalar(utf8ToBytes("simplex.domains view proof"), viewKey.toBytes(), D.toBytes(), C.toBytes(), G.multiply(k).toBytes(), D.multiply(k).toBytes())
+  const k = hashToScalar(utf8ToBytes("simplex.domains view proof nonce"), viewKey, D.toBytes())
+  const c = hashToScalar(utf8ToBytes("simplex.domains view proof"), G.multiply(viewSecret).toBytes(), D.toBytes(), C.toBytes(), G.multiply(k).toBytes(), D.multiply(k).toBytes())
   const s = ed25519.Point.Fn.create(k - c * viewSecret)
   const body = concatBytes(new Uint8Array([STAGENET_SUBADDRESS]), D.toBytes(), C.toBytes())
   return {
@@ -54,9 +59,7 @@ export function moneroPayee(account: number, index: number): Payee<MoneroProof> 
   }
 }
 
-export function payeeFor(method: "btc" | "xmr", invoiceId: string, outside = false): Payee {
-  const index = createHash("sha256").update(invoiceId).digest().readUInt32BE(0) % (NON_HARDENED - 2) + 1
-  const at = (i: number) => method === "btc" ? bitcoinPayee(devReceiving, DEV_HRP, i) : moneroPayee(0, i)
-  const payee = at(index)
-  return outside ? { ...payee, address: at(index + 1).address } : payee
+export function payeeFor(method: "btc" | "xmr", invoiceId: string, otherWallet = false): Payee {
+  const index = createHash("sha256").update(invoiceId).digest().readUInt32BE(0) % (NON_HARDENED - 1) + 1
+  return method === "btc" ? bitcoinPayee(otherWallet ? otherReceiving : devReceiving, DEV_HRP, index) : moneroPayee(0, index, otherWallet ? otherMonero : devWallet)
 }

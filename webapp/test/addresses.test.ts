@@ -53,12 +53,11 @@ describe("the mock's invoice addresses", () => {
     expect(payeeFor("xmr", ids[0]).address).not.toBe(payeeFor("xmr", ids[1]).address)
   })
 
-  it.each(ids)("give an address outside the page's keys with the proof of the invoice's own (%s)", (id) => {
+  it.each(ids)("give an address of another wallet, with its proof, which the page's keys do not prove (%s)", (id) => {
     for (const method of ["btc", "xmr"] as const) {
-      const outside = payeeFor(method, id, true)
-      expect(outside.addressProof).toEqual(payeeFor(method, id).addressProof)
-      expect(outside.address).not.toBe(payeeFor(method, id).address)
-      expect(proven(outside), method).toBe(false)
+      const other = payeeFor(method, id, true)
+      expect(other.address).not.toBe(payeeFor(method, id).address)
+      expect(proven(other), method).toBe(false)
     }
   })
 })

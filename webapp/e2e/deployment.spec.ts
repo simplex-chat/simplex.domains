@@ -68,10 +68,10 @@ test("an open invoice of another payment than its order asked for is drawn witho
   await expect(onStep(page).locator(".qr")).toHaveCount(0)
 })
 
-for (const [what, mismatch] of [["an address its proof does not derive from the page's keys", { address: true }], ["an amount other than its name's price", { amount: true }]] as const) {
+for (const [what, mismatch] of [["an address of a key the page does not hold", (method: string) => ({ address: method })], ["an amount other than its name's price", () => ({ amount: true })]] as const) {
   for (const method of ["btc", "xmr"] as const) {
     test(`an open ${COIN[method]} invoice with ${what} is drawn without its payment details, which could not be checked`, async ({ page, request }) => {
-      await mismatched(request, mismatch, () => startOrder(page, uniqueLabel("payee"), { method }))
+      await mismatched(request, mismatch(method), () => startOrder(page, uniqueLabel("payee"), { method }))
       await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
       await expect(onStep(page).getByText(`${COIN[method]} address`)).toHaveCount(0)
       await expect(onStep(page).locator(".qr")).toHaveCount(0)
@@ -82,7 +82,7 @@ for (const [what, mismatch] of [["an address its proof does not derive from the 
 test("an order's page gives support its address proof with its reference, as the service sent it, also when the address could not be checked", async ({ page, context, request, browserName }) => {
   test.skip(browserName !== "chromium", "reads the clipboard, which Playwright grants in Chromium")
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
-  const { invoiceId } = await mismatched(request, { address: true }, () => startOrder(page, uniqueLabel("proof"), { method: "xmr" }))
+  const { invoiceId } = await mismatched(request, { address: "xmr" }, () => startOrder(page, uniqueLabel("proof"), { method: "xmr" }))
   await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
   const { addressProof } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { addressProof: unknown }
   await onStep(page).getByRole("button", { name: SUPPORT_COPY }).click()
