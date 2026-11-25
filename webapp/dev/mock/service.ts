@@ -1129,21 +1129,26 @@ async function checkAcceptance(reg: Ordered, accepted: unknown, deadline: number
   return { community: asked.community, termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
 }
 
-async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: number, unread: () => never): Promise<Reveal> {
+async function revealSigned(o: Ordered, body: Record<string, unknown>) {
   const signature = checkSignature(body.signature)
   const { label, secret, nonce, deadline } = body
   if (typeof label !== "string" || labelProblem(label) !== null) throw badRequest()
-  if (keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
   if (!isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
   const records = linksOf(body.records)
   const tuple = registrationTuple({ ...o, label, secret, records })
-  if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
-  if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
   const signer = await recoverTypedDataAddress({
     ...registerNameTypedData(deployment.chainId, deployment.sponsor),
     message: { label, owner: o.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(o.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
     signature,
   })
+  return { signer, signature, label, secret, nonce, deadline, records, tuple }
+}
+
+async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: number, unread: () => never): Promise<Reveal> {
+  const { signer, signature, label, secret, nonce, deadline, records, tuple } = await revealSigned(o, body)
+  if (keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
+  if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
+  if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
   if (signer !== o.owner) throw badRequest()
   if (BigInt(nonce) !== (await read<bigint>(sponsor, "nonces", [o.owner]).catch(unread))) throw badRequest()
   const acceptance = await checkAcceptance(o, body.acceptance, deadline, unread)
@@ -1160,7 +1165,8 @@ async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  const signature = checkSignature(body.signature)
+  const { signer, signature } = await revealSigned(reg, body)
+  if (signer !== reg.owner) throw new HttpError(404, "not_found")
   if (reg.label !== null) {
     if (reg.label === body.label && reg.intent?.signature === signature) return {}
     throw badRequest()
@@ -1192,13 +1198,17 @@ async function checkSigned(owner: Address, message: string, timestamp: unknown, 
 const sha256Hex = (text: string) => "0x" + createHash("sha256").update(text, "ascii").digest("hex")
 
 export async function selectName(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
   refuseInDowntime()
   const sent = flatSigned(body)
-  const order = orderBody({ ...sent, owner: reg.owner })
+  const fields = orderFields(sent)
   const revealBody = objectOf(body.reveal)
-  await checkSigner(reg.owner, `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`, sent.timestamp, sent.signature)
+  if (!Number.isInteger(sent.timestamp)) throw badRequest()
+  const signature = checkSignature(sent.signature)
+  const reg = registrations.get(registrationId)
+  if (!reg) throw new HttpError(404, "not_found")
+  const order: OrderBody = { ...fields, owner: reg.owner }
+  const message = `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`
+  if (await recoverMessageAddress({ message, signature }) !== reg.owner) throw new HttpError(404, "not_found")
   const current = reg.labelHash === order.labelHash && reg.length === order.length && reg.duration === order.duration && reg.commitment === order.commitment && reg.sealed === order.sealed
     && reg.terms === order.terms
   // a repeat is answered however old its signature, as the service answers it before the age

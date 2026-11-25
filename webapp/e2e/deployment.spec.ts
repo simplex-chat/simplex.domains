@@ -1,5 +1,6 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 import { heldPrice } from "../src/config.ts"
+import { REVEAL_ATTEMPTS } from "../src/screens/order.ts"
 import {
   control, MOCK, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search, startOrder, test, toReview, uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
@@ -119,4 +120,17 @@ test("a committed order whose view asks for the acceptance under another policy 
     expect(reveals, "no reveal sent").toEqual([])
     expect((await mockRegistration(request, invoiceId)).label, "no reveal recorded").toBeNull()
   })
+})
+
+test("a committed order whose reveal the service answers as another signer's, not_found, says after three tries that the name could not be signed", async ({ page, request }) => {
+  const { invoiceId } = await startOrder(page, uniqueLabel("signer"), { method: "btc" })
+  let reveals = 0
+  await page.route("**/api/registration/*/reveal", (route) => {
+    reveals += 1
+    return route.fulfill({ status: 404, json: { type: "not_found" } })
+  })
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
+  await control(request, `settle/${invoiceId}`)
+  await expect(onStep(page).getByText("The name could not be signed")).toBeVisible({ timeout: REGISTRATION_MS })
+  expect(reveals).toBe(REVEAL_ATTEMPTS)
 })

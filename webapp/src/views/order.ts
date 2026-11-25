@@ -287,7 +287,7 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const agreed = termsAskedAgain(state) ? api.currentTerms(state.ask!) : record.terms
   dispatch({ type: "reveal-sent", key })
   flow.revealOrder(view, record, agreed).then(() => keepAgreed(record, agreed), (e) => {
-    const refused = e instanceof flow.Unsignable || (e instanceof api.ApiError && e.code === "bad_request")
+    const refused = e instanceof flow.Unsignable || (e instanceof api.ApiError && (e.code === "bad_request" || e.code === "not_found"))
     setTimeout(() => {
       dispatch({ type: refused ? "reveal-refused" : "reveal-failed", key })
       if (isRoute(pageRoute) && state.reference === reference) refresh()
