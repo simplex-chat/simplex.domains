@@ -44,6 +44,16 @@ services:
     depends_on:
       backend: { condition: service_healthy }
 
+  card:
+    <<: *app
+    command: npx vite --config card/vite.config.ts --host 0.0.0.0
+    environment:
+      CHOKIDAR_USEPOLLING: "1"
+    volumes:
+      - ./src:/repo/webapp/src:ro
+      - ./card:/repo/webapp/card:ro
+    ports: ["127.0.0.1:5180:5180"]
+
   preview:
     <<: *app
     profiles: [prod]

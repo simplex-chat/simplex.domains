@@ -388,6 +388,12 @@ describe("paymentChecked", () => {
     expect(paymentChecked(read(coin(other), undefined, { record: record({ ...btc, invoiceId: "inv-0" }) })), "another invoice's address").toBe(true)
   })
 
+  it("is not a card invoice whose PaymentIntent the card page found other than the invoice, which the reducer keeps for the page", () => {
+    const unchecked = reduce(read(priced(), undefined, cardRecord), { type: "card-unchecked" })
+    expect(unchecked.cardUnchecked).toBe(true)
+    expect(paymentChecked(unchecked)).toBe(false)
+  })
+
   it("is checked for its currency and address alone in a browser without the order, which cannot tell its name or payment", () => {
     expect(paymentChecked(read(coin({ amount: 1500 }), undefined, { record: null }))).toBe(true)
     expect(paymentChecked(read(coin({ addressProof: undefined }), undefined, { record: null }))).toBe(false)

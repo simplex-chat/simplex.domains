@@ -1,5 +1,4 @@
 import type { Terms } from "./api.ts"
-import { setPublishableKey } from "./stripe.ts"
 
 export const CONFIG_PATH = "/api/config"
 
@@ -20,6 +19,10 @@ export interface Deployment {
   currency: "usd"
   generalTerms: Terms[]
   communityTerms: Terms[]
+  stripeKey: string
+  stripeLive: boolean
+  cardOrigin: string
+  pageOrigins: string[]
   bitcoinHrp: string
   bitcoinReceiveKeys: string[]
   moneroSubaddressPrefix: number
@@ -54,6 +57,10 @@ export const MAINNET: Deployment = {
     hash: "0x70e0396b0a83f6c4e624b2e43d537b7c9816c6868bf705080237d93f5aa2541d",
     link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/7cfd522f0f26454fc913f978a45f5f6028017b10/docs/NAMES-CONDITIONS.md#sha256=6871119c6e4088d2b6f2d7890443a82a4b8e65dd1ccb73456ce8f13c3434e6ee",
   }],
+  stripeKey: "",
+  stripeLive: true,
+  cardOrigin: "https://pay.simplex.domains",
+  pageOrigins: ["https://simplex.domains"],
   bitcoinHrp: "bc",
   bitcoinReceiveKeys: [],
   moneroSubaddressPrefix: 42,
@@ -95,6 +102,10 @@ export const LOCAL: Deployment = {
     hash: "0xda08ab458b060f08de0ebe328d20d10b6f1d275237f1b3c03d2cc1177f5e3ba8",
     link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/4cb24444a1f2e3d4c5b6a7980716253443526170/docs/community-terms.md#sha256=a081d9e2a2eb4c63f9dfa01f092724323ed8d24f8459f1626226e33d6198e8ab",
   }],
+  stripeKey: "",
+  stripeLive: false,
+  cardOrigin: "http://127.0.0.1:5180",
+  pageOrigins: ["http://127.0.0.1", "http://localhost"],
   bitcoinHrp: "bcrt",
   bitcoinReceiveKeys: ["0x036bf340760eb0da07d4d2bbb9d9aee7b7c27891cb72b6388cc0ee8d2a82d33e46"],
   moneroSubaddressPrefix: 36,
@@ -105,19 +116,19 @@ declare const __MAINNET__: boolean
 
 export const SITE: Deployment = typeof __MAINNET__ === "undefined" ? LOCAL
   : __MAINNET__ ? MAINNET
-  : { ...LOCAL, codesOnly: import.meta.env.VITE_CODES_ONLY === "true" }
+  : { ...LOCAL, codesOnly: import.meta.env.VITE_CODES_ONLY === "true", stripeKey: import.meta.env.VITE_STRIPE_KEY ?? "" }
 
 export const heldPrice = (length: number) => (SITE.priceExceptions.find((e) => e.labelLength === length)?.centsPerYear ?? SITE.priceBaseCentsPerYear) * SITE.paidYears
 
-export interface SiteConfig { stripePublishableKey: string; downtime: boolean }
+export interface SiteConfig { downtime: boolean }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null
 
 export function configOf(body: unknown): SiteConfig | null {
   if (!isObject(body) || !("stripePublishableKey" in body) || !("names" in body)) return null
-  const { stripePublishableKey, names } = body
+  const { names } = body
   if (names !== null && !isObject(names)) return null
-  return { stripePublishableKey: typeof stripePublishableKey === "string" ? stripePublishableKey.trim() : "", downtime: names?.downtime === true }
+  return { downtime: names?.downtime === true }
 }
 
 export async function readConfig(init?: RequestInit): Promise<SiteConfig | null> {
@@ -127,11 +138,4 @@ export async function readConfig(init?: RequestInit): Promise<SiteConfig | null>
   } catch {
     return null
   }
-}
-
-// Unread, the page has no card form, as a page with nothing to pay with.
-export async function loadConfig(): Promise<SiteConfig | null> {
-  const config = await readConfig()
-  if (config) setPublishableKey(config.stripePublishableKey)
-  return config
 }

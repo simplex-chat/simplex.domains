@@ -1,5 +1,5 @@
 // The router: one page per route, redrawn on navigation.
-import { loadConfig } from "./config.ts"
+import { readConfig } from "./config.ts"
 import { checkoutStepOf, EDIT_PATH, fromOrder, viewOf } from "./screens/routes.ts"
 import { checkoutPage } from "./views/checkout.ts"
 import { setUpChrome } from "./views/chrome.ts"
@@ -34,7 +34,7 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
   })
 }
-const config = await loadConfig()
+const config = await readConfig()
 setUpChrome()
 window.addEventListener("popstate", (e) => {
   if (historyMoved(e) && !reloadedForRoute()) render()

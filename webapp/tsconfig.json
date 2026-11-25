@@ -15,5 +15,5 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["src", "test", "dev", "e2e", "sw", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "card", "test", "dev", "e2e", "sw", "vite.config.ts", "playwright.config.ts"]
 }

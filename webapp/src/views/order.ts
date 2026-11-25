@@ -16,7 +16,8 @@ import { checkoutUrl, CODE_FROM_ORDER_URL, CODE_URL, editUrl } from "../screens/
 import { hasLinks, linksAction } from "../screens/names.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
-import { type MountedCard, mountCard, publishableKey } from "../stripe.ts"
+import { mountCardFrame } from "../card-frame.ts"
+import type { MountedCard } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
@@ -626,8 +627,6 @@ let card: MountedCard | null = null
 let cardIn: HTMLElement | null = null
 let cardMounts = 0
 let payButton: HTMLButtonElement | null = null
-// without a Stripe key in development, Pay does what a submitted card does; the mock's controls settle it
-const STAND_IN: MountedCard = { confirm: async () => ({ kind: "submitted" }), destroy: () => undefined }
 
 function dropCard(): void {
   cardMounts += 1
@@ -641,14 +640,9 @@ function dropCard(): void {
 function mountInto(form: HTMLElement, invoice: api.InvoiceView): void {
   const mine = ++cardMounts
   cardIn = form
-  const key = publishableKey()
-  if (!key && import.meta.env.DEV) {
-    cardStandIn(form)
-    card = STAND_IN
-    return
-  }
-  void mountCard(key, invoice.clientSecret ?? "", form, pageTheme).then((mounted) => {
-    if (mine !== cardMounts) return mounted?.destroy()
+  void mountCardFrame(invoice.clientSecret ?? "", invoice.amount, form, pageTheme).then((mounted) => {
+    if (mine !== cardMounts) return mounted !== null && mounted !== "unchecked" ? mounted.destroy() : undefined
+    if (mounted === "unchecked") return dispatch({ type: "card-unchecked" })
     if (!mounted) return dispatch({ type: "card-failed" })
     card = mounted
     showCard()
@@ -694,12 +688,6 @@ function buildPayCard(s: OrderState): HTMLElement {
   // Stripe's note is under Pay and Cancel, so the form fits above Pay
   const alt = el("span", {}, cancelLink(s), el("span", { class: "note stripe-note" }, STRIPE_NOTE))
   return screen({ title: "Pay by card", lead: orderLine(s), action: payButton, alt }, notice, form)
-}
-
-function cardStandIn(form: HTMLElement): void {
-  const f = (text: string, value: string) => el("label", { class: "f" }, el("span", {}, text), el("div", { class: "box" }, value))
-  form.append(el("p", { class: "label" }, "Test card form: no Stripe key is set, so Pay simulates a payment."),
-    f("Card number", "4242 4242 4242 4242"), el("div", { class: "cols" }, f("Expiry", "12 / 30"), f("CVC", "123"), f("Country", "Portugal")))
 }
 
 // what a browser without the order's record can do: take in the name code

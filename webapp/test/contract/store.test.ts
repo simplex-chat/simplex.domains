@@ -59,9 +59,9 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     return reduce(searching, { type: "answered", seq: searching.seq, label: LABEL, answer, mine: false, now: 0, downtime: false }).answer
   }
 
-  it("reads the service's Stripe key and downtime alone, open and codes-only", () => {
-    expect(configOf(fixture("config").body)).toEqual({ stripePublishableKey: "pk_test_injected", downtime: false })
-    expect(configOf(fixture("config-codes-only").body)).toEqual({ stripePublishableKey: "", downtime: false })
+  it("reads the service's downtime alone, open and codes-only", () => {
+    expect(configOf(fixture("config").body)).toEqual({ downtime: false })
+    expect(configOf(fixture("config-codes-only").body)).toEqual({ downtime: false })
   })
 
   it.each([

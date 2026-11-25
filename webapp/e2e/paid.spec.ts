@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test"
-import { LOCAL } from "../src/config.ts"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { walletOf } from "../src/flow.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
@@ -8,6 +8,7 @@ import { CARD_FORM_TIMEOUT_MS } from "../src/stripe.ts"
 import {
   blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, mockRegistration, onStep, oracleQuote, payButton, previewsShown, REGISTRATION_MS,
   offCentre, orderOwnerCode, qrText, registeredAnswer, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
+  cardFrame, fakeIntent,
 } from "./helpers.ts"
 
 // the card form these tests pay with is the dev server's stand-in; a production build loads Stripe's own
@@ -759,7 +760,7 @@ test("a card order waits for Stripe, blocks a second card order meanwhile, then 
   await expect(onStep(page).getByRole("button", { name: /^Pay \$\d+$/ })).toBeVisible()
   await expect(onStep(page).getByText("The card form is Stripe's. Nothing is charged until you pay.")).toBeVisible()
   // the development stand-in says what it is, and the invoice can be cancelled from the form as from a crypto invoice
-  await expect(onStep(page).locator(".stripe > .label")).toHaveText("Test card form: no Stripe key is set, so Pay simulates a payment.")
+  await expect(cardFrame(page).locator(".stand-in > .label")).toHaveText("Test card form: no Stripe key is set, so Pay simulates a payment.")
   await expect(onStep(page).getByRole("button", { name: "Cancel this invoice" })).toBeVisible()
   await onStep(page).getByRole("button", { name: /^Pay \$/ }).click()
   await expect(page.getByText("Waiting for Stripe to confirm")).toBeVisible()
@@ -1294,15 +1295,16 @@ test("a card form that does not load says so and offers a new invoice", async ({
 })
 
 // a Stripe.js whose card form reports, once mounted, that it could not load, as it does for an intent Stripe refuses
-const STRIPE_FORM_FAILS = `window.Stripe = () => ({ elements: () => ({ create: () => {
+const stripeFormFails = (amount: number) => `window.Stripe = () => ({ retrievePaymentIntent: async () => (${fakeIntent(amount)}), elements: () => ({ create: () => {
   const handlers = {}
   return { on: (event, handler) => { handlers[event] = handler }, mount: () => setTimeout(() => handlers.loaderror?.({ elementType: "payment" })), destroy: () => undefined }
 } }) })`
 
 test("a card form that Stripe cannot load says so and offers a new invoice, rather than a form that never comes", async ({ page }) => {
-  await startOrder(page, uniqueLabel("cardfail"), { method: "card" })
+  const label = uniqueLabel("cardfail")
+  await startOrder(page, label, { method: "card" })
   await withStripeKey(page)
-  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_FORM_FAILS }))
+  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeFormFails(heldPrice(label.length)) }))
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
   await expect(page.getByText("Stripe's form was blocked or failed to load. Nothing was charged.")).toBeVisible()
@@ -1310,21 +1312,23 @@ test("a card form that Stripe cannot load says so and offers a new invoice, rath
 })
 
 // a Stripe.js whose card form, once mounted, neither loads nor says it failed, as on a stalled network
-const STRIPE_FORM_STALLS = `window.Stripe = () => ({ elements: () => ({ create: () => ({ on: () => undefined, mount: () => undefined, destroy: () => undefined }) }) })`
+const stripeFormStalls = (amount: number) => `window.Stripe = () => ({ retrievePaymentIntent: async () => (${fakeIntent(amount)}),
+  elements: () => ({ create: () => ({ on: () => undefined, mount: () => undefined, destroy: () => undefined }) }) })`
 // room past the bound for the page to draw what follows
 const CARD_FORM_SLACK_MS = 15_000
 
 // Stripe.js loaded with a form that never says how it went, or a request for Stripe.js that is never answered
-const STALLS: [string, (route: Route) => Promise<void> | undefined][] = [
-  ["form", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_FORM_STALLS })],
-  ["script", () => undefined],
+const STALLS: [string, (amount: number) => (route: Route) => Promise<void> | undefined][] = [
+  ["form", (amount) => (route) => route.fulfill({ contentType: "text/javascript", body: stripeFormStalls(amount) })],
+  ["script", () => () => undefined],
 ]
 
 for (const [stalled, answer] of STALLS) {
   test(`a card ${stalled} that neither loads nor fails gives up after its bound and offers a new invoice, rather than Pay off for good`, async ({ page }) => {
-    await startOrder(page, uniqueLabel("cardstall"), { method: "card" })
+    const label = uniqueLabel("cardstall")
+    await startOrder(page, label, { method: "card" })
     await withStripeKey(page)
-    await page.route("https://js.stripe.com/**", answer)
+    await page.route("https://js.stripe.com/**", answer(heldPrice(label.length)))
     await page.reload()
     await expect(page.getByRole("heading", { name: "Pay by card" })).toBeVisible()
     await expect(payButton(page)).toBeDisabled()

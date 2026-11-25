@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:card": "vite --config card/vite.config.ts",
     "build": "tsc --noEmit && vite build",
+    "build:card": "vite build --config card/vite.config.ts",
     "test": "vitest run",
     "e2e": "playwright test",
     "chain:deploy": "node dev/deploy.ts",

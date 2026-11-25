@@ -41,6 +41,7 @@ export interface OrderState {
   record: OrderRecord | null
   cardSubmittedAt: string | null
   cardFailed: boolean
+  cardUnchecked: boolean
   reveal: Reveal | null
   busy: Action | null
   note: Note | null
@@ -70,6 +71,7 @@ export type OrderEvent =
   | { type: "card-started" }
   | { type: "card-submitted"; at: string }
   | { type: "card-failed" }
+  | { type: "card-unchecked" }
   | { type: "card-refused"; note: Note | null }
   | { type: "reveal-sent"; key: string }
   | { type: "reveal-refused"; key: string }
@@ -94,7 +96,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, downtime: false }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardUnchecked: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, downtime: false }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase.type}${view.phase.type === "committed" && view.label !== null ? " signed" : ""}`
@@ -118,6 +120,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "tick": return { ...s, now: e.now }
     case "card-submitted": return { ...s, cardSubmittedAt: e.at }
     case "card-failed": return { ...s, cardFailed: true }
+    case "card-unchecked": return { ...s, cardUnchecked: true }
     case "card-started": return start(s, "card")
     case "card-refused": return end(s, "card", { note: e.note })
     // at a reveal, the ask is kept only for the changed terms whose acceptance the reveal includes
@@ -200,7 +203,7 @@ export const unpaidOrClosed = (view: RegistrationView) => view.phase.type === "u
 
 export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
 
-export const paymentChecked = ({ invoice, record }: OrderState) => invoice === null || (invoice.currency === SITE.currency && addressProven(invoice) && (record === null
+export const paymentChecked = ({ invoice, record, cardUnchecked }: OrderState) => invoice === null || (!cardUnchecked && invoice.currency === SITE.currency && addressProven(invoice) && (record === null
   || (invoiceMethod(invoice) === record.method && invoice.amount === heldPrice(record.label.length)
     && (record.invoiceId !== invoice.invoiceId || record.address === undefined || record.address === invoice.address))))
 

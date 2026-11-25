@@ -509,15 +509,9 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
    with Stripe.js dahlia, 221-230 px tall on the 600 px column and 306-320 px on a phone's, in Chromium and Firefox. A
    phone's layout holds the phone's height; the column from 489 px is taken to draw as the 600 px one, unmeasured. A
    taller form, with more fields or error lines, grows the box. */
-.stripe:not(:has(> .label)) { min-height: 320px; }
-@media (min-width: 521px) { .stripe:not(:has(> .label)) { min-height: 230px; } }
-/* the development stand-in, framed as the form it stands in for */
-.stripe:has(> .label) { padding: 18px; border: 1px dashed var(--surface-line); }
-.stripe .label { margin-bottom: 4px; font-size: var(--fs-small); letter-spacing: 0; text-transform: none; color: var(--warn-fg); }
-.stripe .f { display: block; margin-top: 12px; }
-.stripe .f span { display: block; font-size: 13px; font-weight: 700; color: var(--ink-soft); margin-bottom: 6px; }
-.stripe .box { padding: 13px 14px; border-radius: 12px; border: 1px solid var(--surface-line); background: var(--surface); color: var(--ink-soft); font-weight: 600; }
-.stripe .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stripe { min-height: 320px; }
+@media (min-width: 521px) { .stripe { min-height: 230px; } }
+.stripe > .card-frame { display: block; width: 100%; height: 0; border: 0; }
 
 /* the stages as bars, the active one filling as its wait goes by; --done is the wait's share gone by, which the page sets each second */
 .stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; list-style: none; }

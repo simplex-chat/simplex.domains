@@ -1,4 +1,4 @@
-import { expect, test as base, type APIRequestContext, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "@playwright/test"
+import { expect, test as base, type APIRequestContext, type Browser, type BrowserContext, type BrowserContextOptions, type Frame, type Locator, type Page } from "@playwright/test"
 import { randomInt } from "node:crypto"
 import { mkdirSync, readFileSync } from "node:fs"
 import { createPublicClient, createTestClient, createWalletClient, encodeFunctionData, http, namehash, parseAbi, parseEventLogs, toFunctionSelector, type Hex } from "viem"
@@ -311,11 +311,18 @@ export const payButton = (page: Page) => onStep(page).getByRole("button", { name
 export const AVAILABLE_BRIEF = /^Available at \d\d:\d\d\. If someone registers it first, you keep the payment as balance\.$/
 export const TAKEN_BRIEF = /^Taken at \d\d:\d\d\. Don't pay this invoice: cancel it and choose another name\.$/
 
-// a configured key makes the order's page load Stripe.js, wherever the page is first opened
-export const withStripeKey = (page: Page) => page.route((url) => url.pathname === "/api/config", async (route) => {
-  const res = await route.fetch()
-  await route.fulfill({ response: res, json: { ...(await res.json()), stripePublishableKey: "pk_test_e2e" } })
-})
+// a test key makes the card page, in the order page's frame, load Stripe.js
+export const withStripeKey = (page: Page) => page.addInitScript((card) => {
+  if (location.origin === card) (window as { stripeTestKey?: string }).stripeTestKey = "pk_test_e2e"
+}, LOCAL.cardOrigin)
+
+const CARD_FRAME = "body > main .stripe > iframe"
+export const cardFrame = (page: Page) => page.frameLocator(CARD_FRAME)
+export async function cardFrameOf(page: Page): Promise<Frame> {
+  const frame = await page.locator(CARD_FRAME).elementHandle()
+  return (await frame!.contentFrame())!
+}
+export const fakeIntent = (amount: number) => `{ paymentIntent: { id: "pi_fake", amount: ${amount}, currency: "usd", livemode: false, payment_method_types: ["card"] } }`
 
 // Check your code's field, which takes a prepaid code or a name code
 export const codeField = (page: Page) => onStep(page).getByRole("textbox", { name: "Code", exact: true })

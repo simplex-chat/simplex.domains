@@ -1,0 +1,11 @@
+html, body { margin: 0; padding: 0; background: transparent; }
+body { font: 16px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0D1B3A; }
+html.dark body { color: #EAF2FF; }
+.stand-in { padding: 18px; border: 1px dashed rgba(0, 83, 208, .14); border-radius: 16px; }
+html.dark .stand-in { border-color: rgba(112, 240, 249, .18); }
+.stand-in .label { margin: 0 0 4px; font-size: 14px; color: #8a5a00; }
+html.dark .stand-in .label { color: #ffd38a; }
+.stand-in .f { display: block; margin-top: 12px; }
+.stand-in .f span { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; opacity: .75; }
+.stand-in .box { padding: 13px 14px; border-radius: 12px; border: 1px solid rgba(0, 83, 208, .14); font-weight: 600; }
+.stand-in .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }

@@ -7,7 +7,7 @@ import { TX_STALL_MS } from "../src/screens/order.ts"
 import {
   AVAILABLE_BRIEF, brokenNames, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, okPreview, onStep, payButton, previewsShown, SAVED,
   lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registeredAnswer, registrationOf, registrationView, rowFit, savedToReview, search, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
-  TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey,
+  TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey, cardFrame, cardFrameOf, fakeIntent,
 } from "./helpers.ts"
 
 test("the purchase steps swap the whole page, one screen at a time rising in, and Back walks them in reverse", async ({ page }) => {
@@ -205,7 +205,8 @@ const DECLINED = "Your card was declined."
 // A Stripe.js whose card form comes when the test calls __loadCard, `px` tall for the column, and grows by __growCard;
 // it declines every card when asked to. It counts its mounts in __mounts, and keeps in __logos Stripe's logo tone of
 // each appearance the form is given once made.
-const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
+const stripeOnCue = (px: FormPx, amount: number, declines = false) => `window.Stripe = () => ({
+  retrievePaymentIntent: async () => (${fakeIntent(amount)}),
   confirmPayment: async () => (${declines} ? { error: { type: "card_error", message: "${DECLINED}" } } : { paymentIntent: { status: "processing" } }),
   elements: () => ({ update: ({ appearance }) => { (window.__logos ??= []).push(appearance.variables.logoColor) }, create: () => {
     const handlers = {}
@@ -222,14 +223,15 @@ const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
   } }),
 })`
 const loadCard = async (page: Page) => {
-  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: unknown }).__loadCard === "function")
-  await page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+  const frame = await cardFrameOf(page)
+  await frame.waitForFunction(() => typeof (window as unknown as { __loadCard?: unknown }).__loadCard === "function")
+  await frame.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
 }
-const cardSeen = (page: Page) => page.evaluate(() => {
+const cardSeen = async (page: Page) => (await cardFrameOf(page)).evaluate(() => {
   const w = window as unknown as { __logos?: string[]; __mounts?: number }
   return { logos: w.__logos ?? [], mounts: w.__mounts ?? 0 }
 })
-const growCard = (page: Page, by: number) => page.evaluate((px) => (window as unknown as { __growCard: (by: number) => void }).__growCard(px), by)
+const growCard = async (page: Page, by: number) => (await cardFrameOf(page)).evaluate((px) => (window as unknown as { __growCard: (by: number) => void }).__growCard(px), by)
 // the card page's windows: a laptop's, a narrow desktop window's, and two phones'
 const CARD_SIZES = [{ width: 1280, height: 800 }, { width: 600, height: 800 }, { width: 390, height: 844 }, { width: 360, height: 780 }]
 // the widest window drawn as a phone (styles.css)
@@ -269,7 +271,7 @@ function cardFollows(drawn: Awaited<ReturnType<typeof cardPage>>, where: string)
 // notice stays above the form; Stripe's note is under Cancel, centred, clear of the invest note. With `declines`, Pay is
 // pressed once the form loads, and Stripe declines the card. A page that `scrolls`, for a name of the most wide letters,
 // may reach past a laptop's window, as its actions take their whole height under the form.
-async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, { declines = false, scrolls = false } = {}): Promise<void> {
+async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, amount: number, { declines = false, scrolls = false } = {}): Promise<void> {
   for (const size of CARD_SIZES) {
     for (const px of FORMS_PX) {
       const wide = size.width > PHONE_WIDTH
@@ -278,14 +280,15 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
       const where = `${size.width}x${size.height}, a form of ${formPx} px`
       await page.setViewportSize(size)
       await page.unroute("https://js.stripe.com/**")
-      await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(px, declines) }))
+      await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(px, amount, declines) }))
       await open()
       await expect(onStep(page).getByRole("heading", { name: "Pay by card" }), where).toBeVisible()
       await expect(onStep(page).locator(".name-check:not(.unchecked)"), `${where}: the notice`).toBeVisible()
       await page.evaluate(() => document.fonts.ready)
       const before = await cardPage(page)
       await loadCard(page)
-      await expect(onStep(page).locator(".stripe > div"), where).toHaveCount(1)
+      await expect(cardFrame(page).locator("#form > div"), where).toHaveCount(1)
+      await expect.poll(async () => (await cardPage(page)).form!.bottom - (await cardPage(page)).form!.top, `${where}: the frame grown to the form`).toBe(Math.max(formPx, room))
       if (declines) await payButton(page).click()
       await expect(onStep(page).locator(".name-check > :not(.sizer)"), `${where}: the notice`).toHaveText(notice)
       const loaded = await cardPage(page)
@@ -310,6 +313,8 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
       if (!scrolls && formPx <= room && FIT_SIZES.some((fit) => fit.width === size.width && fit.height === size.height)) expect(await overflow(page), where).toBe(0)
       // an error line under a field: the form grows past its room by the line, and Pay and what follows move down with it
       await growCard(page, ERROR_LINE_PX)
+      await expect.poll(async () => (await cardPage(page)).form!.bottom - (await cardPage(page)).form!.top, `${where}: the frame grown by the line`)
+        .toBe(Math.max(formPx + ERROR_LINE_PX, room))
       for (const dark of [false, true]) {
         await page.evaluate((d) => document.documentElement.classList.toggle("dark", d), dark)
         const grown = await cardPage(page)
@@ -356,7 +361,8 @@ test.describe(() => {
   test.use({ serviceWorkers: "block" })
 
   test("a card invoice opened in place of a new Bitcoin one says why in the card page's one notice, above the form", async ({ page }) => {
-    await search(page, uniqueLabel("cardinst"))
+    const label = uniqueLabel("cardinst")
+    await search(page, label)
     await toReview(page)
     await page.getByRole("radio", { name: "Card" }).click()
     const checkout = await page.evaluate((key) => sessionStorage.getItem(key)!, CHECKOUT_KEY)
@@ -371,7 +377,7 @@ test.describe(() => {
       await copy.getByRole("radio", { name: "Bitcoin" }).click()
       await payButton(copy).click()
       await copy.waitForURL(/\?order=/)
-    })
+    }, heldPrice(label.length))
   })
 })
 
@@ -391,28 +397,28 @@ test.describe(() => {
   ]
   for (const [name, order, notice] of CARD_CASES) {
     test(`the card page draws Pay under Stripe's form as it loads and grows, its one notice above it, for ${name}`, async ({ page }) => {
-      await cardFits(page, notice, await routedCardOrder(page, order), { scrolls: order.label.length === MAX_LABEL_LENGTH })
+      await cardFits(page, notice, await routedCardOrder(page, order), heldPrice(order.label.length), { scrolls: order.label.length === MAX_LABEL_LENGTH })
     })
   }
 
   test("a card Stripe declines is said in the card page's one notice, Pay under the form", async ({ page }) => {
-    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, tenLetters), { declines: true })
+    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, tenLetters), heldPrice(tenLetters.label.length), { declines: true })
     await expect(onStep(page).locator(".name-check")).toHaveClass(/\bdanger\b/)
   })
 
   test("a card Stripe declines in a browser that cannot remember a card payment takes the warning's place, Pay under the form", async ({ page }) => {
-    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, { ...tenLetters, forgetful: true }), { declines: true })
+    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, { ...tenLetters, forgetful: true }), heldPrice(tenLetters.label.length), { declines: true })
   })
 
   // Stripe's logo tone stands for the appearance: light on the dark theme, dark on the light one
   test("the card form follows the system's theme while none is chosen, and the theme switch, in place", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" })
     const open = await routedCardOrder(page, tenLetters)
-    await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(FORMS_PX[1]) }))
+    await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(FORMS_PX[1], heldPrice(tenLetters.label.length)) }))
     await open()
     await expect(onStep(page).getByRole("heading", { name: "Pay by card" })).toBeVisible()
     await loadCard(page)
-    await expect(onStep(page).locator(".stripe > div")).toHaveCount(1)
+    await expect(cardFrame(page).locator("#form > div")).toHaveCount(1)
     expect(await cardSeen(page), "made in the light theme").toEqual({ logos: [], mounts: 1 })
     const html = page.locator("html")
     await page.emulateMedia({ colorScheme: "dark" })

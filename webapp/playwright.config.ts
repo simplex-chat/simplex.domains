@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test"
 import { codesPagePort, codesPageUrl, mockUrl, pagePort, pageUrl } from "./e2e/slots.ts"
+import { LOCAL } from "./src/config.ts"
 
 // BASE_URL points the tests at another server, such as `npx vite preview` of the production build
 const BASE_URL = process.env.BASE_URL
@@ -43,8 +44,11 @@ export default defineConfig({
     ...FIREFOX_158_PROJECT,
     ...SCREENS_PROJECT,
   ],
-  webServer: BASE_URL ? undefined : Array.from({ length: SLOTS }, (_, slot) => [
-    pageServer(pagePort(slot), pageUrl(slot), { MOCK_URL: mockUrl(slot) }),
-    pageServer(codesPagePort(slot), codesPageUrl(slot), { MOCK_URL: mockUrl(slot), VITE_CODES_ONLY: "true" }),
-  ]).flat(),
+  webServer: [
+    { command: "npx vite --config card/vite.config.ts", url: LOCAL.cardOrigin, reuseExistingServer: true },
+    ...BASE_URL ? [] : Array.from({ length: SLOTS }, (_, slot) => [
+      pageServer(pagePort(slot), pageUrl(slot), { MOCK_URL: mockUrl(slot) }),
+      pageServer(codesPagePort(slot), codesPageUrl(slot), { MOCK_URL: mockUrl(slot), VITE_CODES_ONLY: "true" }),
+    ]).flat(),
+  ],
 })

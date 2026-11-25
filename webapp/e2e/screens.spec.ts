@@ -2,7 +2,7 @@ import { chromium, expect, type APIRequestContext, type Browser, type BrowserCon
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { keccak256, toHex } from "viem"
-import { LOCAL } from "../src/config.ts"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { newOwnerCode, walletOf } from "../src/flow.ts"
@@ -10,7 +10,7 @@ import {
   addNameCode, agreeToTerms, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, answersReserved, channelLink, CHECKOUT_KEY, CODES_PAGE, codesPageHolds, codesTest, onCodesPage, checkoutOwnerCode, CODE_HEADING, codeField, COMMUNITY_HEADING, contactLink, contractsOwnerLists, control, fillLinks,
   keepOrder, type KeptOrder, LINKS_HEADING, MOCK, mockRegistration, newClient, okPreview, onStep, ownerSetsResolver, ownerSetsText, payButton, previewsShown, registeredAnswer, registeredPhase,
   REGISTRATION_MS, registrationOf, registrationView, SAVED,
-  savedToReview, search, searchName, selectedToReview, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey,
+  savedToReview, search, searchName, selectedToReview, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey, fakeIntent,
 } from "./helpers.ts"
 
 const START_S = Date.UTC(2026, 10, 2, 8) / 1000
@@ -1445,7 +1445,8 @@ screen(2102, "order-failed-action-failed", (r) => continueRefused(r, (route) => 
 const nameChecked = (page: Page) => expect(onStep(page).locator(".name-check:not(.unchecked)")).toBeVisible()
 const TAKEN_ANSWER = registeredTo(OTHER_OWNER, START_S + 2 * YEAR_S)
 const cancelAnswer = (page: Page, f: (route: Route) => Promise<unknown>) => page.route("**/api/invoice/*/cancel", posting(/\/cancel$/, f))
-const STRIPE_STUB = (declines: boolean) => `window.Stripe = () => ({
+const STRIPE_STUB = (declines: boolean, amount: number) => `window.Stripe = () => ({
+  retrievePaymentIntent: async () => (${fakeIntent(amount)}),
   confirmPayment: async () => (${declines} ? { error: { type: "card_error", message: "Your card was declined." } } : { paymentIntent: { status: "processing" } }),
   elements: () => ({ update: () => undefined, create: () => {
     const handlers = {}
@@ -1545,7 +1546,7 @@ screen(2138, "order-pay-card-no-record", async (r) => {
 screen(2140, "order-pay-card-declined", async ({ page, id }) => {
   await startOrder(page, id, { method: "card" })
   await withStripeKey(page)
-  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_STUB(true) }))
+  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_STUB(true, heldPrice(id.length)) }))
   await page.reload()
   await heading(page, "Pay by card")
   await nameChecked(page)
