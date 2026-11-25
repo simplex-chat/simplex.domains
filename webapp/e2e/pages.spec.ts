@@ -5,7 +5,8 @@ const FRAMER = "http://127.0.0.2:5998"
 const API_ORIGIN = process.env.API_ORIGIN
 const SKEW_MS = 20 * 60_000
 
-test("the page in another page's frame draws one line, with a link that opens it in its own tab", async ({ page, baseURL }) => {
+test("the page in another page's frame draws one line, with a link that opens it in its own tab", async ({ page, baseURL, browserName }) => {
+  if (browserName === "chromium") await page.context().grantPermissions(["local-network-access"])
   const url = new URL("/#/names", baseURL).href
   await page.route(`${FRAMER}/**`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><iframe src="${url}" width="600" height="400"></iframe>` }))
   await page.goto(`${FRAMER}/`)

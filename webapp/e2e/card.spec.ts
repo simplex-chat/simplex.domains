@@ -7,7 +7,8 @@ const OTHER_ORIGIN = "http://127.0.0.2:5999"
 const SETTLE_MS = 2000
 
 // a page of another origin that frames the card page and sends it a mount
-async function framedElsewhere(page: Page): Promise<void> {
+async function framedElsewhere(page: Page, browserName: string): Promise<void> {
+  if (browserName === "chromium") await page.context().grantPermissions(["local-network-access"])
   await page.route(`${OTHER_ORIGIN}/**`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><iframe src="${LOCAL.cardOrigin}/"></iframe>` }))
   await page.goto(`${OTHER_ORIGIN}/`)
   const frame = page.frames().find((f) => f.url().startsWith(LOCAL.cardOrigin))!
@@ -15,8 +16,8 @@ async function framedElsewhere(page: Page): Promise<void> {
   await page.evaluate((card) => document.querySelector("iframe")!.contentWindow!.postMessage({ type: "mount", clientSecret: "pi_x_secret_y", amount: 10000, currency: "usd", dark: false }, card), LOCAL.cardOrigin)
 }
 
-test("the card page takes a mount only from the names page's origin", async ({ page }) => {
-  await framedElsewhere(page)
+test("the card page takes a mount only from the names page's origin", async ({ page, browserName }) => {
+  await framedElsewhere(page, browserName)
   await page.waitForTimeout(SETTLE_MS)
   const frame = page.frames().find((f) => f.url().startsWith(LOCAL.cardOrigin))!
   expect(await frame.locator("#form > *").count(), "nothing drawn for another origin").toBe(0)
