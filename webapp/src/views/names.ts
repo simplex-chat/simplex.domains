@@ -22,6 +22,7 @@ import {
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, secondsLeft, tabHold } from "./hold.ts"
+import { explorerLine, nameAddressLine } from "./name-address.ts"
 import { rowName } from "./terms.ts"
 
 const UNREAD_RETRY_MS = 5_000
@@ -301,7 +302,7 @@ function codeToggle(id: string, shown: boolean): HTMLElement {
 
 const rowCode = (code: string) => el("div", { class: "row-code" },
   el("p", { class: "note" }, "The name code owns the name and edits its links. Keep it safe."),
-  codeDisplay(code), nameCodeQr(code))
+  codeDisplay(code), nameAddressLine(code), explorerLine(code), nameCodeQr(code))
 
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId

@@ -23,7 +23,7 @@ async function shipped(mode: "development" | "production" | "devchain", configFi
 }
 const CARD_CONFIG = join(ROOT, "card", "vite.config.ts")
 
-const held = (d: Deployment) => [d.sponsor, d.resolver, d.namePolicy, ...[...d.generalTerms, ...d.communityTerms].map((t) => t.link), ...d.bitcoinReceiveKeys, ...d.moneroPrimaryAddresses,
+const held = (d: Deployment) => [d.sponsor, d.resolver, d.namePolicy, d.baseRegistrar, ...[...d.generalTerms, ...d.communityTerms].map((t) => t.link), ...d.bitcoinReceiveKeys, ...d.moneroPrimaryAddresses,
   d.cardOrigin]
 
 describe("the card form", () => {

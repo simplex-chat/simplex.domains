@@ -8,6 +8,8 @@ export interface Deployment {
   sponsor: string
   resolver: string
   namePolicy: string
+  baseRegistrar: string
+  explorer: string
   termStart: number
   paidYears: number
   communityYears: number
@@ -40,6 +42,8 @@ export const MAINNET: Deployment = {
   sponsor: "0xeC9a522C756e46FB3E44d3405FFDd9368501Eb78",
   resolver: "0x9BDa37F19b59Cbc58BA75932B3c598947fD88B0A",
   namePolicy: "0x5147b65F547b766DBaf520127e8f59834475021E",
+  baseRegistrar: "0x4c0589dbC22862Babb25EB72D11bBA49d84AAbE8",
+  explorer: "https://etherscan.io",
   termStart: 1798761600,
   paidYears: 2,
   communityYears: 2,
@@ -73,6 +77,8 @@ export const LOCAL: Deployment = {
   sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016",
   resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
   namePolicy: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+  baseRegistrar: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  explorer: "https://etherscan.io",
   termStart: 1798761600,
   paidYears: 2,
   communityYears: 2,

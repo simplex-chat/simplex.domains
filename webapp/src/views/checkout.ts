@@ -22,6 +22,7 @@ import {
   asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, supportVia, whenLeaving,
 } from "./shell.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
+import { nameAddressLine } from "./name-address.ts"
 import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { readOrder } from "./search.ts"
 import { inDowntime, loadNextRouteAfresh, NEW_ORDERS_SOON } from "./served-mode.ts"
@@ -345,6 +346,7 @@ function buildCode(s: CheckoutState): HTMLElement {
   return screen({ title: "Save your name code", lead: ["It is the only key to ", nameText(c.label, SITE.tld, "."), " If you lose it, nothing can recover it."], back: checkoutUrl("links"),
     action: continueButton(() => go(checkoutUrl("review")), !c.saved) },
     codeDisplay(c.ownerCode!, "owner-code", true),
+    nameAddressLine(c.ownerCode!),
     store.canPersist() ? el("p", { class: "note center" }, "Private windows and Tor Browser forget it when closed.")
       : alertBox("danger", "alert", "This code could not be saved in this browser", "Save a copy now: it will be the only one."),
     el("label", { class: "check" }, box, el("span", { class: "box" }), SAVED_LABEL))
