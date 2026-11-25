@@ -10,6 +10,8 @@ const CHROME = { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 
 const FIREFOX = { ...devices["Desktop Firefox"], viewport: { width: 1280, height: 900 } }
 const SAFARI = { ...devices["Desktop Safari"], viewport: { width: 1280, height: 900 } }
 
+const pageServer = (port: number, url: string, env: Record<string, string>) => ({ command: `npx vite --host 127.0.0.1 --port ${port}`, url, env, reuseExistingServer: true })
+
 const FRAMES = /frames\.spec\.ts$/
 const SCREENS = /screens\.spec\.ts$/
 const WEBKIT_WORKERS = 2
@@ -41,15 +43,8 @@ export default defineConfig({
     ...FIREFOX_158_PROJECT,
     ...SCREENS_PROJECT,
   ],
-  webServer: BASE_URL ? undefined : Array.from({ length: SLOTS }, (_, slot) => [{
-    command: `npx vite --host 127.0.0.1 --port ${pagePort(slot)}`,
-    url: pageUrl(slot),
-    env: { MOCK_URL: mockUrl(slot) },
-    reuseExistingServer: true,
-  }, {
-    command: `npx vite --host 127.0.0.1 --port ${codesPagePort(slot)}`,
-    url: codesPageUrl(slot),
-    env: { MOCK_URL: mockUrl(slot), VITE_CODES_ONLY: "true" },
-    reuseExistingServer: true,
-  }]).flat(),
+  webServer: BASE_URL ? undefined : Array.from({ length: SLOTS }, (_, slot) => [
+    pageServer(pagePort(slot), pageUrl(slot), { MOCK_URL: mockUrl(slot) }),
+    pageServer(codesPagePort(slot), codesPageUrl(slot), { MOCK_URL: mockUrl(slot), VITE_CODES_ONLY: "true" }),
+  ]).flat(),
 })
