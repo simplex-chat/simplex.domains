@@ -66,7 +66,7 @@ async function selectionOf(record: store.OrderRecord, to: string, terms?: string
   const q = await quote(to)
   const draft: flow.Draft = { label: to, links: NO_LINKS, years: api.termYears(q.community, record.years), ownerCode: record.ownerCode,
     terms: terms ?? api.currentTerms(q), method }
-  return flow.selectName(record, draft, await orderSigningOwnTerms(draft))
+  return flow.selectName(record, draft, await flow.orderRequest(draft))
 }
 
 // the order signed again by its owner at another time
@@ -146,21 +146,6 @@ async function unacceptedReveal(view: api.RegistrationView, record: store.OrderR
   }
   delete body.acceptance
   return body
-}
-
-async function orderSigningOwnTerms(draft: flow.Draft): Promise<flow.BuiltOrder> {
-  const sending = globalThis.fetch
-  globalThis.fetch = async (input, init) => {
-    const answer = await sending(input, init)
-    if (typeof input !== "string" || !/^\/api\/name\/[^/]+\/sign\?/.test(input)) return answer
-    const toSign = await answer.json() as api.ToSignRead
-    return new Response(JSON.stringify({ ...toSign, acceptance: { ...toSign.acceptance, community: api.communityAgreed(draft.terms), termsHash: api.signedHash(draft.terms) } }), { status: 200 })
-  }
-  try {
-    return await flow.orderRequest(draft)
-  } finally {
-    globalThis.fetch = sending
-  }
 }
 
 const acceptedAs = (acceptance: api.Acceptance) => api.signedTermsOf({ communityName: acceptance.community, termsHash: acceptance.termsHash })
@@ -876,11 +861,11 @@ test("a community name's search answer has its community entry, and the availabl
 test("an order signs the terms of its name's kind: the other kind or other terms is terms_changed with the terms and community now, a malformed one bad_request", async ({ request }) => {
   const community = await quote(COMMUNITY_LABEL)
   const plain = { ...await draftOf(COMMUNITY_LABEL), terms: PLAIN_TERMS }
-  const refused = await call("POST", "/api/invoice", invoiceBody((await orderSigningOwnTerms(plain)).request, "btc", community.price))
+  const refused = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest(plain)).request, "btc", community.price))
   expect([refused.status, refused.json]).toEqual([409, termsChanged(LISTED_TERMS, community.community as Json | null)])
   const label = uniqueLabel("tb")
   const q = await quote(label)
-  const claimed = await call("POST", "/api/invoice", invoiceBody((await orderSigningOwnTerms({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, "btc", q.price))
+  const claimed = await call("POST", "/api/invoice", invoiceBody((await flow.orderRequest({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, "btc", q.price))
   expect([claimed.status, claimed.json]).toEqual([409, termsChanged(TERMS, null)])
   const draft = await draftOf(label)
   const { request: signed } = await flow.orderRequest(draft)
@@ -920,7 +905,7 @@ test("an exact resend is answered after the terms changed, and two orders differ
 test("a code order meets changed terms before the code's state", async ({ request }) => {
   const label = uniqueLabel("td")
   const { code } = await control(request, "code", { minLength: 6, state: "used" }) as { code: string }
-  const coded = await call("POST", "/api/name/register", codeBody((await orderSigningOwnTerms({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, code))
+  const coded = await call("POST", "/api/name/register", codeBody((await flow.orderRequest({ ...await draftOf(label), terms: COMMUNITY_TERMS })).request, code))
   expect([coded.status, coded.json]).toEqual([409, termsChanged(TERMS, null)])
 })
 

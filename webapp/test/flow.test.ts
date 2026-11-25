@@ -143,14 +143,23 @@ describe("orderRequest", () => {
 
   it.each([
     ["under another policy", { ...GENERAL, policy: LOCAL.sponsor }, SIGNED],
-    ["of other terms than the buyer agreed to", { ...GENERAL, termsHash: LOCAL.generalTerms[1].hash }, SIGNED],
-    ["of the other kind", { ...GENERAL, community: true }, SIGNED],
-    ["of terms the page does not hold", { ...GENERAL, termsHash: `0x${"d8".repeat(32)}` }, "d8".repeat(32)],
+    ["of terms the page does not hold", { ...GENERAL, termsHash: `0x${"d8".repeat(32)}` }, SIGNED],
+    ["of the other kind than the terms it names", { ...GENERAL, community: true }, SIGNED],
+    ["for an order of terms the page does not hold", { ...GENERAL, termsHash: `0x${"d8".repeat(32)}` }, "d8".repeat(32)],
   ])("signs and sends nothing for a sign answer %s", async (_, asked, terms) => {
     const { flow } = await modules()
     acceptance = asked
     await expect(flow.orderRequest(draft("dynamis", terms))).rejects.toBeInstanceOf(flow.Unsignable)
     expect(calls).toEqual([])
+  })
+
+  it("signs the acceptance of the terms the buyer agreed to, whatever other terms the page holds the sign answer names, so the service asks for the terms changed", async () => {
+    const { flow } = await modules()
+    acceptance = { ...GENERAL, termsHash: LOCAL.generalTerms[1].hash }
+    const { request } = await flow.orderRequest(draft())
+    expect(request.reveal.acceptance).toMatchObject({ termsHash: TERMS.hash, nonce: 1 })
+    const accepted = acceptTermsDigest(false, BigInt(LOCAL.chainId), fromHex(LOCAL.namePolicy), fromHex(request.commitment), fromHex(TERMS.hash), 1n, BigInt(request.reveal.deadline))
+    expect(await recoverAddress({ hash: hex(accepted) as Hex, signature: request.reveal.acceptance.signature as Hex })).toBe(OWNER)
   })
 })
 

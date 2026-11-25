@@ -61,8 +61,8 @@ export type BuiltOrder = { request: api.SignedOrder; owner: string }
 
 export class Unsignable extends Error {}
 
-const signable = ({ acceptance: a }: api.ToSignRead, agreed: string | undefined) => a.policy.toLowerCase() === SITE.namePolicy.toLowerCase()
-  && a.termsHash === api.signedHash(agreed) && a.community === api.communityAgreed(agreed) && api.heldTerms(a.termsHash, a.community) !== undefined
+const heldAcceptance = (a: api.Acceptance) => a.policy.toLowerCase() === SITE.namePolicy.toLowerCase() && api.heldTerms(a.termsHash, a.community) !== undefined
+const agreedTo = (a: api.Acceptance, agreed: string | undefined) => a.termsHash === api.signedHash(agreed) && a.community === api.communityAgreed(agreed)
 
 // The order and its owner's signature over it, which proves that the code's wallet placed it, with the signed registration
 // and terms acceptance the service registers with after payment.
@@ -76,8 +76,9 @@ export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
   const owner = checksumAddress(wallet.address)
   const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(commitment), sealed, terms: draft.terms }
   const toSign = await api.signFor(order.labelHash, owner)
-  if (!signable(toSign, draft.terms)) throw new Unsignable()
-  const reveal = signedReveal(wallet, r, commitment, toSign, draft.method)
+  const acceptance = { ...toSign.acceptance, community: api.communityAgreed(draft.terms), termsHash: api.signedHash(draft.terms) ?? "" }
+  if (!heldAcceptance(toSign.acceptance) || !heldAcceptance(acceptance)) throw new Unsignable()
+  const reveal = signedReveal(wallet, r, commitment, { ...toSign, acceptance }, draft.method)
   const message = `simplex.domains order ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${await sha256Hex(sealed)} ${order.terms} ${timestamp}`
   return { request: { ...order, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal }, owner }
 }
@@ -107,7 +108,7 @@ export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRe
 }
 
 export function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method" | "request">, view: api.RegistrationView, toSign: api.ToSignRead, agreed: string | undefined): api.RevealBody {
-  if (view.duration !== record.request.duration || !signable(toSign, agreed)) throw new Unsignable()
+  if (view.duration !== record.request.duration || !heldAcceptance(toSign.acceptance) || !agreedTo(toSign.acceptance, agreed)) throw new Unsignable()
   const wallet = walletOf(record.ownerCode)!
   const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, BigInt(record.request.duration))
   return signedReveal(wallet, r, makeCommitment(r), toSign, record.method)

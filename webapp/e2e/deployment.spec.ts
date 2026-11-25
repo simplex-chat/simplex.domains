@@ -44,13 +44,13 @@ test("a name whose terms on chain are not the terms the page holds can't be orde
 })
 
 for (const [what, mismatch] of [["under another policy", { policy: true }], ["of other terms", { termsHash: true }]] as const) {
-  test(`an order whose sign answer asks for the acceptance ${what} is not sent, and Check your order says it did not go through`, async ({ page, request }) => {
+  test(`an order whose sign answer asks for the acceptance ${what} is not sent, and Check your order says names can't be ordered now`, async ({ page, request }) => {
     const label = uniqueLabel("sign")
     await search(page, label)
     await toReview(page)
     await mismatched(request, mismatch, async () => {
       await payButton(page).click()
-      await expect(onStep(page).getByRole("heading", { name: "That did not go through" })).toBeVisible()
+      await expect(onStep(page).getByRole("heading", { name: "Names can't be ordered right now" })).toBeVisible()
     })
     expect(await orderedAtMock(request, label), "no order made").toBe(false)
   })

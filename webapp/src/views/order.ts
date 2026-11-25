@@ -990,7 +990,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     }
     if (e instanceof api.ApiError && e.code === "catalog_changed" && typeof e.body.price === "number") return dispatch({ type: "price-changed", price: e.body.price })
     if (e instanceof api.TermsChanged) return askTerms(gen, record.label, e, true)
-    if (termsUnavailable(e)) return dispatch({ type: "reorder-failed", note: noOrders("Nothing was charged. ") })
+    if (termsUnavailable(e) || e instanceof flow.Unsignable) return dispatch({ type: "reorder-failed", note: noOrders("Nothing was charged. ") })
     if (e instanceof api.ApiError && e.code === "downtime") return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "clock", title: null, text: `${NEW_ORDERS_SOON}. Nothing was charged.` } })
     if (e instanceof api.ApiError && e.code === CODES_ONLY) {
       loadNextRouteAfresh()
