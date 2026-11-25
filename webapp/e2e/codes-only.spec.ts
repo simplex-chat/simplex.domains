@@ -288,6 +288,13 @@ test("a closed invoice's page opened before codes only, refused a new invoice, s
   await expect(note).toContainText("Nothing was charged. Enter a code.")
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
   expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
+  await Promise.all([
+    page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config"),
+    page.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))),
+  ])
+  await page.waitForTimeout(RELOAD_MS)
+  expect(seen.count, "the refusal stays in view as the page reads the service again").toBe(0)
+  await expect(note).toBeVisible()
   await note.getByRole("link", { name: "Enter a code" }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
   expect(seen.count, "the screen after the refusal is the service's page again").toBe(1)

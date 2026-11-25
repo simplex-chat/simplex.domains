@@ -35,9 +35,11 @@ export const inDowntime = () => downtime
 
 function served(config: SiteConfig | null): void {
   if (config === null) return
-  afresh ||= downtime && !config.downtime
-  if (afresh && reloadKeeps() && !typedInto() && !tickedUnkept()) return location.reload()
+  const ended = downtime && !config.downtime
   downtime = config.downtime
+  if (!ended) return
+  if (reloadKeeps() && !typedInto() && !tickedUnkept()) return location.reload()
+  afresh = true
 }
 
 let comparing: Promise<void> | null = null
