@@ -2,6 +2,7 @@
 import { hmac } from "@noble/hashes/hmac"
 import { sha256 } from "@noble/hashes/sha2"
 import { utf8ToBytes } from "@noble/hashes/utils"
+import type { OrderRecord } from "../store.ts"
 import { base64url, fromBase64url } from "./code.ts"
 
 const IV_BYTES = 12
@@ -10,6 +11,7 @@ interface SealedOrder {
   label: string
   contact: string
   channel: string
+  method?: OrderRecord["method"]
 }
 
 async function sealingKey(seed: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {

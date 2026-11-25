@@ -1,8 +1,11 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 import { heldPrice } from "../src/config.ts"
-import { control, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, search, startOrder, test, toReview, uniqueLabel, useCode } from "./helpers.ts"
+import {
+  control, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search, startOrder, test, toReview, uniqueLabel, useCode, waitRegistered,
+} from "./helpers.ts"
 
 const NOT_NOW = "Names can't be ordered right now. Try again later."
+const UNCHECKED = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
 const UNHELD_TERMS = "# SimpleX Names Conditions of Use\n\nNot the terms the page holds.\n"
 
 async function mismatched<T>(request: APIRequestContext, mismatch: Record<string, unknown>, f: () => Promise<T>): Promise<T> {
@@ -55,6 +58,28 @@ for (const [what, mismatch] of [["under another policy", { policy: true }], ["of
     expect(await orderedAtMock(request, label), "no order made").toBe(false)
   })
 }
+
+test("an open invoice of another payment than its order asked for is drawn without its payment details, which could not be checked", async ({ page, request }) => {
+  await mismatched(request, { method: true }, () => startOrder(page, uniqueLabel("method"), { method: "btc" }))
+  await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
+  await expect(onStep(page).getByText("Monero address")).toHaveCount(0)
+  await expect(onStep(page).locator(".qr")).toHaveCount(0)
+})
+
+test("a card order reopened with its name code in another browser signs its reveal over a card's dispute days, whatever payment the service reports", async ({ page, browser, request }) => {
+  const label = uniqueLabel("sealed")
+  const { invoiceId, ownerCode } = await mismatched(request, { method: true }, () => startOrder(page, label, { method: "card" }))
+  await page.goto("about:blank")
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
+  await control(request, `settle/${invoiceId}`)
+  await expect.poll(async () => {
+    const { phase, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null
+  }, { timeout: REGISTRATION_MS }).toBe(true)
+  const elsewhere = await (await browser.newContext()).newPage()
+  await restoreOrder(elsewhere, ownerCode, label)
+  await waitRegistered(elsewhere, label)
+})
 
 test("a committed order whose view asks for the acceptance under another policy is not signed, and after three tries its page says the name could not be signed", async ({ page, request }) => {
   const label = uniqueLabel("reveal")

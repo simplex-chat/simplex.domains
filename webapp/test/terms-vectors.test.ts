@@ -90,7 +90,7 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
   const heldOf = (community: boolean) => TERMS.filter((t) => t.startsWith(COMMUNITY) === community).map((t) => ({ hash: `0x${t.replace(COMMUNITY, "")}`, link: "" }))
   let sent: Record<string, unknown>[]
 
-  // the vector's clock and zero IV, storage for the order kept, and a service that answers a selection with its view
+  // the vector's clock, zero IV and sealed order, storage for the order kept, and a service that answers a selection with its view
   async function builders(terms: string) {
     const toSign = { type: "read", intentNonce: 0, acceptance: { community: terms.startsWith(COMMUNITY), policy: LOCAL.namePolicy, termsHash: `0x${terms.replace(COMMUNITY, "")}`, nonce: 0 } }
     vi.useFakeTimers({ toFake: ["Date"], now: TIMESTAMP * 1000 })
@@ -115,10 +115,12 @@ describe.skipIf(!RECORDED)("the page's builders reproduce Appendix C", () => {
       const config = await actual<typeof import("../src/config.ts")>()
       return { ...config, SITE: { ...config.LOCAL, resolver: RESOLVER, sponsor: SPONSOR, termStart: TERM_START, generalTerms: heldOf(false), communityTerms: heldOf(true) } }
     })
+    vi.doMock("../src/crypto/seal.ts", async (actual) => ({ ...await actual<typeof import("../src/crypto/seal.ts")>(), seal: async () => SEALED }))
     return { flow: await import("../src/flow.ts"), store: await import("../src/store.ts") }
   }
   afterEach(() => {
     vi.doUnmock("../src/config.ts")
+    vi.doUnmock("../src/crypto/seal.ts")
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })

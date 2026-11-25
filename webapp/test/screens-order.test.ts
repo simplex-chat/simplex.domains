@@ -5,7 +5,7 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, retryDue, supportCase,
+  askAgainDue, paymentChecked, retryDue, supportCase,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -340,6 +340,18 @@ describe("reduce", () => {
     expect(reversed).toEqual(inOrder)
     expect(inOrder.view!.phase.type).toBe("registering")
     expect(inOrder.now).toBe(NOW + 2000)
+  })
+})
+
+describe("paymentChecked", () => {
+  it("is an invoice of the payment its order asked for, which the browser without the order cannot tell", () => {
+    expect(paymentChecked(read(crypto()))).toBe(true)
+    expect(paymentChecked(read(card(), undefined, { record: record({ method: "card" }) }))).toBe(true)
+    expect(paymentChecked(read(crypto({ cryptoCurrency: "xmr" })))).toBe(false)
+    expect(paymentChecked(read(card()))).toBe(false)
+    expect(paymentChecked(read(crypto(), undefined, { record: record({ method: "card" }) }))).toBe(false)
+    expect(paymentChecked(read(crypto({ clientSecret: "pi_1_secret_2" })))).toBe(false)
+    expect(paymentChecked(read(crypto(), undefined, { record: null }))).toBe(true)
   })
 })
 

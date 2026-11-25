@@ -176,7 +176,8 @@ const control: { mode: "open" | "codes"; downtime: boolean; chainDown: boolean; 
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 
-const mismatch: { price: number | null; policy: boolean; termsHash: boolean } = { price: null, policy: false, termsHash: false }
+const mismatch: { price: number | null; policy: boolean; termsHash: boolean; method: boolean } = { price: null, policy: false, termsHash: false, method: false }
+const OTHER_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
 const OTHER_TERMS_HASH = keccak256(toHex("other terms"))
 
 const INVOICE_ERRORS: Record<string, number> = { provider_unavailable: 503, rate_limited: 429, catalog_changed: 409, internal: 500 }
@@ -723,8 +724,10 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   const price = await chainPrice(order.length, YEARS)
   if (body.price !== price) throw new HttpError(409, "catalog_changed", { price })
   const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS[method] }, body.reveal)
-  const reg = newRegistration(order, { years: YEARS, paid: price, method, prepaidCode: null, phase: "unpaid", orderHash }, rv)
-  return invoiceView(openInvoice(reg, method, price))
+  const invoiced = mismatch.method ? OTHER_METHOD[method] : method
+  mismatch.method = false
+  const reg = newRegistration(order, { years: YEARS, paid: price, method: invoiced, prepaidCode: null, phase: "unpaid", orderHash, disputeDays: DISPUTE_DAYS[method] }, rv)
+  return invoiceView(openInvoice(reg, invoiced, price))
 }
 
 function openInvoice(reg: Registration, method: Method, amount: number): Invoice {
@@ -740,7 +743,7 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
   return inv
 }
 
-type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash">
+type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash" | "disputeDays">
 
 const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
 
@@ -748,7 +751,7 @@ function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): 
   const reg: Registration = {
     id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, resends: 0, version: 1,
-    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null, disputeDays: DISPUTE_DAYS[extra.method], disputeUntil: null,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null, disputeUntil: null,
   }
   registrations.set(reg.id, reg)
   return reg
@@ -828,7 +831,7 @@ export async function registerWithCode(body: Record<string, unknown>): Promise<R
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (order.length < row.minLength) throw new HttpError(409, "code_not_covering")
   const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS.code }, body.reveal)
-  const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash }, rv)
+  const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash, disputeDays: DISPUTE_DAYS.code }, rv)
   row.state = "reserved"
   row.registrationId = reg.id
   void advance(reg)
@@ -1554,9 +1557,9 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
 }
 
 export function controlMismatch(body: Record<string, unknown>): Record<string, unknown> {
-  const { price = null, policy = false, termsHash = false } = body
-  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || typeof policy !== "boolean" || typeof termsHash !== "boolean") throw badRequest()
-  Object.assign(mismatch, { price, policy, termsHash })
+  const { price = null, policy = false, termsHash = false, method = false } = body
+  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || [policy, termsHash, method].some((flag) => typeof flag !== "boolean")) throw badRequest()
+  Object.assign(mismatch, { price, policy, termsHash, method })
   return { ...mismatch }
 }
 

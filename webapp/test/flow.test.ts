@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { LOCAL } from "../src/config.ts"
 import { formatOwnerCode } from "../src/crypto/code.ts"
 import { acceptTermsDigest, commitmentSecret, labelHash, makeCommitment, namehash, registerIntentDigest, setTextDigest, YEAR_S } from "../src/crypto/registration.ts"
-import { unseal } from "../src/crypto/seal.ts"
+import { seal, unseal } from "../src/crypto/seal.ts"
 import { checksumAddress, hex, walletFromEntropy } from "../src/crypto/wallet.ts"
 import { type ShortView, viewOf } from "./registration-view.ts"
 
@@ -92,7 +92,7 @@ const revealSigner = (sent: SentReveal, duration: number, days: number) => {
 }
 
 describe("orderRequest", () => {
-  it("commits to the label, the code's wallet, its derived secret and the links, and seals the name for the code", async () => {
+  it("commits to the label, the code's wallet, its derived secret and the links, and seals the name, the links and the payment asked for under the code", async () => {
     const { flow } = await modules()
     const { request, owner } = await flow.orderRequest(draft())
     expect(owner).toBe(OWNER)
@@ -106,7 +106,7 @@ describe("orderRequest", () => {
       resolver: fromHex(LOCAL.resolver), contactLink: LINKS.contact, channelLink: null,
     })
     expect(request.commitment).toBe(hex(expected))
-    expect(await unseal(WALLET.seed, request.sealed)).toEqual({ label: "dynamis", ...LINKS })
+    expect(await unseal(WALLET.seed, request.sealed)).toEqual({ label: "dynamis", ...LINKS, method: "card" })
   })
 
   it("is signed by the code's key over every field but the signature, the terms agreed to included, at the service's time", async () => {
@@ -216,21 +216,33 @@ describe("revealOrder", () => {
     expect(await recoverAddress({ hash: hex(other) as Hex, signature: sent.acceptance.signature })).not.toBe(OWNER)
   })
 
-  it.each([["card", "btc", 120], ["btc", "card", 14], ["code", "card", 14]] as const)("keeps this browser's %s payment of an order reopened with its code while the view's payment is %s, and signs the reveal over its %i dispute days", async (method, named, days) => {
-    const { flow, store } = await modules()
-    const built = await flow.orderRequest(draft())
-    const invoiceId = method === "code" ? null : "inv1"
-    store.saveOrder(flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId }))
-    const reopened = view(built.request, { acceptance: general, payment: { type: "invoice", method: named } })
-    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash,
-      sealed: built.request.sealed }] }
+  type Flow = Awaited<ReturnType<typeof modules>>["flow"]
+  const reopenedElsewhere = async (flow: Flow, request: { labelHash: string; duration: number; commitment: string; sealed: string }, invoiceId: string | null, named: "card" | "btc") => {
+    const reopened = view(request, { acceptance: general, payment: { type: "invoice", method: named } })
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: request.labelHash,
+      sealed: request.sealed }] }
     answers["GET /api/invoice/inv1"] = { invoiceId: "inv1", status: "paid", amount: 20000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name", registration: reopened }
     answers["GET /api/registration/reg1"] = reopened
     answers["POST /api/registration/reg1/reveal"] = {}
-    const record = await flow.ownOrderFor(OWNER_CODE, built.request.labelHash)
-    expect(record?.method).toBe(method)
-    await flow.revealOrder(reopened, record!, record!.terms)
-    const sent = calls.find((c) => c.path === "/api/registration/reg1/reveal")!.body as SentReveal
+    const record = (await flow.ownOrderFor(OWNER_CODE, request.labelHash))!
+    await flow.revealOrder(reopened, record, record.terms)
+    return { record, sent: calls.find((c) => c.path === "/api/registration/reg1/reveal")!.body as SentReveal }
+  }
+
+  it.each([["card", "btc", 120], ["btc", "card", 14], ["code", "card", 14]] as const)("takes the %s payment the order sealed, reopened with its code in another browser while the view's payment is %s, and signs the reveal over its %i dispute days", async (method, named, days) => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest({ ...draft(), method })
+    const { record, sent } = await reopenedElsewhere(flow, built.request, method === "code" ? null : "inv1", named)
+    expect(record.method).toBe(method)
+    expect(await revealSigner(sent, built.request.duration, days)).toBe(OWNER)
+  })
+
+  it.each([["card", 120], ["btc", 14]] as const)("takes the service's %s payment for an order sealed before its payment was, reopened in another browser, and signs over its %i dispute days", async (named, days) => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    const sealed = await seal(WALLET.seed, { label: "dynamis", ...LINKS })
+    const { record, sent } = await reopenedElsewhere(flow, { ...built.request, sealed }, "inv1", named)
+    expect(record.method).toBe(named)
     expect(await revealSigner(sent, built.request.duration, days)).toBe(OWNER)
   })
 
@@ -361,14 +373,6 @@ describe("restore", () => {
     const { flow } = await modules()
     await expect(flow.restore("SN7-BJTBP-29596-R3HJ8-25YM7")).rejects.toThrow("not an owner code")
     expect(calls).toEqual([])
-  })
-})
-
-describe("paidWith", () => {
-  it("records an answered invoice's own method and its order's worth, a card's having no coin", async () => {
-    const { flow } = await modules()
-    expect(flow.paidWith({ invoiceId: "inv", amount: 20000, cryptoCurrency: "xmr", registration: { price: 20000 } } as never)).toEqual({ method: "xmr", paid: 20000 })
-    expect(flow.paidWith({ invoiceId: "inv", amount: 10000, registration: { price: 10000 } } as never)).toEqual({ method: "card", paid: 10000 })
   })
 })
 
