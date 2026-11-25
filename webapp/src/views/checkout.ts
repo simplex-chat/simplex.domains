@@ -24,7 +24,7 @@ import {
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, tabHold } from "./hold.ts"
 import { openedInstead, REFUSED_LINK, REPLACE_LINK } from "./order.ts"
 import { readOrder } from "./search.ts"
-import { loadNextRouteAfresh } from "./served-mode.ts"
+import { inDowntime, loadNextRouteAfresh, NEW_ORDERS_SOON } from "./served-mode.ts"
 import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, termsChangedLine, termsText } from "./terms.ts"
 
 const CHECKOUT_NOTE = "checkout-note"
@@ -65,7 +65,7 @@ export function checkoutPage(asked: CheckoutStep): void {
   }
   pageRoute = currentRoute()
   // a wait met elsewhere in the tab holds this page's actions too
-  dispatch({ type: "opened", step, checkout: c, sending: session.isSending(c), waiting: waitingCardOrder(), hold: tabHold() })
+  dispatch({ type: "opened", step, checkout: c, sending: session.isSending(c), waiting: waitingCardOrder(), hold: tabHold(), downtime: inDowntime() })
   if (step !== "review" && step !== "community") return
   const reads = new AbortController()
   whenLeaving(() => reads.abort())
@@ -412,6 +412,11 @@ function buildUnavailable(s: CheckoutState): HTMLElement {
     action: retry, alt: link("Back", () => go(searchLink(s.checkout.label, s.checkout.order?.registrationId))) })
 }
 
+function buildDowntime({ checkout: c }: CheckoutState): HTMLElement {
+  return outcome({ tone: "info", icon: "clock", title: NEW_ORDERS_SOON, text: "Nothing was charged.",
+    action: btn("Search again", "", () => go(searchLink(c.label, c.order?.registrationId))) })
+}
+
 // a page opened before the service took codes only; the code entered there registers the name searched again for free
 function buildCodesOnly({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE,
@@ -430,6 +435,7 @@ const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
   "status:taken": buildTaken,
   "status:unavailable": buildUnavailable,
   "status:codes-only": buildCodesOnly,
+  "status:downtime": buildDowntime,
   "status:link-contact": buildRefusedLink("contact"),
   "status:link-channel": buildRefusedLink("channel"),
 }

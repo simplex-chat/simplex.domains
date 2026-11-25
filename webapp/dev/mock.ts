@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
-  cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMismatch, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, controlUnregister, createInvoice, currentTerms, dump, editRecords, find, findLimited,
+  cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlDowntime, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMismatch, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, controlUnregister, createInvoice, currentTerms, dump, editRecords, find, findLimited,
   HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retry, reveal, search, selectName, signFor, siteConfig,
 } from "./mock/service.ts"
 
@@ -59,6 +59,7 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["POST", /^\/control\/mismatch$/, (_, b) => controlMismatch(b)],
   ["POST", /^\/control\/general-terms$/, (_, b) => controlGeneralTerms(b)],
   ["POST", /^\/control\/mode$/, (_, b) => controlMode(b)],
+  ["POST", /^\/control\/downtime$/, (_, b) => controlDowntime(b)],
   ["GET", /^\/control\/mode$/, () => modeNow()],
   ["GET", /^\/api\/config$/, () => siteConfig()],
   ["POST", /^\/control\/community$/, (_, b) => controlCommunity(b)],

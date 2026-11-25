@@ -171,8 +171,8 @@ const taking = new Map<string, Promise<void>>()
 // a fetch of a link in fetchDelays takes that many milliseconds;
 // a late payment is credited at the lower of its invoice's rate and the coin's current rate in cents, when one is set;
 // in codes mode, as the service's [names] codes_only, names are registered only with prepaid codes
-const control: { mode: "open" | "codes"; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
-  { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
+const control: { mode: "open" | "codes"; downtime: boolean; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
+  { mode: "open", downtime: false, chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 
@@ -700,9 +700,12 @@ function refuseWhenCodesOnly(): void {
   if (control.mode === "codes") throw new HttpError(403, CODES_ONLY)
 }
 
+const refuseInDowntime = () => { if (control.downtime) throw new HttpError(503, "downtime") }
+
 export async function createInvoice(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (body.kind !== "name") throw badRequest()
   refuseWhenCodesOnly()
+  refuseInDowntime()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
   const method = body.method
@@ -808,6 +811,7 @@ const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code
 
 export async function registerWithCode(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (typeof body.code !== "string") throw badRequest()
+  refuseInDowntime()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
   const { hash, row } = prepaidOf(body.code)
@@ -1146,6 +1150,7 @@ const sha256Hex = (text: string) => "0x" + createHash("sha256").update(text, "as
 export async function selectName(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
+  refuseInDowntime()
   const sent = flatSigned(body)
   const order = orderBody({ ...sent, owner: reg.owner })
   const revealBody = objectOf(body.reveal)
@@ -1564,9 +1569,15 @@ export function controlMode(body: Record<string, unknown>): Record<string, unkno
 
 export const modeNow = () => ({ mode: control.mode })
 
+export function controlDowntime(body: Record<string, unknown>): Record<string, unknown> {
+  if (typeof body.on !== "boolean") throw badRequest()
+  control.downtime = body.on
+  return { downtime: control.downtime }
+}
+
 export const siteConfig = () => ({
   stripePublishableKey: null,
-  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S, downtime: false },
+  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S, downtime: control.downtime },
 })
 
 export async function controlClock(body: Record<string, unknown>): Promise<Record<string, unknown>> {

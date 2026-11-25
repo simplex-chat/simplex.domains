@@ -46,7 +46,7 @@ function read(invoice: InvoiceView | null, view: RegistrationView = invoice!.reg
 }
 
 const answered = (s: OrderState, next: OrderState): Extract<OrderEvent, { type: "answered" }> =>
-  ({ type: "answered", seq: s.seq + 1, now: next.now, invoice: next.invoice, view: next.view!, record: next.record, cardSubmittedAt: next.cardSubmittedAt, nameStatus: next.nameStatus })
+  ({ type: "answered", seq: s.seq + 1, now: next.now, invoice: next.invoice, view: next.view!, record: next.record, cardSubmittedAt: next.cardSubmittedAt, nameStatus: next.nameStatus, downtime: next.downtime })
 
 const submittedAgo = (ms: number) => new Date(NOW - ms).toISOString()
 // the community terms an order signed, others on chain, a community entry, the view's acceptance of some terms, and the
@@ -566,6 +566,11 @@ describe("reveal helpers", () => {
   it("unreadDelay reads a view with unread fields again after 5 s, 15 s, then every 30 s", () => {
     expect([0, 1, 2, 3, 10].map(unreadDelay)).toEqual([5000, 15000, 30000, 30000, 30000])
   })
+  it("revealDue not in the service's downtime, and once the page read the downtime's end", () => {
+    const down = reduce(waiting, answered(waiting, { ...waiting, downtime: true }))
+    expect([down.downtime, revealDue(down)]).toEqual([true, false])
+    expect(revealDue(reduce(down, answered(down, { ...down, downtime: false })))).toBe(true)
+  })
   it("revealDue not while a reveal is on its way, nor once refused as often as the page tries", () => {
     const key = revealKey(view)
     expect(revealDue({ ...waiting, reveal: { key, sending: true, refusals: 0 } })).toBe(false)
@@ -659,7 +664,7 @@ describe("initialState", () => {
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
       reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
-      nameStatus: null, since: null,
+      nameStatus: null, since: null, downtime: false,
     })
   })
 })

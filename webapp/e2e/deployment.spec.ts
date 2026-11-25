@@ -1,8 +1,6 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 import { heldPrice } from "../src/config.ts"
-import { labelHash } from "../src/crypto/registration.ts"
-import { hex } from "../src/crypto/wallet.ts"
-import { control, MOCK, mockRegistration, onStep, payButton, REGISTRATION_MS, registrationOf, search, startOrder, test, toReview, uniqueLabel, useCode } from "./helpers.ts"
+import { control, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, search, startOrder, test, toReview, uniqueLabel, useCode } from "./helpers.ts"
 
 const NOT_NOW = "Names can't be ordered right now. Try again later."
 const UNHELD_TERMS = "# SimpleX Names Conditions of Use\n\nNot the terms the page holds.\n"
@@ -14,11 +12,6 @@ async function mismatched<T>(request: APIRequestContext, mismatch: Record<string
   } finally {
     await control(request, "mismatch", {})
   }
-}
-
-const ordered = async (request: APIRequestContext, label: string) => {
-  const { registrations } = await (await request.get(`${MOCK}/control/state`)).json() as { registrations: { labelHash: string }[] }
-  return registrations.some((r) => r.labelHash === hex(labelHash(label)))
 }
 
 async function notOrderable(page: Page, label: string): Promise<void> {
@@ -59,7 +52,7 @@ for (const [what, mismatch] of [["under another policy", { policy: true }], ["of
       await payButton(page).click()
       await expect(onStep(page).getByRole("heading", { name: "That did not go through" })).toBeVisible()
     })
-    expect(await ordered(request, label), "no order made").toBe(false)
+    expect(await orderedAtMock(request, label), "no order made").toBe(false)
   })
 }
 

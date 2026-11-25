@@ -1,9 +1,12 @@
-import { expect, type Page } from "@playwright/test"
+import { expect, type APIRequestContext, type Page } from "@playwright/test"
 import {
-  AGREE, agreeToTerms, ALTERNATE_GENERAL_TERMS, CHECKOUT_KEY, control, loads, onStep, payButton, startOrder, test, toFullReview, uniqueLabel, waitRegistered,
+  AGREE, agreeToTerms, ALTERNATE_GENERAL_TERMS, CHECKOUT_KEY, control, loads, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, search, startOrder, takenOrder,
+  test, toFullReview, toReview, uniqueLabel, waitRegistered,
 } from "./helpers.ts"
 
 const RELOAD_MS = 1000
+const NEW_ORDERS = "New orders open again soon"
+const UNSIGNED_MS = 15_000
 
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 const configRead = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config")
@@ -13,6 +16,15 @@ const reloadedOnView = (page: Page) => Promise.all([page.waitForEvent("load"), b
 async function inDowntime(page: Page, downtime: boolean): Promise<void> {
   await page.unroute("**/api/config")
   await page.route("**/api/config", (route) => route.fulfill({ json: { stripePublishableKey: null, names: { downtime } } }))
+}
+
+async function serviceInDowntime<T>(request: APIRequestContext, f: () => Promise<T>): Promise<T> {
+  await control(request, "downtime", { on: true })
+  try {
+    return await f()
+  } finally {
+    await control(request, "downtime", { on: false })
+  }
 }
 
 const checkoutKept = (page: Page) => page.evaluate((key) => {
@@ -84,4 +96,60 @@ test("a closed invoice's page holding changed terms ticked again stays as a down
   } finally {
     await control(request, "general-terms", { text: null })
   }
+})
+
+test("in the service's downtime the home says new orders open again soon and offers no Register, and Check your order says so, with no order made", async ({ page, request }) => {
+  const label = uniqueLabel("down")
+  await search(page, label)
+  await toReview(page)
+  await serviceInDowntime(request, async () => {
+    await payButton(page).click()
+    await expect(onStep(page).getByRole("heading", { name: NEW_ORDERS })).toBeVisible()
+    await search(page, label)
+    await expect(onStep(page).locator(".answer .line", { hasText: `${NEW_ORDERS}.` })).toBeVisible()
+    await expect(onStep(page).locator(".answer .row")).toBeVisible()
+    await expect(onStep(page).getByRole("button", { name: "Register" })).toHaveCount(0)
+  })
+  expect(await orderedAtMock(request, label), "no order made").toBe(false)
+})
+
+test("in the service's downtime a taken order's search for another name offers no Register, and the order stays taken", async ({ page, request }) => {
+  const { invoiceId } = await takenOrder(page, request, uniqueLabel("dtk"))
+  await serviceInDowntime(request, async () => {
+    await page.reload()
+    await onStep(page).getByRole("button", { name: "Choose another name" }).click()
+    await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("dtn"))
+    await page.getByLabel("Name", { exact: true }).press("Enter")
+    await expect(onStep(page).locator(".answer .row")).toBeVisible()
+    await expect(onStep(page).getByRole("button", { name: "Register" })).toHaveCount(0)
+  })
+  expect((await mockRegistration(request, invoiceId)).phase).toBe("taken")
+})
+
+test("an open invoice's page in the service's downtime withholds its payment details, and shows them once the downtime is over", async ({ page, request }) => {
+  await startOrder(page, uniqueLabel("dpay"), { method: "btc" })
+  const address = onStep(page).getByText("Bitcoin address")
+  await expect(address).toBeVisible()
+  await serviceInDowntime(request, async () => {
+    await page.reload()
+    await expect(onStep(page).getByText("Payment opens again soon.")).toBeVisible()
+    await expect(address).toHaveCount(0)
+    await expect(onStep(page).locator(".qr")).toHaveCount(0)
+  })
+  await expect(address).toBeVisible({ timeout: REGISTRATION_MS })
+})
+
+test("a committed order signs no reveal in the service's downtime, and is signed and registered once the downtime is over", async ({ page, request }) => {
+  const label = uniqueLabel("drev")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  await control(request, `stale/${await registrationOf(request, invoiceId)}`)
+  await serviceInDowntime(request, async () => {
+    await page.reload()
+    await control(request, `settle/${invoiceId}`)
+    await expect.poll(async () => (await mockRegistration(request, invoiceId)).phase, { timeout: REGISTRATION_MS }).toBe("committed")
+    await page.waitForTimeout(UNSIGNED_MS)
+    expect((await mockRegistration(request, invoiceId)).label, "no reveal in the downtime").toBeNull()
+    await expect(onStep(page).getByText("The registration is not signed yet.")).toBeVisible()
+  })
+  await waitRegistered(page, label)
 })

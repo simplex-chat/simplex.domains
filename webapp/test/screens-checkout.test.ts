@@ -21,7 +21,7 @@ function checkout(change: Partial<Checkout> = {}): Checkout {
 }
 
 const opened = (s: CheckoutState, change: Partial<Extract<CheckoutEvent, { type: "opened" }>> = {}): CheckoutEvent =>
-  ({ type: "opened", step: s.step, checkout: s.checkout, sending: false, waiting: null, hold: null, ...change })
+  ({ type: "opened", step: s.step, checkout: s.checkout, sending: false, waiting: null, hold: null, downtime: false, ...change })
 const open = (change: Partial<CheckoutState> = {}): CheckoutState => ({ ...initialState(checkout(), "review", false), ...change })
 const CONTACT = "https://smp8.simplex.im/a#x"
 const CHANNEL = "https://smp9.simplex.im/c#y"
@@ -37,6 +37,7 @@ const STATES: Record<CheckoutKind, CheckoutState> = {
   "status:taken": open({ refusal: "taken" }),
   "status:unavailable": open({ refusal: "unavailable" }),
   "status:codes-only": open({ refusal: "codes-only" }),
+  "status:downtime": open({ refusal: "downtime" }),
   "status:link-contact": open({ refusal: "link-contact" }),
   "status:link-channel": open({ refusal: "link-channel" }),
 }
@@ -70,6 +71,12 @@ describe("screenOf", () => {
   it("a step opened anew ends the refusal the review showed", () => {
     const refused = reduce(open(), { type: "order-refused", reason: "failed" })
     expect(screenOf(reduce(refused, opened(refused, { step: "links" })))).toBe("links")
+  })
+  it("says that new orders open again soon for a step opened in the service's downtime, and for an order refused in it", () => {
+    for (const step of ["links", "code", "review"] as const) expect(screenOf(reduce(STATES[step], opened(STATES[step], { downtime: true })))).toBe("status:downtime")
+    const refused = reduce(open(), { type: "order-refused", reason: "downtime" })
+    expect([screenOf(refused), refused.sending, refused.checkout]).toEqual(["status:downtime", false, open().checkout])
+    expect(screenOf(reduce(refused, opened(refused))), "a step opened once the downtime is over").toBe("review")
   })
   it("a code refused by the service stays on the review, which then pays another way", () => {
     const refused = reduce(initialState(checkout({ code: CODE }), "review", false), { type: "order-refused", reason: "code", error: "This code was already used." })

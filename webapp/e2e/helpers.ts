@@ -59,6 +59,11 @@ export async function mockRegistration(request: APIRequestContext, invoiceId: st
   return registrations.find((r) => r.invoiceId === invoiceId)!
 }
 
+export async function orderedAtMock(request: APIRequestContext, label: string): Promise<boolean> {
+  const { registrations } = await (await request.get(`${MOCK}/control/state`)).json() as { registrations: { labelHash: string }[] }
+  return registrations.some((r) => r.labelHash === hex(labelHash(label)))
+}
+
 // The worker's chain, read directly: the expiry the registrar holds and the price the oracle quotes.
 const deployment = JSON.parse(readFileSync(new URL(`../dev/local-chain-${SLOT}.json`, import.meta.url), "utf8")) as
   { rpcUrl: string; chainId: number; tld: string; ens: Hex; resolver: Hex; controller: Hex; baseRegistrar: Hex; namePolicy: Hex; generalTermsLink: string; generalTermsHash: Hex

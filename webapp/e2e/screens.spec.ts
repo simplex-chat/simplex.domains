@@ -85,6 +85,7 @@ test.afterEach(async ({ page, request }) => {
   await Promise.all(launched.splice(0).map((browser) => browser.close()))
   await control(request, "search", { chainDown: false, limitSeconds: 0, findLimitSeconds: 0, invoiceError: null, unsentSeconds: 0, unreadSeconds: 0, fetchDelays: {} })
   await control(request, "mode", { mode: "open" })
+  await control(request, "downtime", { on: false })
   await control(request, "general-terms", { text: null })
   await control(request, "seed", { seed: null })
 })
@@ -2639,6 +2640,26 @@ screen(3196, "names-row-failed-unread", async (r) => {
 screen(3198, "names-balance-ended", async (r) => {
   await faked(r, r.id, { ...failedFor("monthEnded"), balance: BALANCE }, {})
   await yourNames(r.page, [r.id])
+})
+
+screen(3200, "home-available-downtime", async ({ page, request, id }) => {
+  await control(request, "downtime", { on: true })
+  await search(page, id)
+  await answerRow(page)
+  await shown(page, "New orders open again soon.")
+})
+screen(3202, "checkout-status-downtime", async ({ page, request, id }) => {
+  await search(page, id)
+  await toReview(page)
+  await control(request, "downtime", { on: true })
+  await payButton(page).click()
+  await heading(page, "New orders open again soon")
+})
+screen(3204, "order-pay-crypto-downtime", async (r) => {
+  await ordered(r, r.id)
+  await control(r.request, "downtime", { on: true })
+  await r.page.reload()
+  await shown(r.page, "Payment opens again soon.")
 })
 
 screen(17200, "checkout-review-term-started", async ({ page, id }) => {

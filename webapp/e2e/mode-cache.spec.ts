@@ -9,6 +9,8 @@ test.skip(!process.env.BASE_URL, "needs the production build in dist/, which run
 
 const DIST = new URL("../dist/", import.meta.url).pathname
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".txt": "text/plain; charset=utf-8" }
+// past the 3 s the worker once waited before it served its kept shell
+const SLOW_ANSWER_MS = 4000
 // long enough for a page to have checked its mode and loaded again, had it gone on doing so
 const SETTLE_MS = 3000
 // long enough for a load the check started to have finished
@@ -20,6 +22,7 @@ const CHROMIUM_WITH_BFCACHE = { channel: "chromium", ignoreDefaultArgs: ["--disa
 // responseFile answers If-Modified-Since against with a 304.
 class Service {
   downtime = false
+  delayMs = 0
   // the downtime turns over with each config it answers, as a service restarted again and again
   flips = false
   private server: Server | null = null
@@ -31,19 +34,23 @@ class Service {
     const server = createServer((req, res) => {
       const path = normalize(new URL(req.url ?? "/", "http://x").pathname)
       const file = join(DIST, path === "/" ? "index.html" : path)
-      if (path === "/api/config") {
-        const downtime = this.downtime
-        if (this.flips) this.downtime = !downtime
-        return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ stripePublishableKey: null, names: { downtime } }))
+      const answer = () => {
+        if (path === "/api/config") {
+          const downtime = this.downtime
+          if (this.flips) this.downtime = !downtime
+          return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ stripePublishableKey: null, names: { downtime } }))
+        }
+        if (path.startsWith("/api/")) return void res.writeHead(404, { "Cache-Control": "no-store" }).end()
+        let stat
+        try { stat = statSync(file) } catch { return void res.writeHead(404).end() }
+        const headers = { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache" }
+        const modified = new Date(Math.floor(stat.mtimeMs / 1000) * 1000)
+        const since = req.headers["if-modified-since"]
+        if (since && new Date(since) >= modified) return void res.writeHead(304, headers).end()
+        res.writeHead(200, { ...headers, "Last-Modified": modified.toUTCString() }).end(readFileSync(file))
       }
-      if (path.startsWith("/api/")) return void res.writeHead(404, { "Cache-Control": "no-store" }).end()
-      let stat
-      try { stat = statSync(file) } catch { return void res.writeHead(404).end() }
-      const headers = { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache" }
-      const modified = new Date(Math.floor(stat.mtimeMs / 1000) * 1000)
-      const since = req.headers["if-modified-since"]
-      if (since && new Date(since) >= modified) return void res.writeHead(304, headers).end()
-      res.writeHead(200, { ...headers, "Last-Modified": modified.toUTCString() }).end(readFileSync(file))
+      if (this.delayMs) setTimeout(answer, this.delayMs)
+      else answer()
     })
     await new Promise<void>((resolve) => server.listen(this.port, "127.0.0.1", resolve))
     this.port = (server.address() as AddressInfo).port
@@ -91,6 +98,41 @@ test.beforeEach(async () => {
 })
 test.afterEach(async () => {
   await service.stop()
+})
+
+const downtimeShown = (page: Page) => page.getByText("New orders open again soon.")
+
+test("a reload shows the downtime the service entered, while the service answers slowly after its restart", async ({ page }) => {
+  test.setTimeout(60_000)
+  await installedIn(page, service, false)
+  await service.stop()
+  service.downtime = true
+  service.delayMs = SLOW_ANSWER_MS
+  await service.start()
+  await page.reload()
+  await expect(downtimeShown(page), "the service's answer, not the one the worker kept").toBeVisible()
+  service.downtime = false
+  await page.reload()
+  await expect(nameField(page)).toBeVisible()
+  await expect(downtimeShown(page)).toHaveCount(0)
+})
+
+test("while the service is down, the page opens in the downtime the service last gave, not as it was at install", async ({ page }) => {
+  await installedIn(page, service, false)
+  await service.stop()
+  service.downtime = true
+  await service.start()
+  await page.reload()
+  await expect(downtimeShown(page)).toBeVisible()
+  await service.stop()
+  const offline = await page.reload()
+  expect(offline?.fromServiceWorker(), "the kept shell").toBe(true)
+  await expect(downtimeShown(page), "the worker's copy of the service's last answer").toBeVisible()
+  const seen = loads(page)
+  await becomeVisible(page)
+  await page.waitForTimeout(SETTLE_MS)
+  expect(seen.count, "the page's check finds no service, so the page offline stays as it opened").toBe(0)
+  await expect(downtimeShown(page)).toBeVisible()
 })
 
 test("a tab open across a downtime loads again as it comes back into view once the downtime has ended", async ({ page }) => {

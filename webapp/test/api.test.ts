@@ -140,6 +140,13 @@ describe("service errors", () => {
     expect((await errorOf()).code).toBe("order_exists")
   })
 
+  it("reads the service's downtime, which refuses new orders, as its own refusal and not a gateway's failure", async () => {
+    answerWith(503, JSON.stringify({ type: "downtime" }))
+    const e = await createOrder({ labelHash: HASH, length: 8, duration: 1, owner: "0x1", commitment: HASH, sealed: "s", terms: HASH, timestamp: 1, signature: "0x", reveal: REVEAL }, "btc", 10000)
+      .then(() => null, (e: unknown) => e)
+    expect([(e as ApiError).code, (e as ApiError).status]).toEqual(["downtime", 503])
+  })
+
   it("takes a refusal the page does not know as the service's own failure, or the network's under a gateway status", async () => {
     answerWith(409, JSON.stringify({ type: "weird" }))
     expect((await errorOf()).code).toBe("internal")

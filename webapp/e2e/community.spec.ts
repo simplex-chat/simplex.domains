@@ -4,13 +4,11 @@
 import { createHash } from "node:crypto"
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test"
 import {
-  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, COMMUNITY_HEADING, control, MOCK, onStep, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search,
+  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, COMMUNITY_HEADING, control, MOCK, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search,
   SAVED, startOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, waitRegistered, withStripeKey, acceptedOnChain, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, PLAIN_TERMS,
 } from "./helpers.ts"
 import { keccak256, toHex } from "viem"
 import * as api from "../src/api.ts"
-import { labelHash } from "../src/crypto/registration.ts"
-import { hex } from "../src/crypto/wallet.ts"
 import { RETRY_MS } from "../src/screens/order.ts"
 
 const COMMUNITY_LABEL = "bakers"
@@ -239,8 +237,7 @@ test("a name whose terms can't be read now can't be ordered: its search says so,
   } finally {
     await control(request, "general-terms", { text: null })
   }
-  const { registrations } = await (await request.get(`${MOCK}/control/state`)).json() as { registrations: { labelHash: string }[] }
-  expect(registrations.some((r) => r.labelHash === hex(labelHash(label))), "no order made").toBe(false)
+  expect(await orderedAtMock(request, label), "no order made").toBe(false)
 })
 
 test("a name put on the list meanwhile is refused for the community terms, which their step then asks for, the review showing its marker, and Your names marks the name", async ({ page, request }) => {

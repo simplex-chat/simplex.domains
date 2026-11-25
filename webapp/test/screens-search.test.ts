@@ -24,11 +24,11 @@ function record(change: Partial<OrderRecord> = {}): OrderRecord {
 }
 
 const openedEvent = (change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}): Extract<SearchEvent, { type: "opened" }> =>
-  ({ type: "opened", opening: "plain", name: "", order: null, hold: null, ...change })
+  ({ type: "opened", opening: "plain", name: "", order: null, hold: null, downtime: false, ...change })
 const open = (change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}) => reduce(initialSearch(), openedEvent(change))
 const wait = (until: number): Hold => ({ until, lead: NO_LEAD })
 const searchedEvent = (label: string, hold: Hold | null = null, minLength: number | null = null): SearchEvent => ({ type: "searched", label, hold, minLength })
-const answered = (s: SearchState, answer: SearchAnswer = AVAILABLE, label = s.searching!.label): SearchEvent => ({ type: "answered", seq: s.seq, label, answer, mine: false, now: NOW })
+const answered = (s: SearchState, answer: SearchAnswer = AVAILABLE, label = s.searching!.label, downtime = false): SearchEvent => ({ type: "answered", seq: s.seq, label, answer, mine: false, now: NOW, downtime })
 function shown(label = "alice1", answer: SearchAnswer = AVAILABLE, change: Partial<Extract<SearchEvent, { type: "opened" }>> = {}): SearchState {
   const s = open({ name: label, ...change })
   const searching = reduce(s, searchedEvent(label))
@@ -138,7 +138,7 @@ describe("reduce: typing and searching", () => {
 
 describe("reduce: searching", () => {
   it("a search under way keeps the last answer on screen until the new one comes", () => {
-    const found = reduce(reduce(initialSearch(), { type: "searched", label: "bakery", hold: null, minLength: null }), { type: "answered", seq: 1, label: "bakery", answer: AVAILABLE, mine: false, now: 0 })
+    const found = reduce(reduce(initialSearch(), { type: "searched", label: "bakery", hold: null, minLength: null }), { type: "answered", seq: 1, label: "bakery", answer: AVAILABLE, mine: false, now: 0, downtime: false })
     const next = reduce({ ...found, typed: "harbour" }, { type: "searched", label: "harbour", hold: null, minLength: null })
     expect(next.searching).toEqual({ label: "harbour" })
     expect(next.answer).toEqual(found.answer)
@@ -151,7 +151,7 @@ describe("reduce: searching", () => {
 describe("reduce: answers", () => {
   it("answered shows the answer with what the page knew of it", () => {
     const s = reduce(open(), searchedEvent("alice1"))
-    const next = reduce(s, { type: "answered", seq: s.seq, label: "alice1", answer: TAKEN, mine: true, now: NOW })
+    const next = reduce(s, { type: "answered", seq: s.seq, label: "alice1", answer: TAKEN, mine: true, now: NOW, downtime: false })
     expect(next).toMatchObject({ searching: null, answer: { kind: "found", label: "alice1", answer: TAKEN, mine: true, now: NOW } })
   })
   it("a slower answer to an earlier search never replaces the latest one", () => {
@@ -194,6 +194,14 @@ describe("reduce: answers", () => {
     expect(reduce(searching, answered(searching)).answer).toMatchObject({ kind: "found", answer: AVAILABLE })
     expect(reduce(searching, { type: "search-held", seq: searching.seq, until: NOW + 9000 })).toMatchObject({ answer: null, paused: true })
     expect(reduce(open({ hold: wait(NOW + 5000) }), { type: "hold-ended" }).answer).toBeNull()
+  })
+  it("keeps the service's downtime as the page opened, and as each search read it, for the latest search only", () => {
+    expect(open({ downtime: true }).downtime).toBe(true)
+    const s = reduce(open({ downtime: true }), searchedEvent("alice1"))
+    expect(reduce(s, answered(s, AVAILABLE, "alice1", false)).downtime).toBe(false)
+    const later = reduce(s, searchedEvent("bobby1"))
+    expect(reduce(later, answered(s, AVAILABLE, "alice1", false))).toBe(later)
+    expect(reduce(later, answered(later, AVAILABLE, "bobby1", true)).downtime).toBe(true)
   })
   it("own-order-seen points at the order for the name shown, and not for another", () => {
     const s = shown()

@@ -49,7 +49,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   }
   const shown = (answer: api.SearchAnswer) => {
     const searching = reduce(initialSearch(), { type: "searched", label: LABEL, hold: null, minLength: null })
-    return reduce(searching, { type: "answered", seq: searching.seq, label: LABEL, answer, mine: false, now: 0 }).answer
+    return reduce(searching, { type: "answered", seq: searching.seq, label: LABEL, answer, mine: false, now: 0, downtime: false }).answer
   }
 
   it("reads the service's Stripe key and downtime alone, open and codes-only", () => {

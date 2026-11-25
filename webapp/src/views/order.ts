@@ -20,7 +20,7 @@ import { type MountedCard, mountCard, publishableKey } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
-import { loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
+import { inDowntime, loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
   asStep, type Builder, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
@@ -219,7 +219,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
         status = await statusNow(view, record ?? null)
         if (!isRoute(mine)) return
       }
-      dispatch({ type: "answered", seq, now: api.serviceNow(), invoice, view, record: record ?? null, cardSubmittedAt: cardSubmittedAt(invoice, record), nameStatus: status ?? null })
+      dispatch({ type: "answered", seq, now: api.serviceNow(), invoice, view, record: record ?? null, cardSubmittedAt: cardSubmittedAt(invoice, record), nameStatus: status ?? null, downtime: inDowntime() })
     }
     // A failed order is drawn before its code is checked, saying nothing of the code until the check answers; a rate
     // limit is waited out, counting down, as often as it is met.

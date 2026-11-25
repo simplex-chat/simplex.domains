@@ -13,8 +13,13 @@ const cardForm = () => document.querySelector("body > main iframe") !== null
 // what a reload would lose besides the screen: an order or change on its way, or what storage did not take
 const reloadKeeps = () => !changeOnItsWay() && !session.anySending() && session.allKept() && store.canPersist() && !cardForm()
 
+export const NEW_ORDERS_SOON = "New orders open again soon"
+export const PAYMENT_SOON = "Payment opens again soon"
+
 let downtime = false
 let afresh = false
+
+export const inDowntime = () => downtime
 
 // The page at its next route, as the screen on show is left: true when it loads the document again instead of drawing it.
 export function reloadedForRoute(): boolean {

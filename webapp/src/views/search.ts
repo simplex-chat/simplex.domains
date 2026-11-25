@@ -21,6 +21,7 @@ import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRe
 import { chatButton } from "./chats.ts"
 import { CODES_ONLY_LINE } from "./codes.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
+import { inDowntime } from "./served-mode.ts"
 import { NO_ORDERS, rowName } from "./terms.ts"
 
 // word joiners keep "a–z" and "0–9" whole: a line may otherwise break after their dash
@@ -52,7 +53,7 @@ export function searchPage(params: URLSearchParams): void {
     opens += 1
   }
   pageRoute = currentRoute()
-  dispatch({ type: "opened", opening, name, order, hold: tabHold() })
+  dispatch({ type: "opened", opening, name, order, hold: tabHold(), downtime: inDowntime() })
   if (state.order) void checkOrder(state.order)
   if (searchDue(state)) submit()
   else if (returned && state.answer) void runSearch(state.name, state.seq)
@@ -105,7 +106,7 @@ async function runSearch(label: string, seq: number): Promise<void> {
     return dispatch({ type: "unanswered", seq })
   }
   if (!awaited()) return
-  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow() })
+  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow(), downtime: inDowntime() })
   if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 

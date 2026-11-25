@@ -102,6 +102,7 @@ Tests and manual checks advance orders with `POST` requests to the mock:
 | `/control/code` `{"minLength", "years", "state"}` | issues a prepaid code |
 | `/control/code/state` `{"code", "state"}` | sets a prepaid code's state, as an order elsewhere taking it or letting it go |
 | `/control/mode` `{"mode"}` | `codes` refuses every name invoice with `403 {"error": "codes_only"}`, as the service with `[names] codes_only` on; `open`, the mock's mode at its start, takes them again. `GET /control/mode` answers it, and `GET /api/config` carries it, as the service's does; the page's own mode is its build's (Codes only) |
+| `/control/downtime` `{"on"}` | the service's downtime, as a restart with `[names] downtime` on or off sets it: `GET /api/config` answers it in `names.downtime`, and a name invoice, a code order and a selection are refused with `503 {"type": "downtime"}` |
 | `/control/clock` `{"now"}` | the mock's clock is set to `now` (unix seconds), from where it runs on, and the chain is moved forward to it; a chain already past it is refused with `409 {"error": "chain_ahead"}`. The mock's answers carry its clock in their `Date` header |
 | `/control/seed` `{"seed"}` | the mock's ids, references, addresses and codes are drawn from this text from now on, the same each time, or at random again with `null` |
 

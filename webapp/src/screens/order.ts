@@ -55,10 +55,12 @@ export interface OrderState {
   nameStatus: Found["type"] | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
+  downtime: boolean
 }
 
 export type OrderEvent =
-  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: Found["type"] | null }
+  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: Found["type"] | null
+    downtime: boolean }
   | { type: "record-changed"; record: OrderRecord | null; cardSubmittedAt: string | null }
   | { type: "read-failed" }
   | { type: "not-found" }
@@ -90,7 +92,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, downtime: false }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase.type}${view.phase.type === "committed" && view.label !== null ? " signed" : ""}`

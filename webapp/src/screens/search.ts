@@ -28,14 +28,15 @@ export interface SearchState {
   hold: Hold | null
   paused: boolean
   ownOrder: string | null
+  downtime: boolean
 }
 
 export type SearchEvent =
-  | { type: "opened"; opening: Opening; name: string; order: OrderRecord | null; hold: Hold | null }
+  | { type: "opened"; opening: Opening; name: string; order: OrderRecord | null; hold: Hold | null; downtime: boolean }
   | { type: "typed"; text: string }
   // minLength: the least letters the tab's or the order's code covers, where only a code registers names
   | { type: "searched"; label: string; hold: Hold | null; minLength: number | null }
-  | { type: "answered"; seq: number; label: string; answer: SearchAnswer; mine: boolean; now: number }
+  | { type: "answered"; seq: number; label: string; answer: SearchAnswer; mine: boolean; now: number; downtime: boolean }
   | { type: "unanswered"; seq: number }
   | { type: "search-held"; seq: number; until: number }
   | { type: "hold-ended" }
@@ -44,7 +45,7 @@ export type SearchEvent =
 
 export const initialSearch = (): SearchState => ({
   opening: "plain", name: "", typed: "", searched: null, seq: 0, searching: null, answer: null, bad: false,
-  order: null, hold: null, paused: false, ownOrder: null,
+  order: null, hold: null, paused: false, ownOrder: null, downtime: false,
 })
 
 // An available name this browser has an order for, under its TLD, is checked again rather than offered while the order is read.
