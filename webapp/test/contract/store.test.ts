@@ -43,6 +43,7 @@ async function refusal(name: string, send: () => Promise<unknown>): Promise<api.
 }
 
 const HASH = `0x${"ab".repeat(32)}`
+const SIGN: api.OrderSigner = () => ({ timestamp: 0, signature: "0x" })
 const LABEL = "alicebakery"
 const VIEW_FIELDS = ["balance", "commitTx", "commitment", "community", "disputeDays", "duration", "id", "label", "labelHash", "latePayment", "owner", "payment", "phase", "price",
   "registerTx", "sealed", "terms", "version", "years"]
@@ -186,7 +187,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
 
   it("reads a taken code order's view, for which a name is selected with its code, with no balance or price", async () => {
     answering("registration-taken-code")
-    const view = await api.readRegistration("registration")
+    const view = await api.readRegistration("registration", SIGN)
     expect(Object.keys(view).sort(), "the fields the mock's view of a taken code order has").toEqual(VIEW_FIELDS)
     expect([view.phase, view.payment, view.price, view.balance, view.label]).toEqual([{ type: "taken" }, { type: "code" }, 0, null, expect.any(String)])
     expect(api.selectable(view)).toBe(true)
@@ -194,7 +195,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
 
   const viewOf = (name: string) => {
     answering(name)
-    return api.readRegistration("r1")
+    return api.readRegistration("r1", SIGN)
   }
 
   it.each([
@@ -226,17 +227,17 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect([made.status, made.cryptoCurrency, made.registration.phase]).toEqual(["open", "btc", { type: "unpaid" }])
     expect(Object.keys(made.registration).sort()).toEqual(VIEW_FIELDS)
     answering("invoice-view-btc")
-    expect(await api.readInvoice(made.invoiceId)).toEqual(made)
+    expect(await api.readInvoice(made.invoiceId, SIGN)).toEqual(made)
   })
 
   it.each(["registration-registered", "registration-registered-no-dispute"])("reads %s, with or without a dispute end, as registered until its expiry", async (name) => {
     answering(name)
-    expect((await api.readRegistration("registration")).phase).toMatchObject({ type: "registered", expiresAt: expect.any(Number) })
+    expect((await api.readRegistration("registration", SIGN)).phase).toMatchObject({ type: "registered", expiresAt: expect.any(Number) })
   })
 
   it("reads an order whose registration was ended", async () => {
     answering("registration-ended")
-    expect((await api.readRegistration("registration")).phase).toEqual({ type: "ended" })
+    expect((await api.readRegistration("registration", SIGN)).phase).toEqual({ type: "ended" })
   })
 
   it("holds in LOCAL the payee keys of the service's dev deployment, which the browser tests prove its addresses from", () => {
@@ -254,7 +255,7 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
 
   it.each([["invoice-btc-open", "btc"], ["invoice-xmr-open", "xmr"]])("reads %s as an open invoice whose address its proof derives from the deployment's keys", async (name, coin) => {
     answering(name)
-    const invoice = await api.readInvoice("invoice")
+    const invoice = await api.readInvoice("invoice", SIGN)
     expect([invoice.status, api.invoiceMethod(invoice), api.addressProven(invoice)]).toEqual(["open", coin, true])
   })
 

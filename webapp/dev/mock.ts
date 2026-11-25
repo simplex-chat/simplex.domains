@@ -4,7 +4,7 @@ import { isIP } from "node:net"
 import { takeCodeToken } from "./mock/limits.ts"
 import {
   cancelInvoice, checkCode, controlClock, controlCommunity, controlCommunityTerms, controlCredit, controlDowntime, controlEdits, controlGeneralTerms, controlInvoice, controlLate, controlMismatch, controlMode, controlRate, controlRefund, controlRegistration, controlSearch, controlSeed, controlTake, controlUnregister, createInvoice, currentTerms, dump, editRecords, find, findLimited,
-  HttpError, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, retry, reveal, search, selectName, signFor, siteConfig,
+  HttpError, invoiceOf, issueCode, modeNow, oneOrderAtATime, setCodeState, previewLink, readInvoice, readRegistration, registerWithCode, registrationOf, retry, reveal, search, selectName, signFor, siteConfig,
 } from "./mock/service.ts"
 
 const PORT = Number(process.env.MOCK_PORT ?? "8099")
@@ -15,6 +15,7 @@ const KEEP_ALIVE_MS = 75_000
 
 // a seenVersion that is not a whole number is no version, so the poll answers at once
 const versionOf = (q: URLSearchParams) => /^\d+$/.test(q.get("seenVersion") ?? "") ? Number(q.get("seenVersion")) : null
+const proofOf = (q: URLSearchParams) => ({ timestamp: /^\d+$/.test(q.get("timestamp") ?? "") ? Number(q.get("timestamp")) : q.get("timestamp"), signature: q.get("signature") })
 
 // A client is the last address in X-Forwarded-For, as the service with trust_forwarded_for takes it, else the peer.
 function clientOf(req: IncomingMessage): string {
@@ -38,15 +39,17 @@ const routes: [string, RegExp, Handler, Limit?][] = [
   ["GET", /^\/api\/terms\/([^/]+)$/, (m) => currentTerms(m[1])],
   ["POST", /^\/api\/code\/check$/, (_, b) => checkCode(b), codeLimited],
   ["POST", /^\/api\/invoice$/, (_, b) => oneOrderAtATime(() => createInvoice(b))],
-  ["GET", /^\/api\/invoice\/([^/]+)$/, (m, _, q) => readInvoice(m[1], q.get("wait"), versionOf(q), q.get("seenPaid"), q.get("seenFull") === "1")],
-  ["POST", /^\/api\/invoice\/([^/]+)\/cancel$/, (m) => cancelInvoice(m[1])],
+  ["GET", /^\/api\/invoice\/([^/]+)$/, (m, _, q) => readInvoice(m[1], proofOf(q), q.get("wait"), versionOf(q), q.get("seenPaid"), q.get("seenFull") === "1")],
+  ["POST", /^\/api\/invoice\/([^/]+)\/cancel$/, (m, b) => cancelInvoice(m[1], b)],
+  ["GET", /^\/control\/invoice\/([^/]+)$/, (m) => invoiceOf(m[1])],
+  ["GET", /^\/control\/registration\/([^/]+)$/, (m) => registrationOf(m[1])],
   ["POST", /^\/api\/name\/register$/, (_, b) => oneOrderAtATime(() => registerWithCode(b)), codeLimited],
   ["POST", /^\/api\/name\/records$/, (_, b) => editRecords(b)],
   ["POST", /^\/api\/registration\/find$/, (_, b) => find(b), findLimited],
-  ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], versionOf(q))],
+  ["GET", /^\/api\/registration\/([^/]+)$/, (m, _, q) => readRegistration(m[1], proofOf(q), versionOf(q))],
   ["POST", /^\/api\/registration\/([^/]+)\/reveal$/, (m, b) => reveal(m[1], b)],
   ["POST", /^\/api\/registration\/([^/]+)\/name$/, (m, b) => oneOrderAtATime(() => selectName(m[1], b))],
-  ["POST", /^\/api\/registration\/([^/]+)\/retry$/, (m) => retry(m[1])],
+  ["POST", /^\/api\/registration\/([^/]+)\/retry$/, (m, b) => retry(m[1], b)],
   ["POST", /^\/control\/(settle|partial|confirming|expire|overdue)\/([^/]+)$/, (m, b) => controlInvoice(m[1], m[2], b)],
   ["POST", /^\/control\/(fail|stale|unread|lapse)\/([^/]+)$/, (m) => controlRegistration(m[1], m[2])],
   ["POST", /^\/control\/unregister\/([^/]+)$/, (m) => controlUnregister(m[1])],

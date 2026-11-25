@@ -3,7 +3,7 @@ import * as api from "../api.ts"
 import { SITE } from "../config.ts"
 import { alertBox, announce, btn, codeDisplay, copyButton, el, gradName, icon, type Kid, link, nameCodeQr, nameText, refill, setAction, type Tone, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
-import { clock, dateOf, dollars, methodName, SEP, shortAddress, timeOf } from "../format.ts"
+import { clock, dateOf, dollars, methodName, SEP, timeOf } from "../format.ts"
 import { paymentUri, qrSvg } from "../qr.ts"
 import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
@@ -43,6 +43,7 @@ let opened = 0
 let pageRoute = -1
 let reads = 0
 let wakes: ReturnType<typeof setTimeout> | undefined
+let pageSign: api.OrderSigner = () => ({ timestamp: 0, signature: "" })
 
 export function orderPage(invoiceId: string | null, registrationId: string | null): void {
   const mine = currentRoute()
@@ -84,7 +85,7 @@ function dispatch(event: OrderEvent): void {
   if (kind === "registered") seenRegistered(state.view!, state.invoice)
   if (revealDue(state)) reveal(state.view!, state.record!)
   else if (askAgainDue(state) && askingAgain !== opened) askAgain(state.record!)
-  else if (retryDue(state)) retryLapsed(state.view!)
+  else if (retryDue(state)) retryLapsed(state.view!, state.record!)
   wakeOnTime()
 }
 
@@ -126,17 +127,20 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     invoice = null
     view = null
   }
+  const linked = invoiceId ? store.orderByInvoice(invoiceId) : store.orderByRegistration(registrationId!)
+  if (!linked) return dispatch({ type: "no-code" })
+  const sign = pageSign = flow.orderSigner(linked.ownerCode)
   while (isRoute(mine)) {
     const asked = Date.now()
     const seq = ++reads
     try {
       if (invoiceId) {
-        const [read, down]: [api.InvoiceView, boolean] = await Promise.all([api.readInvoice(invoiceId, invoice ? api.seenOf(invoice) : undefined, signal), downtimeNow()])
+        const [read, down]: [api.InvoiceView, boolean] = await Promise.all([api.readInvoice(invoiceId, sign, invoice ? api.seenOf(invoice) : undefined, signal), downtimeNow()])
         invoice = read
         view = read.registration
         downtime = down
       } else {
-        const [read, down]: [api.RegistrationView, boolean] = await Promise.all([api.readRegistration(registrationId!, view?.version, signal), downtimeNow()])
+        const [read, down]: [api.RegistrationView, boolean] = await Promise.all([api.readRegistration(registrationId!, sign, view?.version, signal), downtimeNow()])
         view = read
         downtime = down
       }
@@ -188,15 +192,11 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       if (!isRoute(mine)) return
       record = synced ?? undefined
     }
-    // A late payment to a replaced invoice keeps its page, which says that it is kept as the order's balance. Only a browser without this
-    // order's record looks for its successor among its records, so two empty invoices never lead to each other.
+    // A late payment to a replaced invoice keeps its page, which says that it is kept as the order's balance.
     let unread: number | null = null
     try {
       const closedEmpty = invoice !== null && api.closedEmpty(invoice)
-      const successor = closedEmpty && !record ? await nextOrder(view, invoice!) : undefined
-      let replacement = successor && store.orderUrl(successor)
-      if (!replacement && !record && invoice) record = await adoptSibling(view, invoice)
-      if (!replacement && closedEmpty) replacement = record?.replacedBy
+      let replacement = closedEmpty ? record?.replacedBy : undefined
       // another browser may have made a newer invoice that this one never opened
       if (!replacement && closedEmpty && record) {
         const newer = await flow.newerOrder(record)
@@ -205,7 +205,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       if (!isRoute(mine)) return
       if (replacement) return redirect(replacement)
     } catch (e) {
-      // a sibling's invoice could not be read; the page shows the order as this browser knows it and reads it again
+      // the code's newer orders could not be asked for; the page shows the order as this browser knows it and reads it again
       unread = api.retryDelay(e, RETRY_MS)
     }
     if (!isRoute(mine)) return
@@ -268,51 +268,6 @@ async function statusNow(view: api.RegistrationView, record: store.OrderRecord |
   return answer?.found.type ?? null
 }
 
-// Another order of the same buyer: one of this commitment, or of the code's wallet once another name was selected for it.
-const siblingOf = (view: api.RegistrationView) => (o: store.OrderRecord) => o.registrationId !== view.id &&
-  (o.request.commitment === view.commitment || o.owner.toLowerCase() === view.owner.toLowerCase())
-
-// The same order with a later invoice. Only an invoice that closes later can have replaced this one; expiry times are
-// whole seconds, so a tie counts.
-async function nextOrder(view: api.RegistrationView, invoice: api.InvoiceView): Promise<store.OrderRecord | undefined> {
-  const candidates = store.orders().filter((o) => o.invoiceId && !o.replacedBy && siblingOf(view)(o))
-  for (const o of candidates) {
-    // a sibling the service has forgotten replaced nothing; any other failure leaves the answer unknown
-    const other = await api.readInvoice(o.invoiceId!).catch((e) => { if (e instanceof api.ApiError && e.code === "not_found") return null; throw e })
-    if (other && Date.parse(other.expiresAt) >= Date.parse(invoice.expiresAt)) return o
-  }
-  return undefined
-}
-
-// A browser holding the code of another invoice of this order holds this one too: another browser may have made a newer
-// invoice, or money may have reached an older one late. The code reopens the name when another name was selected for the order.
-async function adoptSibling(view: api.RegistrationView, invoice: api.InvoiceView): Promise<store.OrderRecord | undefined> {
-  const sibling = store.orders().find(siblingOf(view))
-  if (!sibling) return undefined
-  const closed = invoice.status !== "open" && unpaidOrClosed(view)
-  const next = closed ? await nextOrder(view, invoice) : undefined
-  const record: store.OrderRecord = { ...sibling, registrationId: view.id, invoiceId: invoice.invoiceId,
-    method: invoice.cryptoCurrency ?? "card", paid: view.price,
-    cancelled: false, cardSubmittedAt: undefined, prepaidCode: undefined, replacedBy: next && store.orderUrl(next),
-    // a replaced invoice came just before its replacement; otherwise the code asks the service when the order was made,
-    // which a later search for a newer order compares against
-    createdAt: next ? new Date(Date.parse(next.createdAt) - 1).toISOString() : await flow.createdAtOf(sibling, view.id).catch(() => null) ?? new Date(api.serviceNow()).toISOString() }
-  const adopted = await flow.syncRecord(record, view)
-  if (adopted === record) store.saveOrder(record)
-  if (adopted && !adopted.replacedBy) await replaceOlder(view, invoice)
-  return adopted ?? undefined
-}
-
-// The older invoices of an order adopted here were replaced by it, as if this browser had asked for the new invoice.
-async function replaceOlder(view: api.RegistrationView, invoice: api.InvoiceView): Promise<void> {
-  for (const o of store.orders().filter((r) => r.invoiceId && !r.replacedBy && siblingOf(view)(r))) {
-    const old = await api.readInvoice(o.invoiceId!).catch(() => null)
-    if (old && old.status !== "open" && unpaidOrClosed(old.registration) && Date.parse(old.expiresAt) <= Date.parse(invoice.expiresAt)) {
-      store.updateOrder(o.registrationId, { replacedBy: store.orderUrl({ invoiceId: invoice.invoiceId, registrationId: view.id }) })
-    }
-  }
-}
-
 function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   const key = revealKey(view)
   const reference = state.reference
@@ -327,10 +282,10 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   })
 }
 
-function retryLapsed(view: api.RegistrationView): void {
+function retryLapsed(view: api.RegistrationView, record: store.OrderRecord): void {
   const gen = opened
   dispatch({ type: "retry-started" })
-  api.retry(view.id).then(() => reread(gen), (e) => {
+  api.retry(view.id, flow.orderSigner(record.ownerCode)).then(() => reread(gen), (e) => {
     if (holdOn(e, "", gen)) return
     setTimeout(() => {
       answer(gen, { type: "retry-ended", note: null })
@@ -862,7 +817,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promi
   const say = (text: string) => answer(gen, { type: "reorder-failed", note: warning(text) })
   let after: api.InvoiceView
   try {
-    after = await api.cancelInvoice(invoice.invoiceId)
+    after = await api.cancelInvoice(invoice.invoiceId, pageSign)
     const record = store.orderByInvoice(invoice.invoiceId)
     if (record && after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
   } catch (e) {
@@ -873,7 +828,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promi
       return false
     }
     try {
-      after = await api.readInvoice(invoice.invoiceId)
+      after = await api.readInvoice(invoice.invoiceId, pageSign)
     } catch {
       say("The invoice could not be read now. Try again in a moment.")
       return false
@@ -894,7 +849,7 @@ async function cancelInvoice(): Promise<void> {
   const { invoice, record } = state
   dispatch({ type: "cancel-started" })
   try {
-    const after = await api.cancelInvoice(invoice!.invoiceId)
+    const after = await api.cancelInvoice(invoice!.invoiceId, pageSign)
     if (record && after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
     answer(gen, { type: "cancel-answered" })
     reread(gen)
@@ -949,7 +904,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
   try {
     // the invoice as it is now: one still open, or paid into a registration, is the order; one paid after it closed
     // registered nothing, so the name is ordered again and the late payment is kept as the old order's balance
-    const now = await api.readInvoice(invoice.invoiceId)
+    const now = await api.readInvoice(invoice.invoiceId, flow.orderSigner(record.ownerCode))
     if (now.status === "open" || (now.status === "paid" && !unpaidOrClosed(now.registration))) {
       if (isOpen(gen)) go(store.invoiceUrl(invoice.invoiceId))
       return
@@ -1114,10 +1069,9 @@ export const REFUSED_LINK: Record<LinkKind, string> = {
 
 export const REPLACE_LINK = "Replace or remove it to register the name."
 
-function buildNotOnDevice({ view, invoice }: OrderState): HTMLElement {
-  return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser",
-    text: ["This order registers a name to ", el("span", { class: "nowrap" }, shortAddress(view!.owner)), `. Its code was made in the browser it was ${view!.payment.type === "code" ? "ordered" : "bought"} in. Enter the code you saved to carry on here.`],
-    action: btn("Enter your name code", "", () => go(CODE_FROM_ORDER_URL)), reference: invoice?.invoiceId ?? view!.id })
+function buildNoCode({ reference }: OrderState): HTMLElement {
+  return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser", text: "This order's name code is not in this browser. Enter it to see the order.",
+    action: btn("Enter your name code", "", () => go(CODE_FROM_ORDER_URL)), reference })
 }
 
 // a name of this browser's code needs nothing more from here; one of another browser's restores its code
@@ -1130,7 +1084,7 @@ function buildRegistered(s: OrderState): HTMLElement {
   // the code's QR is under everything, there only while the code is shown
   const qr = el("div", { class: "code-qr" })
   const { tld } = SITE
-  return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view, s.record), action: registeredAction(s.record) },
+  return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view), action: registeredAction(s.record) },
     code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
       el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
@@ -1139,10 +1093,9 @@ function buildRegistered(s: OrderState): HTMLElement {
     el("div", { class: "yours-edit center" }, btn(linksAction(hasLinks(s.record!, null)), "quiet small", () => go(editUrl(view.id)))), qr] : null)
 }
 
-function registeredLead(view: api.RegistrationView, record: store.OrderRecord | null): string {
+function registeredLead(view: api.RegistrationView): string {
   const expiresAt = api.expiresAtOf(view)
-  const until = expiresAt ? dateOf(expiresAt) : ""
-  return record ? `Registered until ${until}.` : `Registered until ${until} to ${shortAddress(view.owner)}. Its name code is not in this browser.`
+  return `Registered until ${expiresAt ? dateOf(expiresAt) : ""}.`
 }
 
 function buildEnded({ view, record, invoice }: OrderState): HTMLElement {
@@ -1259,7 +1212,7 @@ const BUILDERS: Record<OrderKind, Builder<OrderState>> = {
   ended: buildEnded,
   taken: buildTaken,
   failed: buildFailed,
-  "not-on-device": buildNotOnDevice,
+  "status:no-code": buildNoCode,
   "status:closed": buildClosed,
   "status:card-unconfirmed": buildCardUnconfirmed,
   "status:paid-by-invoice": buildPaidByInvoice,

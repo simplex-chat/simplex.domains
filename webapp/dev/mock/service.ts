@@ -2,7 +2,7 @@
 // A development fixture: memory only, no money, and not a specification of the real service.
 import { createHash } from "node:crypto"
 import {
-  encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
+  encodeFunctionData, getAddress, hashTypedData, isAddress, isHex, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
 import { communityAgreed, type FailReason, type Preview, signedHash, termsLink } from "../../src/api.ts"
@@ -759,9 +759,53 @@ function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): 
   return reg
 }
 
-export async function readInvoice(invoiceId: string, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
+interface OrderProof { timestamp?: unknown; signature?: unknown }
+const orderRequests = { signed: 0, refused: 0 }
+const notFound = () => {
+  orderRequests.refused += 1
+  return new HttpError(404, "not_found")
+}
+
+async function requester(id: string, action: "read" | "cancel" | "retry", { timestamp, signature }: OrderProof): Promise<Address> {
+  if (!Number.isInteger(timestamp) || typeof signature !== "string" || !isHex(signature)) throw notFound()
+  freshTimestamp(timestamp)
+  try {
+    return await recoverMessageAddress({ message: `simplex.domains order ${id} ${action} ${timestamp}`, signature })
+  } catch {
+    throw notFound()
+  }
+}
+
+async function ownInvoice(invoiceId: string, action: "read" | "cancel", proof: OrderProof): Promise<Invoice> {
+  const signer = await requester(invoiceId, action, proof)
+  const inv = invoices.get(invoiceId)
+  if (!inv || registrations.get(inv.registrationId)!.owner !== signer) throw notFound()
+  orderRequests.signed += 1
+  return inv
+}
+
+async function ownRegistration(registrationId: string, action: "read" | "retry", proof: OrderProof): Promise<Registration> {
+  const signer = await requester(registrationId, action, proof)
+  const reg = registrations.get(registrationId)
+  if (!reg || reg.owner !== signer) throw notFound()
+  orderRequests.signed += 1
+  return reg
+}
+
+export async function invoiceOf(invoiceId: string): Promise<Record<string, unknown>> {
   const inv = invoices.get(invoiceId)
   if (!inv) throw new HttpError(404, "not_found")
+  return invoiceView(inv)
+}
+
+export async function registrationOf(registrationId: string): Promise<Record<string, unknown>> {
+  const reg = registrations.get(registrationId)
+  if (!reg) throw new HttpError(404, "not_found")
+  return registrationView(reg)
+}
+
+export async function readInvoice(invoiceId: string, proof: OrderProof, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
+  const inv = await ownInvoice(invoiceId, "read", proof)
   expireIfDue(inv)
   const reg = registrations.get(inv.registrationId)!
   if (wait !== null) {
@@ -771,9 +815,8 @@ export async function readInvoice(invoiceId: string, wait: string | null, seenVe
   return invoiceView(inv)
 }
 
-export async function readRegistration(registrationId: string, seenVersion: number | null): Promise<Record<string, unknown>> {
-  const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
+export async function readRegistration(registrationId: string, proof: OrderProof, seenVersion: number | null): Promise<Record<string, unknown>> {
+  const reg = await ownRegistration(registrationId, "read", proof)
   if (seenVersion !== null) await hold(reg.id, () => reg.version === seenVersion)
   return registrationView(reg)
 }
@@ -784,9 +827,8 @@ function expireIfDue(inv: Invoice): void {
   if (overdue(inv)) close(inv)
 }
 
-export async function cancelInvoice(invoiceId: string): Promise<Record<string, unknown>> {
-  const inv = invoices.get(invoiceId)
-  if (!inv) throw new HttpError(404, "not_found")
+export async function cancelInvoice(invoiceId: string, proof: OrderProof): Promise<Record<string, unknown>> {
+  const inv = await ownInvoice(invoiceId, "cancel", proof)
   expireIfDue(inv)
   if (inv.status !== "open") throw new HttpError(409, "not_open")
   if (inv.amountPaid) throw new HttpError(409, "funded")
@@ -1199,9 +1241,8 @@ function codeReservable(row: PrepaidCode, reg: Registration, length: number): vo
   if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
 
-export async function retry(registrationId: string): Promise<Record<string, unknown>> {
-  const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
+export async function retry(registrationId: string, proof: OrderProof): Promise<Record<string, unknown>> {
+  const reg = await ownRegistration(registrationId, "retry", proof)
   // only a commitment that lapsed unsigned is committed again
   if (control.writeDelayMs) await sleep(control.writeDelayMs)
   if (!lapsed(reg)) throw badRequest()
@@ -1653,7 +1694,7 @@ export async function currentTerms(hash: string): Promise<Record<string, unknown
 export function dump(): unknown {
   return {
     registrations: [...registrations.values()].map((r) => ({ ...r, intent: r.intent && { ...r.intent, nonce: String(r.intent.nonce), deadline: String(r.intent.deadline) } })),
-    invoices: [...invoices.values()], balances: Object.fromEntries(balances),
+    invoices: [...invoices.values()], balances: Object.fromEntries(balances), orderRequests,
   }
 }
 

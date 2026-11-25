@@ -18,7 +18,7 @@ async function paidOrder(page: Parameters<typeof keepOrder>[0], id: string, reg:
   await page.goto(`/?order=inv-${id}`)
 }
 
-const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()) as { registration: { phase: { type: string } } }).registration.phase.type
+const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json()) as { registration: { phase: { type: string } } }).registration.phase.type
 
 test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
   await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, refunded: 0 } })
@@ -39,12 +39,12 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Taken")
   await expect(page.getByText(`Reference ${invoiceId}`)).toBeVisible()
   await shot(page, "N8-taken")
-  // a browser without the order's code says where to add it, and offers neither the selection nor the refund
+  // a browser without the order's code asks for it, and offers neither the selection nor the refund
   const elsewhere = await page.context().browser()!.newContext()
   const stranger = await elsewhere.newPage()
   await stranger.goto(`/?order=${invoiceId}`)
-  await expect(stranger.getByText("Add it in Check your code to use the balance.")).toBeVisible()
-  await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toBeDisabled()
+  await expect(stranger.getByText("This order's name code is not in this browser. Enter it to see the order.")).toBeVisible()
+  await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await expect(onStep(stranger).getByText("Get a refund")).toHaveCount(0)
   await elsewhere.close()
 
@@ -174,7 +174,7 @@ test("an order failed while its page was not read says until when the name stays
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await control(request, `unread/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
-  const view = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { phase: { heldUntil: string } }
+  const view = await (await request.get(`${MOCK}/control/registration/${registrationId}`)).json() as { phase: { heldUntil: string } }
   const until = dateOf(Date.parse(view.phase.heldUntil) / 1000)
   await expect(onStep(page).locator(".notice", { hasText: "The order was not opened for 3 days" })).toHaveText(
     `The order was not opened for 3 daysYour payment is received. Until ${until}, this service accepts no other order for the name. Choose Continue to sign the registration again, or contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)

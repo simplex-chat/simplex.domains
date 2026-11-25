@@ -21,7 +21,7 @@ export const TX_STALL_MS = 180_000
 const UNREAD_PACING_MS = [5_000, 15_000, 30_000]
 export const unreadDelay = (reads: number) => UNREAD_PACING_MS[Math.min(reads, UNREAD_PACING_MS.length - 1)]
 
-export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "registered" | "ended" | "taken" | "failed" | "not-on-device"
+export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "registered" | "ended" | "taken" | "failed" | "status:no-code"
   | "status:closed" | "status:card-unconfirmed" | "status:paid-by-invoice" | "status:unreadable" | "status:unknown-link" | "status:price-changed"
 
 export type ClosedCase = "paid-late" | "cancelled" | "received" | "expired" | "reversed"
@@ -48,6 +48,7 @@ export interface OrderState {
   hold: Hold | null
   price: number | null
   gone: boolean
+  noCode: boolean
   codeRefused: boolean
   // the service said the order's code is unspent, which the failed page waits for before saying so
   codeKept: boolean
@@ -67,6 +68,7 @@ export type OrderEvent =
   | { type: "record-changed"; record: OrderRecord | null; cardSubmittedAt: string | null }
   | { type: "read-failed" }
   | { type: "not-found" }
+  | { type: "no-code" }
   | { type: "tick"; now: number }
   | { type: "card-started" }
   | { type: "card-submitted"; at: string }
@@ -96,7 +98,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardUnchecked: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, downtime: false }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardUnchecked: false, reveal, busy: null, note: null, hold, price: null, gone: false, noCode: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, downtime: false }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase.type}${view.phase.type === "committed" && view.label !== null ? " signed" : ""}`
@@ -117,6 +119,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
     case "record-changed": return { ...s, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? null) }
     case "read-failed": return s
     case "not-found": return { ...s, gone: true }
+    case "no-code": return { ...s, noCode: true }
     case "tick": return { ...s, now: e.now }
     case "card-submitted": return { ...s, cardSubmittedAt: e.at }
     case "card-failed": return { ...s, cardFailed: true }
@@ -211,6 +214,7 @@ export const paymentChecked = ({ invoice, record, cardUnchecked }: OrderState) =
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null
 
 export function screenOf(s: OrderState): OrderKind {
+  if (s.noCode) return "status:no-code"
   if (s.gone) return "status:unknown-link"
   if (s.price !== null) return "status:price-changed"
   const { invoice, view, record } = s
@@ -222,7 +226,7 @@ export function screenOf(s: OrderState): OrderKind {
   if (view.phase.type === "ended") return "ended"
   if (view.phase.type === "taken") return "taken"
   if (view.phase.type === "failed") return "failed"
-  if (view.phase.type !== "registering" && view.label === null && !record) return "not-on-device"
+  if (view.phase.type !== "registering" && view.label === null && !record) return "status:no-code"
   return "registering"
 }
 

@@ -61,8 +61,8 @@ async function orderBeforeTermsChange(page: Page, request: APIRequestContext, pr
   })
 }
 
-const viewOf = async (request: APIRequestContext, registrationId: string) => (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as Promise<api.RegistrationView>
-const invoiceViewOf = async (request: APIRequestContext, invoiceId: string) => (await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { registration: api.RegistrationView }).registration
+const viewOf = async (request: APIRequestContext, registrationId: string) => (await request.get(`${MOCK}/control/registration/${registrationId}`)).json() as Promise<api.RegistrationView>
+const invoiceViewOf = async (request: APIRequestContext, invoiceId: string) => (await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { registration: api.RegistrationView }).registration
 const revealAfterOf = async (request: APIRequestContext, invoiceId: string) => api.committedOf(await invoiceViewOf(request, invoiceId))!.revealAfter
 
 // Where a community name's marker stands: its baseline against the name's, its gap after the name's TLD, its gap to the
@@ -336,11 +336,11 @@ test("a card form that did not load asks for changed terms before cancelling its
     await again.click()
     await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
     await expect(again).toBeDisabled()
-    expect((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()).status, "nothing cancelled before the tick").toBe("open")
+    expect((await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json()).status, "nothing cancelled before the tick").toBe("open")
     await agreeToTerms(page)
     await again.click()
     await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
-    expect((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()).status).toBe("expired")
+    expect((await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json()).status).toBe("expired")
     expect(api.signedTermsOf((await invoiceViewOf(request, new URL(page.url()).searchParams.get("order")!)).terms)).toBe(hash.slice(2))
   })
 })

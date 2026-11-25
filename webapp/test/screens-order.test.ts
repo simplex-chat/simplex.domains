@@ -72,7 +72,7 @@ const STATES: Record<OrderKind, OrderState> = {
   ended: read(null, registration({ phase: "ended", label: "alice", registerTx: "0xe9" })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
   failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", reason: "registryRefused" })),
-  "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
+  "status:no-code": read(null, registration({ phase: "committing" }), { record: null }),
   "status:closed": read(crypto({ status: "expired" })),
   "status:card-unconfirmed": read(card(), undefined, { record: record({ method: "card" }), cardFailed: true }),
   "status:paid-by-invoice": read(null, registration(), { reference: "reg-1" }),
@@ -104,7 +104,8 @@ describe("screenOf", () => {
     ["a registration ended, seen without the name code", read(null, registration({ phase: "ended", label: "alice" }), { record: null }), "ended"],
     ["a name taken first", STATES.taken, "taken"],
     ["a failed registration", STATES.failed, "failed"],
-    ["a commit in a browser without the name code", STATES["not-on-device"], "not-on-device"],
+    ["a commit in a browser without the name code", STATES["status:no-code"], "status:no-code"],
+    ["an order's link in a browser without its name code, which reads nothing", reduce(initialState("inv-1", null), { type: "no-code" }), "status:no-code"],
     ["a commit in the browser with the name code", STATES.registering, "registering"],
     ["a registration being sent, seen without the name code", read(null, registration({ phase: "registering" }), { record: null }), "registering"],
     ["a revealed name, seen without the name code", read(null, registration({ phase: "committed", label: "alice" }), { record: null }), "registering"],
@@ -542,7 +543,7 @@ describe("a stalled stage", () => {
     expect(stalledAt(seen(registration(committed)))).toBe(NOW + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS)
   })
   it("is not said on any other page, nor once the service refused the reveal, which the page says instead", () => {
-    for (const kind of ["registered", "taken", "failed", "not-on-device", "pay-crypto"] as const) {
+    for (const kind of ["registered", "taken", "failed", "status:no-code", "pay-crypto"] as const) {
       const s = STATES[kind]
       expect(stalledAt(reduce(s, answered(s, s))), kind).toBeNull()
     }
@@ -720,8 +721,8 @@ describe("initialState", () => {
   it("starts with nothing read, holding as the tab does, and keeps a reveal carried over", () => {
     const reveal = { key: "reg-1 0x9c 4 1", sending: true, refusals: 1 }
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
-      reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
-      reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
+      reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardUnchecked: false,
+      reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, noCode: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
       nameStatus: null, since: null, downtime: false,
     })
   })

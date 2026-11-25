@@ -47,7 +47,7 @@ export async function control(request: APIRequestContext, path: string, body: Re
 }
 
 export async function registrationOf(request: APIRequestContext, invoiceId: string): Promise<string> {
-  const res = await request.get(`${MOCK}/api/invoice/${invoiceId}`)
+  const res = await request.get(`${MOCK}/control/invoice/${invoiceId}`)
   return (await res.json()).registration.id
 }
 

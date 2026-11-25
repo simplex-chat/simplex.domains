@@ -249,17 +249,17 @@ export async function newerOrder(record: store.OrderRecord): Promise<store.Order
   return next
 }
 
-// When the service made one of the code's orders, which an adopted order's invoice does not say; null when the service does not list it.
-export async function createdAtOf(record: store.OrderRecord, registrationId: string): Promise<string | null> {
-  const wallet = walletOf(record.ownerCode)
-  if (!wallet) return null
-  return (await findOrders(wallet)).find((r) => r.registrationId === registrationId)?.createdAt ?? null
+const signerOf = (wallet: Wallet): api.OrderSigner => (id, action) => {
+  const timestamp = now()
+  return { timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(`simplex.domains order ${id} ${action} ${timestamp}`))) }
 }
+export const orderSigner = (ownerCode: string): api.OrderSigner => signerOf(walletOf(ownerCode)!)
 
 async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<RestoreResult> {
   const owner = checksumAddress(wallet.address)
-  const invoice = chosen.invoiceId ? await api.readInvoice(chosen.invoiceId) : null
-  const view = invoice?.registration ?? await api.readRegistration(chosen.registrationId)
+  const sign = signerOf(wallet)
+  const invoice = chosen.invoiceId ? await api.readInvoice(chosen.invoiceId, sign) : null
+  const view = invoice?.registration ?? await api.readRegistration(chosen.registrationId, sign)
   const opened = await openOrder(wallet, view)
   // what only this browser knew about the order (a card in confirmation, a cancel, the prepaid code that paid) is kept
   const known = store.orderByRegistration(view.id)

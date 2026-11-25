@@ -106,7 +106,9 @@ Tests and manual checks advance orders with `POST` requests to the mock:
 | `/control/clock` `{"now"}` | the mock's clock is set to `now` (unix seconds), from where it runs on, and the chain is moved forward to it; a chain already past it is refused with `409 {"error": "chain_ahead"}`. The mock's answers carry its clock in their `Date` header |
 | `/control/seed` `{"seed"}` | the mock's ids, references, addresses and codes are drawn from this text from now on, the same each time, or at random again with `null` |
 
-`GET /control/state` dumps the mock's registrations, invoices and balances.
+`GET /control/state` dumps the mock's registrations, invoices and balances, and counts the order requests it answered signed and those it refused; `GET /control/invoice/<id>` and `GET /control/registration/<id>` answer an order's views to the tests without a signature.
+
+The page signs every request for an order with the order's name key, as the service asks: each read of an invoice or a registration, long polls included, a cancel and a retry sign `simplex.domains order <id> <action> <timestamp>` (`read`, `cancel` or `retry`), in the query of a `GET` and in the body of a `POST`. The mock answers an unsigned request, one of another signer and one for an unknown id alike, `404 not_found`, and a timestamp outside its window `400 bad_request` before it looks the id up; the page then signs once more at the clock that answer's `Date` gave. A browser without the order's name code sends no request for the order, and the order's link says "This order's name code is not in this browser. Enter it to see the order."
 
 ## Test
 

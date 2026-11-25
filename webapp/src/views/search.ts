@@ -123,8 +123,9 @@ let ownRead: { label: string; orders: Promise<OwnOrders> } | null = null
 async function pointAtOwnOrder(label: string, hash: string, page: number): Promise<void> {
   const read = async (o: store.OrderRecord): Promise<OrderRead | null> => {
     if (!onPage(page)) return null
-    const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId).catch(() => null) : null
-    const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId).catch(() => null))
+    const sign = flow.orderSigner(o.ownerCode)
+    const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId, sign).catch(() => null) : null
+    const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId, sign).catch(() => null))
     return reg && { phase: reg.phase.type, failure: reg.phase.type === "failed" ? reg.phase.reason : null, invoice: invoice?.status ?? null }
   }
   const orders = ownOrders(store.orders().filter((r) => r.request.labelHash === hash), read)
@@ -136,7 +137,8 @@ async function pointAtOwnOrder(label: string, hash: string, page: number): Promi
 }
 
 export async function readOrder(record: store.OrderRecord): Promise<{ view: api.RegistrationView; synced: store.OrderRecord } | null> {
-  const view = await (record.invoiceId ? api.readInvoice(record.invoiceId).then((i) => i.registration) : api.readRegistration(record.registrationId)).catch(() => null)
+  const sign = flow.orderSigner(record.ownerCode)
+  const view = await (record.invoiceId ? api.readInvoice(record.invoiceId, sign).then((i) => i.registration) : api.readRegistration(record.registrationId, sign)).catch(() => null)
   if (!view) return null
   const synced = await flow.syncRecord(record, view) ?? record
   return { view, synced: { ...synced, paid: view.price } }

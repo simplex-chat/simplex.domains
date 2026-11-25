@@ -34,9 +34,32 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   return ownFetch(`${MOCK}${path}`, asClient({ method, headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }))
 }
 
+const ownerCodes = new Map<string, string>()
+const orderOwners = new Map<string, string>()
+const ORDER_ROUTE = /^\/api\/(invoice|registration)\/([^/?]+)(?:\/(cancel|retry))?(?:\?|$)/
+
+function noteOrders(json: Json): void {
+  const reg = (json.registration ?? json) as Json
+  if (typeof reg.id !== "string" || typeof reg.owner !== "string") return
+  orderOwners.set(reg.id, reg.owner)
+  if (typeof json.invoiceId === "string") orderOwners.set(json.invoiceId, reg.owner)
+}
+
+function signed(method: string, path: string, body: unknown): { path: string; body: unknown } {
+  const m = ORDER_ROUTE.exec(path)
+  const kept = m ? store.orderByInvoice(m[2]) ?? store.orderByRegistration(m[2]) : undefined
+  const code = m && m[2] !== "find" ? ownerCodes.get(orderOwners.get(m[2]) ?? "") ?? kept?.ownerCode : undefined
+  if (!m || !code) return { path, body }
+  const proof = flow.orderSigner(code)(m[2], (m[3] ?? "read") as api.OrderAction)
+  return method === "GET" ? { path: `${path}${path.includes("?") ? "&" : "?"}timestamp=${proof.timestamp}&signature=${proof.signature}`, body } : { path, body: { ...body as Json, ...proof } }
+}
+
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: Json }> {
-  const res = await send(method, path, body)
-  return { status: res.status, json: await res.json() as Json }
+  const request = signed(method, path, body)
+  const res = await send(method, request.path, request.body)
+  const json = await res.json() as Json
+  noteOrders(json)
+  return { status: res.status, json }
 }
 
 const TERM_START = Date.UTC(2027, 0, 1) / 1000
@@ -58,7 +81,9 @@ async function quote(label: string): Promise<Quote> {
 
 async function draftOf(label: string, links = { contact: "", channel: "" }, method: flow.Draft["method"] = "btc"): Promise<flow.Draft> {
   const q = await quote(label)
-  return { label, links, years: q.years, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q), method }
+  const ownerCode = flow.newOwnerCode()
+  ownerCodes.set(checksumAddress(flow.walletOf(ownerCode)!.address), ownerCode)
+  return { label, links, years: q.years, ownerCode, terms: api.currentTerms(q), method }
 }
 
 // a name selected for the order, under the terms the service has for that name now or `terms`

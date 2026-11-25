@@ -144,10 +144,11 @@ async function readOrder(id: string, route: number): Promise<void> {
   let view: api.RegistrationView
   let invoice: api.InvoiceView | null = null
   try {
+    const sign = flow.orderSigner(o.ownerCode)
     if (o.invoiceId) {
-      invoice = await api.readInvoice(o.invoiceId)
+      invoice = await api.readInvoice(o.invoiceId, sign)
       view = invoice.registration
-    } else view = await api.readRegistration(o.registrationId)
+    } else view = await api.readRegistration(o.registrationId, sign)
   } catch (e) {
     // the service forgets an unpaid order some time after it closes
     if (e instanceof api.ApiError && e.code === "not_found" && await replaceWithNewer(o, route)) return
@@ -515,7 +516,8 @@ async function readEdit(route: number): Promise<void> {
   let answer: api.SearchAnswer
   let record = stored
   try {
-    view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId)).registration : await api.readRegistration(stored.registrationId)
+    const sign = flow.orderSigner(stored.ownerCode)
+    view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId, sign)).registration : await api.readRegistration(stored.registrationId, sign)
     record = await flow.syncRecord(stored, view) ?? stored
     answer = await api.searchName(record.request.labelHash, record.label.length)
   } catch (e) {

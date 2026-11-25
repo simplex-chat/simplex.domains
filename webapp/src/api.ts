@@ -531,28 +531,46 @@ export const registerWithCode = (order: SignedOrder, code: string) =>
 export type ToSignRead = Extract<ToSign, { type: "read" }>
 export const signFor = (labelHash: string, owner: string) =>
   checked<ToSignRead>(call("GET", `/api/name/${labelHash}/sign?owner=${owner}`), (a) => a.type === "read" && isToSign(a))
-export const cancelInvoice = (invoiceId: string) => checkedInvoice(call("POST", `/api/invoice/${encodeURIComponent(invoiceId)}/cancel`))
+export type OrderAction = "read" | "cancel" | "retry"
+export interface OrderProof { timestamp: number; signature: string }
+export type OrderSigner = (id: string, action: OrderAction) => OrderProof
+
+async function signedOnce<T>(send: () => Promise<T>): Promise<T> {
+  const clock = clockVersion()
+  try {
+    return await send()
+  } catch (e) {
+    if (e instanceof ApiError && e.code === "bad_request" && clockVersion() !== clock) return send()
+    throw e
+  }
+}
+const proofQuery = ({ timestamp, signature }: OrderProof) => `timestamp=${timestamp}&signature=${signature}`
+
+export const cancelInvoice = (invoiceId: string, sign: OrderSigner) =>
+  signedOnce(() => checkedInvoice(call("POST", `/api/invoice/${encodeURIComponent(invoiceId)}/cancel`, sign(invoiceId, "cancel"))))
 
 // what a long poll on an invoice has seen: its status, its registration's version, and the payment marks, the paid amount
 // and paidInFull, as Monero can report a full payment with no amount yet
 interface SeenInvoice { status: string; version: number; paid: string; full: boolean }
 export const seenOf = (inv: InvoiceView): SeenInvoice => ({ status: inv.status, version: inv.registration.version, paid: inv.cryptoAmountPaid ?? "", full: inv.paidInFull === true })
 
-export function readInvoice(invoiceId: string, seen?: SeenInvoice, signal?: AbortSignal): Promise<InvoiceView> {
-  const query = seen ? `?wait=${seen.status}&seenVersion=${seen.version}&seenPaid=${encodeURIComponent(seen.paid)}&seenFull=${seen.full ? "1" : "0"}` : ""
-  return checkedInvoice(call("GET", `/api/invoice/${encodeURIComponent(invoiceId)}${query}`, undefined, signal, seen ? null : REQUEST_TIMEOUT_MS))
+export function readInvoice(invoiceId: string, sign: OrderSigner, seen?: SeenInvoice, signal?: AbortSignal): Promise<InvoiceView> {
+  const held = seen ? `&wait=${seen.status}&seenVersion=${seen.version}&seenPaid=${encodeURIComponent(seen.paid)}&seenFull=${seen.full ? "1" : "0"}` : ""
+  return signedOnce(() => checkedInvoice(call("GET", `/api/invoice/${encodeURIComponent(invoiceId)}?${proofQuery(sign(invoiceId, "read"))}${held}`, undefined, signal, seen ? null : REQUEST_TIMEOUT_MS)))
 }
 
-export function readRegistration(registrationId: string, seenVersion?: number, signal?: AbortSignal): Promise<RegistrationView> {
+export function readRegistration(registrationId: string, sign: OrderSigner, seenVersion?: number, signal?: AbortSignal): Promise<RegistrationView> {
   const held = seenVersion !== undefined
-  return checked<RegistrationView>(call("GET", `/api/registration/${encodeURIComponent(registrationId)}${held ? `?seenVersion=${seenVersion}` : ""}`, undefined, signal, held ? null : REQUEST_TIMEOUT_MS), isRegistration)
+  return signedOnce(() => checked<RegistrationView>(call("GET", `/api/registration/${encodeURIComponent(registrationId)}?${proofQuery(sign(registrationId, "read"))}${held ? `&seenVersion=${seenVersion}` : ""}`,
+    undefined, signal, held ? null : REQUEST_TIMEOUT_MS), isRegistration))
 }
 
 export const reveal = (registrationId: string, body: RevealBody) =>
   call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
 export const selectName = (registrationId: string, body: Omit<SignedOrder, "owner">) =>
   checked<RegistrationView>(pricing(body.length, signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal }))), isRegistration)
-export const retry = (registrationId: string) => checked<RegistrationView>(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/retry`), isRegistration)
+export const retry = (registrationId: string, sign: OrderSigner) =>
+  signedOnce(() => checked<RegistrationView>(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/retry`, sign(registrationId, "retry")), isRegistration))
 const isFound = (r: unknown) => isObject(r) && isText(r.registrationId) && nullable(r.invoiceId, isText) && PHASES.includes(r.phase as Phase) && isText(r.createdAt)
   && isText(r.labelHash) && isText(r.sealed)
 export interface FoundOrder {

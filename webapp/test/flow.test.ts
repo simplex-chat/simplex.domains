@@ -330,6 +330,18 @@ describe("restore", () => {
     expect(store.orderByInvoice("inv1")?.ownerCode).toBe(OWNER_CODE)
   })
 
+  it("signs each read of the order it restores with the code's key, and any order's request by its id, action and time", async () => {
+    const { flow } = await modules()
+    const built = await flow.orderRequest(draft())
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed }] }
+    answers["GET /api/registration/reg1"] = view(built.request)
+    await flow.restore(OWNER_CODE)
+    const read = new URL(`http://x${calls.find((c) => c.path.startsWith("/api/registration/reg1"))!.path}`).searchParams
+    expect(await recoverMessageAddress({ message: `simplex.domains order reg1 read ${read.get("timestamp")}`, signature: read.get("signature") as Hex })).toBe(OWNER)
+    const { timestamp, signature } = flow.orderSigner(OWNER_CODE)("inv9", "cancel")
+    expect(await recoverMessageAddress({ message: `simplex.domains order inv9 cancel ${timestamp}`, signature: signature as Hex })).toBe(OWNER)
+  })
+
   it("restores the terms the order signed", async () => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())

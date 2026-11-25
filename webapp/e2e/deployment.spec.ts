@@ -84,7 +84,7 @@ test("an order's page gives support its address proof with its reference, as the
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const { invoiceId } = await mismatched(request, { address: "xmr" }, () => startOrder(page, uniqueLabel("proof"), { method: "xmr" }))
   await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
-  const { addressProof } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { addressProof: unknown }
+  const { addressProof } = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { addressProof: unknown }
   await onStep(page).getByRole("button", { name: SUPPORT_COPY }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`Order reference ${invoiceId}, address proof ${JSON.stringify(addressProof)}`)
   await control(request, `expire/${invoiceId}`)

@@ -96,7 +96,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(onStep(page).locator(".pay-status")).toHaveText(new RegExp(`^Waiting for paymentInvoice valid for \\d+:\\d\\dReference ${invoiceId}$`))
   await shot(page, "N4-bitcoin")
   // the wallet link is a BIP21 URI for what is left to send, and each copy button says what it copies
-  const invoice = async () => (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as Promise<{ address: string; cryptoAmount: string; cryptoAmountDue: string }>
+  const invoice = async () => (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as Promise<{ address: string; cryptoAmount: string; cryptoAmountDue: string }>
   const wallet = onStep(page).getByRole("link", { name: "Open in wallet" })
   const { address, cryptoAmount } = await invoice()
   await expect(wallet).toHaveAttribute("href", `bitcoin:${address}?amount=${cryptoAmount}`)
@@ -354,7 +354,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   const main = page.locator("body > main")
   await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
+  const paidInvoice = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
   expect(paidInvoice.registration.phase.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
@@ -703,7 +703,7 @@ test("Continue on the links step waits for a link being checked, and takes focus
 test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and monero: on a phone, and its QR keeps monero:", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("xmrlink"), { method: "xmr" })
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
-  const { address, cryptoAmount } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
+  const { address, cryptoAmount } = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
   const wallet = onStep(page).getByRole("link", { name: "Open in wallet" })
   await expect(wallet).toHaveAttribute("href", `monero://${address}?tx_amount=${cryptoAmount}`)
   await expect(wallet.locator("xpath=..")).toHaveClass(/\bqr\b/)
@@ -717,7 +717,7 @@ test("the owner code restores an order in another browser, and a bad code is ref
   const label = uniqueLabel("rest")
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "xmr" })
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
-  const { address, cryptoAmount } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
+  const { address, cryptoAmount } = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
   await expect(onStep(page).getByRole("link", { name: "Open in wallet" }), "the Monero URI").toHaveAttribute("href", `monero://${address}?tx_amount=${cryptoAmount}`)
   await control(request, `confirming/${invoiceId}`)
   await expect(page.getByText("Waiting for 1 confirmation")).toBeVisible()
@@ -1015,7 +1015,7 @@ test("a part payment on a closed invoice, once credited, says so and gets an inv
   await actions.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
-  const invoice = async (id: string) => (await request.get(`${MOCK}/api/invoice/${id}`)).json()
+  const invoice = async (id: string) => (await request.get(`${MOCK}/control/invoice/${id}`)).json()
   const [closed, whole] = [await invoice(invoiceId), await invoice(second)]
   expect([whole.amount, whole.registration.price, whole.registration.payment, whole.registration.labelHash], "the whole price, for the same name")
     .toEqual([10000, 10000, { type: "invoice", method: "btc" }, closed.registration.labelHash])
@@ -1290,7 +1290,7 @@ test("a card form that does not load says so and offers a new invoice", async ({
   await page.getByRole("button", { name: "Pay with Monero" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== card)
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
-  const cancelled = await (await page.request.get(`${MOCK}/api/invoice/${card}`)).json() as { status: string }
+  const cancelled = await (await page.request.get(`${MOCK}/control/invoice/${card}`)).json() as { status: string }
   expect(cancelled.status, "the card invoice").toBe("expired")
 })
 
@@ -1338,13 +1338,12 @@ for (const [stalled, answer] of STALLS) {
   })
 }
 
-test("a card form that does not load, in a browser without the order, leads to the name code", async ({ page }) => {
+test("a card order's page in a browser that lost the order leads to the name code, with no card form", async ({ page }) => {
   await startOrder(page, uniqueLabel("nocardrec"), { method: "card" })
-  await withStripeKey(page)
-  await page.route("https://js.stripe.com/**", (route) => route.abort())
   await page.evaluate(() => localStorage.clear())
   await page.reload()
-  await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
+  await expect(page.locator("body > main .stripe")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Get a new invoice" })).toHaveCount(0)
   await page.getByRole("button", { name: "Enter your name code" }).click()
   await expect(codeField(page)).toBeVisible()

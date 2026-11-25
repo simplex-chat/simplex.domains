@@ -1285,32 +1285,6 @@ screen(2022, "order-registering-name-registered-meanwhile", (r) =>
   goneWhileTermsWait(r, registeredTo(OTHER_OWNER, START_S + 2 * YEAR_S), "The Names Conditions changed."))
 screen(2024, "order-registering-name-reserved-meanwhile", (r) => goneWhileTermsWait(r, { found: { type: "reserved" } }, "The Names Conditions changed."))
 screen(2026, "order-registering-lapsed", async (r) => { await lapsedOrder(r, r.id) })
-screen(2028, "order-lapsed-no-record", async (r) => {
-  const { invoiceId } = await lapsedOrder(r, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "The name code is not in this browser")
-  return other
-})
-screen(2030, "order-registering-no-record-committing", async (r) => {
-  const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, "search", { unsentSeconds: 120 })
-  await control(r.request, `settle/${invoiceId}`)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await expect(onStep(other).getByRole("heading")).toBeVisible()
-  return other
-})
-screen(2032, "order-registering-no-record-wait", async (r) => {
-  const { invoiceId } = await committedUnsigned(r, r.id)
-  const other = await elsewhere(r, "/#/trademarks")
-  await other.route(`**/api/invoice/${invoiceId}*`, async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, phase: committedPhase(r) } } })
-  })
-  await other.goto(`/?order=${invoiceId}`)
-  await expect(onStep(other).getByRole("heading")).toBeVisible()
-  return other
-})
 const BALANCE = { amount: 10000, refunded: 0 }
 const codeOrderAs = async (r: Reach, change: Record<string, unknown>) => {
   const order = await kept(r, `reg-${r.id}`, null, r.id)
@@ -1332,12 +1306,6 @@ screen(2057, "order-taken-before-commit", async (r) => {
   await heading(r.page, `${r.id}.simplex was taken`)
 })
 screen(2060, "order-failed-generic-paid", async (r) => { await failed(r, r.id) })
-screen(2062, "order-failed-generic-paid-no-record", async (r) => {
-  const { invoiceId } = await failed(r, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Paid, not registered")
-  return other
-})
 screen(2064, "order-failed-generic-code-unchecked", async (r) => {
   await codeFailed(r, r.id)
   await r.page.route("**/api/code/check", () => new Promise(() => undefined))
@@ -1360,12 +1328,6 @@ screen(2070, "order-failed-generic-code-refused", async (r) => {
   await control(r.request, "code/state", { code, state: "used" })
   await r.page.reload()
   await shown(r.page, "Your code was used for another name")
-})
-screen(2072, "order-failed-generic-code-no-record", async (r) => {
-  const { registrationId } = await codeFailed(r, r.id)
-  const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, "Not registered")
-  return other
 })
 screen(2084, "order-failed-name-gone-since", async (r) => {
   await failed(r, r.id)
@@ -1413,18 +1375,12 @@ const unreadOrder = async (r: Reach) => {
   return order
 }
 screen(2094, "order-failed-unread-paid", async (r) => { await unreadOrder(r) })
-screen(2096, "order-failed-unread-paid-no-record", async (r) => {
-  const { invoiceId } = await unreadOrder(r)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Paid, not registered")
-  return other
-})
 screen(2098, "order-failed-unread-code", async (r) => {
   await unsigned(r.page)
   const { registrationId } = await codeOrder(r, r.id)
   await control(r.request, `stale/${registrationId}`)
   await expect.poll(async () => {
-    const { phase, label } = await (await r.request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { phase: { type: string }; label: string | null }
+    const { phase, label } = await (await r.request.get(`${MOCK}/control/registration/${registrationId}`)).json() as { phase: { type: string }; label: string | null }
     return phase.type === "committed" && label === null
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await control(r.request, `unread/${registrationId}`)
@@ -1480,12 +1436,6 @@ screen(2120, "order-pay-crypto-unchecked", async ({ page, id }) => {
   await heading(page, "Pay with Bitcoin")
   await page.waitForTimeout(1500)
 })
-screen(2122, "order-pay-crypto-no-record", async (r) => {
-  const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Pay with Bitcoin")
-  return other
-})
 screen(2124, "order-pay-crypto-part-paid", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
   await control(r.request, `partial/${invoiceId}`)
@@ -1536,12 +1486,6 @@ screen(2136, "order-pay-card-taken-on-chain", async ({ page, id }) => {
   await answerName(page, id, TAKEN_ANSWER)
   await page.reload()
   await shown(page, "Taken at")
-})
-screen(2138, "order-pay-card-no-record", async (r) => {
-  const { invoiceId } = await startOrder(r.page, r.id, { method: "card" })
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Pay by card")
-  return other
 })
 screen(2140, "order-pay-card-declined", async ({ page, id }) => {
   await startOrder(page, id, { method: "card" })
@@ -1609,7 +1553,6 @@ const cardFormFailed = async (r: Reach, before: () => Promise<unknown> = async (
   await heading(r.page, "Card payment not confirmed")
 }
 screen(2156, "order-card-form-failed", (r) => cardFormFailed(r))
-screen(2158, "order-card-form-failed-no-record", (r) => cardFormFailed(r, () => r.page.evaluate(() => localStorage.clear())))
 screen(2160, "order-card-form-failed-codes-only", (r) => cardFormFailed(r, async () => {
   await control(r.request, "mode", { mode: "codes" })
   await onCodesPage(r.page)
@@ -1640,25 +1583,6 @@ screen(2166, "order-paid-by-invoice-record", async (r) => {
   await r.page.goto(`/?registration=${await registrationOf(r.request, invoiceId)}`)
   await heading(r.page, "This order is paid by invoice")
 })
-screen(2168, "order-paid-by-invoice-no-record", async (r) => {
-  const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
-  const other = await elsewhere(r, `/?registration=${await registrationOf(r.request, invoiceId)}`)
-  await heading(other, "This order is paid by invoice")
-  return other
-})
-screen(2170, "order-registering-no-record-signed", async (r) => {
-  const order = await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
-  const view = registrationView(order, { phase: { type: "registering" }, commitTx: "0x02", registerTx: "0x03" })
-  const other = await elsewhere(r, "/#/trademarks")
-  await other.route(`**/api/invoice/inv-${r.id}*`, (route) => route.fulfill({ json: {
-    invoiceId: `inv-${r.id}`, status: "paid", amount: 10000, currency: "usd", expiresAt: new Date((r.now + 3600) * 1000).toISOString(), kind: "name", registration: view,
-    cryptoCurrency: "btc", cryptoAmount: "0.00156", cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true, address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s",
-  } }))
-  await other.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: view }))
-  await other.goto(`/?order=inv-${r.id}`)
-  await heading(other, `Registering ${r.id}.simplex`)
-  return other
-})
 screen(2172, "order-not-on-device", async (r) => {
   const { invoiceId } = await committedUnsigned(r, r.id)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
@@ -1675,14 +1599,6 @@ screen(2176, "order-registered-no-links", async (r) => {
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
 })
-screen(2178, "order-registered-no-record", async (r) => {
-  const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, `settle/${invoiceId}`)
-  await waitRegistered(r.page, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, `${r.id}.simplex is yours`)
-  return other
-})
 screen(2179, "order-ended", async (r) => {
   const { invoiceId, registrationId } = await ordered(r, r.id)
   await control(r.request, `settle/${invoiceId}`)
@@ -1698,12 +1614,6 @@ screen(2182, "order-taken-reserved", async (r) => {
   await control(r.request, "take", { label: r.id })
   await control(r.request, `settle/${invoiceId}`)
   await heading(r.page, `${r.id}.simplex is reserved`)
-})
-screen(2184, "order-taken-no-record", async (r) => {
-  const { invoiceId } = await takenOrder(r.page, r.request, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, `${r.id}.simplex was taken`)
-  return other
 })
 screen(2186, "order-taken-balance-spent", async (r) => {
   const { invoiceId } = await takenOrder(r.page, r.request, r.id)
@@ -1763,7 +1673,7 @@ screen(2206, "order-closed-cancelled", async ({ page, id }) => {
   await heading(page, "Invoice closed")
 })
 const halfOf = async (r: Reach, invoiceId: string) => {
-  const invoice = await (await r.request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { cryptoAmountPaid: string }
+  const invoice = await (await r.request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { cryptoAmountPaid: string }
   return invoice.cryptoAmountPaid
 }
 const closedPart = async (r: Reach) => {
@@ -2176,7 +2086,7 @@ const BALANCE_ROWS = ["names-balance-taken", "names-balance-rest", "names-balanc
 screen(3048, "names-rows-balances", async (r) => {
   await takenOrder(r.page, r.request, "rows-balance-taken")
   const rest = await startOrder(r.page, "rows-balance-rest", { method: "btc" })
-  const due = await (await r.request.get(`${MOCK}/api/invoice/${rest.invoiceId}`)).json() as { cryptoAmount: string }
+  const due = await (await r.request.get(`${MOCK}/control/invoice/${rest.invoiceId}`)).json() as { cryptoAmount: string }
   await control(r.request, `settle/${rest.invoiceId}`, { paid: (Number(due.cryptoAmount) * 2).toFixed(8) })
   await waitRegistered(r.page, "rows-balance-rest")
   const whole = await takenOrder(r.page, r.request, "rows-refunded-whole")
@@ -2393,7 +2303,7 @@ screen(3118, "names-check-from-order", async (r) => {
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await press(other, "Restore with your name code")
+  await press(other, "Enter your name code")
   await codeField(other).fill(ownerCode)
   await verdict(other)
   return other
