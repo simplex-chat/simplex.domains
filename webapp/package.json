@@ -11,6 +11,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "chain:deploy": "node dev/deploy.ts",
+    "check:mainnet": "node dev/check-mainnet.ts",
     "mock": "node dev/mock.ts"
   },
   "dependencies": {

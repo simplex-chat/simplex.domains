@@ -9,7 +9,7 @@
 <meta property="og:site_name" content="simplex.domains">
 <meta property="og:title" content="SimpleX names">
 <meta property="og:description" content="One name for your SimpleX channel and contact address, registered to a wallet only you hold.">
-<!-- the service's Stripe key, which the page needs before it draws, asked for while its modules load -->
+<!-- the service's downtime, which the page reads before it draws, asked for while its modules load -->
 <link rel="preload" href="/api/config" as="fetch" crossorigin>
 <link rel="icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
@@ -18,12 +18,12 @@
 <meta name="theme-color" content="#F3FAFF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000832" media="(prefers-color-scheme: dark)">
 <!-- Fonts preload on Firefox's first page only, as later pages use its font cache; each face draws a hidden letter so
-     no preload goes unused. The script's hash is in the README's CSP. -->
+     no preload goes unused. The build writes the script's hash into the page's CSP. -->
 <script>{let fresh=true;try{fresh=!CSS.supports("-moz-appearance","none")||!sessionStorage.getItem("fonts");sessionStorage.setItem("fonts","1")}catch{}if(fresh){const faces=[["GT-Walsheim/GT-Walsheim-LC-Bold","GT-Walsheim",700],["Manrope/Manrope-Medium","Manrope",500],["Manrope/Manrope-SemiBold","Manrope",600],["Manrope/Manrope-Bold","Manrope",700]];for(const[f]of faces)document.head.append(Object.assign(document.createElement("link"),{rel:"preload",as:"font",type:"font/woff2",crossOrigin:"anonymous",href:`/fonts/${f}-latin.woff2`}));addEventListener("DOMContentLoaded",()=>{const use=document.createElement("div");use.setAttribute("aria-hidden","true");Object.assign(use.style,{position:"absolute",width:"1px",height:"1px",overflow:"hidden",clipPath:"inset(50%)",pointerEvents:"none"});for(const[,family,weight]of faces){const letter=document.createElement("span");letter.style.font=`${weight} 16px ${family}`;letter.textContent="a";use.append(letter)}document.body.append(use);requestAnimationFrame(()=>document.fonts.ready.then(()=>use.remove()))})}}</script>
 <!-- the theme before the first paint, so a dark page never flashes light, and its ground should the stylesheet fail;
-     its hash is in the README's CSP -->
+     its hash is in the page's CSP -->
 <script>try{const t=localStorage.getItem("theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch{if(matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.classList.add("dark")}document.documentElement.style.backgroundColor=document.documentElement.classList.contains("dark")?"var(--page-color, #000832)":"var(--page-color, #F3FAFF)"</script>
-<!-- a page opening on a step's frame, by routes.ts and session.ts, holds it before its first draw; hash in the README's CSP -->
+<!-- a page opening on a step's frame, by routes.ts and session.ts, holds it before its first draw; hash in the page's CSP -->
 <script>try{const q=new URLSearchParams(location.search),p=location.hash.replace(/^#/,"").split("?")[0],c=JSON.parse(sessionStorage.getItem("simplex-names-checkout")??"null");if(q.get("order")||q.get("registration")||p==="/names"||p==="/code"||/^\/edit\/[\w-]+$/.test(p)||(/^\/checkout(?:\/(links|code))?$/.test(p)&&c?.label&&c.terms))document.documentElement.classList.add("framed")}catch{}</script>
 <!-- in the head, so the page waits for it before its first paint; after the inline scripts, so they need not wait -->
 <link rel="stylesheet" href="/src/styles.css">

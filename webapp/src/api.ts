@@ -1,4 +1,4 @@
-// The names service's HTTP API, on the page's own origin.
+// The names service's HTTP API, at SITE.apiOrigin.
 import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
