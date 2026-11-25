@@ -12,7 +12,7 @@ const DRAWN_BEFORE = "data-drawn-before"
 // The screen in view is marked, and the redraw puts a new one in its place.
 async function drawnAgain(page: Page, invoiceId: string, redraw: () => Promise<void>): Promise<void> {
   await onStep(page).evaluate((n, mark) => n.setAttribute(mark, ""), DRAWN_BEFORE)
-  const read = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/invoice/${invoiceId}` && !r.url().includes("?"))
+  const read = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/invoice/${invoiceId}` && !new URL(r.url()).searchParams.has("wait"))
   await redraw()
   await read
   await expect(page.locator("main[aria-busy]")).toHaveCount(0)

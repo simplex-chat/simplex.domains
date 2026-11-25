@@ -1786,9 +1786,10 @@ screen(2250, "order-loading", async ({ page, id }) => {
   await page.goto(`/?order=inv-${id}`)
   await shown(page, "Opening the order")
 })
-screen(2252, "order-unknown-link", async ({ page }) => {
-  await page.goto("/?order=nothing-here")
-  await heading(page, "This link does not work")
+screen(2252, "order-unknown-link", async (r) => {
+  await kept(r, `reg-${r.id}`, "nothing-here", r.id)
+  await r.page.goto("/?order=nothing-here")
+  await heading(r.page, "This link does not work")
 })
 const REVERSED = { phase: { type: "closed", closedBy: "reversed" } }
 screen(2254, "order-closed-reversed", async (r) => {

@@ -8,7 +8,7 @@ import { CARD_FORM_TIMEOUT_MS } from "../src/stripe.ts"
 import {
   blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, mockRegistration, onStep, oracleQuote, payButton, previewsShown, REGISTRATION_MS,
   offCentre, orderOwnerCode, qrText, registeredAnswer, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
-  cardFrame, fakeIntent,
+  cardFrame, fakeIntent, keepOrder,
 } from "./helpers.ts"
 
 // the card form these tests pay with is the dev server's stand-in; a production build loads Stripe's own
@@ -812,7 +812,7 @@ test("the card form stays in place while another tab writes the order, the same 
     (k) => localStorage.setItem(k, JSON.stringify({ ...JSON.parse(localStorage.getItem(k)!), contact: "https://smp8.simplex.im/a#S1" })),
   ]
   for (const write of writes) {
-    const read = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/invoice/${invoiceId}` && !r.url().includes("?"))
+    const read = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/invoice/${invoiceId}` && !new URL(r.url()).searchParams.has("wait"))
     await other.evaluate(write, key)
     await read
     await expect(page.locator("main[aria-busy]")).toHaveCount(0)
@@ -1265,7 +1265,8 @@ test("a forgotten order whose code's lookup is rate limited waits as asked, then
   await control(request, "search", { findLimitSeconds: 0 })
 })
 
-test("an unknown order link says so", async ({ page }) => {
+test("an order link whose order the service does not know says so, in the browser holding its code", async ({ page }) => {
+  await keepOrder(page, "reg-nothing-here", "nothing-here", uniqueLabel("gone"))
   await page.goto("/?order=nothing-here")
   await expect(page.getByRole("heading", { name: "This link does not work" })).toBeVisible()
   await shot(page, "N11-unknown")
