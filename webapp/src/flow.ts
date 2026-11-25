@@ -234,7 +234,10 @@ export async function orderOfCodes(id: string): Promise<store.OrderRecord | null
     const wallet = walletOf(code)
     if (!wallet) continue
     const found = (await findOrders(wallet)).find((r) => r.invoiceId === id || r.registrationId === id)
-    if (found) return (await reopen(wallet, code, found)).record
+    if (!found) continue
+    const { record } = await reopen(wallet, code, found)
+    if (found.phase === "closed") await newerOrder(record)
+    return store.orderByRegistration(record.registrationId) ?? record
   }
   return null
 }

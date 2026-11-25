@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test"
 import { LOCAL } from "../src/config.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { walletOf } from "../src/flow.ts"
-import { checkoutOwnerCode, control, onStep, search, startOrder, test, toCodeStep, uniqueLabel, waitRegistered } from "./helpers.ts"
+import { checkoutOwnerCode, control, onStep, search, shownCode, startOrder, test, toCodeStep, uniqueLabel, waitRegistered } from "./helpers.ts"
 
 const PUBLIC = "Your name address is public. Send it with any support requests."
 const addressOf = (code: string) => checksumAddress(walletOf(code)!.address)
@@ -20,6 +20,8 @@ test("the name address stands beside the name code on its step, on the registere
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "btc" })
   await control(request, `settle/${invoiceId}`)
   await waitRegistered(page, label)
+  await expect(shownAddress(page), "hidden with the code").toHaveCount(0)
+  await shownCode(page)
   await expect(shownAddress(page)).toHaveText(addressOf(ownerCode))
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })

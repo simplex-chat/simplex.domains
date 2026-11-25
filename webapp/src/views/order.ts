@@ -44,7 +44,7 @@ let opened = 0
 let pageRoute = -1
 let reads = 0
 let wakes: ReturnType<typeof setTimeout> | undefined
-let pageSign: api.OrderSigner = () => ({ timestamp: 0, signature: "" })
+let pageSign: api.OrderSigner | null = null
 
 export function orderPage(invoiceId: string | null, registrationId: string | null): void {
   const mine = currentRoute()
@@ -128,8 +128,18 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     invoice = null
     view = null
   }
-  const linked = (invoiceId ? store.orderByInvoice(invoiceId) : store.orderByRegistration(registrationId!))
-    ?? await flow.orderOfCodes(invoiceId ?? registrationId!).catch(() => null)
+  let linked = invoiceId ? store.orderByInvoice(invoiceId) : store.orderByRegistration(registrationId!)
+  while (!linked && isRoute(mine)) {
+    try {
+      linked = await flow.orderOfCodes(invoiceId ?? registrationId!) ?? undefined
+      break
+    } catch (e) {
+      const wait = api.retryDelay(e, RETRY_MS)
+      if (!isRoute(mine) || wait === null) break
+      dispatch({ type: "read-failed" })
+      await sleep(wait)
+    }
+  }
   if (!isRoute(mine)) return
   if (!linked) return dispatch({ type: "no-code" })
   const sign = pageSign = flow.orderSigner(linked.ownerCode)
@@ -820,7 +830,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promi
   const say = (text: string) => answer(gen, { type: "reorder-failed", note: warning(text) })
   let after: api.InvoiceView
   try {
-    after = await api.cancelInvoice(invoice.invoiceId, pageSign)
+    after = await api.cancelInvoice(invoice.invoiceId, pageSign!)
     const record = store.orderByInvoice(invoice.invoiceId)
     if (record && after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
   } catch (e) {
@@ -831,7 +841,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promi
       return false
     }
     try {
-      after = await api.readInvoice(invoice.invoiceId, pageSign)
+      after = await api.readInvoice(invoice.invoiceId, pageSign!)
     } catch {
       say("The invoice could not be read now. Try again in a moment.")
       return false
@@ -852,7 +862,7 @@ async function cancelInvoice(): Promise<void> {
   const { invoice, record } = state
   dispatch({ type: "cancel-started" })
   try {
-    const after = await api.cancelInvoice(invoice!.invoiceId, pageSign)
+    const after = await api.cancelInvoice(invoice!.invoiceId, pageSign!)
     if (record && after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
     answer(gen, { type: "cancel-answered" })
     reread(gen)
@@ -1084,15 +1094,14 @@ function buildRegistered(s: OrderState): HTMLElement {
   const view = s.view!
   const label = labelOf(view, s.record)
   const code = s.record?.ownerCode ?? null
-  // the code's QR is under everything, there only while the code is shown
+  // the name address and the code's QR are under everything, there only while the code is shown
   const qr = el("div", { class: "code-qr" })
   const { tld } = SITE
   return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view), action: registeredAction(s.record) },
     code ? [explorerLine(code), el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
       el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
-    codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
-    nameAddressLine(code),
+    codeDisplay(code, "owner-code", true, (shown) => refill(qr, ...shown ? [nameAddressLine(code), nameCodeQr(code)] : [])),
     // under the code and over its QR, so showing the code moves it and nothing above it
     el("div", { class: "yours-edit center" }, btn(linksAction(hasLinks(s.record!, null)), "quiet small", () => go(editUrl(view.id)))), qr] : null)
 }

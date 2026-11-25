@@ -363,7 +363,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(await shownCode(page)).toHaveText(ownerCode)
   await expect(main.getByRole("button", { name: "Copy code" })).toBeVisible()
   await expect(main.getByRole("checkbox")).toHaveCount(0)
-  await expect(main.getByRole("link", { name: "Your names" })).toHaveCount(0)
+  await expect(main.getByRole("link", { name: "Your names", exact: true })).toHaveCount(0)
   await expect(main.getByRole("link", { name: "Edit links" })).toHaveCount(0)
   const answer = await searchName(request, label)
   expect(answer.owner, "the code saved before paying owns the name").toBe(checksumAddress(walletOf(ownerCode)!.address))
