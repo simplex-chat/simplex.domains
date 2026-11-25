@@ -215,6 +215,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       store.updateOrder(record.registrationId, { cardSubmittedAt: undefined })
       record = { ...record, cardSubmittedAt: undefined }
     }
+    if (invoice?.address !== undefined && record?.invoiceId === invoice.invoiceId && record.address === undefined) store.updateOrder(record.registrationId, flow.payeeOf(invoice))
     record = (record && store.orderByRegistration(record.registrationId)) ?? record
     const recorded = JSON.stringify(record ?? null)
     if (answered !== drawn || recorded !== drawnRecord) {
@@ -580,9 +581,10 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
 }
 
 const UNCHECKED = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
+const proofOf = ({ record, invoice }: Pick<OrderState, "record" | "invoice">) => invoice !== null && record?.invoiceId === invoice.invoiceId ? record.addressProof : undefined
 
-const withheld =(s: OrderState, title: string, alt: HTMLElement | null) => screen({ title, lead: orderLine(s), alt },
-  paymentChecked(s) ? alertBox("info", "clock", null, `${PAYMENT_SOON}.`) : alertBox("danger", "alert", null, UNCHECKED), referenceLine(s.invoice!.invoiceId), actionNote(s, null))
+const withheld = (s: OrderState, title: string, alt: HTMLElement | null) => screen({ title, lead: orderLine(s), alt },
+  paymentChecked(s) ? alertBox("info", "clock", null, `${PAYMENT_SOON}.`) : alertBox("danger", "alert", null, UNCHECKED), referenceLine(s.invoice!.invoiceId, proofOf(s)), actionNote(s, null))
 
 function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
@@ -722,7 +724,7 @@ function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
   const reorders = !codesOnly() && (kept === "offer" || ((closed === "received" || closed === "expired") && s.record !== null && !s.record.replacedBy))
   holdEnds(signal)(s.hold !== null)
   const replaced = kept === "replaced" ? el("p", { class: "note" }, "What reached this invoice is kept as your balance.") : null
-  return outcome({ tone, icon: "alert", title: CLOSED_TITLE, text, reference: inv.invoiceId,
+  return outcome({ tone, icon: "alert", title: CLOSED_TITLE, text, reference: inv.invoiceId, proof: proofOf(s),
     extra: [replaced, actionNote(s, reorders ? signal : null)], agreement: reorders ? agreement(s, "reorder") : null,
     ...kept === "offer" ? balanceActions(s, newInvoiceButton(s, "", reorder)) : { action: closedAction(s, closed) } })
 }
@@ -950,7 +952,7 @@ function reorder(): void {
 function buildPriceChanged({ record, invoice, price }: OrderState): HTMLElement {
   const { label } = record!
   return outcome({ tone: "warn", icon: "alert", title: "The price changed", text: [nameText(label, SITE.tld), ` costs ${dollars(price!)} now. Nothing was charged.`],
-    action: btn("Search again", "", () => go(searchLink(label))), reference: invoice!.invoiceId })
+    action: btn("Search again", "", () => go(searchLink(label))), reference: invoice!.invoiceId, proof: proofOf({ record, invoice }) })
 }
 
 async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | undefined, gen: number, asked?: api.Method): Promise<void> {
@@ -964,7 +966,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
       if (isOpen(gen)) go(store.invoiceUrl(invoice.invoiceId))
       return
     }
-    // a new invoice is a new order of the same name code, at the price this one was made for
+    // a new invoice is a new order of the same name code, at the price the page holds for the name
     const quote = await flow.quoteOf(record.label)
     if (!quote) {
       if (isOpen(gen)) go(searchLink(record.label))
@@ -974,10 +976,10 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     const terms = termsOrAsk(gen, record, signed, quote)
     if (terms === null) return
     const built = await flow.orderRequest(flow.draftAgain(record, quote, terms, method))
-    const res = await api.createOrder(built.request, method, invoice.amount)
+    const res = await api.createOrder(built.request, method, quote.price)
     const next = store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id })
     // the old record is the stored owner code until the new one is stored too
-    store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, method, paid: res.registration.price, cancelled: false, cardSubmittedAt: undefined, replacedBy: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
+    store.saveOrder({ ...record, request: built.request, terms, registrationId: res.registration.id, invoiceId: res.invoiceId, method, paid: res.registration.price, ...flow.payeeOf(res), cancelled: false, cardSubmittedAt: undefined, replacedBy: undefined, createdAt: new Date(api.serviceNow()).toISOString() })
     // Your names lists the old order only while money it received needs its reference; its page leads to the new one
     if (res.registration.id !== record.registrationId) store.updateOrder(record.registrationId, { replacedBy: next })
     if (isOpen(gen)) go(next)

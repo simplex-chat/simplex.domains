@@ -1,5 +1,6 @@
 // The page's frame: theme switch and navigation between views; index.html draws the header and footer.
 import { alertBox, announce, btn, copyButton, el, fitNames, icon, type Kid, liveRegion, reducedMotion, refill, type Tone, waitOut } from "../dom.ts"
+import { SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import type { Hold } from "../screens/hold.ts"
 import * as session from "../session.ts"
@@ -147,7 +148,7 @@ export type Builder<S> = (state: S, signal: AbortSignal) => HTMLElement
 // a screen's main action and its text-link alternative, which a step holds at one place on every step
 interface Actions { action?: Node | null; alt?: Node | null }
 interface ScreenHead extends Actions { title: Kid; lead?: Kid; back?: string }
-interface Outcome extends Actions { tone: Tone; icon: IconName; title: string; text: Kid; reference?: string; extra?: Kid; agreement?: Kid; back?: string }
+interface Outcome extends Actions { tone: Tone; icon: IconName; title: string; text: Kid; reference?: string; proof?: unknown; extra?: Kid; agreement?: Kid; back?: string }
 
 export function kept<T>(key: string, make: () => T): T {
   const known = keptNodes.get(key)
@@ -275,7 +276,7 @@ export function asStep(screen: HTMLElement): HTMLElement {
 
 export function outcome(o: Outcome): HTMLElement {
   return el("section", { class: "screen outcome" }, screenHead(o.title, o.back),
-    el("div", { class: "screen-body" }, o.text === null ? null : alertBox(o.tone, o.icon, null, o.text), o.extra ?? null, o.reference ? referenceLine(o.reference) : null, o.agreement ?? null),
+    el("div", { class: "screen-body" }, o.text === null ? null : alertBox(o.tone, o.icon, null, o.text), o.extra ?? null, o.reference ? referenceLine(o.reference, o.proof) : null, o.agreement ?? null),
     actionsOf(o))
 }
 
@@ -326,7 +327,8 @@ export function showRefund(reference: string, key: string): void {
   ], copy)
 }
 
-export const referenceLine = (reference: string) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference))
+export const referenceLine = (reference: string, proof?: unknown) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference),
+  ...proof === undefined ? [] : [SEP, copyButton(`Order reference ${reference}, address proof ${JSON.stringify(proof)}`, "text-link", "Copy the order reference and address proof for support", "Copy for support")])
 
 // shown only before a document's first draw, placed as the screen after it will be, so its heading stays put
 export function drawLoading(title: string, place = (screen: HTMLElement) => screen): void {

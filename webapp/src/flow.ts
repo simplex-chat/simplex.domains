@@ -97,6 +97,8 @@ function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, t
   }
 }
 
+export const payeeOf = (inv: api.InvoiceView): Pick<store.OrderRecord, "address" | "addressProof"> => ({ address: inv.address, addressProof: inv.addressProof })
+
 export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRecord["method"], paid: number, ids: { registrationId: string; invoiceId: string | null }): store.OrderRecord {
   return {
     ...ids, label: draft.label, ownerCode: draft.ownerCode, owner: built.owner, ...draft.links, method, paid, years: draft.years,

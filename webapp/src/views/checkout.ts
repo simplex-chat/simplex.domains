@@ -502,7 +502,7 @@ async function sendOrder(): Promise<void> {
         return done(store.orderUrl({ invoiceId: null, registrationId: res.registrationId }))
       }
       const res = await api.createOrder(built.request, method, c.price)
-      store.saveOrder({ ...flow.recordFor(draft, built, method, res.registration.price, { registrationId: res.registration.id, invoiceId: res.invoiceId }), years: c.years })
+      store.saveOrder({ ...flow.recordFor(draft, built, method, res.registration.price, { registrationId: res.registration.id, invoiceId: res.invoiceId }), years: c.years, ...flow.payeeOf(res) })
       done(store.orderUrl({ invoiceId: res.invoiceId, registrationId: res.registration.id }))
     } catch (e) {
       if (!(e instanceof api.ApiError && e.code === "order_exists")) throw e
