@@ -128,7 +128,9 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     invoice = null
     view = null
   }
-  const linked = invoiceId ? store.orderByInvoice(invoiceId) : store.orderByRegistration(registrationId!)
+  const linked = (invoiceId ? store.orderByInvoice(invoiceId) : store.orderByRegistration(registrationId!))
+    ?? await flow.orderOfCodes(invoiceId ?? registrationId!).catch(() => null)
+  if (!isRoute(mine)) return
   if (!linked) return dispatch({ type: "no-code" })
   const sign = pageSign = flow.orderSigner(linked.ownerCode)
   while (isRoute(mine)) {
@@ -606,7 +608,7 @@ function mountInto(form: HTMLElement, invoice: api.InvoiceView): void {
 }
 
 const cardStays = (before: OrderState, kind: OrderKind) =>
-  payButton !== null && kind === "pay-card" && screenOf(before) === "pay-card" && before.invoice?.invoiceId === state.invoice?.invoiceId
+  payButton !== null && kind === "pay-card" && screenOf(before) === "pay-card" && before.invoice?.invoiceId === state.invoice?.invoiceId && paymentChecked(state)
 
 function showCard(): void {
   if (!payButton) return

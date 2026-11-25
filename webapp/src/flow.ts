@@ -19,9 +19,14 @@ const now = api.serviceSeconds
 
 export const newOwnerCode = () => formatOwnerCode(crypto.getRandomValues(new Uint8Array(16)))
 
+const wallets = new Map<string, Wallet | null>()
+
 export function walletOf(code: string): Wallet | null {
-  const parsed = parseNameCode(code)
-  return parsed?.kind === "owner" ? walletFromEntropy(parsed.entropy) : null
+  if (!wallets.has(code)) {
+    const parsed = parseNameCode(code)
+    wallets.set(code, parsed?.kind === "owner" ? walletFromEntropy(parsed.entropy) : null)
+  }
+  return wallets.get(code)!
 }
 
 function registrationOf(label: string, owner: Uint8Array, secret: Uint8Array, links: api.Links, duration: bigint): Registration {
@@ -222,6 +227,16 @@ export async function ownOrderFor(ownerCode: string, nameHash: string): Promise<
   const found = (await findOrders(wallet)).filter((r) => r.labelHash === nameHash)
   const chosen = found.find((r) => !["unpaid", "closed", "ended", "taken"].includes(r.phase)) ?? found.find((r) => r.phase === "unpaid")
   return chosen ? (await reopen(wallet, ownerCode, chosen)).record : null
+}
+
+export async function orderOfCodes(id: string): Promise<store.OrderRecord | null> {
+  for (const code of new Set(store.orders().map((o) => o.ownerCode))) {
+    const wallet = walletOf(code)
+    if (!wallet) continue
+    const found = (await findOrders(wallet)).find((r) => r.invoiceId === id || r.registrationId === id)
+    if (found) return (await reopen(wallet, code, found)).record
+  }
+  return null
 }
 
 // orders this tab found nothing newer for; find has its own rate limit, so each is asked once
