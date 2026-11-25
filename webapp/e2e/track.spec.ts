@@ -1,5 +1,6 @@
 import { type APIRequestContext, expect, type Locator, type Page } from "@playwright/test"
-import { heldPrice } from "../src/config.ts"
+import { bitcoinPayee, devReceiving } from "../dev/mock/addresses.ts"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { YEAR_S } from "../src/crypto/registration.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
@@ -325,15 +326,16 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
 
 const CARD_INVOICE = "inv-cardfit"
 const CARD_REGISTRATION = "reg-cardfit"
-interface CardOrder { label: string; price: number; taken?: boolean; forgetful?: boolean }
+interface CardOrder { label: string; taken?: boolean; forgetful?: boolean }
 
 // A card order of this browser's, answered by routes, whose page opens at `/?order=`; the name is available or taken,
 // and the browser can keep a record or not.
 async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<void>> {
   const order = await keepOrder(page, CARD_REGISTRATION, CARD_INVOICE, o.label)
   await page.evaluate((r) => localStorage.setItem(`simplex-names:order:${r.registrationId}`, JSON.stringify({ ...r, method: "card" })), order)
-  const registration = registrationView(order, { price: o.price, payment: { type: "invoice", method: "card" } })
-  const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: o.price, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
+  const price = heldPrice(o.label.length)
+  const registration = registrationView(order, { price, payment: { type: "invoice", method: "card" } })
+  const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: price, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
   await page.route(`**/api/registration/${CARD_REGISTRATION}*`, (route) => route.fulfill({ json: registration }))
@@ -376,9 +378,9 @@ test.describe(() => {
 // the service worker of a production build answers these pages before Playwright's routes in WebKit
 test.describe(() => {
   test.use({ serviceWorkers: "block" })
-  const tenLetters = { label: "cardfitabc", price: 10000 }
-  const sixWide = { label: "w".repeat(6), price: 10000 }
-  const longest = { label: "w".repeat(MAX_LABEL_LENGTH), price: 20000 }
+  const tenLetters = { label: "cardfitabc" }
+  const sixWide = { label: "w".repeat(6) }
+  const longest = { label: "w".repeat(MAX_LABEL_LENGTH) }
   const CARD_CASES: [string, CardOrder, RegExp][] = [
     ["a name of 10 letters", tenLetters, AVAILABLE_BRIEF],
     ["a name of 6 wide letters", sixWide, AVAILABLE_BRIEF],
@@ -437,8 +439,8 @@ test.describe(() => {
 const FIT_INVOICE = "inv-fitall"
 // an invoice of a kept order, as the service answers it, for a page to draw
 const invoiceOf = (o: KeptOrder, status: string, reg: Record<string, unknown>, change: Record<string, unknown> = {}) => ({
-  invoiceId: FIT_INVOICE, status, amount: 10000, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name", registration: registrationView(o, reg),
-  cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s", ...change,
+  invoiceId: FIT_INVOICE, status, amount: heldPrice(o.label.length), currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name", registration: registrationView(o, reg),
+  cryptoCurrency: "btc", cryptoAmount: "0.00156", ...bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 0), ...change,
 })
 // the money that reached an invoice short of its amount
 const PART = { cryptoAmountPaid: "0.0005", cryptoAmountDue: "0.00106", paidInFull: false }

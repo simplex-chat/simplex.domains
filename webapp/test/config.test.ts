@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
+import { ed25519 } from "@noble/curves/ed25519"
+import { secp256k1 } from "@noble/curves/secp256k1"
 import { keccak256, toHex } from "viem"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS } from "../e2e/terms.ts"
 import { CONFIG_PATH, configOf, heldPrice, LOCAL, loadConfig, MAINNET, readConfig, SITE } from "../src/config.ts"
+import { moneroKeys } from "../src/crypto/payees.ts"
 import { publishableKey, setPublishableKey } from "../src/stripe.ts"
 
 const INDEX = readFileSync(new URL("../index.html", import.meta.url), "utf8")
@@ -90,6 +93,20 @@ describe("the deployment the page holds", () => {
   it("prices a name for its paid years at the exception of its length, else at the base, as the price oracle does", () => {
     expect([6, 7, 8, 63].map(heldPrice)).toEqual([40000, 20000, 10000, 10000])
     expect([MAINNET.priceBaseCentsPerYear * MAINNET.paidYears, MAINNET.priceExceptions], "mainnet: $100 for every name").toEqual([10000, []])
+  })
+  it("holds each payee key as a public key of its curve: a compressed Bitcoin key, and a Monero primary address of its network", () => {
+    for (const [d, primaryPrefix, subaddressPrefix, hrp] of [[MAINNET, 18, 42, "bc"], [LOCAL, 24, 36, "bcrt"]] as const) {
+      expect([d.currency, d.bitcoinHrp, d.moneroSubaddressPrefix]).toEqual(["usd", hrp, subaddressPrefix])
+      for (const key of d.bitcoinReceiveKeys) {
+        expect(key).toMatch(/^0x0[23][0-9a-f]{64}$/)
+        expect(() => secp256k1.Point.fromHex(key.slice(2)), key).not.toThrow()
+      }
+      for (const address of d.moneroPrimaryAddresses) {
+        const keys = moneroKeys(address)
+        expect(keys?.prefix, address).toBe(primaryPrefix)
+        for (const key of [keys!.spend, keys!.view]) expect(ed25519.Point.fromBytes(key).isTorsionFree(), address).toBe(true)
+      }
+    }
   })
 })
 

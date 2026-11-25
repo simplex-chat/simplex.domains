@@ -3,7 +3,8 @@ import { join } from "node:path"
 import { keccak256, toHex } from "viem"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as api from "../../src/api.ts"
-import { configOf } from "../../src/config.ts"
+import { configOf, LOCAL, SITE } from "../../src/config.ts"
+import { bitcoinProven, moneroProven, type ViewProof } from "../../src/crypto/payees.ts"
 import { initialSearch, reduce } from "../../src/screens/search.ts"
 
 const DIR = process.env.STORE_FIXTURES
@@ -14,13 +15,19 @@ vi.mock("../../src/config.ts", async (actual) => {
   if (!dir) return config
   const fs = await import("node:fs")
   const path = await import("node:path")
-  const termsOf = (name: string) => JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), "utf8")).body.found.terms
-  return { ...config, SITE: { ...config.SITE, generalTerms: [termsOf("search-available")], communityTerms: [termsOf("search-available-community")] } }
+  const read = (name: string) => JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), "utf8"))
+  const termsOf = (name: string) => read(name).body.found.terms
+  const { bitcoinHrp, bitcoinReceiveKeys, moneroSubaddressPrefix, moneroPrimaryAddresses } = read("deployment")
+  return {
+    ...config,
+    SITE: { ...config.SITE, generalTerms: [termsOf("search-available")], communityTerms: [termsOf("search-available-community")], bitcoinHrp, bitcoinReceiveKeys, moneroSubaddressPrefix, moneroPrimaryAddresses },
+  }
 })
 
 interface Fixture { status: number; body: unknown; retryAfter?: string }
 
-const fixture = (name: string): Fixture => JSON.parse(readFileSync(join(DIR!, `${name}.json`), "utf8")) as Fixture
+const recorded = <T>(name: string): T => JSON.parse(readFileSync(join(DIR!, `${name}.json`), "utf8")) as T
+const fixture = (name: string): Fixture => recorded<Fixture>(name)
 
 function answering(name: string): Fixture {
   const f = fixture(name)
@@ -193,6 +200,25 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   it("reads an order whose registration was ended", async () => {
     answering("registration-ended")
     expect((await api.readRegistration("registration")).phase).toEqual({ type: "ended" })
+  })
+
+  it("holds in LOCAL the payee keys of the service's dev deployment, which the browser tests prove its addresses from", () => {
+    const { bitcoinHrp, bitcoinReceiveKeys, moneroSubaddressPrefix, moneroPrimaryAddresses } = recorded<Record<string, unknown>>("deployment")
+    expect([LOCAL.bitcoinHrp, LOCAL.bitcoinReceiveKeys, LOCAL.moneroSubaddressPrefix, LOCAL.moneroPrimaryAddresses]).toEqual([bitcoinHrp, bitcoinReceiveKeys, moneroSubaddressPrefix, moneroPrimaryAddresses])
+  })
+
+  it("proves each recorded address from the deployment's keys with its recorded proof", () => {
+    const { bitcoin, monero } = recorded<{ bitcoin: { dev: { invoices: { address: string; keyTweak: string }[] } }; monero: { dev: { invoices: { address: string; spendTweak: string; viewProof: ViewProof }[] } } }>("vectors-address-proofs")
+    for (const { address, keyTweak } of bitcoin.dev.invoices) expect(bitcoinProven(address, keyTweak, SITE.bitcoinReceiveKeys, SITE.bitcoinHrp), address).toBe(true)
+    for (const { address, spendTweak, viewProof } of monero.dev.invoices) {
+      expect(moneroProven(address, spendTweak, viewProof, SITE.moneroPrimaryAddresses, SITE.moneroSubaddressPrefix), address).toBe(true)
+    }
+  })
+
+  it.each([["invoice-btc-open", "btc"], ["invoice-xmr-open", "xmr"]])("reads %s as an open invoice whose address its proof derives from the deployment's keys", async (name, coin) => {
+    answering(name)
+    const invoice = await api.readInvoice("invoice")
+    expect([invoice.status, api.invoiceMethod(invoice), api.addressProven(invoice)]).toEqual(["open", coin, true])
   })
 
   it("reads a selection of a name at another price with that name's price, the price the page holds for its length", async () => {

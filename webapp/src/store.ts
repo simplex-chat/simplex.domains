@@ -28,6 +28,8 @@ export interface OrderRecord {
   // the link of the order that replaced this one with a new invoice; its old link leads there
   replacedBy?: string
   createdAt: string
+  address?: string
+  addressProof?: unknown
 }
 
 export type CodeRefusal = "code_used" | "code_invalid" | "code_expired"

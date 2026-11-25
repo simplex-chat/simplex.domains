@@ -1,11 +1,13 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 import { heldPrice } from "../src/config.ts"
 import {
-  control, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search, startOrder, test, toReview, uniqueLabel, useCode, waitRegistered,
+  control, MOCK, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search, startOrder, test, toReview, uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
 const NOT_NOW = "Names can't be ordered right now. Try again later."
 const UNCHECKED = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
+const SUPPORT_COPY = "Copy the order reference and address proof for support"
+const COIN = { btc: "Bitcoin", xmr: "Monero" } as const
 const UNHELD_TERMS = "# SimpleX Names Conditions of Use\n\nNot the terms the page holds.\n"
 
 async function mismatched<T>(request: APIRequestContext, mismatch: Record<string, unknown>, f: () => Promise<T>): Promise<T> {
@@ -64,6 +66,30 @@ test("an open invoice of another payment than its order asked for is drawn witho
   await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
   await expect(onStep(page).getByText("Monero address")).toHaveCount(0)
   await expect(onStep(page).locator(".qr")).toHaveCount(0)
+})
+
+for (const [what, mismatch] of [["an address its proof does not derive from the page's keys", { address: true }], ["an amount other than its name's price", { amount: true }]] as const) {
+  for (const method of ["btc", "xmr"] as const) {
+    test(`an open ${COIN[method]} invoice with ${what} is drawn without its payment details, which could not be checked`, async ({ page, request }) => {
+      await mismatched(request, mismatch, () => startOrder(page, uniqueLabel("payee"), { method }))
+      await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
+      await expect(onStep(page).getByText(`${COIN[method]} address`)).toHaveCount(0)
+      await expect(onStep(page).locator(".qr")).toHaveCount(0)
+    })
+  }
+}
+
+test("an order's page gives support its address proof with its reference, as the service sent it, also when the address could not be checked", async ({ page, context, request, browserName }) => {
+  test.skip(browserName !== "chromium", "reads the clipboard, which Playwright grants in Chromium")
+  await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  const { invoiceId } = await mismatched(request, { address: true }, () => startOrder(page, uniqueLabel("proof"), { method: "xmr" }))
+  await expect(onStep(page).getByText(UNCHECKED)).toBeVisible()
+  const { addressProof } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { addressProof: unknown }
+  await onStep(page).getByRole("button", { name: SUPPORT_COPY }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`Order reference ${invoiceId}, address proof ${JSON.stringify(addressProof)}`)
+  await control(request, `expire/${invoiceId}`)
+  await expect(onStep(page).getByRole("heading", { name: "Invoice closed" })).toBeVisible()
+  await expect(onStep(page).getByRole("button", { name: SUPPORT_COPY }), "the closed invoice's page").toBeVisible()
 })
 
 test("a card order reopened with its name code in another browser signs its reveal over a card's dispute days, whatever payment the service reports", async ({ page, browser, request }) => {

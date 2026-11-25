@@ -16,7 +16,7 @@ import {
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
 import { registerNameTypedData } from "../register-name.ts"
 import { savedTerms } from "../serve-terms.ts"
-import { addressFor } from "./addresses.ts"
+import { type Payee, payeeFor } from "./addresses.ts"
 import { setClock } from "./clock.ts"
 import { coreLink, deepLinkOf } from "./links.ts"
 import { randomBytes, seedRandom } from "./random.ts"
@@ -140,6 +140,7 @@ interface Invoice {
   // what a credit of confirmed late money waits on, set by the tests: the service's next pass, or support
   lateWait: "crediting" | "support" | null
   closedBy: "expired" | "cancelled" | null
+  payee: Payee | null
 }
 
 // An order's balance, in cents.
@@ -176,8 +177,10 @@ const control: { mode: "open" | "codes"; downtime: boolean; chainDown: boolean; 
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 
-const mismatch: { price: number | null; policy: boolean; termsHash: boolean; method: boolean } = { price: null, policy: false, termsHash: false, method: false }
+const mismatch: { price: number | null; policy: boolean; termsHash: boolean; method: boolean; address: boolean; amount: boolean } =
+  { price: null, policy: false, termsHash: false, method: false, address: false, amount: false }
 const OTHER_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
+const OTHER_AMOUNT_CENTS = 100
 const OTHER_TERMS_HASH = keccak256(toHex("other terms"))
 
 const INVOICE_ERRORS: Record<string, number> = { provider_unavailable: 503, rate_limited: 429, catalog_changed: 409, internal: 500 }
@@ -578,7 +581,7 @@ async function invoiceView(inv: Invoice): Promise<Record<string, unknown>> {
   }
   for (const k of ["amountPaid", "cryptoAmountPaid", "cryptoAmountDue", "paidInFull", "settledAt"] as const) if (inv[k] !== null) view[k] = inv[k]
   if (inv.method === "card") view.clientSecret = inv.clientSecret
-  else Object.assign(view, { address: addressFor(inv.method, inv.id), cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, requiredConfirmations: 1 })
+  else Object.assign(view, { ...inv.payee, cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, requiredConfirmations: 1 })
   return view
 }
 
@@ -725,14 +728,16 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   if (body.price !== price) throw new HttpError(409, "catalog_changed", { price })
   const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS[method] }, body.reveal)
   const invoiced = mismatch.method ? OTHER_METHOD[method] : method
-  mismatch.method = false
+  const [amount, outside] = [mismatch.amount ? price + OTHER_AMOUNT_CENTS : price, mismatch.address]
+  Object.assign(mismatch, { method: false, address: false, amount: false })
   const reg = newRegistration(order, { years: YEARS, paid: price, method: invoiced, prepaidCode: null, phase: "unpaid", orderHash, disputeDays: DISPUTE_DAYS[method] }, rv)
-  return invoiceView(openInvoice(reg, invoiced, price))
+  return invoiceView(openInvoice(reg, invoiced, amount, outside))
 }
 
-function openInvoice(reg: Registration, method: Method, amount: number): Invoice {
+function openInvoice(reg: Registration, method: Method, amount: number, outside: boolean): Invoice {
+  const invoiceId = id()
   const inv: Invoice = {
-    id: id(), registrationId: reg.id, method, status: "open", amount,
+    id: invoiceId, registrationId: reg.id, method, status: "open", amount, payee: method === "card" ? null : payeeFor(method, invoiceId, outside),
     expiresAt: iso(nowSeconds() + INVOICE_MINUTES * 60),
     cryptoAmount: method === "card" ? null : (amount / 100 / RATES[method]).toFixed(method === "btc" ? 5 : 3),
     amountPaid: null, cryptoAmountPaid: null, cryptoAmountDue: null, paidInFull: null, confirmed: false, settledAt: null,
@@ -1557,9 +1562,9 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
 }
 
 export function controlMismatch(body: Record<string, unknown>): Record<string, unknown> {
-  const { price = null, policy = false, termsHash = false, method = false } = body
-  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || [policy, termsHash, method].some((flag) => typeof flag !== "boolean")) throw badRequest()
-  Object.assign(mismatch, { price, policy, termsHash, method })
+  const { price = null, policy = false, termsHash = false, method = false, address = false, amount = false } = body
+  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || [policy, termsHash, method, address, amount].some((flag) => typeof flag !== "boolean")) throw badRequest()
+  Object.assign(mismatch, { price, policy, termsHash, method, address, amount })
   return { ...mismatch }
 }
 

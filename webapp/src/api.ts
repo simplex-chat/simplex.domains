@@ -3,6 +3,7 @@ import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
 import { heldPrice, SITE } from "./config.ts"
+import { bitcoinProven, moneroProven } from "./crypto/payees.ts"
 import { MAX_LABEL_LENGTH } from "./names.ts"
 
 const REFUSALS = [
@@ -250,6 +251,7 @@ export interface InvoiceView {
   settledAt?: string
   clientSecret?: string
   address?: string
+  addressProof?: unknown
   cryptoAmount?: string
   cryptoCurrency?: Method
   requiredConfirmations?: number
@@ -267,6 +269,23 @@ export const invoiceMethod = (inv: InvoiceView): Method | null =>
   inv.clientSecret !== undefined && inv.address === undefined && (inv.cryptoCurrency ?? "card") === "card" ? "card"
   : (inv.cryptoCurrency === "btc" || inv.cryptoCurrency === "xmr") && inv.address !== undefined && inv.clientSecret === undefined ? inv.cryptoCurrency
   : null
+
+function provenFromKeys(address: string, coin: InvoiceView["cryptoCurrency"], p: unknown): boolean {
+  if (!isObject(p)) return false
+  if (coin === "btc" && p.type === "btc") return isText(p.keyTweak) && bitcoinProven(address, p.keyTweak, SITE.bitcoinReceiveKeys, SITE.bitcoinHrp)
+  const view = p.viewProof
+  return coin === "xmr" && p.type === "xmr" && isText(p.spendTweak) && isObject(view) && isText(view.challenge) && isText(view.response)
+    && moneroProven(address, p.spendTweak, { challenge: view.challenge, response: view.response }, SITE.moneroPrimaryAddresses, SITE.moneroSubaddressPrefix)
+}
+
+const proven = new Map<string, boolean>()
+
+export function addressProven({ address, cryptoCurrency, addressProof }: InvoiceView): boolean {
+  if (address === undefined) return true
+  const key = JSON.stringify([address, cryptoCurrency, addressProof])
+  if (!proven.has(key)) proven.set(key, provenFromKeys(address, cryptoCurrency, addressProof))
+  return proven.get(key)!
+}
 
 export const holdsPayment = (inv: InvoiceView) => Boolean(inv.amountPaid) || Number(inv.cryptoAmountPaid ?? "0") > 0 || inv.paidInFull === true
 

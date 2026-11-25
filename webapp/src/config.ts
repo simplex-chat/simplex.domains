@@ -17,8 +17,13 @@ export interface Deployment {
   codesOnly: boolean
   priceBaseCentsPerYear: number
   priceExceptions: PriceException[]
+  currency: "usd"
   generalTerms: Terms[]
   communityTerms: Terms[]
+  bitcoinHrp: string
+  bitcoinReceiveKeys: string[]
+  moneroSubaddressPrefix: number
+  moneroPrimaryAddresses: string[]
 }
 
 export interface PriceException {
@@ -40,6 +45,7 @@ export const MAINNET: Deployment = {
   codesOnly: true,
   priceBaseCentsPerYear: 5000,
   priceExceptions: [],
+  currency: "usd",
   generalTerms: [{
     hash: "0x70e0396b0a83f6c4e624b2e43d537b7c9816c6868bf705080237d93f5aa2541d",
     link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/7cfd522f0f26454fc913f978a45f5f6028017b10/docs/NAMES-CONDITIONS.md#sha256=6871119c6e4088d2b6f2d7890443a82a4b8e65dd1ccb73456ce8f13c3434e6ee",
@@ -48,6 +54,10 @@ export const MAINNET: Deployment = {
     hash: "0x70e0396b0a83f6c4e624b2e43d537b7c9816c6868bf705080237d93f5aa2541d",
     link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/7cfd522f0f26454fc913f978a45f5f6028017b10/docs/NAMES-CONDITIONS.md#sha256=6871119c6e4088d2b6f2d7890443a82a4b8e65dd1ccb73456ce8f13c3434e6ee",
   }],
+  bitcoinHrp: "bc",
+  bitcoinReceiveKeys: [],
+  moneroSubaddressPrefix: 42,
+  moneroPrimaryAddresses: [],
 }
 
 export const LOCAL: Deployment = {
@@ -64,6 +74,7 @@ export const LOCAL: Deployment = {
   codesOnly: false,
   priceBaseCentsPerYear: 5000,
   priceExceptions: [{ labelLength: 7, centsPerYear: 10000 }, { labelLength: 6, centsPerYear: 20000 }],
+  currency: "usd",
   generalTerms: [{
     hash: "0xb0ecf1bb8f71f387d7d56ea055cb44378c91a8ad2e66b9c0c6497adccaa599e9",
     link: "http://127.0.0.1:8098/terms/00516a11b53ad775b7a51fc8a96c9199529e7b53424eec791df0755a15645bda.md#sha256=00516a11b53ad775b7a51fc8a96c9199529e7b53424eec791df0755a15645bda",
@@ -84,6 +95,10 @@ export const LOCAL: Deployment = {
     hash: "0xda08ab458b060f08de0ebe328d20d10b6f1d275237f1b3c03d2cc1177f5e3ba8",
     link: "https://raw.githubusercontent.com/simplex-chat/simplex-chat/4cb24444a1f2e3d4c5b6a7980716253443526170/docs/community-terms.md#sha256=a081d9e2a2eb4c63f9dfa01f092724323ed8d24f8459f1626226e33d6198e8ab",
   }],
+  bitcoinHrp: "bcrt",
+  bitcoinReceiveKeys: ["0x036bf340760eb0da07d4d2bbb9d9aee7b7c27891cb72b6388cc0ee8d2a82d33e46"],
+  moneroSubaddressPrefix: 36,
+  moneroPrimaryAddresses: ["52jzuBBUMty3xPL3JsQxGP74LDuV6E1LS8Zda1PbdqQjGzFmH6N9ep9McbFKMALujVT9S5mKpbEgC5VPhfoAiVj8LdAqbp6"],
 }
 
 declare const __MAINNET__: boolean

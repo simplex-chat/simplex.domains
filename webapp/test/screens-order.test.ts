@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { bitcoinPayee, devReceiving, moneroPayee } from "../dev/mock/addresses.ts"
 import type { Acceptance, Community, InvoiceView, RegistrationView } from "../src/api.ts"
-import { LOCAL } from "../src/config.ts"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
@@ -344,14 +345,54 @@ describe("reduce", () => {
 })
 
 describe("paymentChecked", () => {
-  it("is an invoice of the payment its order asked for, which the browser without the order cannot tell", () => {
-    expect(paymentChecked(read(crypto()))).toBe(true)
-    expect(paymentChecked(read(card(), undefined, { record: record({ method: "card" }) }))).toBe(true)
-    expect(paymentChecked(read(crypto({ cryptoCurrency: "xmr" })))).toBe(false)
-    expect(paymentChecked(read(card()))).toBe(false)
-    expect(paymentChecked(read(crypto(), undefined, { record: record({ method: "card" }) }))).toBe(false)
-    expect(paymentChecked(read(crypto({ clientSecret: "pi_1_secret_2" })))).toBe(false)
-    expect(paymentChecked(read(crypto(), undefined, { record: null }))).toBe(true)
+  const held = heldPrice(record().label.length)
+  const btc = bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 0)
+  const xmr = moneroPayee(0, 1)
+  const coin = (change: Partial<InvoiceView> = {}) => crypto({ amount: held, ...btc, ...change })
+  const asXmr = { cryptoCurrency: "xmr", ...xmr } as const
+  const priced = (change: Partial<InvoiceView> = {}) => card({ amount: held, ...change })
+  const cardRecord = { record: record({ method: "card" }) }
+
+  it("is an invoice of the payment its order asked for, at the price the page holds, in dollars, to an address proven from the page's keys", () => {
+    expect(paymentChecked(read(coin()))).toBe(true)
+    expect(paymentChecked(read(coin(asXmr), undefined, { record: record({ method: "xmr" }) }))).toBe(true)
+    expect(paymentChecked(read(priced(), undefined, cardRecord))).toBe(true)
+  })
+
+  it("is not an invoice of another payment than the order asked for", () => {
+    expect(paymentChecked(read(coin(asXmr)))).toBe(false)
+    expect(paymentChecked(read(priced()))).toBe(false)
+    expect(paymentChecked(read(coin(), undefined, cardRecord))).toBe(false)
+    expect(paymentChecked(read(coin({ clientSecret: "pi_1_secret_2" })))).toBe(false)
+  })
+
+  it("is not an invoice of another amount or currency", () => {
+    for (const amount of [held - 100, held + 100, 1500]) {
+      expect(paymentChecked(read(coin({ amount }))), String(amount)).toBe(false)
+      expect(paymentChecked(read(priced({ amount }), undefined, cardRecord)), `card ${amount}`).toBe(false)
+    }
+    expect(paymentChecked(read(coin({ currency: "eur" })))).toBe(false)
+    expect(paymentChecked(read(priced({ currency: "USD" }), undefined, cardRecord))).toBe(false)
+  })
+
+  it("is not an invoice whose address its proof does not derive from the page's keys, or that has no proof", () => {
+    expect(paymentChecked(read(coin({ address: moneroPayee(0, 2).address, cryptoCurrency: "xmr", addressProof: xmr.addressProof }), undefined, { record: record({ method: "xmr" }) }))).toBe(false)
+    expect(paymentChecked(read(coin({ address: bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 1).address })))).toBe(false)
+    expect(paymentChecked(read(coin({ addressProof: undefined })))).toBe(false)
+    expect(paymentChecked(read(coin({ address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" })))).toBe(false)
+  })
+
+  it("is not an invoice whose address differs from the one the order's record keeps for it", () => {
+    const other = bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 1)
+    expect(paymentChecked(read(coin(), undefined, { record: record({ ...btc }) }))).toBe(true)
+    expect(paymentChecked(read(coin(other), undefined, { record: record({ ...btc }) }))).toBe(false)
+    expect(paymentChecked(read(coin(other), undefined, { record: record({ ...btc, invoiceId: "inv-0" }) })), "another invoice's address").toBe(true)
+  })
+
+  it("is checked for its currency and address alone in a browser without the order, which cannot tell its name or payment", () => {
+    expect(paymentChecked(read(coin({ amount: 1500 }), undefined, { record: null }))).toBe(true)
+    expect(paymentChecked(read(coin({ addressProof: undefined }), undefined, { record: null }))).toBe(false)
+    expect(paymentChecked(read(coin({ currency: "eur" }), undefined, { record: null }))).toBe(false)
   })
 })
 
