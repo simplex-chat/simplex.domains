@@ -86,7 +86,7 @@ function dispatch(event: OrderEvent): void {
   if (kind === "registered") seenRegistered(state.view!, state.invoice)
   if (revealDue(state)) reveal(state.view!, state.record!)
   else if (askAgainDue(state) && askingAgain !== opened) askAgain(state.record!)
-  else if (retryDue(state)) retryLapsed(state.view!, state.record!)
+  else if (retryDue(state)) retryLapsed(state.view!)
   wakeOnTime()
 }
 
@@ -295,14 +295,14 @@ function reveal(view: api.RegistrationView, record: store.OrderRecord): void {
   })
 }
 
-const keepAgreed =(record: store.OrderRecord, agreed: string | undefined) => {
+const keepAgreed = (record: store.OrderRecord, agreed: string | undefined) => {
   if (agreed !== record.terms) store.updateOrder(record.registrationId, { terms: agreed })
 }
 
-function retryLapsed(view: api.RegistrationView, record: store.OrderRecord): void {
+function retryLapsed(view: api.RegistrationView): void {
   const gen = opened
   dispatch({ type: "retry-started" })
-  api.retry(view.id, flow.orderSigner(record.ownerCode)).then(() => reread(gen), (e) => {
+  api.retry(view.id, pageSign!).then(() => reread(gen), (e) => {
     if (holdOn(e, "", gen)) return
     setTimeout(() => {
       answer(gen, { type: "retry-ended", note: null })
@@ -921,7 +921,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
   try {
     // the invoice as it is now: one still open, or paid into a registration, is the order; one paid after it closed
     // registered nothing, so the name is ordered again and the late payment is kept as the old order's balance
-    const now = await api.readInvoice(invoice.invoiceId, flow.orderSigner(record.ownerCode))
+    const now = await api.readInvoice(invoice.invoiceId, pageSign!)
     if (now.status === "open" || (now.status === "paid" && !unpaidOrClosed(now.registration))) {
       if (isOpen(gen)) go(store.invoiceUrl(invoice.invoiceId))
       return
