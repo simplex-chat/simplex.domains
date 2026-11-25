@@ -60,5 +60,5 @@ document.addEventListener("click", (e) => {
   e.preventDefault()
   go(href)
 })
-render()
 followServedMode(config)
+render()

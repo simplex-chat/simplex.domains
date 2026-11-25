@@ -8,7 +8,7 @@ import { MAX_LABEL_LENGTH } from "./names.ts"
 const REFUSALS = [
   "bad_request", "invalid_name", "invalid_link", "not_found", "method_not_allowed", "internal", "rate_limited", "provider_unavailable", "terms_unavailable",
   "name_check_unavailable", "code_invalid", "code_used", "code_reserved", "code_expired", "code_not_covering", "payment_pending", "codes_only", "order_exists",
-  "name_taken", "catalog_changed", "terms_changed", "registration_changed", "not_open", "funded",
+  "name_taken", "catalog_changed", "terms_changed", "registration_changed", "not_open", "funded", "downtime",
   "stale_nonce", "record_reverted", "edit_pending", "edit_limit",
 ] as const
 type Refusal = typeof REFUSALS[number]

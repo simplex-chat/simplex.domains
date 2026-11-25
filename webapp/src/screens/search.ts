@@ -61,7 +61,7 @@ export const searchDue = (s: SearchState): boolean => !s.paused && s.name !== ""
 
 function opened(s: SearchState, e: Extract<SearchEvent, { type: "opened" }>): SearchState {
   const typed = e.name === s.name ? s.typed : e.name
-  const next = { ...s, opening: e.opening, name: e.name, typed, order: e.order }
+  const next = { ...s, opening: e.opening, name: e.name, typed, order: e.order, downtime: e.downtime }
   const dropped = unsearched(next) ? { answer: null, searching: null, bad: false, seq: s.seq + 1 } : {}
   if (s.hold || e.hold === null) return { ...next, ...dropped }
   return { ...next, answer: null, searching: null, bad: false, seq: s.seq + 1, hold: e.hold, paused: true }
@@ -82,7 +82,7 @@ function searched(s: SearchState, e: Extract<SearchEvent, { type: "searched" }>)
 function answered(s: SearchState, e: Extract<SearchEvent, { type: "answered" }>): SearchState {
   if (e.seq !== s.seq) return s
   const same = s.answer?.kind === "found" && s.answer.label === e.label
-  return { ...s, searching: null, answer: { kind: "found", label: e.label, answer: e.answer, mine: e.mine, now: e.now }, ownOrder: same ? s.ownOrder : null }
+  return { ...s, searching: null, answer: { kind: "found", label: e.label, answer: e.answer, mine: e.mine, now: e.now }, ownOrder: same ? s.ownOrder : null, downtime: e.downtime }
 }
 
 export function reduce(s: SearchState, e: SearchEvent): SearchState {

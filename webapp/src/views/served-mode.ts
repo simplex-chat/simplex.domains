@@ -19,8 +19,6 @@ export const PAYMENT_SOON = "Payment opens again soon"
 let downtime = false
 let afresh = false
 
-export const inDowntime = () => downtime
-
 // The page at its next route, as the screen on show is left: true when it loads the document again instead of drawing it.
 export function reloadedForRoute(): boolean {
   if (!afresh || !reloadKeeps()) return false
@@ -33,20 +31,24 @@ export function loadNextRouteAfresh(): void {
   afresh = true
 }
 
+export const inDowntime = () => downtime
+
 function served(config: SiteConfig | null): void {
   if (config === null) return
   afresh ||= downtime && !config.downtime
+  if (afresh && reloadKeeps() && !typedInto() && !tickedUnkept()) return location.reload()
   downtime = config.downtime
-  if (afresh && reloadKeeps() && !typedInto() && !tickedUnkept()) location.reload()
 }
 
 let comparing: Promise<void> | null = null
-function check(): void {
-  comparing ??= readConfig({ cache: "no-store" }).then(served).finally(() => { comparing = null })
+function check(): Promise<void> {
+  return comparing ??= readConfig({ cache: "no-store" }).then(served).finally(() => { comparing = null })
 }
+
+export const downtimeNow = () => check().then(inDowntime)
 
 export function followServedMode(loaded: SiteConfig | null): void {
   served(loaded)
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check() })
-  addEventListener("pageshow", (e) => { if (e.persisted) check() })
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void check() })
+  addEventListener("pageshow", (e) => { if (e.persisted) void check() })
 }

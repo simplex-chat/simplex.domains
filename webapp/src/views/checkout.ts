@@ -548,6 +548,7 @@ function orderError(e: unknown, c: session.Checkout): void {
   if (code === "invalid_link" && e instanceof api.ApiError && (e.body.kind === "contact" || e.body.kind === "channel")) return void act({ type: "order-refused", reason: `link-${e.body.kind}` })
   if (code === "provider_unavailable") return void act({ type: "order-refused", reason: "method" })
   if (code === "terms_unavailable") return void act({ type: "order-refused", reason: "unavailable" })
+  if (code === "downtime") return void act({ type: "order-refused", reason: "downtime" })
   if (code === CODES_ONLY) {
     loadNextRouteAfresh()
     return dispatch({ type: "order-refused", reason: "codes-only" })

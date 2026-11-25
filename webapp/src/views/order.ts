@@ -20,7 +20,7 @@ import { type MountedCard, mountCard, publishableKey } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
-import { inDowntime, loadNextRouteAfresh, UNKEPT_TICKS } from "./served-mode.ts"
+import { downtimeNow, inDowntime, loadNextRouteAfresh, NEW_ORDERS_SOON, PAYMENT_SOON, UNKEPT_TICKS } from "./served-mode.ts"
 import { NO_ORDERS, termsBox } from "./terms.ts"
 import {
   asStep, type Builder, contactSupport, currentRoute, draw, drawLoading, focusOn, go, historyPlace, isRedraw, isRoute, kept, keptLive, outcome, pageTheme, redirect, referenceLine, refresh, screen,
@@ -112,6 +112,7 @@ const cardSubmittedAt = (invoice: api.InvoiceView | null, record: store.OrderRec
 async function follow(mine: number, invoiceId: string | null, registrationId: string | null, signal: AbortSignal): Promise<void> {
   let invoice: api.InvoiceView | null = null
   let view: api.RegistrationView | null = null
+  let downtime = inDowntime()
   let drawn = ""
   let drawnRecord = ""
   // siblings that could not be read are asked again even when the order's own answer has not changed
@@ -129,10 +130,14 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
     const seq = ++reads
     try {
       if (invoiceId) {
-        invoice = await api.readInvoice(invoiceId, invoice ? api.seenOf(invoice) : undefined, signal)
-        view = invoice.registration
+        const [read, down] = await Promise.all([api.readInvoice(invoiceId, invoice ? api.seenOf(invoice) : undefined, signal), downtimeNow()])
+        invoice = read
+        view = read.registration
+        downtime = down
       } else {
-        view = await api.readRegistration(registrationId!, view?.version, signal)
+        const [read, down] = await Promise.all([api.readRegistration(registrationId!, view?.version, signal), downtimeNow()])
+        view = read
+        downtime = down
       }
     } catch (e) {
       if (!isRoute(mine)) return
@@ -169,7 +174,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       forget()
       return true
     }
-    const answered = JSON.stringify(invoice ?? view)
+    const answered = JSON.stringify([invoice ?? view, downtime])
     if (answered === drawn && !again) {
       // one answered unchanged at once would otherwise poll in a tight loop
       if (!await paced() && Date.now() - asked < RETRY_MS) await sleep(RETRY_MS)
@@ -219,7 +224,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
         status = await statusNow(view, record ?? null)
         if (!isRoute(mine)) return
       }
-      dispatch({ type: "answered", seq, now: api.serviceNow(), invoice, view, record: record ?? null, cardSubmittedAt: cardSubmittedAt(invoice, record), nameStatus: status ?? null, downtime: inDowntime() })
+      dispatch({ type: "answered", seq, now: api.serviceNow(), invoice, view, record: record ?? null, cardSubmittedAt: cardSubmittedAt(invoice, record), nameStatus: status ?? null, downtime })
     }
     // A failed order is drawn before its code is checked, saying nothing of the code until the check answers; a rate
     // limit is waited out, counting down, as often as it is met.
@@ -574,13 +579,20 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
   return cancel
 }
 
+const paymentSoon = (s: OrderState, title: string, alt: HTMLElement | null) =>
+  screen({ title, lead: orderLine(s), alt }, alertBox("info", "clock", null, `${PAYMENT_SOON}.`), referenceLine(s.invoice!.invoiceId), actionNote(s, null))
+
 function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const coin = coinOf(inv)!
   const partial = Number(inv.cryptoAmountPaid ?? "0") > 0
+  holdEnds(signal)(s.hold !== null)
+  if (s.downtime) {
+    payDetails = null
+    return paymentSoon(s, `Pay with ${methodName(coin)}`, partial ? null : cancelLink(s))
+  }
   const due = partial ? inv.cryptoAmountDue! : inv.cryptoAmount!
   const uri = paymentUri(coin, inv.address!, due)
-  holdEnds(signal)(s.hold !== null)
   // the QR's link shows on a laptop only, as styles.css draws the phone's layout without the QR
   const qr = uri ? el("div", { class: "qr" }, qrSvg(uri, `${methodName(coin)} payment`), el("a", { href: paymentUri(coin, inv.address!, due, true)! }, WALLET)) : null
   // labels in sentence case, as their copy buttons say them; the label style draws them in capitals
@@ -668,6 +680,7 @@ const STRIPE_NOTE = "The card form is Stripe's. Nothing is charged until you pay
 
 function buildPayCard(s: OrderState): HTMLElement {
   const invoice = s.invoice!
+  if (s.downtime && cardIn === null) return paymentSoon(s, "Pay by card", cancelLink(s))
   const form = kept("stripe-form", () => el("div", { class: "stripe" }))
   if (cardIn !== form) mountInto(form, invoice)
   const notice = nameNote(s)
@@ -978,6 +991,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
     if (e instanceof api.ApiError && e.code === "catalog_changed" && typeof e.body.price === "number") return dispatch({ type: "price-changed", price: e.body.price })
     if (e instanceof api.TermsChanged) return askTerms(gen, record.label, e, true)
     if (termsUnavailable(e)) return dispatch({ type: "reorder-failed", note: noOrders("Nothing was charged. ") })
+    if (e instanceof api.ApiError && e.code === "downtime") return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "clock", title: null, text: `${NEW_ORDERS_SOON}. Nothing was charged.` } })
     if (e instanceof api.ApiError && e.code === CODES_ONLY) {
       loadNextRouteAfresh()
       return dispatch({ type: "reorder-failed", note: CODES_ONLY_NOTE })
@@ -1060,7 +1074,7 @@ function buildRegistering(s: OrderState, signal: AbortSignal): HTMLElement {
     if (stalled !== null && api.serviceNow() >= stalled) return say(note, STALL_NOTE)
     if (view.phase.type !== "committed") return say(note, view.phase.type === "registering" ? REGISTERING_NOTE : COMMIT_NOTE)
     waitsSeen.delete(view.id)
-    if (view.label === null && (refused || termsToAgree(s))) say(note, "The registration is not signed yet.")
+    if (view.label === null && (refused || termsToAgree(s) || s.downtime)) say(note, "The registration is not signed yet.")
     else say(note, REGISTERING_NOTE)
   }
   onTheSecond(() => waitLeft(view), tick, signal)

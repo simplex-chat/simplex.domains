@@ -109,7 +109,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
       // a reveal the view shows as stored is no longer sending, so one the service clears is signed again under the same key
       return { ...s, seq: e.seq, now: e.now, invoice: e.invoice, view: e.view, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? e.view.label),
         nameStatus: e.nameStatus, since: sinceOf(s.since, e.view, e.now), reveal: e.view.label !== null && s.reveal ? { ...s.reveal, sending: false } : s.reveal,
-        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy }
+        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy, downtime: e.downtime }
     case "record-changed": return { ...s, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? null) }
     case "read-failed": return s
     case "not-found": return { ...s, gone: true }
@@ -285,7 +285,7 @@ export function refusalsOf({ view, reveal }: OrderState): number {
 
 export function revealDue(s: OrderState): boolean {
   const { view, record, reveal } = s
-  if (view?.phase.type !== "committed" || view.label !== null || !readToSign(view) || !record) return false
+  if (view?.phase.type !== "committed" || view.label !== null || !readToSign(view) || !record || s.downtime) return false
   if (termsToAgree(s)) return false
   if (view.phase.revealAfter * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS

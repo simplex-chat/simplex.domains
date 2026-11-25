@@ -79,7 +79,7 @@ export function reduce(s: CheckoutState, e: CheckoutEvent): CheckoutState {
   const change = changeOf(s, e)
   const checkout = change ? { ...s.checkout, ...change } : s.checkout
   switch (e.type) {
-    case "opened": return { ...s, step: e.step, checkout: e.checkout, sending: e.sending, busy: false, waiting: e.waiting, hold: e.hold, refusal: null }
+    case "opened": return { ...s, step: e.step, checkout: e.checkout, sending: e.sending, busy: false, waiting: e.waiting, hold: e.hold, refusal: e.downtime ? "downtime" : null }
     case "link-set":
     case "saved":
     case "agreed":

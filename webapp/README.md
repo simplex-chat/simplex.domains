@@ -162,7 +162,17 @@ Until the full launch, names are registered only with prepaid codes. The mode is
 - With a code, the search answers a name shorter than the code covers at once, without asking the service, and Check your order has no payment choices and no Pay with ETH: the tab's code pays, or, once it is taken off, a code entered in the field that takes the choices' place.
 - Nothing offers a payment: a closed invoice offers no new one; refunds, Your names, restoring, link edits and order pages work as in `open` mode.
 - The service answers `403 {"error": "codes_only"}` to `POST /api/invoice` for a name. A page of an open release meets it while the service is in codes mode: Check your order then says registration is by code only for now, and a closed invoice's page says so under its button, each with a way to enter a code. The screen after it is a fresh load of the page, which a newer release may have replaced.
-- A page that read the service in its downtime loads again once it reads that the downtime is over, so that a tab loaded before a page release signs with the released values (`src/views/served-mode.ts`). A load reads `GET /api/config` before it draws, and the page reads it again, past the HTTP cache, each time the tab comes back into view, and when Back or Forward restores it from the browser's cache. Once the downtime is over, the page loads again at once if that loses nothing: no order or change on its way, no card form, no field typed into and not kept, no terms ticked on an order's page, a tick only the page holds, and storage holding everything the tab keeps. Otherwise it loads again at its next screen. The checkout, the tab's code and the orders are in storage, so a reload keeps them. A service whose downtime flips with every answer reloads the page at most once per return to the tab.
+- A page that read the service in its downtime loads again once it reads that the downtime is over, so that a tab loaded before a page release signs with the released values (`src/views/served-mode.ts`). A load reads `GET /api/config` before it draws, and the page reads it again, past the HTTP cache, at each search, at each read of an order it follows, each time the tab comes back into view, and when Back or Forward restores it from the browser's cache. Once the downtime is over, the page loads again at once if that loses nothing: no order or change on its way, no card form, no field typed into and not kept, no terms ticked on an order's page, a tick only the page holds, and storage holding everything the tab keeps. Otherwise it loads again at its next screen. The checkout, the tab's code and the orders are in storage, so a reload keeps them. A service whose downtime flips with every answer reloads the page at most once per return to the tab.
+
+## Downtime
+
+While a value the page holds changes, the service is in its downtime (`[names] downtime`): it refuses a name invoice, a code order and a selection with `503 {"type": "downtime"}`, and answers reveals, retries, reads and cancels. While the page last read the downtime:
+
+- The home says "New orders open again soon." under the search, and an available name's row has no Register.
+- A checkout opened, or its order sent, says that new orders open again soon; so does a closed invoice's page when it asks for a new invoice.
+- An open invoice's page shows its status without its payment details: no address, amount or QR code, and no card form unless one is mounted already; it says "Payment opens again soon."
+- A committed order's page signs no reveal, and says that the registration is not signed yet.
+- Registered orders, Your names and Check your code are as outside the downtime.
 
 ## Hosting
 

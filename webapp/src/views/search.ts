@@ -21,7 +21,7 @@ import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRe
 import { chatButton } from "./chats.ts"
 import { CODES_ONLY_LINE } from "./codes.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
-import { inDowntime } from "./served-mode.ts"
+import { downtimeNow, inDowntime, NEW_ORDERS_SOON } from "./served-mode.ts"
 import { NO_ORDERS, rowName } from "./terms.ts"
 
 // word joiners keep "a–z" and "0–9" whole: a line may otherwise break after their dash
@@ -98,15 +98,16 @@ async function runSearch(label: string, seq: number): Promise<void> {
   const awaited = () => onPage(page) && seq === state.seq
   const hash = hex(labelHash(label))
   let answer: api.SearchAnswer
+  let downtime: boolean
   try {
-    answer = await api.searchName(hash, label.length)
+    [answer, downtime] = await Promise.all([api.searchName(hash, label.length), downtimeNow()])
   } catch (e) {
     if (!awaited()) return
     if (holdFrom(e)) return dispatch({ type: "search-held", seq, until: holdEnd() })
     return dispatch({ type: "unanswered", seq })
   }
   if (!awaited()) return
-  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow(), downtime: inDowntime() })
+  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow(), downtime })
   if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 
@@ -165,12 +166,12 @@ function offered({ answer }: SearchState): { label: string; answer: flow.Availab
 
 async function register(): Promise<void> {
   const shown = offered(state)
-  if (!shown || !orderableBy(state, shown.label, shown.answer)) return
+  if (!shown || state.downtime || !orderableBy(state, shown.label, shown.answer)) return
   const page = opens
   const closed = ownRead?.label === shown.label ? (await ownRead.orders).closed : null
   const still = offered(state)
   // an order of the name that the reads found still open is the buyer's, which the page points at instead
-  if (!onPage(page) || still?.label !== shown.label || state.ownOrder !== null || !orderableBy(state, still.label, still.answer)) return
+  if (!onPage(page) || still?.label !== shown.label || state.ownOrder !== null || state.downtime || !orderableBy(state, still.label, still.answer)) return
   checkOut(state, still.label, still.answer, closed?.ownerCode ?? null)
 }
 
@@ -260,7 +261,7 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
   // the answer's room is kept from the start, so the headline and the field never move as an answer comes
   return el("section", { class: "home" },
     el("h1", {}, HEADLINE), el("p", { class: "sub" }, SUB),
-    el("div", { class: "search" }, box, keptLive("search-answer", "answer", locked ? codesOnlyAnswer() : answerOf(s, retry, signal))))
+    el("div", { class: "search" }, box, keptLive("search-answer", "answer", locked ? codesOnlyAnswer() : answerOf(s, retry, signal), s.downtime ? line("", "clock", `${NEW_ORDERS_SOON}.`) : null)))
 }
 
 function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
@@ -307,8 +308,8 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
   const orderable = orderableBy(s, label, answer)
-  const button = setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable)
-  button.dataset.focus = "register"
+  const button = s.downtime ? null : setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable)
+  if (button) button.dataset.focus = "register"
   const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
   return [
@@ -316,7 +317,7 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
     !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
-    orderable ? null : line("warn", "alert", `${NO_ORDERS}. Try again later.`),
+    orderable || s.downtime ? null : line("warn", "alert", `${NO_ORDERS}. Try again later.`),
     own || !s.hold ? null : holdNotice(s.hold, signal),
   ]
 }
