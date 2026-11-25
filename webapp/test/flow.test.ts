@@ -317,7 +317,7 @@ describe("selectName", () => {
 describe("restore", () => {
   it("finds the code's order with a signed request, checks the commitment, and saves the record", async () => {
     const { flow, store } = await modules()
-    const built = await flow.orderRequest(draft())
+    const built = await flow.orderRequest({ ...draft(), method: "xmr" })
     answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: "inv1", phase: "committed", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed }] }
     answers["GET /api/invoice/inv1"] = {
       invoiceId: "inv1", status: "open", amount: 20000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name", cryptoCurrency: "xmr",
