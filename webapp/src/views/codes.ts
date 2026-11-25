@@ -12,6 +12,7 @@ import { kept, whenDropped } from "./shell.ts"
 export type CodeVerdict =
   | { kind: "prepaid"; code: session.AppliedCode; line: string }
   | { kind: "owner"; found: flow.CodeOrder; line: string }
+  | { kind: "held"; line: string; link: string }
   | { kind: "refused"; title: string; line: string; link?: string; checkAgainIn?: number }
 
 export const STATE_LINES: Record<Exclude<api.CodeState, "unused">, [string, string]> = {
@@ -87,6 +88,7 @@ async function judgeCode(text: string, signal: AbortSignal, forName?: string): P
     const [title, line] = STATE_LINES[answer.state]
     // the service names no order for a code in use; this browser's own order that holds it is linked
     const holder = answer.state === "reserved" ? store.orders().find((o) => o.prepaidCode === parsed.display) : undefined
+    if (holder && forName === undefined) return { kind: "held", line: `This code is held by your order for ${holder.label}.${holder.tld}.`, link: store.orderUrl(holder) }
     return { kind: "refused", title, line, link: holder && store.orderUrl(holder) }
   } catch (e) {
     // well formed but unknown to the service: not a typo, which the check digit would have caught
@@ -164,7 +166,7 @@ export function codeField(key: string, label: string, heard: (v: CodeVerdict | n
     let counting = new AbortController()
     life.signal.addEventListener("abort", () => counting.abort(), { once: true })
     const show = (v: CodeVerdict | null) => {
-      const tone = v === null ? "" : v.kind === "refused" ? " bad" : " ok"
+      const tone = v === null ? "" : v.kind === "refused" ? " bad" : v.kind === "held" ? " info" : " ok"
       box.className = `field code-input${tone}`
       line.className = `verdict${tone}`
       counting.abort()
@@ -173,7 +175,8 @@ export function codeField(key: string, label: string, heard: (v: CodeVerdict | n
         const count = el("span", {})
         refill(line, count)
         waitOut(count, v.checkAgainIn, (left) => `${said(v)} Checking again in ${left}.`, () => undefined, counting.signal)
-      } else refill(line, v && said(v), v?.kind === "refused" && v.link ? [" ", el("a", { href: v.link }, "Open that order")] : null)
+      } else refill(line, v && said(v), v?.kind === "held" ? [" ", el("a", { href: v.link }, "Open your order")]
+        : v?.kind === "refused" && v.link ? [" ", el("a", { href: v.link }, "Open that order")] : null)
       heard(v)
     }
     check.addEventListener("click", watchCode(input, show, life.signal, order?.name))

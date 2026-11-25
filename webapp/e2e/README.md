@@ -18,8 +18,6 @@ Every run draws the same pixels:
 - each screenshot waits for the page's fonts;
 - `screens.css`, applied only while a screenshot is taken, draws the page's background flat, which makes each file about a quarter of the size, draws a wait's bar half full, as its fill grows from the moment the page first saw the wait, and draws a countdown's digits at one width, so its mask keeps its size.
 
-A state that waits while the chain sends nothing (`unsentSeconds`) needs the mock to try its transactions for long enough: `MOCK_RESENDS=600`.
-
 A chain's time only moves forward, and the mock keeps the orders that the seeded ids name, so every run starts a fresh backend whose chain starts before the first state's time: `CHAIN_START=1793602800` (2 November 2026, 07:00 UTC).
 
 Fonts differ between machines, so the baselines are recorded and compared in Playwright's Docker image of the version in package.json. CI runs them in the chromium job of `.github/workflows/webapp.yml`, step Screens.
@@ -32,7 +30,7 @@ After a change of the page, record the baselines again and commit the changed fi
 - locally, with Docker: start a fresh backend, then run the spec in the image.
 
 ```
-CHAIN_START=1793602800 MIN_COMMITMENT_AGE=5 MOCK_RESEND_MS=1000 MOCK_RESENDS=600 ENS_CONTRACTS_DIR=<ens-contracts> dev/start.sh
+CHAIN_START=1793602800 MIN_COMMITMENT_AGE=5 MOCK_RESEND_MS=1000 ENS_CONTRACTS_DIR=<ens-contracts> dev/start.sh
 docker run --rm --network host --ipc host -v "$PWD/..:/work" -w /work/webapp -e SCREENS=1 -e SLOTS=1 \
   mcr.microsoft.com/playwright:v1.64.1-noble npx playwright test --project=screens --update-snapshots
 ```

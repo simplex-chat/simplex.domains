@@ -442,6 +442,7 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 /* Check your code says what a code is in a box under its field */
 .code-entry > .verdict:not(:empty) { margin-top: 0; padding: 12px 16px; font-size: var(--fs-body); border: 1px solid var(--ok-line); border-radius: 14px; background: var(--ok-bg); }
 .code-entry > .verdict.bad { border-color: var(--danger-line); background: var(--danger-bg); }
+.code-entry > .verdict.info { border-color: var(--chip-line); background: var(--chip); }
 .verdict.bad, .field-error { color: var(--danger-fg); }
 .notice svg.i, .field-error svg.i, .verdict svg.i { margin-top: 1px; }
 .notice.info svg.i { color: var(--primary); }

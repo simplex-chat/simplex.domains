@@ -192,6 +192,43 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect(api.selectable(view)).toBe(true)
   })
 
+  const viewOf = (name: string) => {
+    answering(name)
+    return api.readRegistration("r1")
+  }
+
+  it.each([
+    ["registration-unpaid", "unpaid"], ["registration-committed-awaiting", "committed"], ["registration-committed-awaiting-community", "committed"],
+    ["registration-committed-unread", "committed"], ["registration-committed-signed", "committed"], ["registration-committed-lapsed", "committed"],
+    ["registration-closed-cancelled", "closed"], ["registration-registered", "registered"], ["registration-failed", "failed"], ["registration-failed-held", "failed"],
+  ])("reads the view %s, in phase %s, with the fields the mock's view has", async (name, type) => {
+    const view = await viewOf(name)
+    expect(view.phase.type).toBe(type)
+    expect(Object.keys(view).sort()).toEqual(VIEW_FIELDS)
+  })
+
+  it("reads what a committed view asks the page to sign, a lapse, a registered name's expiry and a failed order's hold", async () => {
+    expect(api.toSignOf(await viewOf("registration-committed-awaiting"))).toMatchObject({ type: "read", acceptance: { community: false } })
+    expect(api.toSignOf(await viewOf("registration-committed-awaiting-community"))).toMatchObject({ type: "read", acceptance: { community: true } })
+    expect(api.toSignOf(await viewOf("registration-committed-unread"))).toEqual({ type: "unread" })
+    const signed = await viewOf("registration-committed-signed")
+    expect([api.toSignOf(signed), api.lapsedOf(signed)]).toEqual([null, false])
+    expect(api.lapsedOf(await viewOf("registration-committed-lapsed"))).toBe(true)
+    expect(api.expiresAtOf(await viewOf("registration-registered"))).toEqual(expect.any(Number))
+    expect((await viewOf("registration-closed-cancelled")).phase).toEqual({ type: "closed", closedBy: "cancelled" })
+    expect((await viewOf("registration-failed")).phase).toEqual({ type: "failed", reason: "registryRefused" })
+    expect((await viewOf("registration-failed-held")).phase).toEqual({ type: "failed", reason: "unread", heldUntil: expect.any(String) })
+  })
+
+  it("reads a name invoice for Bitcoin with its order's view, as made and as read again", async () => {
+    answering("invoice-view-btc")
+    const made = await api.createOrder(order, "btc", 10000)
+    expect([made.status, made.cryptoCurrency, made.registration.phase]).toEqual(["open", "btc", { type: "unpaid" }])
+    expect(Object.keys(made.registration).sort()).toEqual(VIEW_FIELDS)
+    answering("invoice-view-btc")
+    expect(await api.readInvoice(made.invoiceId)).toEqual(made)
+  })
+
   it.each(["registration-registered", "registration-registered-no-dispute"])("reads %s, with or without a dispute end, as registered until its expiry", async (name) => {
     answering(name)
     expect((await api.readRegistration("registration")).phase).toMatchObject({ type: "registered", expiresAt: expect.any(Number) })

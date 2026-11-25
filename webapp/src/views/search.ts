@@ -17,7 +17,7 @@ import {
 } from "../screens/search.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
-import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, throughHistory } from "./shell.ts"
+import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, SIMPLEX_SUPPORT, throughHistory } from "./shell.ts"
 import { chatButton } from "./chats.ts"
 import { CODES_ONLY_LINE } from "./codes.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
@@ -273,10 +273,16 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (answer?.kind !== "found") return answer?.kind === "checking" ? line("", "clock", "Checking the name…") : null
   const available = flow.availableOf(answer.answer)
   if (available) return availableAnswer(s, answer.label, available, signal)
-  if (answer.answer.found.type === "reserved") {
-    return line("info", "info", "Reserved names are not sold here. If it is yours to use, write to ", el("a", { href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), ".")
-  }
+  if (answer.answer.found.type === "reserved") return reservedAnswer(answer.label, answer.answer)
   return takenAnswer(s, answer, answer.answer)
+}
+
+function reservedAnswer(label: string, answer: api.SearchAnswer): Kid[] {
+  return [
+    el("div", { class: "card row" }, rowName(label, SITE.tld, answer.community, "community"), el("span", { class: "soft" }, "Reserved")),
+    line("info", "info", "If you want to use this name, please contact us via ", el("a", { class: "nowrap", href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL),
+      " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX"), "."),
+  ]
 }
 
 function ruleLine({ label, problem }: Extract<Answer, { kind: "rule" }>): HTMLElement {
@@ -306,9 +312,10 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const own = s.ownOrder
   const free = freeBy(s, label)
   const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
+  const unpaid = s.order && !free && !paid ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
   const orderable = orderableBy(s, label, answer)
-  const button = s.downtime ? null : setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable)
+  const button = s.downtime ? null : setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable || unpaid !== null)
   if (button) button.dataset.focus = "register"
   const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
@@ -316,6 +323,7 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
     el("div", { class: "card row buy" }, rowName(label, SITE.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
       el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
+    unpaid ? el("p", { class: "hint" }, `Your payment covers names at ${dollars(unpaid.paid)} for ${unpaid.years} years.`) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
     orderable || s.downtime ? null : line("warn", "alert", `${NO_ORDERS}. Try again later.`),
     own || !s.hold ? null : holdNotice(s.hold, signal),
