@@ -305,6 +305,7 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
       expect(stripeNote!.top, `${where}: Stripe's note under Cancel`).toBeGreaterThanOrEqual(cancel!.bottom)
       expect(invest!.top - stripeNote!.bottom, `${where}: the room between Stripe's note and the invest note`).toBeGreaterThanOrEqual(ROOM_ABOVE_INVEST)
       expect(await offCentre(onStep(page).locator(".stripe-note")), `${where}: Stripe's note centred`).toBeLessThanOrEqual(1)
+      expect(await page.evaluate(() => document.scrollingElement!.scrollWidth), `${where}: the page no wider than the window`).toBeLessThanOrEqual(size.width)
       if (!scrolls && formPx <= room && FIT_SIZES.some((fit) => fit.width === size.width && fit.height === size.height)) expect(await overflow(page), where).toBe(0)
       // an error line under a field: the form grows past its room by the line, and Pay and what follows move down with it
       await growCard(page, ERROR_LINE_PX)
