@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { hashMessage, recoverMessageAddress, type Hex } from "viem"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import type { OrderAction } from "../../src/api.ts"
 import { codeHash, formatOwnerCode, parseNameCode } from "../../src/crypto/code.ts"
 import { acceptTermsDigest, makeCommitment, namehash, registerIntentDigest, setTextDigest } from "../../src/crypto/registration.ts"
 import { checksumAddress, hex, personalDigest, signDigest, walletFromEntropy } from "../../src/crypto/wallet.ts"
+import { orderSigner } from "../../src/flow.ts"
 import { labelProblem } from "../../src/names.ts"
 
 const DIR = process.env.STORE_FIXTURES
@@ -27,6 +29,8 @@ interface Signatures {
   setText: { chainId: number; resolver: string; label: string; key: string; value: string; nonce: number; deadline: number; digest: string }
 }
 
+interface OrderRequests { id: string; timestamp: number; messages: { action: OrderAction; text: string; digest: Hex }[] }
+
 interface Acceptance { chainId: number; policy: string; commitment: string; termsHash: string; nonce: number; deadline: number; digests: { general: string; community: string } }
 
 interface Codes {
@@ -36,6 +40,8 @@ interface Codes {
 }
 
 describe.skipIf(!DIR)("the names page reproduces the service's recorded vectors", () => {
+  afterEach(() => vi.useRealTimers())
+
   it("signs find with the owner in lowercase, as the service recovers it", async () => {
     const v = read<Signatures>("vectors-signatures")
     const wallet = walletFromEntropy(ENTROPY)
@@ -84,5 +90,18 @@ describe.skipIf(!DIR)("the names page reproduces the service's recorded vectors"
 
   it("refuses exactly the labels the service refuses", () => {
     for (const { label, valid } of read<{ label: string; valid: boolean }[]>("vectors-labels")) expect(labelProblem(label) === null, label).toBe(valid)
+  })
+
+  it("signs the message of an order's read, cancel, retry and reveal as the service recovers it", async () => {
+    const v = read<OrderRequests>("vectors-order-requests")
+    expect(v.messages.map((m) => m.action)).toEqual(["read", "cancel", "retry", "reveal"])
+    vi.useFakeTimers({ toFake: ["Date"], now: v.timestamp * 1000 })
+    const sign = orderSigner({ ownerCode: formatOwnerCode(ENTROPY) })
+    for (const { action, text, digest } of v.messages) {
+      expect([hex(personalDigest(text)), hashMessage(text)], action).toEqual([digest, digest])
+      const { timestamp, signature } = sign(v.id, action)
+      expect(timestamp, action).toBe(v.timestamp)
+      expect(await recoverMessageAddress({ message: text, signature: signature as Hex }), action).toBe(checksumAddress(walletFromEntropy(ENTROPY).address))
+    }
   })
 })
