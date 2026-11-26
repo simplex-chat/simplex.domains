@@ -44,7 +44,7 @@ let opened = 0
 let pageRoute = -1
 let reads = 0
 let wakes: ReturnType<typeof setTimeout> | undefined
-let pageSign: api.OrderSigner | null = null
+const signerOf = (record: store.OrderRecord) => flow.orderSigner(record.ownerCode)
 
 export function orderPage(invoiceId: string | null, registrationId: string | null): void {
   const mine = currentRoute()
@@ -86,7 +86,7 @@ function dispatch(event: OrderEvent): void {
   if (kind === "registered") seenRegistered(state.view!, state.invoice)
   if (revealDue(state)) reveal(state.view!, state.record!)
   else if (askAgainDue(state) && askingAgain !== opened) askAgain(state.record!)
-  else if (retryDue(state)) retryLapsed(state.view!)
+  else if (retryDue(state)) retryLapsed(state.view!, state.record!)
   wakeOnTime()
 }
 
@@ -142,7 +142,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
   }
   if (!isRoute(mine)) return
   if (!linked) return dispatch({ type: "no-code" })
-  const sign = pageSign = flow.orderSigner(linked.ownerCode)
+  const sign = signerOf(linked)
   while (isRoute(mine)) {
     const asked = Date.now()
     const seq = ++reads
@@ -299,10 +299,10 @@ const keepAgreed = (record: store.OrderRecord, agreed: string | undefined) => {
   if (agreed !== record.terms) store.updateOrder(record.registrationId, { terms: agreed })
 }
 
-function retryLapsed(view: api.RegistrationView): void {
+function retryLapsed(view: api.RegistrationView, record: store.OrderRecord): void {
   const gen = opened
   dispatch({ type: "retry-started" })
-  api.retry(view.id, pageSign!).then(() => reread(gen), (e) => {
+  api.retry(view.id, signerOf(record)).then(() => reread(gen), (e) => {
     if (holdOn(e, "", gen)) return
     setTimeout(() => {
       answer(gen, { type: "retry-ended", note: null })
@@ -566,7 +566,7 @@ function buildPayCrypto(s: OrderState, signal: AbortSignal): HTMLElement {
   holdEnds(signal)(s.hold !== null)
   if (s.downtime || !paymentChecked(s)) {
     payDetails = null
-    return withheld(s, `Pay with ${methodName(coin)}`, partial ? null : cancelLink(s))
+    return withheld(s, `Pay with ${methodName(coin)}`, partial || !s.record ? null : cancelLink(s))
   }
   const due = partial ? inv.cryptoAmountDue! : inv.cryptoAmount!
   const uri = paymentUri(coin, inv.address!, due)
@@ -650,7 +650,7 @@ const STRIPE_NOTE = "The card form is Stripe's. Nothing is charged until you pay
 
 function buildPayCard(s: OrderState): HTMLElement {
   const invoice = s.invoice!
-  if ((s.downtime && cardIn === null) || !paymentChecked(s)) return withheld(s, "Pay by card", cancelLink(s))
+  if ((s.downtime && cardIn === null) || !paymentChecked(s)) return withheld(s, "Pay by card", s.record ? cancelLink(s) : null)
   const form = kept("stripe-form", () => el("div", { class: "stripe" }))
   if (cardIn !== form) mountInto(form, invoice)
   const notice = nameNote(s)
@@ -823,20 +823,21 @@ async function reorderAfterCancel(method: api.Method = "card"): Promise<void> {
   const gen = opened
   const invoice = state.invoice!
   const record = store.orderByInvoice(invoice.invoiceId)
+  if (!record) return
   dispatch({ type: "reorder-started" })
-  if (record && !await agreedFirst(gen, record, invoice)) return
-  if (await cancelBeforeReorder(invoice, gen)) return newInvoice(invoice, record, gen, method)
+  if (!await agreedFirst(gen, record, invoice)) return
+  if (await cancelBeforeReorder(invoice, record, gen)) return newInvoice(invoice, record, gen, method)
   if (store.orderByInvoice(invoice.invoiceId)?.cancelled) reread(gen)
 }
 
 // The old invoice is cancelled before a new one is ordered; true when ordering again cannot charge twice.
-async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promise<boolean> {
+async function cancelBeforeReorder(invoice: api.InvoiceView, record: store.OrderRecord, gen: number): Promise<boolean> {
   const say = (text: string) => answer(gen, { type: "reorder-failed", note: warning(text) })
+  const sign = signerOf(record)
   let after: api.InvoiceView
   try {
-    after = await api.cancelInvoice(invoice.invoiceId, pageSign!)
-    const record = store.orderByInvoice(invoice.invoiceId)
-    if (record && after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
+    after = await api.cancelInvoice(invoice.invoiceId, sign)
+    if (after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
   } catch (e) {
     const code = e instanceof api.ApiError ? e.code : "network"
     if (holdOn(e, "The invoice is still open. ", gen)) return false
@@ -845,7 +846,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promi
       return false
     }
     try {
-      after = await api.readInvoice(invoice.invoiceId, pageSign!)
+      after = await api.readInvoice(invoice.invoiceId, sign)
     } catch {
       say("The invoice could not be read now. Try again in a moment.")
       return false
@@ -864,10 +865,11 @@ async function cancelInvoice(): Promise<void> {
   if (state.busy || state.hold) return
   const gen = opened
   const { invoice, record } = state
+  if (!record) return
   dispatch({ type: "cancel-started" })
   try {
-    const after = await api.cancelInvoice(invoice!.invoiceId, pageSign!)
-    if (record && after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
+    const after = await api.cancelInvoice(invoice!.invoiceId, signerOf(record))
+    if (after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
     answer(gen, { type: "cancel-answered" })
     reread(gen)
   } catch (e) {
@@ -890,7 +892,7 @@ function buildConfirming(s: OrderState): HTMLElement {
       `${invoice.cryptoAmount} ${TICKER[coin]} arrived. Registration starts once it confirms; this page moves on by itself.`)
     : alertBox("info", "clock", "Waiting for Stripe to\u00a0confirm", "Stripe usually confirms within a minute. Registration starts by itself; this page moves on.")
   // a card Stripe has not confirmed can still be cancelled while nothing is paid, as an unpaid crypto invoice can
-  const cancel = !coin && !invoice.amountPaid ? cancelLink(s) : null
+  const cancel = !coin && !invoice.amountPaid && s.record ? cancelLink(s) : null
   return screen({ title: coin ? "Confirming your payment" : "Paying by card", lead: orderLine(s), alt: cancel }, notice, referenceLine(invoice.invoiceId, proofOf(s)), actionNote(s, null))
 }
 
@@ -921,7 +923,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
   try {
     // the invoice as it is now: one still open, or paid into a registration, is the order; one paid after it closed
     // registered nothing, so the name is ordered again and the late payment is kept as the old order's balance
-    const now = await api.readInvoice(invoice.invoiceId, pageSign!)
+    const now = await api.readInvoice(invoice.invoiceId, signerOf(record))
     if (now.status === "open" || (now.status === "paid" && !unpaidOrClosed(now.registration))) {
       if (isOpen(gen)) go(store.invoiceUrl(invoice.invoiceId))
       return
