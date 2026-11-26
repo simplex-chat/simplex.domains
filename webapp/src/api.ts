@@ -535,7 +535,7 @@ export type OrderAction = "read" | "cancel" | "retry"
 export interface OrderProof { timestamp: number; signature: string }
 export type OrderSigner = (id: string, action: OrderAction) => OrderProof
 
-async function signedOnce<T>(send: () => Promise<T>): Promise<T> {
+export async function signedOnce<T>(send: () => Promise<T>): Promise<T> {
   const clock = clockVersion()
   try {
     return await send()

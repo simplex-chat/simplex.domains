@@ -347,7 +347,7 @@ describe("restore", () => {
     await flow.restore(OWNER_CODE)
     const read = new URL(`http://x${calls.find((c) => c.path.startsWith("/api/registration/reg1"))!.path}`).searchParams
     expect(await recoverMessageAddress({ message: `simplex.domains order reg1 read ${read.get("timestamp")}`, signature: read.get("signature") as Hex })).toBe(OWNER)
-    const { timestamp, signature } = flow.orderSigner(OWNER_CODE)("inv9", "cancel")
+    const { timestamp, signature } = flow.orderSigner({ ownerCode: OWNER_CODE })("inv9", "cancel")
     expect(await recoverMessageAddress({ message: `simplex.domains order inv9 cancel ${timestamp}`, signature: signature as Hex })).toBe(OWNER)
   })
 
@@ -530,6 +530,37 @@ describe("saveLinks after a refusal", () => {
     answers["POST /api/name/records"] = () => new Response(JSON.stringify({ type: "bad_request" }), { status: 400 })
     await expect(flow.saveLinks(record, 5, { contact: "", channel: "" })).rejects.toMatchObject({ code: "bad_request" })
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe("restore of an order this browser holds", () => {
+  it("keeps the terms the record agreed to, whatever terms the service reports for the same commitment", async () => {
+    const { flow, store } = await modules()
+    const built = await flow.orderRequest(draft())
+    store.saveOrder(flow.recordFor(draft(), built, "card", 20000, { registrationId: "reg1", invoiceId: "inv1" }))
+    const other = { communityName: false, termsHash: LOCAL.generalTerms[1].hash }
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: "inv1", phase: "committed", createdAt: "2026-10-14T10:00:00Z",
+      labelHash: built.request.labelHash, sealed: built.request.sealed }] }
+    answers["GET /api/invoice/inv1"] = { invoiceId: "inv1", status: "paid", amount: 20000, currency: "usd", expiresAt: "2026-10-14T11:00:00Z", kind: "name",
+      registration: view(built.request, { terms: other }) }
+    const { record } = (await flow.restore(OWNER_CODE))!
+    expect(record.terms).toBe(SIGNED)
+  })
+})
+
+describe("orderOfCodes", () => {
+  it("asks each held code's orders once for a link, so a rate limit met at a later code goes on from that code", async () => {
+    const { flow, store } = await modules()
+    const other = formatOwnerCode(fromHex("0123456789abcdef0123456789abcdef"))
+    const record = flow.recordFor(draft(), await flow.orderRequest(draft()), "btc", 20000, { registrationId: "reg1", invoiceId: "inv1" })
+    store.saveOrder({ ...record, createdAt: "2026-01-02T00:00:00Z" })
+    store.saveOrder({ ...record, registrationId: "reg2", invoiceId: "inv2", ownerCode: other, createdAt: "2026-01-01T00:00:00Z" })
+    let finds = 0
+    answers["POST /api/registration/find"] = () => finds++ === 0 ? { registrations: [] } : new Response(JSON.stringify({ type: "rate_limited" }), { status: 429 })
+    calls = []
+    for (let i = 0; i < 2; i++) await expect(flow.orderOfCodes("inv9")).rejects.toMatchObject({ code: "rate_limited" })
+    const asked = calls.filter((c) => c.path === "/api/registration/find").map((c) => c.body.owner)
+    expect(asked).toEqual([OWNER, checksumAddress(flow.walletOf(other)!.address), checksumAddress(flow.walletOf(other)!.address)])
   })
 })
 

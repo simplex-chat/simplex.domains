@@ -180,13 +180,7 @@ async function findOrders(wallet: Wallet): Promise<Found[]> {
     const signature = hex(signDigest(wallet.privateKey, personalDigest(`simplex.domains find ${owner.toLowerCase()} ${timestamp}`)))
     return api.findRegistrations(owner, timestamp, signature)
   }
-  const clock = api.clockVersion()
-  try {
-    return (await ask()).registrations
-  } catch (e) {
-    if (e instanceof api.ApiError && e.code === "bad_request" && api.clockVersion() !== clock) return (await ask()).registrations
-    throw e
-  }
+  return (await api.signedOnce(ask)).registrations
 }
 
 export interface CodeOrder { code: string; name: string; order: Found }
@@ -231,12 +225,19 @@ export async function ownOrderFor(ownerCode: string, nameHash: string): Promise<
   return chosen ? (await reopen(wallet, ownerCode, chosen)).record : null
 }
 
+const notListing = new Map<string, Set<string>>()
+
 export async function orderOfCodes(id: string): Promise<store.OrderRecord | null> {
+  const asked = notListing.get(id) ?? new Set<string>()
+  notListing.set(id, asked)
   for (const code of new Set(store.orders().map((o) => o.ownerCode))) {
     const wallet = walletOf(code)
-    if (!wallet) continue
+    if (!wallet || asked.has(code)) continue
     const found = (await findOrders(wallet)).find((r) => r.invoiceId === id || r.registrationId === id)
-    if (!found) continue
+    if (!found) {
+      asked.add(code)
+      continue
+    }
     const { record } = await reopen(wallet, code, found)
     if (found.phase === "closed") await newerOrder(record)
     return store.orderByRegistration(record.registrationId) ?? record
@@ -273,7 +274,7 @@ const signerOf = (wallet: Wallet): api.OrderSigner => (id, action) => {
   const timestamp = now()
   return { timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(`simplex.domains order ${id} ${action} ${timestamp}`))) }
 }
-export const orderSigner = (ownerCode: string): api.OrderSigner => signerOf(walletOf(ownerCode)!)
+export const orderSigner = ({ ownerCode }: Pick<store.OrderRecord, "ownerCode">): api.OrderSigner => signerOf(walletOf(ownerCode)!)
 
 async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<RestoreResult> {
   const owner = checksumAddress(wallet.address)
@@ -283,10 +284,13 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const opened = await openOrder(wallet, view)
   // what only this browser knew about the order (a card in confirmation, a cancel, the prepaid code that paid) is kept
   const known = store.orderByRegistration(view.id)
+  const payeeKnown = known !== undefined && invoice !== null && known.invoiceId === invoice.invoiceId && known.address !== undefined
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
     method: known?.method ?? opened.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
     tld: SITE.tld, createdAt: chosen.createdAt,
+    ...known && known.request.commitment === view.commitment ? { terms: known.terms } : {},
+    ...invoice && !payeeKnown ? payeeOf(invoice) : {},
   }
   store.saveOrder(record)
   return { record, view }

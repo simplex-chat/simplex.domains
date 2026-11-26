@@ -18,7 +18,7 @@ import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { mountCardFrame } from "../card-frame.ts"
 import { explorerLine, nameAddressLine } from "./name-address.ts"
-import { type MountedCard, UNCHECKED } from "../stripe.ts"
+import { type MountedCard, MISMATCHED } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, tabHold } from "./hold.ts"
@@ -44,7 +44,6 @@ let opened = 0
 let pageRoute = -1
 let reads = 0
 let wakes: ReturnType<typeof setTimeout> | undefined
-const signerOf = (record: store.OrderRecord) => flow.orderSigner(record.ownerCode)
 
 export function orderPage(invoiceId: string | null, registrationId: string | null): void {
   const mine = currentRoute()
@@ -142,7 +141,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
   }
   if (!isRoute(mine)) return
   if (!linked) return dispatch({ type: "no-code" })
-  const sign = signerOf(linked)
+  const sign = flow.orderSigner(linked)
   while (isRoute(mine)) {
     const asked = Date.now()
     const seq = ++reads
@@ -302,7 +301,7 @@ const keepAgreed = (record: store.OrderRecord, agreed: string | undefined) => {
 function retryLapsed(view: api.RegistrationView, record: store.OrderRecord): void {
   const gen = opened
   dispatch({ type: "retry-started" })
-  api.retry(view.id, signerOf(record)).then(() => reread(gen), (e) => {
+  api.retry(view.id, flow.orderSigner(record)).then(() => reread(gen), (e) => {
     if (holdOn(e, "", gen)) return
     setTimeout(() => {
       answer(gen, { type: "retry-ended", note: null })
@@ -613,8 +612,8 @@ function mountInto(form: HTMLElement, invoice: api.InvoiceView): void {
   const mine = ++cardMounts
   cardIn = form
   void mountCardFrame(invoice.clientSecret ?? "", invoice.amount, form, pageTheme).then((mounted) => {
-    if (mine !== cardMounts) return mounted !== null && mounted !== UNCHECKED ? mounted.destroy() : undefined
-    if (mounted === UNCHECKED) return dispatch({ type: "card-unchecked" })
+    if (mine !== cardMounts) return mounted !== null && mounted !== MISMATCHED ? mounted.destroy() : undefined
+    if (mounted === MISMATCHED) return dispatch({ type: "card-mismatched" })
     if (!mounted) return dispatch({ type: "card-failed" })
     card = mounted
     showCard()
@@ -715,11 +714,11 @@ function termsOrAsk(gen: number, record: store.OrderRecord, signed: string | nul
 }
 
 // nothing is cancelled before the buyer has agreed to the terms the new invoice would sign
-async function agreedFirst(gen: number, record: store.OrderRecord, invoice: api.InvoiceView): Promise<boolean> {
+async function agreedFirst(gen: number, record: store.OrderRecord): Promise<boolean> {
   try {
     const quote = await flow.quoteOf(record.label)
     if (!quote) return true
-    return termsOrAsk(gen, record, api.signedTermsOf(invoice.registration.terms), quote) !== null
+    return termsOrAsk(gen, record, record.terms, quote) !== null
   } catch (e) {
     if (!holdOn(e, "The invoice is still open. ", gen)) {
       answer(gen, { type: "reorder-failed", note: termsUnavailable(e) ? noOrders("The invoice is still open. ") : warning("The name could not be checked now. Try again in a moment.") })
@@ -826,7 +825,7 @@ async function reorderAfterCancel(method: api.Method = "card"): Promise<void> {
   if (!record) return
   dispatch({ type: "reorder-started" })
   if (state.downtime) return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "clock", title: null, text: `${NEW_ORDERS_SOON}. Nothing was charged.` } })
-  if (!await agreedFirst(gen, record, invoice)) return
+  if (!await agreedFirst(gen, record)) return
   if (await cancelBeforeReorder(invoice, record, gen)) return newInvoice(invoice, record, gen, method)
   if (store.orderByInvoice(invoice.invoiceId)?.cancelled) reread(gen)
 }
@@ -834,7 +833,7 @@ async function reorderAfterCancel(method: api.Method = "card"): Promise<void> {
 // The old invoice is cancelled before a new one is ordered; true when ordering again cannot charge twice.
 async function cancelBeforeReorder(invoice: api.InvoiceView, record: store.OrderRecord, gen: number): Promise<boolean> {
   const say = (text: string) => answer(gen, { type: "reorder-failed", note: warning(text) })
-  const sign = signerOf(record)
+  const sign = flow.orderSigner(record)
   let after: api.InvoiceView
   try {
     after = await api.cancelInvoice(invoice.invoiceId, sign)
@@ -869,7 +868,7 @@ async function cancelInvoice(): Promise<void> {
   if (!record) return
   dispatch({ type: "cancel-started" })
   try {
-    const after = await api.cancelInvoice(invoice!.invoiceId, signerOf(record))
+    const after = await api.cancelInvoice(invoice!.invoiceId, flow.orderSigner(record))
     if (after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
     answer(gen, { type: "cancel-answered" })
     reread(gen)
@@ -924,7 +923,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
   try {
     // the invoice as it is now: one still open, or paid into a registration, is the order; one paid after it closed
     // registered nothing, so the name is ordered again and the late payment is kept as the old order's balance
-    const now = await api.readInvoice(invoice.invoiceId, signerOf(record))
+    const now = await api.readInvoice(invoice.invoiceId, flow.orderSigner(record))
     if (now.status === "open" || (now.status === "paid" && !unpaidOrClosed(now.registration))) {
       if (isOpen(gen)) go(store.invoiceUrl(invoice.invoiceId))
       return
@@ -935,8 +934,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
       if (isOpen(gen)) go(searchLink(record.label))
       return
     }
-    const signed = api.signedTermsOf(now.registration.terms)
-    const terms = termsOrAsk(gen, record, signed, quote)
+    const terms = termsOrAsk(gen, record, record.terms, quote)
     if (terms === null) return
     const built = await flow.orderRequest(flow.draftAgain(record, quote, terms, method))
     const res = await api.createOrder(built.request, method, quote.price)
