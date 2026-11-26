@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url))
 const STAND_IN_LABEL = "Test card form: no Stripe key is set, so Pay simulates a payment."
-const STRIPE_NOTE = "The card form is Stripe's. Nothing is charged until you pay."
+const STRIPE_NOTE = "The card form is provided by Stripe. Your card will be charged only when you press Pay."
 const BUILD_MS = 120_000
 
 // the JavaScript a build of the page ships, in the mode given

@@ -103,21 +103,21 @@ test("an unpaid invoice is pointed at from checkout without blocking a new order
   const { invoiceId } = await startOrder(page, first, { method: "btc" })
   await search(page, uniqueLabel("second"))
   await toReview(page)
-  await expect(page.getByText("Another order is waiting for its payment.")).toBeVisible()
+  await expect(page.getByText("Another order is open.")).toBeVisible()
   await expect(page.getByRole("link", { name: "Open that order" })).toHaveAttribute("href", `/?order=${invoiceId}`)
   await expect(payButton(page)).toBeEnabled()
   await shot(page, "N3e2-open-invoice")
 })
 
-test("the line on another order follows it, saying when it is confirming and going once it is paid", async ({ page, request }) => {
+test("the line on another order follows it, staying while it is confirming and going once it is paid", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("follow"), { method: "btc" })
   await search(page, uniqueLabel("after"))
   // the terms left unticked, so focus stays where the review put it
   await toReview(page, false)
   const line = onStep(page).locator(".pay-with > .note")
-  await expect(line).toHaveText("Another order is waiting for its payment. Open that order")
+  await expect(line).toHaveText("Another order is open. Open that order")
   await control(request, `confirming/${invoiceId}`)
-  await expect(line).toHaveText("Another order is confirming its payment. Open that order")
+  await expect(line).toHaveText("Another order is open. Open that order")
   await control(request, `settle/${invoiceId}`)
   await expect(line).toHaveCount(0)
   await expect(onStep(page).getByRole("heading", { name: "Check your order" })).toBeFocused()
@@ -130,8 +130,8 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
   const answers = [
-    { status: 409, body: { type: "funded" }, text: "A payment has reached this invoice, so it is kept." },
-    { status: 503, body: { type: "provider_unavailable" }, text: "The invoice could not be cancelled now." },
+    { status: 409, body: { type: "funded" }, text: "A payment was received, so the invoice cannot be cancelled." },
+    { status: 503, body: { type: "provider_unavailable" }, text: "The invoice was not cancelled." },
   ]
   for (const answer of answers) {
     await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: answer.status, json: answer.body }))
@@ -142,7 +142,7 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   }
   await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await page.getByRole("button", { name: "Get a new invoice" }).click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^The invoice is still open\. Try again in/ })).toBeVisible()
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
 })
 
@@ -189,10 +189,10 @@ test("a selection refused for a name taken meanwhile says the name is no longer 
 
 test("a partly paid invoice offers no cancel", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("part"), { method: "btc" })
-  await expect(page.getByText("Cancel this invoice")).toBeVisible()
+  await expect(page.getByText("Cancel this invoice", { exact: true })).toBeVisible()
   await control(request, `partial/${invoiceId}`)
-  await expect(page.getByText("Part of the payment arrived")).toBeVisible()
-  await expect(page.getByText("Cancel this invoice")).toHaveCount(0)
+  await expect(page.getByText("Part of the payment was received")).toBeVisible()
+  await expect(page.getByText("Cancel this invoice", { exact: true })).toHaveCount(0)
 })
 
 test("Your names tells part-paid and confirming orders from unpaid ones, and a new invoice replaces an unpaid one", async ({ page, request }) => {
@@ -227,7 +227,7 @@ test("full storage that still reads is warned about on the name code step, which
   await search(page, uniqueLabel("full"))
   await toCodeStep(page)
   await expect(onStep(page).getByText("This code could not be saved in this browser")).toBeVisible()
-  await expect(onStep(page).getByText("Save a copy now: it will be the only one.")).toBeVisible()
+  await expect(onStep(page).getByText("Please save a copy now.")).toBeVisible()
   await expect(await shownCode(page)).toHaveText(await checkoutOwnerCode(page))
   await savedToReview(page)
   await payButton(page).click()
@@ -255,9 +255,9 @@ test("a payment that arrives after expiry turns the open page into the late page
   const label = uniqueLabel("late")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
   await control(request, `expire/${invoiceId}`)
-  await expect(page.getByText("Nothing was received before it closed.")).toBeVisible()
+  await expect(page.getByText("This invoice is closed. No payment was received.")).toBeVisible()
   await control(request, `settle/${invoiceId}`)
-  await expect(page.getByText("The payment arrived after this invoice had closed")).toBeVisible()
+  await expect(page.getByText("The payment was received after the invoice closed")).toBeVisible()
   await expect(page.getByRole("heading", { name: "Invoice closed" })).toBeVisible()
   // credited to the order's balance, the late money offers a refund beside a new invoice
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
@@ -276,14 +276,14 @@ test("money paid after the close that the service cannot credit by itself sends 
   await control(request, `expire/${invoiceId}`)
   await control(request, `late/${invoiceId}`, { waiting: "support" })
   await control(request, `settle/${invoiceId}`)
-  await expect(onStep(page).getByText(`It is not credited to your balance by itself: contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)).toBeVisible()
+  await expect(onStep(page).getByText(`To have it credited, please contact support via chat@simplex.chat or SimpleX, with the name and the order reference ${invoiceId}.`)).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toHaveCount(0)
   const reads: string[] = []
   page.on("request", (r) => { if (r.url().includes(`/api/invoice/${invoiceId}`)) reads.push(r.url()) })
   await page.waitForTimeout(7_000)
   expect(reads, "no reads once only support can credit it").toEqual([])
   await page.goto("/#/names")
-  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText(`Paid after the invoice closed; contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}, to have it credited`)
+  await expect(page.locator(".list-row:not([data-key^='balance-'])", { hasText: `${label}.simplex` }).locator(".sub")).toContainText(`Paid after the invoice closed; contact support via chat@simplex.chat or SimpleX, with the name and the order reference ${invoiceId}, to have it credited`)
 })
 
 test("an order left before its wait ends asks for this browser in Your names", async ({ page, request }) => {
@@ -437,7 +437,7 @@ test("paying by card during an outage keeps the order on screen", async ({ page 
   await onStep(page).getByRole("button", { name: /^Pay \$/ }).click()
   await expect(page.getByRole("heading", { name: "Paying by card" })).toBeVisible()
   await page.waitForTimeout(4000)
-  await expect(page.getByRole("heading", { name: "This order could not be loaded" })).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: "The order could not be loaded now" })).toHaveCount(0)
   await page.unroute("**/api/**")
 })
 
@@ -445,9 +445,9 @@ test("a rate-limited cancel holds, and the hold outlives the page drawing itself
   const { invoiceId } = await startOrder(page, uniqueLabel("hold"), { method: "btc" })
   let cancels = 0
   await page.route("**/cancel", (route) => { cancels++; return route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) })
-  await page.getByText("Cancel this invoice").click()
-  await expect(page.getByText("Too many attempts")).toBeVisible()
-  await page.getByText("Cancel this invoice").click()
+  await page.getByText("Cancel this invoice", { exact: true }).click()
+  await expect(page.getByText("Too many attempts", { exact: true })).toBeVisible()
+  await page.getByText("Cancel this invoice", { exact: true }).click()
   expect(cancels).toBe(1)
   // the invoice closes and the page draws its expired state: the new button starts held
   await control(request, `expire/${invoiceId}`)
@@ -456,7 +456,7 @@ test("a rate-limited cancel holds, and the hold outlives the page drawing itself
   await expect(page.getByText("Too many attempts")).toBeVisible()
   // the other actions of the tab wait too: search is paused, and adding a name code would wait
   await page.getByRole("link", { name: "SimpleX names" }).click()
-  await expect(page.getByText(/Searching is paused: try again in \d+ seconds/).first()).toBeVisible()
+  await expect(page.getByText(/Too many attempts\. Please try again in \d+ seconds/).first()).toBeVisible()
   await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
   await codeField(page).fill(await page.evaluate(() => Object.values(localStorage).map((v) => { try { return JSON.parse(v).ownerCode as string } catch { return "" } }).find(Boolean)!))
   await expect(page.getByRole("button", { name: "Add to Your names" })).toBeDisabled()
@@ -467,7 +467,7 @@ test("Back from a paused order keeps the order paused", async ({ page }) => {
   await toReview(page)
   await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
-  await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many orders were tried from here\. Try again in \d+ seconds\.$/)
+  await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many attempts\. Please try again in \d+ seconds\.$/)
   await page.goBack()
   await expect(page.getByRole("heading", { name: CODE_HEADING })).toBeVisible()
   await page.goForward()
@@ -492,7 +492,7 @@ test("an order on its way keeps its method as sent until it is answered", async 
   await page.getByRole("radio", { name: "Monero" }).dispatchEvent("click")
   await expect(page.getByRole("radio", { name: "Bitcoin" })).toHaveAttribute("aria-checked", "true")
   answer()
-  await expect(page.getByRole("heading", { name: "That did not go through" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "The order could not be placed" })).toBeVisible()
   await page.unrouteAll({ behavior: "wait" })
 })
 
@@ -505,7 +505,7 @@ test("Find the order shows a wait met elsewhere in the tab", async ({ page, requ
   await other.goto("/#/code")
   // a name code's verdict looks for its orders, which the limit refuses
   await codeField(other).fill((await other.evaluate(() => Object.keys(localStorage).find((k) => k.startsWith("simplex-names:pending:"))!.split(":").pop()))!)
-  await expect(other.locator(".code-entry .verdict")).toContainText("Too many checks just now")
+  await expect(other.locator(".code-entry .verdict")).toContainText("Too many attempts")
   await other.getByRole("link", { name: "Your names" }).click()
   await expect(other.locator(".list-row .chip", { hasText: /Try again in \d+ seconds/ })).toBeVisible()
   await expect(other.getByText("Find the order")).toHaveAttribute("aria-disabled", "true")
@@ -597,13 +597,13 @@ for (const other of ["Monero", "a code"]) {
     await copy.waitForURL(/\?order=/)
     expect(new URL(copy.url()).searchParams.get("order"), "the order's one invoice").toBe(invoiceId)
     await expect(copy.getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
-    const why = `This name already has a Bitcoin invoice from an earlier try, so it opened instead of ${other === "Monero" ? "a new Monero one" : "using your code"}.`
+    const why = "You already have an open invoice for this name."
     await expect(onStep(copy).getByText(why)).toBeVisible()
     await copy.getByRole("link", { name: "Your names" }).first().click()
     await copy.locator(".list-row").getByRole("button", { name: "Open" }).first().click()
     await expect(copy.getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
     expect(new URL(copy.url()).searchParams.get("order"), "the same invoice opened again").toBe(invoiceId)
-    await expect(onStep(copy).locator(".note", { hasText: "earlier try" }), "the line is said once").toHaveCount(0)
+    await expect(onStep(copy).locator(".note", { hasText: why }), "the line is said once").toHaveCount(0)
     await copy.close()
   })
 }

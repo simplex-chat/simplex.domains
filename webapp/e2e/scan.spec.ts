@@ -15,7 +15,7 @@ const LAPTOP = { width: 1280, height: 900 }
 const FAKE_CAMERA = "--use-fake-device-for-media-stream"
 // a link the service takes, whose QR code the fake camera shows
 const SCANNED_LINK = contactLink("Scan")
-const NO_CAMERA = "Allow the camera, or paste the link."
+const NO_CAMERA = "The camera could not be used. Please allow it, or paste the link."
 
 // Playwright's headless shell has no cameras at all; the full Chromium, in its own headless mode, has the fake one
 const withCamera = (args: string[]) => chromium.launch({ channel: "chromium", args })
@@ -147,7 +147,7 @@ test("the camera reads a name code's QR code into the Code field of Check your c
     await expect(scan, "a laptop's camera faces its reader").toBeHidden()
     await page.setViewportSize(PHONE)
     await scan.click()
-    await expect(page.getByRole("dialog", { name: "Scan a QR code" })).toContainText("Point the camera at the QR code of your name code.")
+    await expect(page.getByRole("dialog", { name: "Scan a QR code" })).toContainText("Point the camera at the QR code.")
     await expect(codeField(page)).toHaveValue(code, { timeout: 10_000 })
     await expect(page.getByRole("dialog"), "the camera's view goes once it has read the code").toHaveCount(0)
     await expect(onStep(page).locator(".verdict"), "the code judged").not.toBeEmpty()
@@ -165,7 +165,7 @@ test("a camera not allowed for the Code field says so", async ({ baseURL }) => {
     const page = await context.newPage()
     await page.goto("/#/code")
     await onStep(page).getByRole("button", { name: "Scan QR code" }).click()
-    await expect(onStep(page).locator(".verdict.bad")).toHaveText("The camera could not be used. Allow the camera, or paste the code.")
+    await expect(onStep(page).locator(".verdict.bad")).toHaveText("The camera could not be used. Please allow it, or paste the code.")
     await expect(page.getByRole("dialog")).toHaveCount(0)
   } finally {
     await browser.close()

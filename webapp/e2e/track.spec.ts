@@ -234,7 +234,7 @@ const CARD_SIZES = [{ width: 1280, height: 800 }, { width: 600, height: 800 }, {
 const PHONE_WIDTH = 520
 // the least room between Stripe's note under Cancel and the invest note under the step
 const ROOM_ABOVE_INVEST = 16
-const FORGETFUL = /^This browser cannot remember a card payment\. After paying, keep this page open until it moves on\. Reloading would show the card form again\.$/
+const FORGETFUL = /^This order cannot be saved in this browser\. Please keep this page open until the payment is confirmed\.$/
 
 // the card page's parts top to bottom, as the eye reads them
 const CARD_PARTS = ["heading", "lead", "notice", "form", "button", "cancel", "stripeNote", "invest"] as const
@@ -363,7 +363,7 @@ test.describe(() => {
     const copy = await page.context().newPage()
     await copy.addInitScript(([key, value]) => { if (!sessionStorage.getItem(key)) sessionStorage.setItem(key, value) }, [CHECKOUT_KEY, checkout])
     await withStripeKey(copy)
-    await cardFits(copy, /^This name already has a card invoice from an earlier try, so it opened instead of a new Bitcoin one\.$/, async () => {
+    await cardFits(copy, /^You already have an open invoice for this name\.$/, async () => {
       await copy.goto("/#/checkout")
       await copy.getByRole("radio", { name: "Bitcoin" }).click()
       await payButton(copy).click()
@@ -467,7 +467,7 @@ test.describe(() => {
       { cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true }), "Invoice closed")
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     await shown("o3-paid-not-registered", invoiceOf(order, "paid", { phase: { type: "failed", reason: "registryRefused" }, commitTx: "0x02" }), "Paid, not registered")
-    await shown("o4-taken", invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } }), /was taken$/)
+    await shown("o4-taken", invoiceOf(order, "paid", { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } }), /is no longer available$/)
     await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
     // a taken order seen in a browser without its code, which says where to add the code
     const elsewhere = await browser.newContext()
@@ -489,7 +489,7 @@ test.describe(() => {
     await page.getByRole("radio", { name: "Card" }).click()
     await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { type: "provider_unavailable" } }) : route.continue())
     await payButton(page).click()
-    await expect(onStep(page).getByText("Card is temporarily unavailable")).toBeVisible()
+    await expect(onStep(page).getByText("Card is unavailable right now")).toBeVisible()
     await fitsWindow(page, "o6-review-code-and-method-refused", frames)
     await page.unroute("**/api/invoice")
     await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: 12345 } }) : route.continue())
@@ -524,7 +524,7 @@ test(`Edit links fits both windows with its answer, for a name of ${MAX_LABEL_LE
   await onStep(page).getByRole("textbox", { name: "Link", exact: true }).fill(contactLink("E4"))
   await previewsShown(page)
   await onStep(page).getByRole("button", { name: "Save links" }).click()
-  await expect(onStep(page).getByText("An earlier save got there first")).toBeVisible()
+  await expect(onStep(page).getByText("The links were changed elsewhere")).toBeVisible()
   await previewsShown(page)
   await fitsWindow(page, "e2-edit-links-moved", frames)
   oneFrame(frames)
@@ -552,7 +552,7 @@ const homeTops = (page: Page) => page.evaluate(() => ["h1", ".search-field"].map
 test("a step's lead breaks where the mockup does on a laptop: in two even lines, or at its line break", async ({ page }) => {
   await search(page, uniqueLabel("lead"))
   await page.getByRole("button", { name: "Register" }).click()
-  await expect(lineStarts(onStep(page).locator(".lead"))).resolves.toEqual(["P", "o"])
+  await expect(lineStarts(onStep(page).locator(".lead"))).resolves.toEqual(["P", "c"])
   await page.goto("/#/code")
   await expect(lineStarts(onStep(page).locator(".lead"))).resolves.toEqual(["A", "A"])
 })
@@ -647,16 +647,16 @@ test("the registering page keeps its heading still on a phone from the commit to
   await useCode(page, code)
   await search(page, label)
   await toReview(page)
-  // each frame's heading top and the words under the clock, while the heading is the registering page's
+  // each frame's heading top and its active stage, while the heading is the registering page's
   await recordFrames(page, () => {
     const heading = document.querySelector("body > main h1")
-    const note = document.querySelector(".countdown p")?.firstChild?.textContent ?? ""
-    return heading?.textContent!.startsWith("Registering") ? [Math.round(heading.getBoundingClientRect().top), note] : null
+    const stage = document.querySelector(".stage.active")?.textContent ?? ""
+    return heading?.textContent!.startsWith("Registering") ? [Math.round(heading.getBoundingClientRect().top), stage] : null
   })
   await onStep(page).getByRole("button", { name: "Register with your code" }).click()
   await waitRegistered(page, label)
   const frames = await recordedFrames<[number, string]>(page)
-  expect(new Set(frames.map(([, note]) => note)).size, "the page went through more than one stage").toBeGreaterThan(1)
+  expect(new Set(frames.map(([, stage]) => stage)).size, "the page went through more than one stage").toBeGreaterThan(1)
   expect([...new Set(frames.map(([top]) => top))], "the heading's top in each frame").toHaveLength(1)
 })
 
@@ -731,14 +731,14 @@ test.describe(() => {
   test("a commit that does not move on for longer than usual says so in its words' place, and nothing moves", async ({ page, request }) => {
     await heldAtCommit(page, request, "stall", async () => {
       const words = page.locator(".countdown p > :not(.sizer)")
-      await expect(words).toHaveText("Placing your order. The wait starts once it is in.")
+      await expect(words).toHaveText("It will take a few minutes and will continue automatically.")
       const before = await registeringPlaces(page)
       // the page reads the time by the service's Date header, which now says the commit has stood still past its margin
       await page.route("**/api/registration/*", async (route) => {
         const response = await route.fetch()
         await route.fulfill({ response, headers: { ...response.headers(), date: new Date(Date.now() + AHEAD_MS).toUTCString() } })
       })
-      await expect(words).toHaveText("This is taking longer than usual. It continues by itself.")
+      await expect(words).toHaveText("This is taking longer than usual. It will continue automatically.")
       expect(await registeringPlaces(page), "the heading, the countdown, its words' cell and the reference").toEqual(before)
       // a long poll the route still holds would fail once the test ends
       await page.unrouteAll({ behavior: "ignoreErrors" })
@@ -802,10 +802,10 @@ test("a part paid takes the name's note with its notice, the payment keeping its
     await expect(onStep(page).getByText("The name is available")).toBeVisible()
     const before = await headingAt(page)
     await control(request, `partial/${invoiceId}`)
-    await expect(onStep(page).locator(".notice.warn", { hasText: "Part of the payment arrived" })).toBeVisible()
+    await expect(onStep(page).locator(".notice.warn", { hasText: "Part of the payment was received" })).toBeVisible()
     expect(await headingAt(page), `the heading at ${size.width}x${size.height}`).toEqual(before)
     expect(await overflow(page), `the page's overflow at ${size.width}x${size.height}`).toBe(0)
-    await expect(onStep(page).getByText(/^Part of the payment arrived: [\d.]+ of [\d.]+ BTC is seen\./)).toBeVisible()
+    await expect(onStep(page).getByText(/^Part of the payment was received\./)).toBeVisible()
     await expect(onStep(page).locator(".name-check")).toHaveCount(0)
   }
   await shot(page, "names-u1-part-paid")
@@ -878,7 +878,7 @@ test("a line on another order waiting comes into the review below its heading, t
   for (const size of FIT_SIZES) {
     await page.setViewportSize(size)
     await toFullReview(page, uniqueLabel("other"))
-    await expect(onStep(page).getByText("Another order is waiting for its payment.")).toBeVisible()
+    await expect(onStep(page).getByText("Another order is open.")).toBeVisible()
     await headingAt(page)
     const tops = [...new Set(await recordedFrames<number>(page))]
     expect(tops, `the review heading's tops at ${size.width}x${size.height}`).toHaveLength(1)
@@ -976,7 +976,7 @@ test("a refused link reads as a line under its field, and a refused code in a bo
     const link = step.getByRole("textbox", { name: "Link", exact: true })
     await link.fill("https://example.com/x#nothing")
     const refusal = step.locator(".field-error")
-    await expect(refusal).toHaveText("This is not a SimpleX contact address or channel link.")
+    await expect(refusal).toHaveText("This is not a SimpleX link. Please copy the link from the SimpleX app.")
     const [drawn, box] = [(await refusal.boundingBox())!, (await step.locator(".link-field .field").boundingBox())!]
     expect({ under: Math.round(drawn.y - box.y - box.height), icon: await refusal.locator("svg").count() }, `the refused link at ${size.width}x${size.height}`).toEqual({ under: 8, icon: 0 })
     await page.goto("/#/code")
@@ -1069,7 +1069,7 @@ for (const length of [25, MAX_LABEL_LENGTH]) {
       await step.getByRole("button", { name: "Add a channel link" }).click()
       const before = await headingAt(page)
       await step.getByRole("textbox", { name: "Channel" }).fill(contactLink("V3"))
-      await expect(step.locator(".field-error")).toHaveText("This is a contact address. Paste a channel link here.")
+      await expect(step.locator(".field-error")).toHaveText("This is a contact address. Please paste a channel link here.")
       expect(await headingAt(page), `the heading at ${size.width}x${size.height}`).toEqual(before)
       expect(await overflow(page), `the page's overflow at ${size.width}x${size.height}`).toBe(0)
       await fitsWindow(page, `links-refused-${length}`)

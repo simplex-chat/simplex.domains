@@ -20,9 +20,9 @@ test("the production build opens offline: the page, an order's link and Your nam
     // the service's answers are never kept: a search offline says it could not check, rather than an old answer
     await page.getByLabel("Name", { exact: true }).fill("offlinename")
     await page.getByLabel("Name", { exact: true }).press("Enter")
-    await expect(page.getByText("This name could not be checked")).toBeVisible()
+    await expect(page.getByText("The name could not be checked now")).toBeVisible()
     await page.goto("/?order=abc")
-    await expect(page.getByRole("heading", { name: "This order could not be loaded" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "The order could not be loaded now" })).toBeVisible()
     await page.goto("/#/names")
     await expect(page.getByText("SN6-Z6VPA-7YPF0-XN8B4-9S1ZD")).toBeVisible()
   } finally {

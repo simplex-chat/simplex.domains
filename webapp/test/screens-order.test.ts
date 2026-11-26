@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Acceptance, Community, InvoiceView, RegistrationView } from "../src/api.ts"
-import { NO_LEAD } from "../src/screens/hold.ts"
+import { LIMITED_LEAD, NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
@@ -13,8 +13,8 @@ import { type ShortView as Short, viewOf } from "./registration-view.ts"
 const NOW = Date.parse("2026-10-17T12:00:00Z")
 const OWNER = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
 const COMMITMENT = "0x9c1185a5c5e9fc54612808977ee8f548b2258d31b6c0a94e1ab9e1e8c4d6a0f1"
-const USED: Note = { tone: "warn", icon: "key", title: "Your code was used for another name", text: "A code registers one name only." }
-const WARN: Note = { tone: "warn", icon: "alert", title: null, text: "The invoice could not be cancelled now. Try again in a moment." }
+const USED: Note = { tone: "warn", icon: "key", title: "Your code was used for another name", text: "" }
+const WARN: Note = { tone: "warn", icon: "alert", title: null, text: "The invoice was not cancelled. Please try again in a moment." }
 
 const registration = (change: Short = {}): RegistrationView => viewOf({
   id: "reg-1", version: 1, labelHash: "0x4f1b", label: null, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box", years: 2, duration: 2 * 365 * 86400,
@@ -279,7 +279,7 @@ describe("reduce", () => {
     })
     it("a code refused stays refused through a hold and a read of the same failed order", () => {
       const refused = { ...STATES.failed, codeRefused: true }
-      expect(reduce(refused, { type: "hold-started", until: NOW + 2000, lead: "Nothing changed. " }).codeRefused).toBe(true)
+      expect(reduce(refused, { type: "hold-started", until: NOW + 2000, lead: LIMITED_LEAD }).codeRefused).toBe(true)
       expect(reduce(refused, answered(refused, STATES.failed)).codeRefused).toBe(true)
     })
     it("code-checked marks the failed order's code kept, which a read of the same failed order keeps and another screen forgets", () => {
@@ -311,7 +311,7 @@ describe("reduce", () => {
       expect(reduce(working, { type: "price-changed", price: 2500 })).toMatchObject({ busy: null, price: 2500 })
     })
     it("a screen change leaves the last screen's note, action and hold words behind", () => {
-      const s = { ...paying, busy: "cancel" as const, note: WARN, hold: { until: NOW + 20_000, lead: "The invoice is still open. " } }
+      const s = { ...paying, busy: "cancel" as const, note: WARN, hold: { until: NOW + 20_000, lead: LIMITED_LEAD } }
       expect(reduce(s, answered(s, STATES["status:closed"]))).toMatchObject({ busy: null, note: null, hold: { until: NOW + 20_000, lead: NO_LEAD } })
     })
   })
@@ -319,11 +319,11 @@ describe("reduce", () => {
   describe("holds", () => {
     it("hold-started holds the actions, ending the one at work", () => {
       const working = reduce(STATES.failed, { type: "retry-started" })
-      expect(reduce(working, { type: "hold-started", until: NOW + 2000, lead: "Nothing changed. " })).toEqual({ ...STATES.failed, hold: { until: NOW + 2000, lead: "Nothing changed. " } })
+      expect(reduce(working, { type: "hold-started", until: NOW + 2000, lead: LIMITED_LEAD })).toEqual({ ...STATES.failed, hold: { until: NOW + 2000, lead: LIMITED_LEAD } })
     })
     it("a shorter hold met meanwhile does not cut a longer one", () => {
       const held = reduce(STATES.failed, { type: "hold-started", until: NOW + 20_000, lead: NO_LEAD })
-      expect(reduce(held, { type: "hold-started", until: NOW + 2000, lead: "Nothing changed. " }).hold).toEqual({ until: NOW + 20_000, lead: "Nothing changed. " })
+      expect(reduce(held, { type: "hold-started", until: NOW + 2000, lead: LIMITED_LEAD }).hold).toEqual({ until: NOW + 20_000, lead: LIMITED_LEAD })
     })
     it("hold-ended lets the actions go", () => {
       expect(reduce({ ...STATES.failed, hold: { until: NOW, lead: NO_LEAD } }, { type: "hold-ended" }).hold).toBeNull()
@@ -406,17 +406,17 @@ describe("failedLead", () => {
   const failed = (invoice: InvoiceView | null, change: Partial<OrderState> = {}) =>
     read(invoice, registration({ phase: "failed" }), { record: invoice ? record() : coded, ...change })
   it("an invoice's payment is kept, for support", () => {
-    expect(failedLead(failed(crypto({ status: "paid", paidInFull: true })))).toBe("Your payment is kept. Write to support.")
+    expect(failedLead(failed(crypto({ status: "paid", paidInFull: true })))).toBe("Your payment is kept.")
   })
-  it("a refused code says it can no longer pay", () => {
-    expect(failedLead(failed(null, { codeRefused: true }))).toBe("Your code can no longer be used for it. Write to support.")
+  it("a refused code is not said to be kept", () => {
+    expect(failedLead(failed(null, { codeRefused: true, codeKept: true }))).toBe("")
   })
   it("a code is said to be kept only once the service says so", () => {
-    expect(failedLead(failed(null, { codeKept: true }))).toBe("Your code is kept. Write to support.")
-    expect(failedLead(failed(null)), "the check has not answered, or failed").toBe("Write to support.")
+    expect(failedLead(failed(null, { codeKept: true }))).toBe("Your code is kept.")
+    expect(failedLead(failed(null)), "the check has not answered, or failed").toBe("")
   })
   it("a browser without the order's code is promised nothing of it, even once the service says it is unspent", () => {
-    expect(failedLead(failed(null, { record: null, codeKept: true }))).toBe("Write to support.")
+    expect(failedLead(failed(null, { record: null, codeKept: true }))).toBe("")
   })
 })
 

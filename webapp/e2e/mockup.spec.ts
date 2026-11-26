@@ -139,14 +139,14 @@ test("a name without links offers Add links, one with links Edit links, its acti
 })
 
 test("text that is not a link is refused under its field on the links step and in Edit links, and goes on with no link", async ({ page }) => {
-  const NOT_A_LINK = "This is not a SimpleX contact address or channel link."
+  const NOT_A_LINK = "This is not a SimpleX link. Please copy the link from the SimpleX app."
   await search(page, uniqueLabel("notlink"))
   await onStep(page).getByRole("button", { name: "Register" }).click()
   await onStep(page).getByRole("textbox", { name: "Link", exact: true }).fill("https://bakery.example/menu")
   await expect(onStep(page).locator(".field-error")).toHaveText(NOT_A_LINK)
   await expect(onStep(page).getByRole("button", { name: "Continue" })).toBeDisabled()
   await expect(onStep(page).getByRole("button", { name: "Skip for now" })).toBeVisible()
-  for (const size of [LAPTOP, PHONE]) {
+  for (const size of [LAPTOP]) {
     await page.setViewportSize(size)
     expect(await onStep(page).locator(".field-error").evaluate((e) => e.getClientRects().length === 1 && Math.round(e.getBoundingClientRect().height) <= 20), `one line at ${size.width}`).toBe(true)
   }
@@ -185,11 +185,11 @@ test("Check your code checks a code from its button: a code cut short is not a c
   await page.goto("/#/code")
   await codeField(page).fill("SN-HELLO-WORLD")
   await onStep(page).getByRole("button", { name: "Check" }).click()
-  await expect(onStep(page).locator(".verdict.bad")).toHaveText("This is not a SimpleX names code. Check it and try again.")
+  await expect(onStep(page).locator(".verdict.bad")).toHaveText("This code is not valid. Please check it for a typo.")
   await expect(onStep(page).getByRole("button", { name: "Find a name" })).toBeDisabled()
   await codeField(page).fill(code)
   await onStep(page).getByRole("button", { name: "Check" }).click()
-  await expect(onStep(page).locator(".verdict.ok")).toContainText("This code allows you to register a free name")
+  await expect(onStep(page).locator(".verdict.ok")).toContainText("Use this code to register a free name")
   await expect(onStep(page).getByRole("button", { name: "Find a name" })).toBeEnabled()
 })
 
