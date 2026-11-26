@@ -247,6 +247,7 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .screen.step:has(> .screen-body > .stripe) { height: auto; grid-template-rows: auto; }
 /* a step grows under its content to hold a name code's QR, shown under everything */
 .screen.step:has(> .screen-body > .code-qr svg) { height: auto; min-height: calc(var(--step-h) + var(--screen-top)); }
+.screen.step.registered { height: auto; min-height: calc(var(--step-h) + var(--screen-top)); }
 .screen-head { display: grid; grid-template-columns: var(--back-w) minmax(0, 1fr) var(--back-w); row-gap: 10px; }
 .screen-head h1 { grid-area: 1 / 2; text-align: center; }
 /* Back's word 12 px under the heading's top, its tap area 40 px tall */

@@ -63,11 +63,12 @@ const METHOD_TILES = [66, 72]
 
 // The screen in view fits the window at each size, its content above its actions' row, its methods' tiles at their
 // height and no name broken that fits its line whole; a step's heading and actions' row stand where every step's do,
-// which the caller compares. Captured for review when shots are asked for.
-async function fitsWindow(page: Page, name: string, frames?: Record<string, Frame[]>): Promise<void> {
+// which the caller compares; a screen that grows, as the name-is-yours screen of a long name, may reach past the window.
+// Captured for review when shots are asked for.
+async function fitsWindow(page: Page, name: string, frames?: Record<string, Frame[]>, grows = false): Promise<void> {
   for (const [i, size] of FIT_SIZES.entries()) {
     await page.setViewportSize(size)
-    const measured = async () => ({ broken: await brokenNames(page), ...await page.evaluate((tile) => {
+    const measured = async () => ({ broken: await brokenNames(page), ...await page.evaluate(([tile, mayGrow]) => {
       const shown = document.querySelector("body > main > section")!
       // a step with no action gives its content the action row's room, down to the step's foot; one with only a link,
       // the empty place of a main button above it
@@ -79,12 +80,12 @@ async function fitsWindow(page: Page, name: string, frames?: Record<string, Fram
       // what is kept whole, as a name's end with its TLD, a price with its term and a name code, drawn on more than one line
       const split = [...shown.querySelectorAll(".nowrap, .deal, .code-text")].filter((n) => new Set([...n.getClientRects()].map((r) => Math.round(r.top))).size > 1)
       return {
-        overflow: Math.max(0, document.scrollingElement!.scrollHeight - innerHeight - footer),
+        overflow: mayGrow ? 0 : Math.max(0, document.scrollingElement!.scrollHeight - innerHeight - footer),
         overlap: actions && content.length ? Math.max(0, Math.round(Math.max(...content.map((b) => b.bottom)) - actions.top)) : 0,
         split: split.map((n) => n.textContent),
         tiles: [...shown.querySelectorAll(".method")].map((m) => Math.round(m.getBoundingClientRect().height)).filter((h) => h !== tile),
       }
-    }, METHOD_TILES[i]) })
+    }, [METHOD_TILES[i], grows] as const) })
     await expect.poll(measured, { message: `${name} at ${size.width}x${size.height}` }).toEqual({ broken: [], overflow: 0, overlap: 0, split: [], tiles: [] })
     if (frames) {
       const at = await page.evaluate(() => {
@@ -758,6 +759,7 @@ test.describe(() => {
 // A name of the widest letters breaks its lines as early as any name of its length can; drawn at random from two
 // letters, it is still new to the chain on each run.
 const wideLabel = (length: number) => Array.from({ length }, () => (Math.random() < 0.5 ? "m" : "w")).join("")
+const LONG_REGISTERED = 50
 
 for (const length of [15, 25, MAX_LABEL_LENGTH]) {
   test(`every purchase step fits both windows for a name of ${length} wide letters`, async ({ page, request }) => {
@@ -785,7 +787,7 @@ for (const length of [15, 25, MAX_LABEL_LENGTH]) {
     await expect(page.locator(".stage.active", { hasText: "Waiting" })).toBeVisible({ timeout: REGISTRATION_MS })
     await fitsWindow(page, `${shots}-6-registering`)
     await waitRegistered(page, label)
-    await fitsWindow(page, `${shots}-7-registered`)
+    await fitsWindow(page, `${shots}-7-registered`, undefined, length > LONG_REGISTERED)
     // a heading with the name in it may take more lines; the main button stays where every step's is
     for (const [i, size] of FIT_SIZES.entries()) {
       expect(new Set(Object.values(frames).map((f) => f[i].actions)).size, `the actions' row at ${size.width}x${size.height}: ${JSON.stringify(frames)}`).toBe(1)
@@ -801,7 +803,7 @@ test(`the name-is-yours screen fits both windows for a name of ${MAX_LABEL_LENGT
   await page.goto(`/?registration=${registrationId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Edit links" })).toBeVisible()
-  await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`)
+  await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`, undefined, true)
 })
 
 test("a part paid takes the name's note with its notice, the payment keeping its heading still and fitting both windows", async ({ page, request }) => {

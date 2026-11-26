@@ -17,7 +17,7 @@ import { hasLinks, linksAction } from "../screens/names.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { mountCardFrame } from "../card-frame.ts"
-import { explorerLine, nameAddressLine } from "./name-address.ts"
+import { nameAddressAndExplorer } from "./name-address.ts"
 import { type MountedCard, MISMATCHED } from "../stripe.ts"
 import { CODES_ONLY_TITLE } from "./codes.ts"
 import { seenRegistered } from "./names.ts"
@@ -1099,16 +1099,18 @@ function buildRegistered(s: OrderState): HTMLElement {
   const view = s.view!
   const label = labelOf(view, s.record)
   const code = s.record?.ownerCode ?? null
-  // the name address, its names on Etherscan and the code's QR are under everything, there only while the code is shown
+  // the code's QR is under everything, there only while the code is shown
   const qr = el("div", { class: "code-qr" })
   const { tld } = SITE
-  return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view), action: registeredAction(s.record) },
-    code ? [el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
+  const node = screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view), action: registeredAction(s.record) },
+    code ? [nameAddressAndExplorer(code), el("div", { class: "card use" }, el("h2", {}, "Use in the app"),
       el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, "Keep your name code: it owns the name and edits its links."),
-    codeDisplay(code, "owner-code", true, (shown) => refill(qr, ...shown ? [nameAddressLine(code), explorerLine(code), nameCodeQr(code)] : [])),
+    codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
     // under the code and over its QR, so showing the code moves it and nothing above it
     el("div", { class: "yours-edit center" }, btn(linksAction(hasLinks(s.record!, null)), "quiet small", () => go(editUrl(view.id)))), qr] : null)
+  node.classList.add("registered")
+  return node
 }
 
 function registeredLead(view: api.RegistrationView): string {
