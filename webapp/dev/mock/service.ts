@@ -705,8 +705,8 @@ const refuseInDowntime = () => { if (control.downtime) throw new HttpError(503, 
 
 export async function createInvoice(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (body.kind !== "name") throw badRequest()
-  refuseWhenCodesOnly()
   refuseInDowntime()
+  refuseWhenCodesOnly()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
   const method = body.method
@@ -767,8 +767,9 @@ const notFound = () => {
 }
 
 async function requester(id: string, action: "read" | "cancel" | "retry", { timestamp, signature }: OrderProof): Promise<Address> {
-  if (!Number.isInteger(timestamp) || typeof signature !== "string" || !isHex(signature)) throw notFound()
+  if (!Number.isInteger(timestamp)) throw notFound()
   freshTimestamp(timestamp)
+  if (typeof signature !== "string" || !isHex(signature)) throw notFound()
   try {
     return await recoverMessageAddress({ message: `simplex.domains order ${id} ${action} ${timestamp}`, signature })
   } catch {
@@ -1129,24 +1130,29 @@ async function checkAcceptance(reg: Ordered, accepted: unknown, deadline: number
   return { community: asked.community, termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
 }
 
-async function revealSigned(o: Ordered, body: Record<string, unknown>) {
+function revealShape(body: Record<string, unknown>) {
   const signature = checkSignature(body.signature)
   const { label, secret, nonce, deadline } = body
-  if (typeof label !== "string" || labelProblem(label) !== null) throw badRequest()
-  if (!isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
-  const records = linksOf(body.records)
+  if (typeof label !== "string" || !isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
+  return { signature, label, secret, nonce, deadline, records: linksOf(body.records) }
+}
+
+async function revealSigned(o: Ordered, shape: ReturnType<typeof revealShape>) {
+  const { signature, label, secret, nonce, deadline, records } = shape
   const tuple = registrationTuple({ ...o, label, secret, records })
   const signer = await recoverTypedDataAddress({
     ...registerNameTypedData(deployment.chainId, deployment.sponsor),
     message: { label, owner: o.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(o.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
     signature,
   })
-  return { signer, signature, label, secret, nonce, deadline, records, tuple }
+  return { signer, tuple }
 }
 
 async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: number, unread: () => never): Promise<Reveal> {
-  const { signer, signature, label, secret, nonce, deadline, records, tuple } = await revealSigned(o, body)
-  if (keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
+  const shape = revealShape(body)
+  const { signature, label, secret, nonce, deadline, records } = shape
+  const { signer, tuple } = await revealSigned(o, shape)
+  if (labelProblem(label) !== null || keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
   if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
   if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
   if (signer !== o.owner) throw badRequest()
@@ -1163,10 +1169,12 @@ async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
 }
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const shape = revealShape(body)
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  const { signer, signature } = await revealSigned(reg, body)
+  const { signer } = await revealSigned(reg, shape)
   if (signer !== reg.owner) throw new HttpError(404, "not_found")
+  const { signature } = shape
   if (reg.label !== null) {
     if (reg.label === body.label && reg.intent?.signature === signature) return {}
     throw badRequest()
