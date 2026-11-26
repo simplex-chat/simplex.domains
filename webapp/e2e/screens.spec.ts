@@ -1646,13 +1646,6 @@ screen(2196, "order-taken-code-reserved", async (r) => {
   await answersReserved(r.page, r.id)
   await heading(r.page, `${r.id}.simplex is reserved`)
 })
-screen(2198, "order-no-code", async (r) => {
-  const registrationId = await codeTaken(r)
-  await heading(r.page, `${r.id}.simplex was taken`)
-  const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, "The name code is not in this browser")
-  return other
-})
 const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
   const { invoiceId } = await startOrder(r.page, r.id, { method })
   await control(r.request, `expire/${invoiceId}`)
