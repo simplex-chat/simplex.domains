@@ -1,5 +1,5 @@
 import { SITE } from "../src/config.ts"
-import { type FromCard, type MountedCard, mountCard, type Theme, type ToCard, UNCHECKED } from "../src/stripe.ts"
+import { type FromCard, type MountedCard, mountCard, type Theme, type ToCard, MISMATCHED } from "../src/stripe.ts"
 
 declare const __MAINNET__: boolean
 declare global {
@@ -8,7 +8,7 @@ declare global {
 
 const STAND_IN = "Test card form: no Stripe key is set, so Pay simulates a payment."
 const form = document.getElementById("form")!
-const fromPage = (origin: string) => SITE.pageOrigins.some((page) => origin === page || origin.startsWith(`${page}:`))
+const fromPage = (origin: string) => SITE.pageOrigins.some((page) => origin === page || (!(typeof __MAINNET__ !== "undefined" && __MAINNET__) && origin.startsWith(`${page}:`)))
 const keyOf = () => SITE.stripeKey || (typeof __MAINNET__ !== "undefined" && __MAINNET__ ? "" : window.stripeTestKey ?? "")
 
 let page: string | null = null
@@ -55,7 +55,7 @@ async function mount(clientSecret: string, amount: number): Promise<void> {
     return send({ type: "mounted" })
   }
   const mounted = await mountCard(key, clientSecret, { amount, currency: SITE.currency, live: SITE.stripeLive }, form, theme)
-  if (mounted === null || mounted === UNCHECKED) return send({ type: "failed", reason: mounted ?? "unloaded" })
+  if (mounted === null || mounted === MISMATCHED) return send({ type: "failed", reason: mounted ?? "unloaded" })
   card = mounted
   send({ type: "mounted" })
 }

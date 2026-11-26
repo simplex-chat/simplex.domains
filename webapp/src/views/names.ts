@@ -149,7 +149,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   let view: api.RegistrationView
   let invoice: api.InvoiceView | null = null
   try {
-    const sign = flow.orderSigner(o.ownerCode)
+    const sign = flow.orderSigner(o)
     if (o.invoiceId) {
       invoice = await api.readInvoice(o.invoiceId, sign)
       view = invoice.registration
@@ -312,8 +312,7 @@ const rowCode = (code: string) => el("div", { class: "row-code" },
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId
   const seen = s.seen[id]
-  // another name may have been selected for the order since it was stored
-  const label = seen?.view.label ?? o.label
+  const label = o.label
   const tld = o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
   const registered = seen?.view.phase.type === "registered"
@@ -379,10 +378,9 @@ const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
 // Support refunds a balance.
 function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
-  const { view } = s.seen[b.id]
   const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`, o.invoiceId ? o.addressProof : undefined), true)] : []
   const from = BALANCE_FROM[b.from]
-  const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
+  const sub = ["From ", nameText(o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, null, acts)
   if (from) node.classList.add("balance-row")
@@ -522,7 +520,7 @@ async function readEdit(route: number): Promise<void> {
   let answer: api.SearchAnswer
   let record = stored
   try {
-    const sign = flow.orderSigner(stored.ownerCode)
+    const sign = flow.orderSigner(stored)
     view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId, sign)).registration : await api.readRegistration(stored.registrationId, sign)
     record = await flow.syncRecord(stored, view) ?? stored
     answer = await api.searchName(record.request.labelHash, record.label.length)

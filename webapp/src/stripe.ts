@@ -109,18 +109,18 @@ export type FromCard =
   | { type: "paid"; id: string }
   | { type: "invalid" }
   | { type: "declined"; message: string }
-  | { type: "failed"; reason: "unchecked" | "unloaded" }
+  | { type: "failed"; reason: "mismatched" | "unloaded" }
 
 export interface Expected { amount: number; currency: string; live: boolean }
-export const UNCHECKED = "unchecked"
+export const MISMATCHED = "mismatched"
 
 const intentHeld = (pi: PaymentIntent | undefined, { amount, currency, live }: Expected) =>
   pi !== undefined && pi.amount === amount && pi.currency === currency && pi.livemode === live && pi.payment_method_types.length === 1 && pi.payment_method_types[0] === "card"
 
-// The form once ready; UNCHECKED when the PaymentIntent is not the one expected, or not of the key's account; null when
+// The form once ready; MISMATCHED when the PaymentIntent is not the one expected, or not of the key's account; null when
 // the script, the SDK or the form fails or is not ready within the bound. The form follows the page's theme in place, as
 // mounting it again would lose what was typed.
-export async function mountCard(key: string, clientSecret: string, expected: Expected, target: HTMLElement, theme: Theme): Promise<MountedCard | typeof UNCHECKED | null> {
+export async function mountCard(key: string, clientSecret: string, expected: Expected, target: HTMLElement, theme: Theme): Promise<MountedCard | typeof MISMATCHED | null> {
   let stalled: ReturnType<typeof setTimeout> | undefined
   const late = new Promise<false>((done) => { stalled = setTimeout(done, CARD_FORM_TIMEOUT_MS, false) })
   let unwatch: () => void = () => undefined
@@ -130,7 +130,7 @@ export async function mountCard(key: string, clientSecret: string, expected: Exp
     const sdk = stripe(key)
     const read = await Promise.race([sdk.retrievePaymentIntent(clientSecret), late])
     if (!read) return null
-    if (!intentHeld(read.paymentIntent, expected)) return UNCHECKED
+    if (!intentHeld(read.paymentIntent, expected)) return MISMATCHED
     const elements = sdk.elements({ clientSecret, appearance: appearance(theme.dark()) })
     unwatch = theme.watch((dark) => elements.update({ appearance: appearance(dark) }))
     const element = elements.create("payment", { wallets: { applePay: "never", googlePay: "never", link: "never" } })

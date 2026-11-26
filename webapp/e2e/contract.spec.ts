@@ -52,7 +52,7 @@ function signed(method: string, path: string, body: unknown): { path: string; bo
   const kept = m ? store.orderByInvoice(m[2]) ?? store.orderByRegistration(m[2]) : undefined
   const code = m && m[2] !== "find" ? ownerCodes.get(orderOwners.get(m[2]) ?? "") ?? kept?.ownerCode : undefined
   if (!m || !code) return { path, body }
-  const proof = flow.orderSigner(code)(m[2], (m[3] ?? "read") as api.OrderAction)
+  const proof = flow.orderSigner({ ownerCode: code })(m[2], (m[3] ?? "read") as api.OrderAction)
   return method === "GET" ? { path: `${path}${path.includes("?") ? "&" : "?"}timestamp=${proof.timestamp}&signature=${proof.signature}`, body } : { path, body: { ...body as Json, ...proof } }
 }
 

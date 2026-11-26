@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { type Expected, mountCard, type Theme, UNCHECKED } from "../src/stripe.ts"
+import { type Expected, MISMATCHED, mountCard, type Theme } from "../src/stripe.ts"
 
 // Stripe's logo tone in an appearance: light on the dark theme, dark on the light one
 type Appearance = { variables: { logoColor: string } }
@@ -71,7 +71,7 @@ describe("the card form's theme", () => {
   it("is the page's theme as the form mounts, and follows each change of it in place, never mounting again", async () => {
     const page = pageTheme(true)
     const card = await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, page.theme)
-    if (card === null || card === UNCHECKED) throw new Error("the form did not load")
+    if (card === null || card === MISMATCHED) throw new Error("the form did not load")
     expect(logos(stripe.seen.created), "made in the dark theme").toEqual(["light"])
     page.set(false)
     page.set(true)
@@ -101,21 +101,21 @@ describe("the card form's PaymentIntent", () => {
   it.each([
     ["another amount", { amount: 10100 }], ["another currency", { currency: "eur" }], ["live mode on a test key", { livemode: true }],
     ["other payment methods", { payment_method_types: ["card", "link"] }], ["no card", { payment_method_types: ["link"] }],
-  ])("of %s leaves the form unmounted, as not checked", async (_, change) => {
+  ])("of %s leaves the form unmounted, as mismatched", async (_, change) => {
     stripe = fakeStripe(true, { ...INTENT, ...change })
-    expect(await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, pageTheme(false).theme)).toBe(UNCHECKED)
+    expect(await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, pageTheme(false).theme)).toBe(MISMATCHED)
     expect([stripe.seen.created, stripe.seen.mounts]).toEqual([[], 0])
   })
 
-  it("of another Stripe account, which the key cannot read, leaves the form unmounted, as not checked", async () => {
+  it("of another Stripe account, which the key cannot read, leaves the form unmounted, as mismatched", async () => {
     stripe = fakeStripe(true, null)
-    expect(await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, pageTheme(false).theme)).toBe(UNCHECKED)
+    expect(await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, pageTheme(false).theme)).toBe(MISMATCHED)
     expect(stripe.seen.mounts).toBe(0)
   })
 
   it("held in live mode by a live key mounts the form", async () => {
     stripe = fakeStripe(true, { ...INTENT, livemode: true })
     const card = await mountCard("pk_live", "pi_secret", { ...EXPECTED, live: true }, TARGET, pageTheme(false).theme)
-    expect([card === null || card === UNCHECKED, stripe.seen.mounts]).toEqual([false, 1])
+    expect([card === null || card === MISMATCHED, stripe.seen.mounts]).toEqual([false, 1])
   })
 })

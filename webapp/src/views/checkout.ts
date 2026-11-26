@@ -130,7 +130,7 @@ async function follow(invoiceId: string, sign: api.OrderSigner, signal: AbortSig
 // The card order blocks a second one only while its invoice is open, so checkout follows it and opens up when it settles or closes.
 async function settleWaiting(waiting: WaitingOrder, signal: AbortSignal): Promise<void> {
   const record = store.orderByRegistration(waiting.registrationId)
-  if (record) await follow(waiting.invoiceId, flow.orderSigner(record.ownerCode), signal, (seen) => seen?.status === "open" || settled(waiting, signal))
+  if (record) await follow(waiting.invoiceId, flow.orderSigner(record), signal, (seen) => seen?.status === "open" || settled(waiting, signal))
 }
 
 function settled(waiting: WaitingOrder, signal: AbortSignal): false {
@@ -148,7 +148,7 @@ const unpaid = (i: api.InvoiceView | null): i is api.InvoiceView => i?.status ==
 // An unpaid invoice this browser made is pointed at, not blocking a new order, and followed until paid or closed; only the newest few are asked.
 async function showOpenOrder(signal: AbortSignal): Promise<void> {
   const recent = store.orders().filter((o) => o.invoiceId && !o.cancelled && !o.replacedBy).slice(0, OPEN_ORDER_LOOKBACK)
-  const invoices = await Promise.all(recent.map((o) => api.readInvoice(o.invoiceId!, flow.orderSigner(o.ownerCode)).catch(() => null)))
+  const invoices = await Promise.all(recent.map((o) => api.readInvoice(o.invoiceId!, flow.orderSigner(o)).catch(() => null)))
   const at = invoices.findIndex(unpaid)
   const open = invoices[at]
   if (!open || signal.aborted) return
@@ -158,7 +158,7 @@ async function showOpenOrder(signal: AbortSignal): Promise<void> {
     return order !== null
   }
   show(open)
-  void follow(open.invoiceId, flow.orderSigner(recent[at].ownerCode), signal, show, open)
+  void follow(open.invoiceId, flow.orderSigner(recent[at]), signal, show, open)
 }
 
 const row = (what: string, value: Kid, cls?: string) => el("div", { class: `trow${cls ? ` ${cls}` : ""}` }, el("span", {}, what), el("span", {}, value))

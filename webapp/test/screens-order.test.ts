@@ -392,9 +392,9 @@ describe("paymentChecked", () => {
   })
 
   it("is not a card invoice whose PaymentIntent the card page found other than the invoice, which the reducer keeps for the page", () => {
-    const unchecked = reduce(read(priced(), undefined, cardRecord), { type: "card-unchecked" })
-    expect(unchecked.cardUnchecked).toBe(true)
-    expect(paymentChecked(unchecked)).toBe(false)
+    const mismatched = reduce(read(priced(), undefined, cardRecord), { type: "card-mismatched" })
+    expect(mismatched.cardMismatched).toBe(true)
+    expect(paymentChecked(mismatched)).toBe(false)
   })
 
   it("is not an invoice whose order the page holds no record of, as its name and payment are then the service's alone", () => {
@@ -726,7 +726,7 @@ describe("initialState", () => {
   it("starts with nothing read, holding as the tab does, and keeps a reveal carried over", () => {
     const reveal = { key: "reg-1 0x9c 4 1", sending: true, refusals: 1 }
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
-      reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardUnchecked: false,
+      reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardMismatched: false,
       reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, noCode: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
       nameStatus: null, since: null, downtime: false,
     })
