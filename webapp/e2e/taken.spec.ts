@@ -44,7 +44,7 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   const elsewhere = await page.context().browser()!.newContext()
   const stranger = await elsewhere.newPage()
   await stranger.goto(`/?order=${invoiceId}`)
-  await expect(stranger.getByText("This order's name code is not in this browser. Enter it to see the order.")).toBeVisible()
+  await expect(stranger.getByText("Enter it in Check your code to see this order.")).toBeVisible()
   await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await expect(onStep(stranger).getByText("Get a refund")).toHaveCount(0)
   await elsewhere.close()

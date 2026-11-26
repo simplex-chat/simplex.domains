@@ -163,7 +163,7 @@ test("a registered order opened in a browser without its code offers restore", a
   const other = await browser.newContext()
   const page2 = await other.newPage()
   await page2.goto(`/?order=${invoiceId}`)
-  await expect(page2.getByText("This order's name code is not in this browser. Enter it to see the order.")).toBeVisible()
+  await expect(page2.getByText("Enter it in Check your code to see this order.")).toBeVisible()
   await page2.getByRole("button", { name: "Enter your name code" }).click()
   await codeField(page2).fill(ownerCode)
   await page2.getByRole("button", { name: "Add to Your names" }).click()

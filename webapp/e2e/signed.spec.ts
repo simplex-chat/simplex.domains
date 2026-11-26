@@ -1,7 +1,7 @@
 import { expect, type APIRequestContext } from "@playwright/test"
 import { control, MOCK, onStep, REGISTRATION_MS, startOrder, test, uniqueLabel, waitRegistered } from "./helpers.ts"
 
-const NO_CODE = "This order's name code is not in this browser. Enter it to see the order."
+const NO_CODE = "Enter it in Check your code to see this order."
 const SKEW_MS = 20 * 60_000
 const ORDER_READ = /\/api\/(invoice|registration)\/[^/]+$/
 

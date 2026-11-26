@@ -907,7 +907,7 @@ test("a code order's link in a browser without its name code asks for the code, 
   page.on("request", (r) => { if (new URL(r.url()).pathname.startsWith("/api/registration/")) asked.push(r.url()) })
   await page.goto("/?registration=reg-code-elsewhere")
   await expect(onStep(page).getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
-  await expect(onStep(page).locator(".notice")).toHaveText("This order's name code is not in this browser. Enter it to see the order.")
+  await expect(onStep(page).locator(".notice")).toHaveText("Enter it in Check your code to see this order.")
   expect(asked).toEqual([])
 })
 

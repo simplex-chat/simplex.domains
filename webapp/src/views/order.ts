@@ -1088,7 +1088,7 @@ export const REFUSED_LINK: Record<LinkKind, string> = {
 export const REPLACE_LINK = "Replace or remove it to register the name."
 
 function buildNoCode({ reference }: OrderState): HTMLElement {
-  return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser", text: "This order's name code is not in this browser. Enter it to see the order.",
+  return outcome({ tone: "info", icon: "key", title: "The name code is not in this browser", text: "Enter it in Check your code to see this order.",
     action: btn("Enter your name code", "", () => go(CODE_FROM_ORDER_URL)), reference })
 }
 
