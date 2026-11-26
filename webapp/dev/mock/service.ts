@@ -759,14 +759,14 @@ function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): 
   return reg
 }
 
-interface OrderProof { timestamp?: unknown; signature?: unknown }
+interface RequestSignature { timestamp?: unknown; signature?: unknown }
 const orderRequests = { signed: 0, refused: 0 }
 const notFound = () => {
   orderRequests.refused += 1
   return new HttpError(404, "not_found")
 }
 
-async function requester(id: string, action: "read" | "cancel" | "retry" | "reveal", { timestamp, signature }: OrderProof): Promise<Address> {
+async function requester(id: string, action: "read" | "cancel" | "retry" | "reveal", { timestamp, signature }: RequestSignature): Promise<Address> {
   if (!Number.isInteger(timestamp)) throw notFound()
   freshTimestamp(timestamp)
   if (typeof signature !== "string" || !isHex(signature)) throw notFound()
@@ -777,16 +777,16 @@ async function requester(id: string, action: "read" | "cancel" | "retry" | "reve
   }
 }
 
-async function ownInvoice(invoiceId: string, action: "read" | "cancel", proof: OrderProof): Promise<Invoice> {
-  const signer = await requester(invoiceId, action, proof)
+async function ownInvoice(invoiceId: string, action: "read" | "cancel", signed: RequestSignature): Promise<Invoice> {
+  const signer = await requester(invoiceId, action, signed)
   const inv = invoices.get(invoiceId)
   if (!inv || registrations.get(inv.registrationId)!.owner !== signer) throw notFound()
   orderRequests.signed += 1
   return inv
 }
 
-async function ownRegistration(registrationId: string, action: "read" | "retry", proof: OrderProof): Promise<Registration> {
-  const signer = await requester(registrationId, action, proof)
+async function ownRegistration(registrationId: string, action: "read" | "retry", signed: RequestSignature): Promise<Registration> {
+  const signer = await requester(registrationId, action, signed)
   const reg = registrations.get(registrationId)
   if (!reg || reg.owner !== signer) throw notFound()
   orderRequests.signed += 1
@@ -805,8 +805,8 @@ export async function registrationOf(registrationId: string): Promise<Record<str
   return registrationView(reg)
 }
 
-export async function readInvoice(invoiceId: string, proof: OrderProof, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
-  const inv = await ownInvoice(invoiceId, "read", proof)
+export async function readInvoice(invoiceId: string, signed: RequestSignature, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
+  const inv = await ownInvoice(invoiceId, "read", signed)
   expireIfDue(inv)
   const reg = registrations.get(inv.registrationId)!
   if (wait !== null) {
@@ -816,8 +816,8 @@ export async function readInvoice(invoiceId: string, proof: OrderProof, wait: st
   return invoiceView(inv)
 }
 
-export async function readRegistration(registrationId: string, proof: OrderProof, seenVersion: number | null): Promise<Record<string, unknown>> {
-  const reg = await ownRegistration(registrationId, "read", proof)
+export async function readRegistration(registrationId: string, signed: RequestSignature, seenVersion: number | null): Promise<Record<string, unknown>> {
+  const reg = await ownRegistration(registrationId, "read", signed)
   if (seenVersion !== null) await hold(reg.id, () => reg.version === seenVersion)
   return registrationView(reg)
 }
@@ -828,8 +828,8 @@ function expireIfDue(inv: Invoice): void {
   if (overdue(inv)) close(inv)
 }
 
-export async function cancelInvoice(invoiceId: string, proof: OrderProof): Promise<Record<string, unknown>> {
-  const inv = await ownInvoice(invoiceId, "cancel", proof)
+export async function cancelInvoice(invoiceId: string, signed: RequestSignature): Promise<Record<string, unknown>> {
+  const inv = await ownInvoice(invoiceId, "cancel", signed)
   expireIfDue(inv)
   if (inv.status !== "open") throw new HttpError(409, "not_open")
   if (inv.amountPaid) throw new HttpError(409, "funded")
@@ -1159,7 +1159,7 @@ async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
 }
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const requested = await requester(registrationId, "reveal", typeof body.request === "object" && body.request !== null ? body.request as OrderProof : {})
+  const requested = await requester(registrationId, "reveal", typeof body.request === "object" && body.request !== null ? body.request as RequestSignature : {})
   const reg = registrations.get(registrationId)
   if (!reg || reg.owner !== requested) throw notFound()
   orderRequests.signed += 1
@@ -1248,8 +1248,8 @@ function codeReservable(row: PrepaidCode, reg: Registration, length: number): vo
   if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
 
-export async function retry(registrationId: string, proof: OrderProof): Promise<Record<string, unknown>> {
-  const reg = await ownRegistration(registrationId, "retry", proof)
+export async function retry(registrationId: string, signed: RequestSignature): Promise<Record<string, unknown>> {
+  const reg = await ownRegistration(registrationId, "retry", signed)
   // only a commitment that lapsed unsigned is committed again
   if (control.writeDelayMs) await sleep(control.writeDelayMs)
   if (!lapsed(reg)) throw badRequest()

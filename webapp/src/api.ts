@@ -538,8 +538,8 @@ export type ToSignRead = Extract<ToSign, { type: "read" }>
 export const signFor = (labelHash: string, owner: string) =>
   checked<ToSignRead>(call("GET", `/api/name/${labelHash}/sign?owner=${owner}`), (a) => a.type === "read" && isToSign(a))
 export type OrderAction = "read" | "cancel" | "retry" | "reveal"
-export interface OrderProof { timestamp: number; signature: string }
-export type OrderSigner = (id: string, action: OrderAction) => OrderProof
+export interface RequestSignature { timestamp: number; signature: string }
+export type OrderSigner = (id: string, action: OrderAction) => RequestSignature
 
 export async function signedOnce<T>(send: () => Promise<T>): Promise<T> {
   const clock = clockVersion()
@@ -550,7 +550,7 @@ export async function signedOnce<T>(send: () => Promise<T>): Promise<T> {
     throw e
   }
 }
-const proofQuery = ({ timestamp, signature }: OrderProof) => `timestamp=${timestamp}&signature=${signature}`
+const signatureQuery = ({ timestamp, signature }: RequestSignature) => `timestamp=${timestamp}&signature=${signature}`
 
 export const cancelInvoice = (invoiceId: string, sign: OrderSigner) =>
   signedOnce(() => checkedInvoice(call("POST", `/api/invoice/${encodeURIComponent(invoiceId)}/cancel`, sign(invoiceId, "cancel"))))
@@ -562,12 +562,12 @@ export const seenOf = (inv: InvoiceView): SeenInvoice => ({ status: inv.status, 
 
 export function readInvoice(invoiceId: string, sign: OrderSigner, seen?: SeenInvoice, signal?: AbortSignal): Promise<InvoiceView> {
   const held = seen ? `&wait=${seen.status}&seenVersion=${seen.version}&seenPaid=${encodeURIComponent(seen.paid)}&seenFull=${seen.full ? "1" : "0"}` : ""
-  return signedOnce(() => checkedInvoice(call("GET", `/api/invoice/${encodeURIComponent(invoiceId)}?${proofQuery(sign(invoiceId, "read"))}${held}`, undefined, signal, seen ? null : REQUEST_TIMEOUT_MS)))
+  return signedOnce(() => checkedInvoice(call("GET", `/api/invoice/${encodeURIComponent(invoiceId)}?${signatureQuery(sign(invoiceId, "read"))}${held}`, undefined, signal, seen ? null : REQUEST_TIMEOUT_MS)))
 }
 
 export function readRegistration(registrationId: string, sign: OrderSigner, seenVersion?: number, signal?: AbortSignal): Promise<RegistrationView> {
   const held = seenVersion !== undefined
-  return signedOnce(() => checked<RegistrationView>(call("GET", `/api/registration/${encodeURIComponent(registrationId)}?${proofQuery(sign(registrationId, "read"))}${held ? `&seenVersion=${seenVersion}` : ""}`,
+  return signedOnce(() => checked<RegistrationView>(call("GET", `/api/registration/${encodeURIComponent(registrationId)}?${signatureQuery(sign(registrationId, "read"))}${held ? `&seenVersion=${seenVersion}` : ""}`,
     undefined, signal, held ? null : REQUEST_TIMEOUT_MS), isRegistration))
 }
 
