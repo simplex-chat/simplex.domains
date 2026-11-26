@@ -878,7 +878,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, gen: number): Promi
     return false
   }
   if (after.status === "paid" || !api.holdsPayment(after)) return true
-  say("A payment has reached this invoice, so it is kept. Quote the reference below.")
+  say("A payment was received, so the invoice cannot be cancelled. Quote the reference below.")
   return false
 }
 
@@ -898,7 +898,7 @@ async function cancelInvoice(): Promise<void> {
       answer(gen, { type: "cancel-answered" })
       return reread(gen)
     }
-    if (e instanceof api.ApiError && e.code === "funded") return answer(gen, { type: "cancel-failed", note: warning("A payment has reached this invoice, so it cannot be cancelled.") })
+    if (e instanceof api.ApiError && e.code === "funded") return answer(gen, { type: "cancel-failed", note: warning("A payment was received, so the invoice cannot be cancelled.") })
     if (holdOn(e, LIMITED_LEAD, gen)) return
     answer(gen, { type: "cancel-failed", note: warning("The invoice was not cancelled. Please try again in a moment.") })
   }

@@ -1525,7 +1525,7 @@ screen(2130, "order-pay-crypto-cancel-refused", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
   await cancelAnswer(page, (route) => answer(route, 409, "funded"))
   await press(page, "Cancel this invoice")
-  await shown(page, "A payment has reached this invoice")
+  await shown(page, "A payment was received, so the invoice cannot be cancelled.")
 })
 screen(2132, "order-pay-crypto-cancel-limited", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
@@ -1575,7 +1575,7 @@ screen(2146, "order-pay-card-cancel-refused", async ({ page, id }) => {
   await startOrder(page, id, { method: "card" })
   await cancelAnswer(page, (route) => answer(route, 409, "funded"))
   await press(page, "Cancel this invoice")
-  await shown(page, "A payment has reached this invoice")
+  await shown(page, "A payment was received, so the invoice cannot be cancelled.")
 })
 screen(2148, "order-confirming-crypto", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
