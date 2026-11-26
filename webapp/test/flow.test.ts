@@ -351,12 +351,13 @@ describe("restore", () => {
     expect(await recoverMessageAddress({ message: `simplex.domains order inv9 cancel ${timestamp}`, signature: signature as Hex })).toBe(OWNER)
   })
 
-  it("restores the terms the order signed", async () => {
-    const { flow } = await modules()
+  it("restores the terms the order signed in a browser without its record", async () => {
+    const { flow, store } = await modules()
     const built = await flow.orderRequest(draft())
     answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "queued", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed }] }
     answers["GET /api/registration/reg1"] = view(built.request, { phase: "queued", terms: COMMUNITY_AGREED })
     expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(COMMUNITY_SIGNED)
+    store.forgetEverything()
     answers["GET /api/registration/reg1"] = view(built.request, { phase: "queued" })
     expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(SIGNED)
   })
