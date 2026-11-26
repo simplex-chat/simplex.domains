@@ -6,9 +6,9 @@ test.skip(!process.env.BASE_URL, "needs the production build, as BASE_URL")
 
 test("the production build opens offline: the page, an order's link and Your names, with a note while the network is gone", async ({ page, context }) => {
   const OFFLINE_NOTE = "You are offline. Searches, payments and order updates need the connection."
+  await keepOrder(page, "reg-abc", "abc", "offlinename")
   await page.goto("/")
   await page.evaluate(() => localStorage.setItem("simplex-names:code:SN6-OFFLINE", JSON.stringify({ code: "SN6-Z6VPA-7YPF0-XN8B4-9S1ZD", minLength: 6, years: 2, addedAt: new Date().toISOString() })))
-  await keepOrder(page, "reg-abc", "abc", "offlinename")
   // the worker takes no page it did not load, so it is active once the next load comes through it
   await page.evaluate(() => navigator.serviceWorker.ready)
   await expect(page.locator(".offline-note")).toBeHidden()
