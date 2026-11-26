@@ -386,9 +386,9 @@ describe("paymentChecked", () => {
 
   it("is not an invoice whose address differs from the one the order's record keeps for it", () => {
     const other = bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 1)
-    expect(paymentChecked(read(coin(), undefined, { record: record({ ...btc }) }))).toBe(true)
-    expect(paymentChecked(read(coin(other), undefined, { record: record({ ...btc }) }))).toBe(false)
-    expect(paymentChecked(read(coin(other), undefined, { record: record({ ...btc, invoiceId: "inv-0" }) })), "another invoice's address").toBe(true)
+    expect(paymentChecked(read(coin(), undefined, { record: record({ payee: btc }) }))).toBe(true)
+    expect(paymentChecked(read(coin(other), undefined, { record: record({ payee: btc }) }))).toBe(false)
+    expect(paymentChecked(read(coin(other), undefined, { record: record({ payee: btc, invoiceId: "inv-0" }) })), "another invoice's address").toBe(true)
   })
 
   it("is not a card invoice whose PaymentIntent the card page found other than the invoice, which the reducer keeps for the page", () => {

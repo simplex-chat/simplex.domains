@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retry, retryDelay, reveal, searchName, seenOf, selectName, TermsChanged,
+  addressProven, ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retry, retryDelay, reveal, searchName, seenOf, selectName, TermsChanged,
   communityAgreed, type OrderSigner, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 import { LOCAL } from "../src/config.ts"
@@ -320,6 +320,21 @@ describe("service errors", () => {
       answerWith(200, JSON.stringify(body))
       const e = await readInvoice("inv1", SIGN).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(body).slice(0, 120)).toBe("network")
+    }
+  })
+
+  it("keeps an address proof of either coin's shape, and drops one of another shape, which leaves the address unproven", async () => {
+    const btcProof = { type: "btc", keyTweak: "ab".repeat(32) }
+    const xmrProof = { type: "xmr", spendTweak: "cd".repeat(32), viewProof: { challenge: "ef".repeat(32), response: "01".repeat(32) } }
+    for (const addressProof of [btcProof, xmrProof]) {
+      answerWith(200, JSON.stringify({ ...INVOICE, addressProof }))
+      expect((await readInvoice("inv1", SIGN)).addressProof).toEqual(addressProof)
+    }
+    for (const addressProof of [null, "ab", { keyTweak: "ab" }, { type: "btc", keyTweak: 1 }, { ...xmrProof, viewProof: null }, { ...xmrProof, viewProof: { challenge: "ef" } }, { type: "eth" }]) {
+      answerWith(200, JSON.stringify({ ...INVOICE, addressProof }))
+      const read = await readInvoice("inv1", SIGN)
+      expect(read.addressProof, JSON.stringify(addressProof)).toBeUndefined()
+      expect(addressProven(read), JSON.stringify(addressProof)).toBe(false)
     }
   })
 

@@ -228,7 +228,7 @@ async function follow(mine: number, invoiceId: string | null, registrationId: st
       store.updateOrder(record.registrationId, { cardSubmittedAt: undefined })
       record = { ...record, cardSubmittedAt: undefined }
     }
-    if (invoice?.address !== undefined && record?.invoiceId === invoice.invoiceId && record.address === undefined) store.updateOrder(record.registrationId, flow.payeeOf(invoice))
+    if (invoice?.address !== undefined && record?.invoiceId === invoice.invoiceId && record.payee === undefined) store.updateOrder(record.registrationId, flow.payeeOf(invoice))
     record = (record && store.orderByRegistration(record.registrationId)) ?? record
     const recorded = JSON.stringify(record ?? null)
     if (answered !== drawn || recorded !== drawnRecord) {
@@ -553,7 +553,7 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
 }
 
 const UNCHECKED_DETAILS = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
-const proofOf = ({ record, invoice }: Pick<OrderState, "record" | "invoice">) => invoice !== null && record?.invoiceId === invoice.invoiceId ? record.addressProof : undefined
+const proofOf = ({ record, invoice }: Pick<OrderState, "record" | "invoice">) => invoice !== null && record?.invoiceId === invoice.invoiceId ? record.payee?.addressProof : undefined
 
 const withheld = (s: OrderState, title: string, alt: HTMLElement | null) => screen({ title, lead: orderLine(s), alt },
   paymentChecked(s) ? alertBox("info", "clock", null, `${PAYMENT_SOON}.`) : alertBox("danger", "alert", null, UNCHECKED_DETAILS), referenceLine(s.invoice!.invoiceId, proofOf(s)), actionNote(s, null))

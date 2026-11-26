@@ -5,7 +5,7 @@ import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils"
 import { base58xmr } from "@scure/base"
 import { describe, expect, it } from "vitest"
-import { addressProven, type InvoiceView } from "../src/api.ts"
+import { type AddressProof, addressProven, type InvoiceView } from "../src/api.ts"
 import { LOCAL } from "../src/config.ts"
 import { bitcoinProven, hashToScalar, moneroKeys, moneroProven, p2wpkh, type ViewProof } from "../src/crypto/payees.ts"
 import { BIP173, BIP84, DEV_BITCOIN, DEV_MONERO } from "./payee-vectors.ts"
@@ -119,8 +119,8 @@ describe("a Monero subaddress", () => {
 describe("addressProven", () => {
   const btc = DEV_BITCOIN.invoices[0]
   const xmr = DEV_MONERO.invoices[0]
-  const btcProof = { type: "btc", keyTweak: btc.keyTweak }
-  const xmrProof = { type: "xmr", spendTweak: xmr.spendTweak, viewProof: xmr.viewProof }
+  const btcProof = { type: "btc", keyTweak: btc.keyTweak } as const
+  const xmrProof = { type: "xmr", spendTweak: xmr.spendTweak, viewProof: xmr.viewProof } as const
   const invoice = (change: Partial<InvoiceView>): InvoiceView =>
     ({ invoiceId: "inv", status: "open", amount: 10000, currency: "usd", expiresAt: "2026-10-17T12:30:00Z", kind: "name", registration: {} as InvoiceView["registration"], ...change })
 
@@ -130,12 +130,9 @@ describe("addressProven", () => {
     expect(addressProven(invoice({ clientSecret: "pi_1_secret_2" })), "a card invoice has no address").toBe(true)
   })
 
-  it("refuses an address without a proof, or with one of another coin or shape", () => {
-    const cases: [InvoiceView["cryptoCurrency"], string, unknown][] = [
-      ["btc", btc.address, undefined], ["btc", btc.address, null], ["btc", btc.address, btc.keyTweak], ["btc", btc.address, { keyTweak: btc.keyTweak }],
-      ["btc", btc.address, { ...btcProof, type: "xmr" }], ["btc", btc.address, { type: "btc", keyTweak: 1 }], ["xmr", btc.address, btcProof],
-      ["xmr", xmr.address, undefined], ["xmr", xmr.address, { ...xmrProof, viewProof: null }], ["xmr", xmr.address, { ...xmrProof, viewProof: { challenge: xmr.viewProof.challenge } }],
-      ["xmr", xmr.address, { ...xmrProof, type: "btc" }], ["btc", xmr.address, xmrProof],
+  it("refuses an address without a proof, or with one of another coin", () => {
+    const cases: [InvoiceView["cryptoCurrency"], string, AddressProof | undefined][] = [
+      ["btc", btc.address, undefined], ["xmr", btc.address, btcProof], ["xmr", xmr.address, undefined], ["btc", xmr.address, xmrProof],
     ]
     for (const [coin, address, addressProof] of cases) {
       expect(addressProven(invoice({ cryptoCurrency: coin, address, addressProof })), JSON.stringify([coin, addressProof])).toBe(false)

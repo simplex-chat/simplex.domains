@@ -3,7 +3,7 @@ import { sha256 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils"
 import { heldPrice, SITE } from "./config.ts"
-import { bitcoinProven, moneroProven } from "./crypto/payees.ts"
+import { bitcoinProven, moneroProven, type ViewProof } from "./crypto/payees.ts"
 import { MAX_LABEL_LENGTH } from "./names.ts"
 
 const REFUSALS = [
@@ -236,6 +236,8 @@ export const signedTermsOf = (terms: AgreedTerms) => `${terms.communityName ? CO
 const LATE_WAITS = ["confirming", "crediting", "support"] as const
 export type LateWait = typeof LATE_WAITS[number]
 
+export type AddressProof = { type: "btc"; keyTweak: string } | { type: "xmr"; spendTweak: string; viewProof: ViewProof }
+
 export interface InvoiceView {
   invoiceId: string
   status: "open" | "paid" | "expired"
@@ -251,7 +253,7 @@ export interface InvoiceView {
   settledAt?: string
   clientSecret?: string
   address?: string
-  addressProof?: unknown
+  addressProof?: AddressProof
   cryptoAmount?: string
   cryptoCurrency?: Method
   requiredConfirmations?: number
@@ -270,12 +272,10 @@ export const invoiceMethod = (inv: InvoiceView): Method | null =>
   : (inv.cryptoCurrency === "btc" || inv.cryptoCurrency === "xmr") && inv.address !== undefined && inv.clientSecret === undefined ? inv.cryptoCurrency
   : null
 
-function provenFromKeys(address: string, coin: InvoiceView["cryptoCurrency"], p: unknown): boolean {
-  if (!isObject(p)) return false
-  if (coin === "btc" && p.type === "btc") return isText(p.keyTweak) && bitcoinProven(address, p.keyTweak, SITE.bitcoinReceiveKeys, SITE.bitcoinHrp)
-  const view = p.viewProof
-  return coin === "xmr" && p.type === "xmr" && isText(p.spendTweak) && isObject(view) && isText(view.challenge) && isText(view.response)
-    && moneroProven(address, p.spendTweak, { challenge: view.challenge, response: view.response }, SITE.moneroPrimaryAddresses, SITE.moneroSubaddressPrefix)
+function provenFromKeys(address: string, coin: InvoiceView["cryptoCurrency"], p: AddressProof | undefined): boolean {
+  if (coin === "btc" && p?.type === "btc") return bitcoinProven(address, p.keyTweak, SITE.bitcoinReceiveKeys, SITE.bitcoinHrp)
+  if (coin === "xmr" && p?.type === "xmr") return moneroProven(address, p.spendTweak, p.viewProof, SITE.moneroPrimaryAddresses, SITE.moneroSubaddressPrefix)
+  return false
 }
 
 const proven = new Map<string, boolean>()
@@ -458,7 +458,13 @@ const isInvoice = (v: unknown) => isObject(v) && isText(v.invoiceId) && ["open",
   && optional(v.paidInFull, (x) => typeof x === "boolean") && optional(v.address, isText) && optional(v.clientSecret, isText)
   && optional(v.cryptoCurrency, (x) => ["card", "btc", "xmr"].includes(x as string)) && optional(v.requiredConfirmations, (x) => Number.isInteger(x) && (x as number) >= 0)
 const clampDue = (inv: InvoiceView): InvoiceView => inv.cryptoAmountDue?.startsWith("-") ? { ...inv, cryptoAmountDue: "0" } : inv
-const checkedInvoice = (answer: Promise<unknown>) => checked<InvoiceView>(answer, isInvoice).then(clampDue)
+const isAddressProof = (p: unknown): p is AddressProof => isObject(p) && ((p.type === "btc" && isText(p.keyTweak))
+  || (p.type === "xmr" && isText(p.spendTweak) && isObject(p.viewProof) && isText(p.viewProof.challenge) && isText(p.viewProof.response)))
+const proofParsed = (inv: InvoiceView): InvoiceView => {
+  const { addressProof, ...rest } = inv
+  return addressProof === undefined || isAddressProof(addressProof) ? inv : rest
+}
+const checkedInvoice = (answer: Promise<unknown>) => checked<InvoiceView>(answer, isInvoice).then(clampDue).then(proofParsed)
 const isTime = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v))
 // none left only while an edit is counted, which returns at nextAt
 const isRecordEdits = (v: unknown) => isObject(v) && Number.isInteger(v.left) && (v.left as number) >= 0 && optional(v.nextAt, isTime) && (v.left !== 0 || v.nextAt !== undefined)

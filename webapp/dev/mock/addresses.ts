@@ -10,6 +10,7 @@ import { keccak_256 } from "@noble/hashes/sha3"
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils"
 import { base58xmr } from "@scure/base"
 import { HDKey } from "@scure/bip32"
+import type { AddressProof } from "../../src/api.ts"
 import { hashToScalar, moneroKeys, p2wpkh } from "../../src/crypto/payees.ts"
 
 export const DEV_XPUB = "tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M"
@@ -24,9 +25,9 @@ const CHECKSUM_BYTES = 4
 const NON_HARDENED = 2 ** 31
 const G = ed25519.Point.BASE
 
-type BitcoinProof = { type: "btc"; keyTweak: string }
-type MoneroProof = { type: "xmr"; spendTweak: string; viewProof: { challenge: string; response: string } }
-export interface Payee<P extends BitcoinProof | MoneroProof = BitcoinProof | MoneroProof> { address: string; addressProof: P }
+type BitcoinProof = Extract<AddressProof, { type: "btc" }>
+type MoneroProof = Extract<AddressProof, { type: "xmr" }>
+export interface Payee<P extends AddressProof = AddressProof> { address: string; addressProof: P }
 
 export function bitcoinPayee(branch: HDKey, hrp: string, index: number): Payee<BitcoinProof> {
   const il = hmac(sha512, branch.chainCode!, concatBytes(branch.publicKey!, numberToBytesBE(index, INDEX_BYTES))).slice(0, KEY_BYTES)

@@ -208,7 +208,7 @@ export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc"
 
 export const paymentChecked = ({ invoice, record, cardMismatched }: OrderState) => invoice === null || (!cardMismatched && record !== null
   && invoice.currency === SITE.currency && addressProven(invoice) && invoiceMethod(invoice) === record.method && invoice.amount === heldPrice(record.label.length)
-  && (record.invoiceId !== invoice.invoiceId || record.address === undefined || record.address === invoice.address))
+  && (record.invoiceId !== invoice.invoiceId || record.payee === undefined || record.payee.address === invoice.address))
 
 // What the order's name costs; null for a code, which costs nothing.
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null

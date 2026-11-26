@@ -1,4 +1,5 @@
 // The page's frame: theme switch and navigation between views; index.html draws the header and footer.
+import type { AddressProof } from "../api.ts"
 import { alertBox, announce, btn, copyButton, el, fitNames, icon, type Kid, liveRegion, reducedMotion, refill, type Tone, waitOut } from "../dom.ts"
 import { SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
@@ -148,7 +149,7 @@ export type Builder<S> = (state: S, signal: AbortSignal) => HTMLElement
 // a screen's main action and its text-link alternative, which a step holds at one place on every step
 interface Actions { action?: Node | null; alt?: Node | null }
 interface ScreenHead extends Actions { title: Kid; lead?: Kid; back?: string }
-interface Outcome extends Actions { tone: Tone; icon: IconName; title: string; text: Kid; reference?: string; proof?: unknown; extra?: Kid; agreement?: Kid; back?: string }
+interface Outcome extends Actions { tone: Tone; icon: IconName; title: string; text: Kid; reference?: string; proof?: AddressProof; extra?: Kid; agreement?: Kid; back?: string }
 
 export function kept<T>(key: string, make: () => T): T {
   const known = keptNodes.get(key)
@@ -318,7 +319,7 @@ export function showPopup(key: string, kids: Kid[], first: HTMLElement | null): 
 }
 
 // Support refunds a balance by hand, on a message that quotes the order's reference.
-export function showRefund(reference: string, key: string, proof?: unknown): void {
+export function showRefund(reference: string, key: string, proof?: AddressProof): void {
   const copy = proof === undefined ? copyButton(reference, "field-copy", "Copy reference") : copyButton(withProof(reference, proof), "field-copy", WITH_PROOF)
   showPopup(key, [
     el("h2", { id: POPUP_TITLE }, "Refund"),
@@ -328,9 +329,9 @@ export function showRefund(reference: string, key: string, proof?: unknown): voi
 }
 
 const WITH_PROOF = "Copy the order reference and address proof for support"
-const withProof = (reference: string, proof: unknown) => `Order reference ${reference}, address proof ${JSON.stringify(proof)}`
+const withProof = (reference: string, proof: AddressProof) => `Order reference ${reference}, address proof ${JSON.stringify(proof)}`
 
-export const referenceLine = (reference: string, proof?: unknown) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference),
+export const referenceLine = (reference: string, proof?: AddressProof) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference),
   ...proof === undefined ? [] : [SEP, copyButton(withProof(reference, proof), "text-link", WITH_PROOF, "Copy for support")])
 
 // shown only before a document's first draw, placed as the screen after it will be, so its heading stays put

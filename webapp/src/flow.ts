@@ -104,7 +104,7 @@ function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, t
   }
 }
 
-export const payeeOf = (inv: api.InvoiceView): Pick<store.OrderRecord, "address" | "addressProof"> => ({ address: inv.address, addressProof: inv.addressProof })
+export const payeeOf = ({ address, addressProof }: api.InvoiceView): Pick<store.OrderRecord, "payee"> => ({ payee: address === undefined ? undefined : { address, addressProof } })
 
 export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRecord["method"], paid: number, ids: { registrationId: string; invoiceId: string | null }): store.OrderRecord {
   return {
@@ -284,7 +284,7 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const opened = await openOrder(wallet, view)
   // what only this browser knew about the order (a card in confirmation, a cancel, the prepaid code that paid) is kept
   const known = store.orderByRegistration(view.id)
-  const payeeKnown = known !== undefined && invoice !== null && known.invoiceId === invoice.invoiceId && known.address !== undefined
+  const payeeKnown = known !== undefined && invoice !== null && known.invoiceId === invoice.invoiceId && known.payee !== undefined
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
     method: known?.method ?? opened.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,

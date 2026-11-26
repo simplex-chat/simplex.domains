@@ -1,7 +1,7 @@
 // What this browser keeps: its orders with their owner codes, and its prepaid codes.
 // Storage can be missing or full; the page then keeps everything in memory and says so where it matters.
 
-import type { Method } from "./api.ts"
+import type { AddressProof, Method } from "./api.ts"
 
 export interface OrderRecord {
   registrationId: string
@@ -28,9 +28,10 @@ export interface OrderRecord {
   // the link of the order that replaced this one with a new invoice; its old link leads there
   replacedBy?: string
   createdAt: string
-  address?: string
-  addressProof?: unknown
+  payee?: Payee
 }
+
+export interface Payee { address: string; addressProof?: AddressProof }
 
 export type CodeRefusal = "code_used" | "code_invalid" | "code_expired"
 
