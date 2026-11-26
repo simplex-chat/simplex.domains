@@ -1130,31 +1130,21 @@ async function checkAcceptance(reg: Ordered, accepted: unknown, deadline: number
   return { community: asked.community, termsHash: asked.termsHash, nonce: BigInt(asked.nonce), signature }
 }
 
-function revealShape(body: Record<string, unknown>) {
+async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: number, unread: () => never): Promise<Reveal> {
   const signature = checkSignature(body.signature)
   const { label, secret, nonce, deadline } = body
-  if (typeof label !== "string" || !isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
-  return { signature, label, secret, nonce, deadline, records: linksOf(body.records) }
-}
-
-async function revealSigned(o: Ordered, shape: ReturnType<typeof revealShape>) {
-  const { signature, label, secret, nonce, deadline, records } = shape
+  if (typeof label !== "string" || labelProblem(label) !== null) throw badRequest()
+  if (keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
+  if (!isHash(secret) || typeof nonce !== "number" || typeof deadline !== "number" || !Number.isInteger(nonce) || !Number.isInteger(deadline)) throw badRequest()
+  const records = linksOf(body.records)
   const tuple = registrationTuple({ ...o, label, secret, records })
+  if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
+  if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
   const signer = await recoverTypedDataAddress({
     ...registerNameTypedData(deployment.chainId, deployment.sponsor),
     message: { label, owner: o.owner, duration: tuple.duration, resolver: deployment.resolver, data: tuple.data, disputeDays: BigInt(o.disputeDays), nonce: BigInt(nonce), deadline: BigInt(deadline) },
     signature,
   })
-  return { signer, tuple }
-}
-
-async function checkReveal(o: Ordered, body: Record<string, unknown>, earliest: number, unread: () => never): Promise<Reveal> {
-  const shape = revealShape(body)
-  const { signature, label, secret, nonce, deadline, records } = shape
-  const { signer, tuple } = await revealSigned(o, shape)
-  if (labelProblem(label) !== null || keccak256(toHex(label)) !== o.labelHash || label.length !== o.length) throw badRequest()
-  if ((await read<Hex>(controller, "makeCommitment", [tuple]).catch(unread)) !== o.commitment) throw badRequest()
-  if (deadline < earliest || deadline > nowSeconds() + SIGNATURE_SECONDS + SIGNED_REQUEST_SECONDS) throw badRequest()
   if (signer !== o.owner) throw badRequest()
   if (BigInt(nonce) !== (await read<bigint>(sponsor, "nonces", [o.owner]).catch(unread))) throw badRequest()
   const acceptance = await checkAcceptance(o, body.acceptance, deadline, unread)
@@ -1169,14 +1159,11 @@ async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
 }
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const shape = revealShape(body)
   const requested = await requester(registrationId, "reveal", typeof body.request === "object" && body.request !== null ? body.request as OrderProof : {})
   const reg = registrations.get(registrationId)
   if (!reg || reg.owner !== requested) throw notFound()
   orderRequests.signed += 1
-  const { signer } = await revealSigned(reg, shape)
-  if (signer !== reg.owner) throw new HttpError(404, "not_found")
-  const { signature } = shape
+  const signature = checkSignature(body.signature)
   if (reg.label !== null) {
     if (reg.label === body.label && reg.intent?.signature === signature) return {}
     throw badRequest()
