@@ -2,7 +2,7 @@ import { holdsPayment, type CodeState, type Found, type InvoiceView, type LateWa
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
 import { type CodeRecord, type OrderRecord, orderUrl, type PendingCode } from "../store.ts"
-import { type Hold, NO_LEAD } from "./hold.ts"
+import { type Hold, LIMITED_LEAD, NO_LEAD } from "./hold.ts"
 
 export interface RowSeen { view: RegistrationView; invoice: InvoiceView | null; answer?: SearchAnswer | null }
 export type CodeCheck = CodeState | "unchecked"
@@ -170,7 +170,7 @@ export const waitsToSign = (view: RegistrationView, now: number) =>
 const PHASE_CHIPS: Record<Exclude<Phase, "closed">, [string, string]> = {
   unpaid: ["Waiting for payment", "warn"],
   queued: ["Registering", "brand"], committing: ["Registering", "brand"], committed: ["Registering", "brand"], registering: ["Registering", "brand"],
-  registered: ["Registered", "ok"], ended: ["Ended", "bad"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
+  registered: ["Registered", "ok"], ended: ["Cancelled", "bad"], taken: ["Taken first", "warn"], failed: ["Not registered", "bad"],
 }
 
 const CHIPS = {
@@ -238,9 +238,9 @@ type RefusalKind = "none" | "unasked" | "other"
 export interface Refusal { title: string; text: string; again: boolean }
 // why a name code found no order to add; only the service's not answering can change by asking again
 export const REFUSALS: Record<RefusalKind, Refusal> = {
-  none: { title: "No order was found for this code", text: "The service has no order registered to its wallet.", again: false },
-  unasked: { title: "The service could not be asked now", text: "Your code is fine to try again in a moment.", again: true },
-  other: { title: "This code does not open the order", text: "The order found for it was made with another code.", again: false },
+  none: { title: "No order was found for this name code", text: "", again: false },
+  unasked: { title: "The code could not be checked now", text: "Please try again in a moment.", again: true },
+  other: { title: "This order could not be opened with this name code", text: "Please contact support.", again: false },
 }
 
 export interface RestoreState { busy: boolean; refusal: RefusalKind | null; hold: Hold | null }
@@ -314,13 +314,7 @@ export function registrableAgain(expiresAt: number | null, { found }: SearchAnsw
   return { when: "taken" }
 }
 
-export const ranOut = (expiresAt: number | null) => `Its registration ran out${expiresAt ? ` on ${dateOf(expiresAt)}` : ""}.`
-
-export function againLine(expiresAt: number | null, answer: SearchAnswer, now: number): string {
-  const again = registrableAgain(expiresAt, answer, now)
-  if (again.when === "now") return "Search it to register it again."
-  return again.when === "from" ? `It can be registered again from ${dateOf(again.at)}.` : "It has been registered again since."
-}
+export const ranOut = (expiresAt: number | null) => `Your registration of this name expired${expiresAt ? ` on ${dateOf(expiresAt)}` : ""}.`
 
 // Each Save is one edit of the name's yearly count, whatever it changes, and returns 365 days after it was made, so the
 // oldest counted edit, or this one when none was counted, is the next to return. At is the service's time in seconds.
@@ -338,7 +332,7 @@ export function editsLine(f: EditForm): string {
 }
 
 // a Save is one transaction, so a Save that fails changed no link
-export const NOT_SAVED = "The links were not saved."
+export const NOT_SAVED = "Not saved."
 
 const owns = (found: Extract<Found, { type: "registered" }>, owner: string) => found.owner.toLowerCase() === owner.toLowerCase()
 
@@ -381,7 +375,7 @@ function applyToForm(f: EditForm, e: EditEvent): EditForm {
       return { ...saved, saving: false, result: "saved", settled: Object.keys(changesOf(saved)).length === 0 }
     }
     case "save-unanswered": return { ...f, saving: false, unanswered: true, result: "unanswered", edits: e.counted ? spent(f.edits, e.at) : f.edits }
-    case "save-held": return { ...f, saving: false, result: null, hold: { until: e.until, lead: `${NOT_SAVED} ` } }
+    case "save-held": return { ...f, saving: false, result: null, hold: { until: e.until, lead: LIMITED_LEAD } }
     // the edits line says when they return
     case "save-limited": return { ...f, saving: false, result: null, edits: { left: 0, nextAt: e.nextAt } }
     case "save-refused": {

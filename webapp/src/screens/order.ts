@@ -141,7 +141,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
 }
 
 const RETRY_CODE_NOTES: Record<CodeRefusal, [string, string]> = {
-  code_used: ["Your code was used for another name", "A code registers one name only."],
+  code_used: ["Your code was used for another name", ""],
   code_invalid: ["This code is not valid", "The service no longer accepts it."],
   code_expired: ["This code has expired", "An expired code cannot register a name."],
 }
@@ -169,8 +169,7 @@ export function reduce(state: OrderState, event: OrderEvent): OrderState {
 
 // The code is said to be kept only once the service says so; a browser that restored the order has not got its code.
 export function failedLead({ invoice, codeRefused, codeKept, record }: OrderState): string {
-  const kept = invoice ? "Your payment is kept. " : codeRefused ? "Your code can no longer be used for it. " : record?.prepaidCode && codeKept ? "Your code is kept. " : ""
-  return `${kept}Write to support.`
+  return invoice ? "Your payment is kept." : codeRefused ? "" : record?.prepaidCode && codeKept ? "Your code is kept." : ""
 }
 
 const FAILED_TITLES: Record<FailReason, string> = {

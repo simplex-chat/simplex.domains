@@ -3,7 +3,7 @@ import { el, icon, line, nameText, nameTitle } from "../dom.ts"
 import { blocksOf, spansOf } from "../markdown.ts"
 import { POPUP_TITLE, showPopup } from "./shell.ts"
 
-const TERMS_CHANGED = "The Names Conditions changed. Accept them again."
+const TERMS_CHANGED = "The Names Conditions changed. Please accept them to continue."
 const INFO_KEY = "community-info"
 const TERMS_KEY = "community-terms"
 export const CANT_SHOW = "The Names Conditions can't be shown now. Try again in a moment."

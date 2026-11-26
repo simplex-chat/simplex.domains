@@ -41,6 +41,6 @@ export const secondsLeft = (hold: Hold) => Math.ceil((hold.until - serviceNow())
 export function holdNotice(hold: Hold, signal: AbortSignal): HTMLElement {
   const line = el("span", {})
   const notice = el("div", { class: "left mt-14" }, alertBox("warn", "clock", "Too many attempts", line))
-  waitOut(line, secondsLeft(hold), (left) => `${hold.lead}Try again in ${left}.`, () => undefined, signal)
+  waitOut(line, secondsLeft(hold), (left) => hold.lead ? `${hold.lead}try again in ${left}.` : `Try again in ${left}.`, () => undefined, signal)
   return notice
 }

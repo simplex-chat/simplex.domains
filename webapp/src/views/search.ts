@@ -5,11 +5,11 @@ import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
 import { btn, el, icon, type Kid, line, link, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
-import { dollars, letters } from "../format.ts"
+import { dateOf, dollars, letters } from "../format.ts"
 import { codesOnly } from "../mode.ts"
-import { foldLabel, MAX_LABEL_LENGTH } from "../names.ts"
-import type { Hold } from "../screens/hold.ts"
-import { againLine, ranOut } from "../screens/names.ts"
+import { foldLabel, MAX_LABEL_LENGTH, MIN_LABEL_LENGTH } from "../names.ts"
+import { type Hold, LIMITED_LEAD } from "../screens/hold.ts"
+import { ranOut, registrableAgain } from "../screens/names.ts"
 import { checkoutUrl, CODE_URL } from "../screens/routes.ts"
 import {
   type Answer, codeCover, coverOf, initialSearch, type Opening, reduce, returnedTo, screenOf, searchDue, type SearchEvent,
@@ -19,13 +19,12 @@ import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRedraw, isRoute, kept, keptLive, SIMPLEX_SUPPORT, throughHistory } from "./shell.ts"
 import { chatButton } from "./chats.ts"
-import { CODES_ONLY_LINE } from "./codes.ts"
+import { CODES_ONLY_LINE, useCodeFor } from "./codes.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
 import { NO_ORDERS, rowName } from "./terms.ts"
 
 // word joiners keep "a–z" and "0–9" whole: a line may otherwise break after their dash
 const RANGES = "a\u2060–\u2060z, 0\u2060–\u20609"
-const RULE = `A name has 6 letters or more: ${RANGES} and single hyphens between them.`
 
 // the landing's words (simplex.domains index.html:287-288)
 const HEADLINE = "Your SimpleX domain"
@@ -105,14 +104,14 @@ async function runSearch(label: string, seq: number): Promise<void> {
     return dispatch({ type: "unanswered", seq })
   }
   if (!awaited()) return
-  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer), now: api.serviceNow() })
+  dispatch({ type: "answered", seq, label, answer, mine: ownRecord(hash, answer) !== undefined, now: api.serviceNow() })
   if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 
-function mineFor(hash: string, { found }: api.SearchAnswer): boolean {
-  if (found.type !== "registered") return false
+function ownRecord(hash: string, { found }: api.SearchAnswer): store.OrderRecord | undefined {
+  if (found.type !== "registered") return undefined
   const owner = found.owner.toLowerCase()
-  return store.orders().some((o) => o.request.labelHash === hash && o.owner.toLowerCase() === owner)
+  return store.orders().find((o) => o.request.labelHash === hash && o.owner.toLowerCase() === owner)
 }
 
 // the reads of this browser's orders for the name last answered available, which Register waits for
@@ -267,8 +266,8 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
   if (s.paused && s.hold) return pauseLine(s.hold, signal)
   const answer = s.answer
   if (answer?.kind === "rule") return ruleLine(answer)
-  if (answer?.kind === "uncovered") return line("bad", "alert", `${letters(answer.label.length)}. Your code covers names of ${answer.minLength} or more letters.`)
-  if (answer?.kind === "unchecked") return line("warn", "alert", "This name could not be checked. ", link("Try again", retry))
+  if (answer?.kind === "uncovered") return line("bad", "alert", `${letters(answer.label.length)}. ${useCodeFor(answer.minLength)}.`)
+  if (answer?.kind === "unchecked") return line("warn", "alert", "The name could not be checked now. ", link("Try again", retry))
   if (answer?.kind !== "found") return answer?.kind === "checking" ? line("", "clock", "Checking the name…") : null
   const available = flow.availableOf(answer.answer)
   if (available) return availableAnswer(s, answer.label, available, signal)
@@ -285,14 +284,15 @@ function reservedAnswer(label: string, answer: api.SearchAnswer): Kid[] {
 }
 
 function ruleLine({ label, problem }: Extract<Answer, { kind: "rule" }>): HTMLElement {
-  const text = problem === "short" ? `${letters(label.length)}. ${RULE}` : problem === "long" ? `${letters(label.length)}. A name has at most ${MAX_LABEL_LENGTH}.` : `Use only ${RANGES} and single hyphens between them.`
+  const text = problem === "short" ? `${letters(label.length)}. Please use ${MIN_LABEL_LENGTH} letters or more.`
+    : problem === "long" ? `${letters(label.length)}. Please use ${MAX_LABEL_LENGTH} letters or fewer.` : `Please use only ${RANGES} and single hyphens between them.`
   return line("bad", "alert", text)
 }
 
 function pauseLine(hold: Hold, signal: AbortSignal): HTMLElement {
   const count = el("span", {})
   const node = el("p", { class: "line warn" }, icon("clock"), count)
-  waitOut(count, secondsLeft(hold), (left) => `Searching is paused: try again in ${left}.`, () => undefined, signal)
+  waitOut(count, secondsLeft(hold), (left) => `${LIMITED_LEAD}try again in ${left}.`, () => undefined, signal)
   return node
 }
 
@@ -318,11 +318,10 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
   return [
     el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
-    !free && short ? el("p", { class: "hint" }, `Your code allows you to register a free name of ${short.minLength} or more letters. `,
-      el("span", { class: "nowrap" }, `This name has ${label.length}.`)) : null,
+    !free && short ? el("p", { class: "hint" }, `${letters(label.length)}. ${useCodeFor(short.minLength)}.`) : null,
     unpaid ? el("p", { class: "hint" }, `Your payment covers names at ${dollars(unpaid.paid)} for ${unpaid.years} years.`) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
-    orderable ? null : line("warn", "alert", `${NO_ORDERS}. Try again later.`),
+    orderable ? null : line("warn", "alert", `${NO_ORDERS}. Please try again later.`),
     own || !s.hold ? null : holdNotice(s.hold, signal),
   ]
 }
@@ -333,9 +332,13 @@ function takenAnswer(s: SearchState, found: Found, answer: api.SearchAnswer): Ki
   const registered = answer.found.type === "registered" ? answer.found : null
   // there are no renewals, so a name of ours past its expiry is over here, though the chain keeps it ours in its grace period
   const expiresAt = registered?.expiresAt ?? null
-  const lapsed = mine && expiresAt !== null && expiresAt < found.now / 1000 ? `${ranOut(expiresAt)} ${againLine(expiresAt, answer, found.now)}` : null
+  const again = mine && expiresAt !== null && expiresAt < found.now / 1000 ? registrableAgain(expiresAt, answer, found.now) : null
+  const order = again?.when === "taken" ? ownRecord(hex(labelHash(label)), answer) : undefined
+  const lapsed = again === null || expiresAt === null ? null : again.when === "from"
+    ? `Expired: ${dateOf(expiresAt)}. Anybody can register it from ${dateOf(again.at)}.`
+    : [`${ranOut(expiresAt)} `, order && el("a", { href: store.orderUrl(order) }, "Open your order")]
   const own = answer.found.type === "taken" ? s.ownOrder : null
-  const whose = own ? null : mine ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
+  const whose = own ? null : mine && again?.when !== "taken" ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
     : el("span", { class: "soft" }, "Taken")
   const { tld } = readSite()
   const name = `${label}.${tld}`
