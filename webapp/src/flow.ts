@@ -79,7 +79,7 @@ export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
   const duration = durationFor(draft.years, SITE.termStart, timestamp)
   const r = registrationOf(draft.label, wallet.address, commitmentSecret(wallet.seed, draft.label), draft.links, duration)
   const commitment = makeCommitment(r)
-  const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links, method: draft.method })
+  const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links, method: draft.method, terms: draft.terms })
   const owner = checksumAddress(wallet.address)
   const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(commitment), sealed, terms: draft.terms }
   const toSign = await api.signFor(order.labelHash, owner)
@@ -145,15 +145,15 @@ export async function selectName(record: store.OrderRecord, draft: Draft, built:
 
 type RestoreResult = { record: store.OrderRecord; view: api.RegistrationView }
 
-// The order's name and links, and the payment it asked for once that is sealed too, unsealed with the code, after checking
-// that they rebuild the order's commitment.
+// The order's name and links, and the payment and terms it agreed to once those are sealed too, unsealed with the code, after
+// checking that they rebuild the order's commitment; an order sealed before its terms were takes the view's.
 async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pick<store.OrderRecord, "label" | "contact" | "channel" | "request" | "terms"> & Partial<Pick<store.OrderRecord, "method">>> {
   const opened = await unseal(wallet.seed, view.sealed)
   if (!opened) throw new Error("the code does not open this order")
   const r = registrationOf(opened.label, wallet.address, commitmentSecret(wallet.seed, opened.label), opened, BigInt(view.duration))
   if (hex(makeCommitment(r)) !== view.commitment) throw new Error("the order's commitment does not match the code")
   const request = { labelHash: hex(labelHash(opened.label)), length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
-  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms), ...opened.method ? { method: opened.method } : {} }
+  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: opened.terms ?? api.signedTermsOf(view.terms), ...opened.method ? { method: opened.method } : {} }
 }
 
 // A name selected for the order elsewhere (another browser, or a selection whose answer was lost) is read back from the
