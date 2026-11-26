@@ -45,7 +45,7 @@ const general = { link: generalLink, hash: generalHash }
 const community = { link: communityLink, hash: communityHash }
 
 const priced = (list: readonly PriceException[]) => JSON.stringify([...list].sort((a, b) => a.labelLength - b.labelLength))
-const heldTerms = (held: Deployment["generalTerms"], terms: { link: string; hash: Hex }) =>
+const chainTermsHeld = (held: Deployment["generalTerms"], terms: { link: string; hash: Hex }) =>
   keccak256(toHex(terms.link)) === terms.hash && held.some((t) => t.link === terms.link && t.hash.toLowerCase() === terms.hash.toLowerCase())
 
 const checks: [string, unknown, unknown][] = [
@@ -56,8 +56,8 @@ const checks: [string, unknown, unknown][] = [
   ["TLD", tldSuffix, `.${MAINNET.tld}`],
   ["base price", base, BigInt(MAINNET.priceBaseCentsPerYear)],
   ["price exceptions", priced(exceptions.map((e) => ({ labelLength: Number(e.labelLength), centsPerYear: Number(e.priceCentsPerYear) }))), priced(MAINNET.priceExceptions)],
-  [`general terms ${general.link} ${general.hash}`, heldTerms(MAINNET.generalTerms, general), true],
-  [`community terms ${community.link} ${community.hash}`, heldTerms(MAINNET.communityTerms, community), true],
+  [`general terms ${general.link} ${general.hash}`, chainTermsHeld(MAINNET.generalTerms, general), true],
+  [`community terms ${community.link} ${community.hash}`, chainTermsHeld(MAINNET.communityTerms, community), true],
 ]
 const differs = checks.filter(([, chain, held]) => chain !== held)
 for (const [what, chain, held] of differs) console.error(`${what}: the chain has ${String(chain)}, MAINNET ${String(held)}`)

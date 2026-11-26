@@ -18,7 +18,7 @@ interface StripeElements {
 }
 interface PaymentIntent { id: string; amount: number; currency: string; livemode: boolean; payment_method_types: string[]; status?: string }
 interface StripeInstance {
-  retrievePaymentIntent(clientSecret: string): Promise<{ paymentIntent?: PaymentIntent; error?: unknown }>
+  retrievePaymentIntent(clientSecret: string): Promise<{ paymentIntent?: PaymentIntent; error?: { type?: string } }>
   elements(options: { clientSecret: string; appearance: Appearance }): StripeElements
   confirmPayment(options: { elements: StripeElements; confirmParams: { return_url: string }; redirect: "if_required" }): Promise<{ paymentIntent?: { id?: string; status?: string }; error?: { type?: string; message?: string } }>
 }
@@ -129,7 +129,7 @@ export async function mountCard(key: string, clientSecret: string, expected: Exp
     if (!stripe) return null
     const sdk = stripe(key)
     const read = await Promise.race([sdk.retrievePaymentIntent(clientSecret), late])
-    if (!read) return null
+    if (!read || (read.error && read.error.type !== "invalid_request_error")) return null
     if (!intentHeld(read.paymentIntent, expected)) return MISMATCHED
     const elements = sdk.elements({ clientSecret, appearance: appearance(theme.dark()) })
     unwatch = theme.watch((dark) => elements.update({ appearance: appearance(dark) }))

@@ -220,7 +220,7 @@ describe("service errors", () => {
   })
 
   const TERMS = LOCAL.generalTerms[0]
-  const GROUP ={ kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
+  const GROUP = { kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
   const channelPreview = (profile: Record<string, unknown> = GROUP) => ({ kind: "channel", profile: { type: "ok", linkProfile: profile } })
   const PREVIEW = channelPreview()
   // the profile as the page draws it

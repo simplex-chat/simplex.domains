@@ -313,7 +313,7 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const cover = s.order && codeCover(s.order)
   const own = s.ownOrder
   const free = freeBy(s, label)
-  const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
+  const paid = s.order && !cover && s.order.paid === heldPrice(label.length) ? s.order : null
   const unpaid = s.order && !free && !paid ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
   const orderable = orderableBy(s, label, answer)

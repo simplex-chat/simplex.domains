@@ -8,7 +8,7 @@ const EXPECTED: Expected = { amount: 10000, currency: "usd", live: false }
 const INTENT = { id: "pi_1", amount: 10000, currency: "usd", livemode: false, payment_method_types: ["card"] }
 
 // A Stripe.js whose form loads, or reports `loaderror`, once mounted; it records each appearance the elements are given.
-function fakeStripe(loads: boolean, intent: Record<string, unknown> | null = INTENT) {
+function fakeStripe(loads: boolean, intent: Record<string, unknown> | null = INTENT, error = "invalid_request_error") {
   const seen = { created: [] as Appearance[], updates: [] as Appearance[], mounts: 0, destroyed: 0 }
   const element = {
     mount: () => { seen.mounts++ },
@@ -16,7 +16,7 @@ function fakeStripe(loads: boolean, intent: Record<string, unknown> | null = INT
     destroy: () => { seen.destroyed++ },
   }
   const Stripe = () => ({
-    retrievePaymentIntent: async () => intent ? { paymentIntent: intent } : { error: { type: "invalid_request_error" } },
+    retrievePaymentIntent: async () => intent ? { paymentIntent: intent } : { error: { type: error } },
     elements: ({ appearance }: { appearance: Appearance }) => {
       seen.created.push(appearance)
       return { create: () => element, update: ({ appearance: next }: { appearance: Appearance }) => { seen.updates.push(next) } }
@@ -110,6 +110,12 @@ describe("the card form's PaymentIntent", () => {
   it("of another Stripe account, which the key cannot read, leaves the form unmounted, as mismatched", async () => {
     stripe = fakeStripe(true, null)
     expect(await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, pageTheme(false).theme)).toBe(MISMATCHED)
+    expect(stripe.seen.mounts).toBe(0)
+  })
+
+  it.each(["api_connection_error", "rate_limit_error", "api_error"])("that Stripe could not read now, %s, leaves the form unloaded, not mismatched", async (error) => {
+    stripe = fakeStripe(true, null, error)
+    expect(await mountCard("pk_test", "pi_secret", EXPECTED, TARGET, pageTheme(false).theme)).toBeNull()
     expect(stripe.seen.mounts).toBe(0)
   })
 
