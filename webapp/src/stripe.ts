@@ -100,7 +100,7 @@ export interface Theme {
 }
 
 export type ToCard =
-  | { type: "mount"; clientSecret: string; amount: number; currency: string; dark: boolean }
+  | { type: "mount"; clientSecret: string; amount: number; dark: boolean }
   | { type: "theme"; dark: boolean }
   | { type: "confirm" }
 export type FromCard =

@@ -53,7 +53,7 @@ export function mountCardFrame(clientSecret: string, amount: number, target: HTM
       resolve(result)
     }
     addEventListener("message", onMessage)
-    frame.addEventListener("load", () => post({ type: "mount", clientSecret, amount, currency: SITE.currency, dark: theme.dark() }), { once: true })
+    frame.addEventListener("load", () => post({ type: "mount", clientSecret, amount, dark: theme.dark() }), { once: true })
     unwatch = theme.watch((dark) => post({ type: "theme", dark }))
     target.append(frame)
   })

@@ -13,7 +13,7 @@ async function framedElsewhere(page: Page, browserName: string): Promise<void> {
   await page.goto(`${OTHER_ORIGIN}/`)
   const frame = page.frames().find((f) => f.url().startsWith(LOCAL.cardOrigin))!
   await frame.waitForLoadState()
-  await page.evaluate((card) => document.querySelector("iframe")!.contentWindow!.postMessage({ type: "mount", clientSecret: "pi_x_secret_y", amount: 10000, currency: "usd", dark: false }, card), LOCAL.cardOrigin)
+  await page.evaluate((card) => document.querySelector("iframe")!.contentWindow!.postMessage({ type: "mount", clientSecret: "pi_x_secret_y", amount: 10000, dark: false }, card), LOCAL.cardOrigin)
 }
 
 test("the card page takes a mount only from the names page's origin", async ({ page, browserName }) => {
@@ -39,17 +39,20 @@ test("a PaymentIntent of another amount than the invoice's is not mounted, and t
   expect(mounts).toEqual([])
 })
 
-test("a paid message from another origin, or from the names page itself, is ignored, and the card page's own paid moves the order on", async ({ page }) => {
+test("a message from another origin, or from the names page itself, is ignored, and the card page's own paid moves the order on", async ({ page }) => {
   test.skip(!!process.env.BASE_URL, "frames another origin, which the built page's policy refuses")
   await startOrder(page, uniqueLabel("paidmsg"), { method: "card" })
   await expect(cardFrame(page).locator(".stand-in")).toBeVisible()
-  await page.route(`${OTHER_ORIGIN}/**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><script>parent.postMessage({ type: \"paid\", id: \"pi_forged\" }, \"*\")</script>" }))
+  const forged = "parent.postMessage({ type: \"paid\", id: \"pi_forged\" }, \"*\"); parent.postMessage({ type: \"height\", px: 4321 }, \"*\")"
+  await page.route(`${OTHER_ORIGIN}/**`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><script>${forged}</script>` }))
   await page.evaluate((other) => {
     document.body.append(Object.assign(document.createElement("iframe"), { src: `${other}/` }))
     postMessage({ type: "paid", id: "pi_forged" }, "*")
+    postMessage({ type: "height", px: 4321 }, "*")
   }, OTHER_ORIGIN)
   await page.waitForTimeout(SETTLE_MS)
   await expect(onStep(page).getByRole("heading", { name: "Pay by card" })).toBeVisible()
+  expect(await page.locator("iframe.card-frame").evaluate((f) => (f as HTMLElement).style.height), "the frame's height from the card page alone").not.toBe("4321px")
   await (await cardFrameOf(page)).evaluate(() => parent.postMessage({ type: "paid", id: "pi_forged" }, "*"))
   await page.waitForTimeout(SETTLE_MS)
   await expect(onStep(page).getByRole("heading", { name: "Pay by card" }), "a paid the page did not ask for").toBeVisible()
