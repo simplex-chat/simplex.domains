@@ -189,14 +189,15 @@ describe("quoteOf", () => {
 describe("revealOrder", () => {
   const general = { ...GENERAL, nonce: 0 }
 
-  it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("sends the label, secret and links with a RegisterName signature from the code's key over the dispute days of a %s payment, %i, a week ahead of the service's clock", async (method, days) => {
+  it.each([["card", 120], ["btc", 14], ["xmr", 14], ["code", 14]] as const)("sends the label, secret and links with a RegisterName signature from the code's key over the dispute days of a %s payment, %i, a week ahead of the service's clock, and the order request signed by that key", async (method, days) => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     const record = flow.recordFor(draft(), built, method, 20000, { registrationId: "reg1", invoiceId: method === "code" ? null : "inv1" })
     answers["POST /api/registration/reg1/reveal"] = {}
     await flow.revealOrder(view(built.request, { acceptance: general }), record, record.terms)
-    const body = calls[0].body as SentReveal
+    const body = calls[0].body as SentReveal & { request: { timestamp: number; signature: Hex } }
     expect(body).toMatchObject({ label: "dynamis", secret: hex(commitmentSecret(WALLET.seed, "dynamis")), records: { contact: LINKS.contact, channel: null }, nonce: 3 })
+    expect(await recoverMessageAddress({ message: `simplex.domains order reg1 reveal ${body.request.timestamp}`, signature: body.request.signature }), "the order request's signature").toBe(OWNER)
     expect(Math.abs(body.deadline - (Date.now() / 1000 + 7 * 86400)), "the deadline's distance from a week ahead").toBeLessThan(2)
     expect(await revealSigner(body, built.request.duration, days)).toBe(OWNER)
   })

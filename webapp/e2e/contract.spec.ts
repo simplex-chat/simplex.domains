@@ -36,7 +36,7 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
 
 const ownerCodes = new Map<string, string>()
 const orderOwners = new Map<string, string>()
-const ORDER_ROUTE = /^\/api\/(invoice|registration)\/([^/?]+)(?:\/(cancel|retry))?(?:\?|$)/
+const ORDER_ROUTE = /^\/api\/(invoice|registration)\/([^/?]+)(?:\/(cancel|retry|reveal))?(?:\?|$)/
 
 function noteOrders(json: Json, body: unknown): void {
   const sent = (body as { order?: { owner?: unknown } } | undefined)?.order?.owner
@@ -53,7 +53,8 @@ function signed(method: string, path: string, body: unknown): { path: string; bo
   const code = m && m[2] !== "find" ? ownerCodes.get(orderOwners.get(m[2]) ?? "") ?? kept?.ownerCode : undefined
   if (!m || !code) return { path, body }
   const proof = flow.orderSigner({ ownerCode: code })(m[2], (m[3] ?? "read") as api.OrderAction)
-  return method === "GET" ? { path: `${path}${path.includes("?") ? "&" : "?"}timestamp=${proof.timestamp}&signature=${proof.signature}`, body } : { path, body: { ...body as Json, ...proof } }
+  if (method === "GET") return { path: `${path}${path.includes("?") ? "&" : "?"}timestamp=${proof.timestamp}&signature=${proof.signature}`, body }
+  return { path, body: m[3] === "reveal" ? { ...body as Json, request: proof } : { ...body as Json, ...proof } }
 }
 
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: Json }> {
@@ -159,7 +160,7 @@ function withAcceptance(view: api.RegistrationView, acceptance: api.Acceptance):
   return { ...view, phase: { ...committed, signature: { type: "awaiting", toSign: { ...toSign, acceptance } } } }
 }
 
-async function unacceptedReveal(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
+async function revealBodyOf(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
   const sending = globalThis.fetch
   let body: Json = {}
   globalThis.fetch = async (_, init) => {
@@ -171,6 +172,11 @@ async function unacceptedReveal(view: api.RegistrationView, record: store.OrderR
   } finally {
     globalThis.fetch = sending
   }
+  return body
+}
+
+async function unacceptedReveal(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
+  const body = await revealBodyOf(view, record)
   delete body.acceptance
   return body
 }
@@ -1027,6 +1033,23 @@ test("a reveal signed over other dispute days than its order's payment's is not_
   const view = await signAgain(request, id)
   await expect(flow.revealOrder(view, recordAs("card"), draft.terms), "a card's days for a code order").rejects.toMatchObject({ code: "not_found" })
   await flow.revealOrder(view, recordAs("code"), draft.terms)
+  await untilPhase(id, ["registered"])
+})
+
+test("a reveal without its order request signed by the order's name key, or by another key, is not_found, one signed too long ago bad_request, and the signed one registers the name", async ({ request }) => {
+  const { draft, built, id } = await codeOrder(request, uniqueLabel("rq"))
+  const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+  const view = await signAgain(request, id)
+  const unsigned = await revealBodyOf(view, record)
+  delete unsigned.request
+  const path = `/api/registration/${id}/reveal`
+  expect((await send("POST", path, unsigned)).status, "unsigned").toBe(404)
+  const other = flow.orderSigner({ ownerCode: flow.newOwnerCode() })(id, "reveal")
+  expect((await send("POST", path, { ...unsigned, request: other })).status, "another key").toBe(404)
+  const old = Math.floor(Date.now() / 1000) - 2 * SIGNED_WINDOW_S
+  const stale = { timestamp: old, signature: hex(signDigest(flow.walletOf(draft.ownerCode)!.privateKey, personalDigest(`simplex.domains order ${id} reveal ${old}`))) }
+  expect((await send("POST", path, { ...unsigned, request: stale })).status, "signed too long ago").toBe(400)
+  await flow.revealOrder(view, record, draft.terms)
   await untilPhase(id, ["registered"])
 })
 

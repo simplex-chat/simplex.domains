@@ -766,7 +766,7 @@ const notFound = () => {
   return new HttpError(404, "not_found")
 }
 
-async function requester(id: string, action: "read" | "cancel" | "retry", { timestamp, signature }: OrderProof): Promise<Address> {
+async function requester(id: string, action: "read" | "cancel" | "retry" | "reveal", { timestamp, signature }: OrderProof): Promise<Address> {
   if (!Number.isInteger(timestamp)) throw notFound()
   freshTimestamp(timestamp)
   if (typeof signature !== "string" || !isHex(signature)) throw notFound()
@@ -1170,8 +1170,10 @@ async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const shape = revealShape(body)
+  const requested = await requester(registrationId, "reveal", typeof body.request === "object" && body.request !== null ? body.request as OrderProof : {})
   const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
+  if (!reg || reg.owner !== requested) throw notFound()
+  orderRequests.signed += 1
   const { signer } = await revealSigned(reg, shape)
   if (signer !== reg.owner) throw new HttpError(404, "not_found")
   const { signature } = shape

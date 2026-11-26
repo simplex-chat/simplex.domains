@@ -531,7 +531,7 @@ export const registerWithCode = (order: SignedOrder, code: string) =>
 export type ToSignRead = Extract<ToSign, { type: "read" }>
 export const signFor = (labelHash: string, owner: string) =>
   checked<ToSignRead>(call("GET", `/api/name/${labelHash}/sign?owner=${owner}`), (a) => a.type === "read" && isToSign(a))
-export type OrderAction = "read" | "cancel" | "retry"
+export type OrderAction = "read" | "cancel" | "retry" | "reveal"
 export interface OrderProof { timestamp: number; signature: string }
 export type OrderSigner = (id: string, action: OrderAction) => OrderProof
 
@@ -565,8 +565,8 @@ export function readRegistration(registrationId: string, sign: OrderSigner, seen
     undefined, signal, held ? null : REQUEST_TIMEOUT_MS), isRegistration))
 }
 
-export const reveal = (registrationId: string, body: RevealBody) =>
-  call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, body)
+export const reveal = (registrationId: string, body: RevealBody, sign: OrderSigner) =>
+  signedOnce(() => call<Record<string, never>>("POST", `/api/registration/${encodeURIComponent(registrationId)}/reveal`, { ...body, request: sign(registrationId, "reveal") }))
 export const selectName = (registrationId: string, body: Omit<SignedOrder, "owner">) =>
   checked<RegistrationView>(pricing(body.length, signingTerms(call("POST", `/api/registration/${encodeURIComponent(registrationId)}/name`, { ...signedFields(body), reveal: body.reveal }))), isRegistration)
 export const retry = (registrationId: string, sign: OrderSigner) =>

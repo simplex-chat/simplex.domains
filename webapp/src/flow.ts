@@ -123,7 +123,7 @@ export function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | 
 export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord, agreed: string | undefined): Promise<void> {
   const toSign = api.toSignOf(view)
   if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
-  await api.reveal(view.id, revealFor(record, view, toSign, agreed))
+  await api.reveal(view.id, revealFor(record, view, toSign, agreed), orderSigner(record))
 }
 
 async function sha256Hex(text: string): Promise<string> {

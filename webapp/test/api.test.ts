@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retry, retryDelay, searchName, seenOf, selectName, TermsChanged,
+  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retry, retryDelay, reveal, searchName, seenOf, selectName, TermsChanged,
   communityAgreed, type OrderSigner, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
 import { LOCAL } from "../src/config.ts"
@@ -414,6 +414,18 @@ describe("service errors", () => {
     await cancelInvoice("inv1", SIGN)
     await retry("r1", SIGN)
     expect(bodies).toEqual([{ timestamp: 7, signature: "0xinv1cancel" }, { timestamp: 7, signature: "0xinv1cancel" }, { timestamp: 7, signature: "0xr1retry" }])
+  })
+
+  it("signs a reveal's order request beside its fields, and signs once more when a refused timestamp set the clock", async () => {
+    const bodies: unknown[] = []
+    const answers = [new Response(JSON.stringify({ type: "bad_request" }), { status: 400, headers: { date: new Date(Date.now() + 3_600_000).toUTCString() } }),
+      new Response("{}", { status: 200 })]
+    vi.stubGlobal("fetch", vi.fn(async (_: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string))
+      return answers.shift()!
+    }))
+    await reveal("r1", REVEAL, SIGN)
+    expect(bodies).toEqual([{ ...REVEAL, request: { timestamp: 7, signature: "0xr1reveal" } }, { ...REVEAL, request: { timestamp: 7, signature: "0xr1reveal" } }])
   })
 
   it("takes a link preview whose image is no image the page can show as no answer, and an image the service dropped as none", async () => {

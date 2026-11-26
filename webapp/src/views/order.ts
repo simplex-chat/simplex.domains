@@ -1205,7 +1205,7 @@ async function continueOrder(): Promise<void> {
     const toSign = await api.signFor(record.request.labelHash, record.owner)
     const agreed = await continuedTerms(gen, record, toSign.acceptance)
     if (agreed === null) return
-    await api.reveal(view.id, flow.revealFor(record, view, toSign, agreed))
+    await api.reveal(view.id, flow.revealFor(record, view, toSign, agreed), flow.orderSigner(record))
     keepAgreed(record, agreed)
     reread(gen)
   } catch (e) {
