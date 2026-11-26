@@ -426,7 +426,7 @@ function watchName(s: OrderState): void {
   const invoiceId = s.invoice!.invoiceId
   if (nameWatch?.invoiceId === invoiceId) return
   stopWatchingName()
-  const { labelHash } = s.view!
+  const labelHash = s.record?.request.labelHash ?? s.view!.labelHash
   const { length } = labelOf(s.view!, s.record)!
   const watch: NonNullable<typeof nameWatch> = { invoiceId }
   nameWatch = watch
@@ -675,7 +675,7 @@ const partlyPaid = (invoice: api.InvoiceView) => Number(invoice.cryptoAmountPaid
 function buildClosed(s: OrderState, signal: AbortSignal): HTMLElement {
   const inv = s.invoice!
   const closed = closedCase(s)!
-  if (closed === "reversed") return outcome({ tone: "info", icon: "alert", title: CLOSED_TITLE, text: "The payment for this order was reversed, so the order is cancelled.", reference: inv.invoiceId,
+  if (closed === "reversed") return outcome({ tone: "info", icon: "alert", title: CLOSED_TITLE, text: "The payment for this order was reversed, so the order is cancelled.", reference: inv.invoiceId, proof: proofOf(s),
     action: btn("Search a name", "quiet", () => go(searchLink(""))) })
   const [tone, text] = closedWords(closed, inv, s.view!)
   const kept = closedBalance(s)
