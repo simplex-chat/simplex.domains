@@ -89,7 +89,7 @@ test("each mode's home is drawn from its first frame, never the other mode's fir
   }
 })
 
-codesTest("a load asks the service's mode once, as the preload's answer is the one the page reads", async ({ page, request, browserName }) => {
+codesTest("a load asks the service's config once, as the preload's answer is the one the page reads", async ({ page, request, browserName }) => {
   test.skip(browserName === "webkit", "WebKit asks the service again rather than hand the preloaded answer to the page")
   await setMode(request, "codes")
   const asked: string[] = []

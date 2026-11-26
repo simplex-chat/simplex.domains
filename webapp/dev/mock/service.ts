@@ -858,8 +858,8 @@ const stateOf = (row: PrepaidCode) => row.registrationId !== null && row.state =
 const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code_used", reserved: "code_reserved", expired: "code_expired", unpaid: "payment_pending", revoked: "code_invalid" }
 
 export async function registerWithCode(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  if (typeof body.code !== "string") throw badRequest()
   refuseInDowntime()
+  if (typeof body.code !== "string") throw badRequest()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
   const { hash, row } = prepaidOf(body.code)

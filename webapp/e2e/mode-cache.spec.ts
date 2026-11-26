@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net"
 import { extname, join, normalize } from "node:path"
 import { loads } from "./helpers.ts"
 
-// The production build, which has the worker, served by this spec as the store service serves it.
+// The production build, which has the worker, served by this spec with the caching headers of the host before GitHub Pages.
 test.skip(!process.env.BASE_URL, "needs the production build in dist/, which runs with BASE_URL")
 
 const DIST = new URL("../dist/", import.meta.url).pathname

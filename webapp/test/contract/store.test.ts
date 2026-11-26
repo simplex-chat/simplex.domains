@@ -230,6 +230,10 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
     expect(await api.readInvoice(made.invoiceId, SIGN)).toEqual(made)
   })
 
+  it("reads a name invoice refused in the service's downtime as downtime", async () => {
+    expect((await refusal("invoice-downtime", () => api.createOrder(order, "btc", 10000))).code).toBe("downtime")
+  })
+
   it.each(["registration-registered", "registration-registered-no-dispute"])("reads %s, with or without a dispute end, as registered until its expiry", async (name) => {
     answering(name)
     expect((await api.readRegistration("registration", SIGN)).phase).toMatchObject({ type: "registered", expiresAt: expect.any(Number) })
