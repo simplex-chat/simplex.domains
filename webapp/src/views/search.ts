@@ -319,7 +319,7 @@ function availableAnswer(s: SearchState, label: string, answer: flow.Available, 
   const orderable = orderableBy(s, label, answer)
   const button = s.downtime ? null : setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable || unpaid !== null)
   if (button) button.dataset.focus = "register"
-  const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
+  const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(heldPrice(label.length))),
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
   return [
     el("div", { class: "card row buy" }, rowName(label, SITE.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),

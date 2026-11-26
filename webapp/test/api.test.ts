@@ -315,6 +315,7 @@ describe("service errors", () => {
       {}, { ...INVOICE, registration: undefined }, { ...INVOICE, registration: { ...REGISTRATION, phase: { type: "lost" } } }, { ...INVOICE, status: "weird" },
       { ...INVOICE, amount: "lots" }, { ...INVOICE, amount: -1 }, { ...INVOICE, cryptoAmount: "a lot" }, { ...INVOICE, registration: { ...REGISTRATION, years: 0 } },
       { ...INVOICE, registration: { ...REGISTRATION, version: "4" } }, { ...INVOICE, registration: { ...REGISTRATION, phase: "unpaid" } },
+      { ...INVOICE, cryptoCurrency: undefined, address: undefined, clientSecret: 42 },
     ]) {
       answerWith(200, JSON.stringify(body))
       const e = await readInvoice("inv1", SIGN).then(() => null, (e: unknown) => e)

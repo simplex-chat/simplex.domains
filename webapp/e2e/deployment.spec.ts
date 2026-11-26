@@ -1,5 +1,6 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test"
 import { heldPrice } from "../src/config.ts"
+import { dollars } from "../src/format.ts"
 import { REVEAL_ATTEMPTS } from "../src/screens/order.ts"
 import {
   control, MOCK, mockRegistration, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search, startOrder, test, toReview, uniqueLabel, useCode, waitRegistered,
@@ -26,10 +27,15 @@ async function notOrderable(page: Page, label: string): Promise<void> {
   await expect(onStep(page).getByRole("button", { name: "Register" })).toBeDisabled()
 }
 
-test("a name whose search answers a price below or above the one the page holds can't be ordered, unless a code registers it", async ({ page, request }) => {
+test("a name whose search answers a price below or above the one the page holds can't be ordered, and shows the held price, unless a code registers it", async ({ page, request }) => {
   const label = uniqueLabel("price")
   const held = heldPrice(label.length)
-  for (const price of [held - 5000, held + 5000]) await mismatched(request, { price }, () => notOrderable(page, label))
+  for (const price of [held - 5000, held + 5000]) {
+    await mismatched(request, { price }, async () => {
+      await notOrderable(page, label)
+      await expect(onStep(page).locator(".answer .price")).toHaveText(dollars(held))
+    })
+  }
   const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
   await useCode(page, code)
   await mismatched(request, { price: held + 5000 }, async () => {
