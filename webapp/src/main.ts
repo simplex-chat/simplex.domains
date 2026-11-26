@@ -26,46 +26,46 @@ function render(): void {
   }
 }
 
-const inOtherPage = window.top !== window.self
-if (inOtherPage) {
-  document.body.replaceChildren(el("p", { class: "own-tab" }, "This page opens only in its own tab. ", el("a", { href: location.href, target: "_blank", rel: "noopener" }, "Open it")))
-}
-setRenderer(render)
-// The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
-// Its listener is added before the await below, as Chromium fires load without waiting for a module's top-level await.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  addEventListener("load", () => {
-    // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
-    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
+async function start(): Promise<void> {
+  setRenderer(render)
+  // The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
+  // Its listener is added before the await below, as Chromium fires load without waiting for a module's top-level await.
+  if (import.meta.env.PROD && "serviceWorker" in navigator) {
+    addEventListener("load", () => {
+      // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
+      navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
+    })
+  }
+  const config = await readConfig()
+  setUpChrome()
+  window.addEventListener("popstate", (e) => {
+    if (historyMoved(e) && !reloadedForRoute()) render()
   })
-}
-const config = await readConfig()
-if (!inOtherPage) setUpChrome()
-window.addEventListener("popstate", (e) => {
-  if (historyMoved(e) && !reloadedForRoute()) render()
-})
-// The second click of a double click is dropped everywhere: an action that redraws the page or opens a popup puts
-// another control under the pointer, where it would land (a checkbox, a payment method, the popup's backdrop).
-document.addEventListener("click", (e) => {
-  if (e.detail <= 1) return
-  e.preventDefault()
-  e.stopImmediatePropagation()
-}, true)
-document.addEventListener("keydown", (e) => {
-  if (e.key !== " " || !(e.target instanceof Element) || !e.target.matches('a[role="button"]')) return
-  e.preventDefault()
-  if (!e.repeat) (e.target as HTMLElement).click()
-})
-// A link from /?order=… to /#/… would load a new document, dropping what this page holds in memory, so its views switch in place.
-document.addEventListener("click", (e) => {
-  const a = (e.target as Element | null)?.closest("a")
-  const href = a?.getAttribute("href")
-  if (!a || !href || a.target || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-  if (!/^\/(#|\?)/.test(href)) return
-  e.preventDefault()
-  go(href)
-})
-if (!inOtherPage) {
+  // The second click of a double click is dropped everywhere: an action that redraws the page or opens a popup puts
+  // another control under the pointer, where it would land (a checkbox, a payment method, the popup's backdrop).
+  document.addEventListener("click", (e) => {
+    if (e.detail <= 1) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+  }, true)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== " " || !(e.target instanceof Element) || !e.target.matches('a[role="button"]')) return
+    e.preventDefault()
+    if (!e.repeat) (e.target as HTMLElement).click()
+  })
+  // A link from /?order=… to /#/… would load a new document, dropping what this page holds in memory, so its views switch in place.
+  document.addEventListener("click", (e) => {
+    const a = (e.target as Element | null)?.closest("a")
+    const href = a?.getAttribute("href")
+    if (!a || !href || a.target || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    if (!/^\/(#|\?)/.test(href)) return
+    e.preventDefault()
+    go(href)
+  })
   followServedMode(config)
   render()
 }
+
+if (window.top !== window.self) {
+  document.body.replaceChildren(el("p", { class: "own-tab" }, "This page opens only in its own tab. ", el("a", { href: location.href, target: "_blank", rel: "noopener" }, "Open it")))
+} else await start()
