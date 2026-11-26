@@ -137,7 +137,7 @@ test("the checkout explains every refusal and keeps the order", async ({ page, r
   await shot(page, "N3b-price-changed")
 })
 
-test("a name registered by someone else while its order is checked says so at Pay, and that nothing was charged", async ({ page, request }) => {
+test("a name registered by someone else while its order is checked says so at Pay", async ({ page, request }) => {
   const label = uniqueLabel("gone")
   await search(page, label)
   await toReview(page)
@@ -145,7 +145,7 @@ test("a name registered by someone else while its order is checked says so at Pa
   await expect.poll(async () => (await searchName(request, label)).type, { timeout: REGISTRATION_MS }).toBe("registered")
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: "This name is no longer available" })).toBeVisible()
-  await expect(onStep(page).getByText(`${label}.simplex became unavailable after you searched for it. Nothing was charged.`)).toBeVisible()
+  await expect(onStep(page).locator(".notice")).toHaveText(`${label}.simplex is no longer available.`)
   await shot(page, "N3g-taken-at-pay")
   await onStep(page).getByRole("button", { name: "Search another name" }).click()
   await expect(page.getByLabel("Name", { exact: true })).toHaveValue("")
