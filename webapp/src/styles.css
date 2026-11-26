@@ -605,6 +605,7 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .row-code { flex-basis: 100%; display: grid; gap: 12px; }
 .row-code > .qr, .code-qr > .qr { justify-self: center; }
 .code-qr { display: grid; gap: 12px; }
+.name-address .mono { overflow-wrap: anywhere; }
 .danger-link { font-size: var(--fs-small); }
 /* Forget's question comes into view with room below it; its answers are an equal pair, side by side when each gets the
    220 px that holds "Forget everything" */
