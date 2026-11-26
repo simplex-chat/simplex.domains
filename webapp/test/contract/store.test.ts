@@ -222,11 +222,11 @@ describe.skipIf(!DIR)("the names page reads the service's recorded answers", () 
   })
 
   it("reads a name invoice for Bitcoin with its order's view, as made and as read again", async () => {
-    answering("invoice-view-btc")
+    answering("invoice-btc-open")
     const made = await api.createOrder(order, "btc", 10000)
     expect([made.status, made.cryptoCurrency, made.registration.phase]).toEqual(["open", "btc", { type: "unpaid" }])
     expect(Object.keys(made.registration).sort()).toEqual(VIEW_FIELDS)
-    answering("invoice-view-btc")
+    answering("invoice-btc-open")
     expect(await api.readInvoice(made.invoiceId, SIGN)).toEqual(made)
   })
 
