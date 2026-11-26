@@ -146,9 +146,9 @@ test("text that is not a link is refused under its field on the links step and i
   await expect(onStep(page).locator(".field-error")).toHaveText(NOT_A_LINK)
   await expect(onStep(page).getByRole("button", { name: "Continue" })).toBeDisabled()
   await expect(onStep(page).getByRole("button", { name: "Skip for now" })).toBeVisible()
-  for (const size of [LAPTOP]) {
+  for (const [size, lines] of [[LAPTOP, 1], [PHONE, 2]] as const) {
     await page.setViewportSize(size)
-    expect(await onStep(page).locator(".field-error").evaluate((e) => e.getClientRects().length === 1 && Math.round(e.getBoundingClientRect().height) <= 20), `one line at ${size.width}`).toBe(true)
+    expect(await onStep(page).locator(".field-error").evaluate((e, n) => e.getClientRects().length === 1 && e.getBoundingClientRect().height <= n * parseFloat(getComputedStyle(e).lineHeight) + 0.5, lines), `at most ${lines} lines at ${size.width}`).toBe(true)
   }
   await page.setViewportSize(LAPTOP)
   await registeredName(page, "reg-notlink", uniqueLabel("notlink"), { contact: "", channel: "" })
