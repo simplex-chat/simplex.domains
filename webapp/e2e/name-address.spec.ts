@@ -39,6 +39,8 @@ test("a registered name links Etherscan's page of the registrar's tokens its nam
   await control(request, `settle/${invoiceId}`)
   await waitRegistered(page, label)
   const href = `${LOCAL.explorer}/token/${LOCAL.baseRegistrar}?a=${addressOf(ownerCode)}`
+  await expect(explorer(page), "hidden with the code").toHaveCount(0)
+  await shownCode(page)
   await expect(explorer(page)).toHaveAttribute("href", href)
   await expect(onStep(page).locator(".explorer")).toHaveText("Open your names on Etherscan. Check that this name is listed. If it is not, contact support.")
   await page.goto("/#/names")
