@@ -63,9 +63,9 @@ const METHOD_TILES = [66, 72]
 
 // The screen in view fits the window at each size, its content above its actions' row, its methods' tiles at their
 // height and no name broken that fits its line whole; a step's heading and actions' row stand where every step's do,
-// which the caller compares; a screen that grows, as the name-is-yours screen of a long name, may reach past the window.
-// Captured for review when shots are asked for.
-async function fitsWindow(page: Page, name: string, frames?: Record<string, Frame[]>, grows = false): Promise<void> {
+// which the caller compares; a screen that grows on a phone, as the name-is-yours screen of a long name, may reach past
+// the phone's window. Captured for review when shots are asked for.
+async function fitsWindow(page: Page, name: string, frames?: Record<string, Frame[]>, growsOnPhone = false): Promise<void> {
   for (const [i, size] of FIT_SIZES.entries()) {
     await page.setViewportSize(size)
     const measured = async () => ({ broken: await brokenNames(page), ...await page.evaluate(([tile, mayGrow]) => {
@@ -85,7 +85,7 @@ async function fitsWindow(page: Page, name: string, frames?: Record<string, Fram
         split: split.map((n) => n.textContent),
         tiles: [...shown.querySelectorAll(".method")].map((m) => Math.round(m.getBoundingClientRect().height)).filter((h) => h !== tile),
       }
-    }, [METHOD_TILES[i], grows] as const) })
+    }, [METHOD_TILES[i], growsOnPhone && size === FIT_SIZES[1]] as const) })
     await expect.poll(measured, { message: `${name} at ${size.width}x${size.height}` }).toEqual({ broken: [], overflow: 0, overlap: 0, split: [], tiles: [] })
     if (frames) {
       const at = await page.evaluate(() => {
