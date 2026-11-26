@@ -104,11 +104,11 @@ async function runSearch(label: string, seq: number): Promise<void> {
     return dispatch({ type: "unanswered", seq })
   }
   if (!awaited()) return
-  dispatch({ type: "answered", seq, label, answer, mine: ownRecord(hash, answer) !== undefined, now: api.serviceNow() })
+  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer) !== undefined, now: api.serviceNow() })
   if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 
-function ownRecord(hash: string, { found }: api.SearchAnswer): store.OrderRecord | undefined {
+function mineFor(hash: string, { found }: api.SearchAnswer): store.OrderRecord | undefined {
   if (found.type !== "registered") return undefined
   const owner = found.owner.toLowerCase()
   return store.orders().find((o) => o.request.labelHash === hash && o.owner.toLowerCase() === owner)
@@ -333,7 +333,7 @@ function takenAnswer(s: SearchState, found: Found, answer: api.SearchAnswer): Ki
   // there are no renewals, so a name of ours past its expiry is over here, though the chain keeps it ours in its grace period
   const expiresAt = registered?.expiresAt ?? null
   const again = mine && expiresAt !== null && expiresAt < found.now / 1000 ? registrableAgain(expiresAt, answer, found.now) : null
-  const order = again?.when === "taken" ? ownRecord(hex(labelHash(label)), answer) : undefined
+  const order = again?.when === "taken" ? mineFor(hex(labelHash(label)), answer) : undefined
   const lapsed = again === null || expiresAt === null ? null : again.when === "from"
     ? `Expired: ${dateOf(expiresAt)}. Anybody can register it from ${dateOf(again.at)}.`
     : [`${ranOut(expiresAt)} `, order && el("a", { href: store.orderUrl(order) }, "Open your order")]
