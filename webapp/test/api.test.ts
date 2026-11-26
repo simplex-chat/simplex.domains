@@ -443,6 +443,18 @@ describe("service errors", () => {
     expect(bodies).toEqual([{ ...REVEAL, request: { timestamp: 7, signature: "0xr1reveal" } }, { ...REVEAL, request: { timestamp: 7, signature: "0xr1reveal" } }])
   })
 
+  it("sends a refused request of a device off by an hour once, when its answer's Date moved the clock by a second", async () => {
+    const at = (s: number) => ({ date: new Date(Date.now() + s * 1000).toUTCString() })
+    const answers = [new Response(JSON.stringify(REGISTRATION), { status: 200, headers: at(3600) }),
+      new Response(JSON.stringify({ type: "bad_request" }), { status: 400, headers: at(3601) })]
+    const fetched = vi.fn(async () => answers.shift()!)
+    vi.stubGlobal("fetch", fetched)
+    await retry("r1", SIGN)
+    const e = await reveal("r1", REVEAL, SIGN).then(() => null, (e: unknown) => e)
+    expect((e as ApiError).code).toBe("bad_request")
+    expect(fetched).toHaveBeenCalledTimes(2)
+  })
+
   it("takes a link preview whose image is no image the page can show as no answer, and an image the service dropped as none", async () => {
     answerWith(200, JSON.stringify(channelPreview({ ...GROUP, image: "data:image/png;base64,iVBORw0KGgo=" })))
     expect(await previewLink("x")).toMatchObject({ displayName: "Alice", kind: "channel", subscribers: 12, image: "data:image/png;base64,iVBORw0KGgo=" })

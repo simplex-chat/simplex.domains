@@ -344,7 +344,7 @@ export const LIMITED_WAIT_S = 30
 // The service's times are read against its clock, which each answer's Date header gives to the second; a device off by less than this is taken as right.
 const CLOCK_SLACK_MS = 2000
 let clockOffsetMs = 0
-// counts changes of the offset, so a request signed before one can be signed again
+// counts changes of the offset by more than the slack, so a request signed before one can be signed again
 let clockChanges = 0
 export const serviceNow = () => Date.now() + clockOffsetMs
 export const serviceSeconds = () => Math.floor(serviceNow() / 1000)
@@ -377,7 +377,7 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     const date = Date.parse(res.headers.get("date") ?? "")
     if (Number.isFinite(date)) {
       const offset = Math.abs(date - Date.now()) > CLOCK_SLACK_MS ? date - Date.now() : 0
-      if (offset !== clockOffsetMs) clockChanges++
+      if (Math.abs(offset - clockOffsetMs) > CLOCK_SLACK_MS) clockChanges++
       clockOffsetMs = offset
     }
     // a body cut off on its way is no answer, even after a 200
