@@ -198,6 +198,7 @@ function removePending(p: store.PendingCode): void {
 
 function forgetEverything(): void {
   store.forgetEverything()
+  flow.forgetWallets()
   session.setCheckout(null)
   dispatchList({ type: "forget-confirmed" })
   focusHeading()

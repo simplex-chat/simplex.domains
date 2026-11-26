@@ -29,6 +29,8 @@ export function walletOf(code: string): Wallet | null {
   return wallets.get(code)!
 }
 
+export const forgetWallets = () => wallets.clear()
+
 function registrationOf(label: string, owner: Uint8Array, secret: Uint8Array, links: api.Links, duration: bigint): Registration {
   return {
     label, tld: SITE.tld, owner, duration, secret, resolver: fromHex(SITE.resolver),
@@ -283,7 +285,7 @@ async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<Rest
   const known = store.orderByRegistration(view.id)
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
-    method: opened.method ?? known?.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
+    method: known?.method ?? opened.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
     tld: SITE.tld, createdAt: chosen.createdAt,
   }
   store.saveOrder(record)

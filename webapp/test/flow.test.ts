@@ -237,6 +237,15 @@ describe("revealOrder", () => {
     expect(await revealSigner(sent, built.request.duration, days)).toBe(OWNER)
   })
 
+  it("keeps the payment of this browser's own record when it reopens the order, whatever payment the sealed data served with its commitment names", async () => {
+    const { flow, store } = await modules()
+    const built = await flow.orderRequest({ ...draft(), method: "btc" })
+    store.saveOrder(flow.recordFor({ ...draft(), method: "card" }, built, "card", 20000, { registrationId: "reg1", invoiceId: "inv1" }))
+    const { record, sent } = await reopenedElsewhere(flow, built.request, "inv1", "btc")
+    expect(record.method).toBe("card")
+    expect(await revealSigner(sent, built.request.duration, 120)).toBe(OWNER)
+  })
+
   it.each([["card", 120], ["btc", 14]] as const)("takes the service's %s payment for an order sealed before its payment was, reopened in another browser, and signs over its %i dispute days", async (named, days) => {
     const { flow } = await modules()
     const built = await flow.orderRequest(draft())
@@ -521,6 +530,16 @@ describe("saveLinks after a refusal", () => {
     answers["POST /api/name/records"] = () => new Response(JSON.stringify({ type: "bad_request" }), { status: 400 })
     await expect(flow.saveLinks(record, 5, { contact: "", channel: "" })).rejects.toMatchObject({ code: "bad_request" })
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe("walletOf", () => {
+  it("keeps each code's wallet until the codes are forgotten", async () => {
+    const { flow } = await modules()
+    const kept = flow.walletOf(OWNER_CODE)
+    expect(flow.walletOf(OWNER_CODE)).toBe(kept)
+    flow.forgetWallets()
+    expect(flow.walletOf(OWNER_CODE)).not.toBe(kept)
   })
 })
 
