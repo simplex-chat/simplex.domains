@@ -390,7 +390,7 @@ function buildTooMany({ checkout: c, hold }: CheckoutState, signal: AbortSignal)
 }
 
 function buildTaken({ checkout: c }: CheckoutState): HTMLElement {
-  return outcome({ tone: "info", icon: "info", title: "This name is no longer available", text: [nameText(c.label, c.chain.tld), " became unavailable after you searched for it. Nothing was charged."],
+  return outcome({ tone: "info", icon: "info", title: "This name is no longer available", text: [nameText(c.label, c.chain.tld), " is no longer available."],
     action: btn("Search another name", "", () => go(searchLink("", c.order?.registrationId))) })
 }
 
