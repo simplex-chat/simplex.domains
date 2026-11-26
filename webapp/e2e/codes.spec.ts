@@ -1325,3 +1325,45 @@ for (const length of [6, MAX_LABEL_LENGTH]) {
     await expect(row.locator("svg.qr"), "Your names: the QR gone with the code").toHaveCount(0)
   })
 }
+
+test("choosing another name shows the order's code or payment as the header chip, which nothing takes off", async ({ page, request }) => {
+  const { code } = await control(request, "code", { minLength: 10 }) as { code: string }
+  const coded = await keepOrder(page, "reg-chipcode", null, "chipcode-taken")
+  await page.evaluate(([key, c]) => localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), prepaidCode: c })), ["simplex-names:order:reg-chipcode", code] as const)
+  await page.route("**/api/registration/reg-chipcode*", (route) => route.fulfill({ json: registrationView(coded, { phase: { type: "taken" }, commitTx: "0x02", payment: { type: "code" }, price: 0 }) }))
+  await page.goto("/#/?order=reg-chipcode")
+  await expect(page.getByLabel("Name", { exact: true })).toBeVisible()
+  await expect(chip(page)).toHaveText("Code: 10+ letters, 2 years")
+  await expect(chip(page).getByRole("button")).toBeHidden()
+  await expect(page.locator("body > header .check-link")).toBeHidden()
+
+  const paid = await keepOrder(page, "reg-chippaid", null, "chippaid-taken")
+  await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), method: "btc" })), "simplex-names:order:reg-chippaid")
+  await page.route("**/api/registration/reg-chippaid*", (route) => route.fulfill({ json: registrationView(paid, { phase: { type: "taken" }, commitTx: "0x02", balance: { amount: 10000, refunded: 0 } }) }))
+  await page.goto("/#/?order=reg-chippaid")
+  await expect(page.getByLabel("Name", { exact: true })).toBeVisible()
+  await expect(chip(page)).toHaveText("$100 / 2 years")
+  await expect(chip(page).getByRole("button")).toBeHidden()
+
+  await page.goto("/#/")
+  await expect(chip(page), "a plain search has no order's chip").toBeHidden()
+})
+
+test("a code applied to the tab is taken off once Your names or Check your code reads it as one that cannot be used", async ({ page, request }) => {
+  const { code } = await control(request, "code", { minLength: 6 }) as { code: string }
+  await useCode(page, code)
+  await expect(chip(page)).toBeVisible()
+  await control(request, "code/state", { code, state: "expired" })
+  await page.goto("/#/names")
+  await expect(page.locator(".list-row", { hasText: code }).locator(".chip")).toHaveText("Expired")
+  await expect(chip(page)).toBeHidden()
+
+  const { code: withdrawn } = await control(request, "code", { minLength: 6 }) as { code: string }
+  await useCode(page, withdrawn)
+  await expect(chip(page)).toBeVisible()
+  await control(request, "code/state", { code: withdrawn, state: "revoked" })
+  await page.goto("/#/code")
+  await codeField(page).fill(withdrawn)
+  await expect(onStep(page).locator(".verdict")).toContainText("not valid")
+  await expect(chip(page)).toBeHidden()
+})

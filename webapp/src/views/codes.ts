@@ -3,7 +3,7 @@ import * as api from "../api.ts"
 import { codeProgress, mayBeOwnerCode, parseNameCode } from "../crypto/code.ts"
 import { el, icon, liveRegion, NO_AUTOFILL, refill, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
-import type * as session from "../session.ts"
+import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { holdFrom } from "./hold.ts"
 import { scanButton, scanQr } from "./scan.ts"
@@ -86,13 +86,17 @@ async function judgeCode(text: string, signal: AbortSignal, forName?: string): P
       return forName !== undefined && forName.length < code.minLength ? notCovering(code) : unused(code)
     }
     const [title, line] = STATE_LINES[answer.state]
+    session.dropActiveCode(parsed.display)
     // the service names no order for a code in use; this browser's own order that holds it is linked
     const holder = answer.state === "reserved" ? store.orders().find((o) => o.prepaidCode === parsed.display) : undefined
     if (holder && forName === undefined) return { kind: "held", line: `This code is held by your order for ${holder.label}.${holder.tld}.`, link: store.orderUrl(holder) }
     return { kind: "refused", title, line, link: holder && store.orderUrl(holder) }
   } catch (e) {
     // well formed but unknown to the service: not a typo, which the check digit would have caught
-    if (e instanceof api.ApiError && e.code === "code_invalid") return { kind: "refused", title: "This code is not valid: SimpleX did not issue it", line: "" }
+    if (e instanceof api.ApiError && e.code === "code_invalid") {
+      session.dropActiveCode(parsed.display)
+      return { kind: "refused", title: "This code is not valid: SimpleX did not issue it", line: "" }
+    }
     return notChecked(e)
   }
 }

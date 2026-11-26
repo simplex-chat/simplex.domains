@@ -124,9 +124,13 @@ function retryOnce(e: unknown, key: string, route: number, read: () => void): vo
 async function readCode(code: string, route: number): Promise<void> {
   try {
     const answer = await api.checkCode(code)
+    if (answer.state !== "unused") session.dropActiveCode(code)
     answerList(route, { type: "code-read", code, state: answer.state })
   } catch (e) {
-    if (e instanceof api.ApiError && e.code === "code_invalid") return answerList(route, { type: "code-read", code, state: "revoked" })
+    if (e instanceof api.ApiError && e.code === "code_invalid") {
+      session.dropActiveCode(code)
+      return answerList(route, { type: "code-read", code, state: "revoked" })
+    }
     // a rate limit is waited out as often as it is met, the row counting down to its next check
     if (e instanceof api.ApiError && e.code === "rate_limited") {
       const wait = (e.retryAfter ?? api.LIMITED_WAIT_S) * 1000
