@@ -1,6 +1,7 @@
 import type { Terms } from "./api.ts"
 
 export const CONFIG_PATH = "/api/config"
+export const CONFIG_TIMEOUT_MS = 5000
 
 export interface Deployment {
   chainId: number
@@ -142,7 +143,7 @@ export function configOf(body: unknown): SiteConfig | null {
 
 export async function readConfig(init?: RequestInit): Promise<SiteConfig | null> {
   try {
-    const res = await fetch(`${SITE.apiOrigin}${CONFIG_PATH}`, init)
+    const res = await fetch(`${SITE.apiOrigin}${CONFIG_PATH}`, { ...init, signal: AbortSignal.timeout(CONFIG_TIMEOUT_MS) })
     return res.ok ? configOf(await res.json()) : null
   } catch {
     return null

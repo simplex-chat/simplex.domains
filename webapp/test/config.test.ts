@@ -5,7 +5,7 @@ import { secp256k1 } from "@noble/curves/secp256k1"
 import { keccak256, toHex } from "viem"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS } from "../e2e/terms.ts"
-import { CONFIG_PATH, configOf, heldPrice, LOCAL, MAINNET, readConfig, SITE } from "../src/config.ts"
+import { CONFIG_PATH, CONFIG_TIMEOUT_MS, configOf, heldPrice, LOCAL, MAINNET, readConfig, SITE } from "../src/config.ts"
 import { moneroKeys } from "../src/crypto/payees.ts"
 
 const INDEX = readFileSync(new URL("../index.html", import.meta.url), "utf8")
@@ -53,8 +53,14 @@ describe("readConfig", () => {
   it("asks GET /api/config with the init given", async () => {
     const fetch = serviceAnswering(200, { stripePublishableKey: null, names: { ...NAMES, downtime: true } })
     expect(await readConfig({ cache: "no-store" })).toEqual({ downtime: true })
-    expect(fetch).toHaveBeenCalledWith(CONFIG_PATH, { cache: "no-store" })
+    expect(fetch).toHaveBeenCalledWith(CONFIG_PATH, { cache: "no-store", signal: expect.any(AbortSignal) })
   })
+  it("is null when the service does not answer in time, so the page draws without it", async () => {
+    vi.stubGlobal("fetch", vi.fn((_: string, init: RequestInit) => new Promise((_resolve, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))))
+    const started = Date.now()
+    expect(await readConfig()).toBeNull()
+    expect(Date.now() - started).toBeGreaterThanOrEqual(CONFIG_TIMEOUT_MS - 100)
+  }, CONFIG_TIMEOUT_MS + 5000)
   it("is null when the service answers an error or the network fails", async () => {
     serviceAnswering(503, { type: "unavailable" })
     expect(await readConfig()).toBeNull()
