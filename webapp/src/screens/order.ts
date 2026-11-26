@@ -115,7 +115,7 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
       // a reveal the view shows as stored is no longer sending, so one the service clears is signed again under the same key
       return { ...s, seq: e.seq, now: e.now, invoice: e.invoice, view: e.view, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? e.view.label),
         nameStatus: e.nameStatus, since: sinceOf(s.since, e.view, e.now), reveal: e.view.label !== null && s.reveal ? { ...s.reveal, sending: false } : s.reveal,
-        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy, downtime: e.downtime }
+        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy, downtime: e.downtime, noCode: false, gone: false }
     case "record-changed": return { ...s, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? null) }
     case "read-failed": return s
     case "not-found": return { ...s, gone: true }
@@ -307,6 +307,7 @@ export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
   if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!))) return null
   if (view.phase.type !== "committed" || view.label !== null) return since.at + TX_STALL_MS
+  if (s.downtime) return null
   return Math.max(since.at, view.phase.revealAfter * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }
 

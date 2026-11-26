@@ -106,6 +106,8 @@ describe("screenOf", () => {
     ["a failed registration", STATES.failed, "failed"],
     ["a commit in a browser without the name code", STATES["status:no-code"], "status:no-code"],
     ["an order's link in a browser without its name code, which reads nothing", reduce(initialState("inv-1", null), { type: "no-code" }), "status:no-code"],
+    ["an order's link answered once another tab added its name code", reduce(reduce(initialState("inv-1", null), { type: "no-code" }), answered(initialState("inv-1", null), STATES.registered)), "registered"],
+    ["an order's link answered after it was not found", reduce(reduce(initialState("inv-1", null), { type: "not-found" }), answered(initialState("inv-1", null), STATES.registered)), "registered"],
     ["a commit in the browser with the name code", STATES.registering, "registering"],
     ["a registration being sent, seen without the name code", read(null, registration({ phase: "registering" }), { record: null }), "registering"],
     ["a revealed name, seen without the name code", read(null, registration({ phase: "committed", label: "alice" }), { record: null }), "registering"],
@@ -548,6 +550,10 @@ describe("a stalled stage", () => {
     }
     const view = registration(committed)
     expect(stalledAt({ ...seen(view), reveal: { key: revealKey(view), sending: false, refusals: REVEAL_ATTEMPTS } })).toBeNull()
+  })
+  it("of a reveal waits while the service is in its downtime, which signs nothing, and of a transaction does not", () => {
+    expect(stalledAt({ ...seen(registration(committed)), downtime: true })).toBeNull()
+    expect(stalledAt({ ...seen(committing), downtime: true })).toBe(NOW + TX_STALL_MS)
   })
   it("waits while changed community terms are asked for, and is timed from the last tick", () => {
     const asking = registration({ ...committed, acceptance: acceptanceFor(CHANGED) })

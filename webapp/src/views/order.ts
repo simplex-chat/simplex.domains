@@ -825,6 +825,7 @@ async function reorderAfterCancel(method: api.Method = "card"): Promise<void> {
   const record = store.orderByInvoice(invoice.invoiceId)
   if (!record) return
   dispatch({ type: "reorder-started" })
+  if (state.downtime) return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "clock", title: null, text: `${NEW_ORDERS_SOON}. Nothing was charged.` } })
   if (!await agreedFirst(gen, record, invoice)) return
   if (await cancelBeforeReorder(invoice, record, gen)) return newInvoice(invoice, record, gen, method)
   if (store.orderByInvoice(invoice.invoiceId)?.cancelled) reread(gen)
