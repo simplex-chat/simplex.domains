@@ -112,6 +112,7 @@ jobs:
           ulimit -c 0
           npx playwright test --project=${{ matrix.browser }}
       - name: Production build tests
+        if: ${{ !cancelled() }}
         run: |
           ulimit -c 0
           npx vite build --mode devchain
@@ -119,6 +120,7 @@ jobs:
           curl -fs -o /dev/null --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4173/
           BASE_URL=http://127.0.0.1:4173 npx playwright test --project=${{ matrix.browser }} e2e/offline.spec.ts e2e/track.spec.ts e2e/mode-cache.spec.ts e2e/card.spec.ts e2e/pages.spec.ts
       - name: API on its own origin
+        if: ${{ !cancelled() }}
         run: |
           ulimit -c 0
           VITE_API_ORIGIN=http://127.0.0.1:8099 npx vite build --mode devchain --outDir dist-api
