@@ -195,4 +195,11 @@ describe("sealed order", () => {
     expect(await unseal(seed, await seal(seed, order)), "sealed before the payment was").toEqual(order)
     expect(await unseal(seed, await seal(seed, { ...order, method: "eth" as never }))).toBeNull()
   })
+  it("seals the terms the order agreed to beside its payment, opens an order sealed before they were, and refuses terms of another shape", async () => {
+    const seed = walletFromEntropy(ENTROPY).seed
+    const order = { label: "dynamis", contact: "", channel: "", method: "btc" as const }
+    for (const terms of ["ab".repeat(32), `community/${"cd".repeat(32)}`]) expect(await unseal(seed, await seal(seed, { ...order, terms })), terms).toEqual({ ...order, terms })
+    expect(await unseal(seed, await seal(seed, order)), "sealed before the terms were").toEqual(order)
+    for (const terms of ["general", `0x${"ab".repeat(32)}`, 5]) expect(await unseal(seed, await seal(seed, { ...order, terms: terms as never })), String(terms)).toBeNull()
+  })
 })

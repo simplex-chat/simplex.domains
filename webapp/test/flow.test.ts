@@ -352,14 +352,23 @@ describe("restore", () => {
     expect(await recoverMessageAddress({ message: `simplex.domains order inv9 cancel ${timestamp}`, signature: signature as Hex })).toBe(OWNER)
   })
 
-  it("restores the terms the order signed in a browser without its record", async () => {
-    const { flow, store } = await modules()
+  it("restores the terms the order sealed in a browser without its record, whatever terms the view names", async () => {
+    const { flow } = await modules()
     const built = await flow.orderRequest(draft())
     answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "queued", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed: built.request.sealed }] }
     answers["GET /api/registration/reg1"] = view(built.request, { phase: "queued", terms: COMMUNITY_AGREED })
+    expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(SIGNED)
+  })
+
+  it("restores the view's terms for an order sealed before its terms were", async () => {
+    const { flow, store } = await modules()
+    const built = await flow.orderRequest(draft())
+    const sealed = await seal(WALLET.seed, { label: "dynamis", ...LINKS, method: "card" })
+    answers["POST /api/registration/find"] = { registrations: [{ registrationId: "reg1", invoiceId: null, phase: "queued", createdAt: "2026-10-14T10:00:00Z", labelHash: built.request.labelHash, sealed }] }
+    answers["GET /api/registration/reg1"] = view({ ...built.request, sealed }, { phase: "queued", terms: COMMUNITY_AGREED })
     expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(COMMUNITY_SIGNED)
     store.forgetEverything()
-    answers["GET /api/registration/reg1"] = view(built.request, { phase: "queued" })
+    answers["GET /api/registration/reg1"] = view({ ...built.request, sealed }, { phase: "queued" })
     expect((await flow.restore(OWNER_CODE))!.record.terms).toBe(SIGNED)
   })
 
