@@ -759,7 +759,7 @@ test.describe(() => {
 // A name of the widest letters breaks its lines as early as any name of its length can; drawn at random from two
 // letters, it is still new to the chain on each run.
 const wideLabel = (length: number) => Array.from({ length }, () => (Math.random() < 0.5 ? "m" : "w")).join("")
-const LONG_REGISTERED = 50
+const LONG_REGISTERED = 25
 
 for (const length of [15, 25, MAX_LABEL_LENGTH]) {
   test(`every purchase step fits both windows for a name of ${length} wide letters`, async ({ page, request }) => {

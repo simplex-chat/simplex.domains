@@ -245,9 +245,8 @@ html.framed body > main:empty { min-height: calc(var(--step-h) + var(--screen-to
 .screen.step:not(:has(> .actions-row)) { grid-template-rows: auto minmax(0, 1fr); }
 /* the card page is as tall as its content, so Pay and what follows it stay under Stripe's form as the form grows */
 .screen.step:has(> .screen-body > .stripe) { height: auto; grid-template-rows: auto; }
-/* a step grows under its content to hold a name code's QR, shown under everything */
-.screen.step:has(> .screen-body > .code-qr svg) { height: auto; min-height: calc(var(--step-h) + var(--screen-top)); }
-.screen.step.registered { height: auto; min-height: calc(var(--step-h) + var(--screen-top)); }
+/* the name-is-yours screen grows under its content to hold a long name or a name code's QR, shown under everything */
+.screen.step:has(> .screen-body > .yours-edit) { height: auto; min-height: calc(var(--step-h) + var(--screen-top)); }
 .screen-head { display: grid; grid-template-columns: var(--back-w) minmax(0, 1fr) var(--back-w); row-gap: 10px; }
 .screen-head h1 { grid-area: 1 / 2; text-align: center; }
 /* Back's word 12 px under the heading's top, its tap area 40 px tall */
@@ -606,6 +605,7 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .row-code { flex-basis: 100%; display: grid; gap: 12px; }
 .row-code > .qr, .code-qr > .qr { justify-self: center; }
 .code-qr { display: grid; gap: 12px; }
+.code-qr:empty { display: none; }
 .name-address .mono { overflow-wrap: anywhere; }
 .danger-link { font-size: var(--fs-small); }
 /* Forget's question comes into view with room below it; its answers are an equal pair, side by side when each gets the
@@ -717,8 +717,9 @@ a[aria-disabled="true"] { opacity: .6; cursor: default; }
   .screen:has(> .screen-body > .stripe) .lead { line-height: 1.3; }
   .screen-body:has(> .stripe) { gap: 6px; }
   .screen-body:has(> .stripe) > .name-check { padding-block: 5px; line-height: 1.4; }
-  /* the name-is-yours screen tighter, so Edit links fits its frame under a name of 63 m letters, the widest */
-  .screen-body:has(> .yours-edit) { --body-gap: 12px; }
+  /* the name-is-yours screen tighter, so it fits the window under a name of 25 wide letters with its name address */
+  .screen-body:has(> .yours-edit) { --body-gap: 10px; }
+  .card.use { padding-block: 16px; }
   /* a QR is for another device; a phone opens its wallet from the link under the address */
   .qr-grid { grid-template-columns: minmax(0, 1fr); }
   .qr-grid > .qr { display: none; }
