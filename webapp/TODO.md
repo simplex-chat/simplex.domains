@@ -20,7 +20,6 @@ All screens: how each one makes people feel, the criterion the language audit ap
 | 4 | checkout-links-scan-dialog (phone), checkout-review-code-scan-dialog (phone) | The screenshots show no QR code; find whether the scan dialogs are broken or only the screenshots. |
 | 7 | checkout-review-bonus-tip (phone) | The tooltip is black in the light theme; restyle it to suit the light theme. |
 | 9 | checkout-review-code-verdict-name-code | The message is confusing and the behaviour is wrong. Tell the person it is a name code, show whether it has links, and offer to add it to "Your names" on this page. |
-| 10 | checkout-review-code-refused-not-covering, checkout-select-refused-uncovered | The text "This code does not cover this name." (src/views/codes.ts `CODE_ERRORS`) says the code does not "cover" the name; a code covers nothing. Reword in terms of what the person can register with it. |
 | 12 | checkout-review-code-verdict-rate-limited | Checked: the purple square is the screenshot test's mask over the countdown's seconds ("Checking again in 30 seconds"), not the page. No page change. |
 | 17 | checkout-review-codes-only-refused (phone) | The language must be polite: "Please enter …". |
 | 18 | checkout-review-community-popup | Revise the community name popup: the fixed text in src/views/terms.ts `showCommunity` ("Its owner agrees to use it to benefit this community, not as the brand of one person or business.") and the community's description from the service ("This name is for …"). |
