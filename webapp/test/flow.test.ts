@@ -92,7 +92,7 @@ const revealSigner = (sent: SentReveal, duration: number, days: number) => {
 }
 
 describe("orderRequest", () => {
-  it("commits to the label, the code's wallet, its derived secret and the links, and seals the name, the links and the payment asked for under the code", async () => {
+  it("commits to the label, the code's wallet, its derived secret and the links, and seals the name, the links, the payment asked for and the terms agreed to under the code", async () => {
     const { flow } = await modules()
     const { request, owner } = await flow.orderRequest(draft())
     expect(owner).toBe(OWNER)
@@ -106,7 +106,7 @@ describe("orderRequest", () => {
       resolver: fromHex(LOCAL.resolver), contactLink: LINKS.contact, channelLink: null,
     })
     expect(request.commitment).toBe(hex(expected))
-    expect(await unseal(WALLET.seed, request.sealed)).toEqual({ label: "dynamis", ...LINKS, method: "card" })
+    expect(await unseal(WALLET.seed, request.sealed)).toEqual({ label: "dynamis", ...LINKS, method: "card", terms: SIGNED })
   })
 
   it("is signed by the code's key over every field but the signature, the terms agreed to included, at the service's time", async () => {
