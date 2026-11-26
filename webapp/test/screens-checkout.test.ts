@@ -9,7 +9,7 @@ const NOW = Date.parse("2026-10-17T12:00:00Z")
 const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const CODE = { display: "SN6-AAAAA-BBBBB-CCCCC", minLength: 6, years: 3 }
 const WAITING = { registrationId: "reg-0", invoiceId: "inv-0" }
-const OPEN_ORDER = { invoiceId: "inv-9", confirming: false }
+const OPEN_ORDER = { invoiceId: "inv-9" }
 const TERMS = { hash: `0x${"21".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/general-terms.md#sha256=${"02".repeat(32)}` }
 const NEWER = { hash: `0x${"f6".repeat(32)}`, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"ff".repeat(20)}/docs/general-terms.md#sha256=${"ea".repeat(32)}` }
 const BAKERS = { for: "bakers and pastry chefs", years: 2 }
@@ -186,11 +186,9 @@ describe("reduce", () => {
   it("open-order-seen points at an unpaid invoice", () => {
     expect(reduce(s, { type: "open-order-seen", order: OPEN_ORDER })).toEqual({ ...s, openOrder: OPEN_ORDER })
   })
-  it("open-order-seen follows that invoice: confirming, then paid or closed, when nothing is pointed at", () => {
+  it("open-order-seen follows that invoice until it is paid or closed, when nothing is pointed at", () => {
     const pointed = reduce(s, { type: "open-order-seen", order: OPEN_ORDER })
-    const confirming = reduce(pointed, { type: "open-order-seen", order: { ...OPEN_ORDER, confirming: true } })
-    expect(confirming.openOrder).toEqual({ ...OPEN_ORDER, confirming: true })
-    expect(reduce(confirming, { type: "open-order-seen", order: null })).toEqual(s)
+    expect(reduce(pointed, { type: "open-order-seen", order: null })).toEqual(s)
   })
   it("send-started marks the order on its way from this page", () => {
     expect(reduce(s, { type: "send-started" })).toEqual({ ...s, sending: true, busy: true })

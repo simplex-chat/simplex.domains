@@ -10,7 +10,7 @@ export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unava
 export type CheckoutKind = CheckoutStep | `status:${Refusal}`
 
 export interface WaitingOrder { registrationId: string; invoiceId: string }
-interface OpenOrder { invoiceId: string; confirming: boolean }
+interface OpenOrder { invoiceId: string }
 
 export interface CheckoutState {
   step: CheckoutStep

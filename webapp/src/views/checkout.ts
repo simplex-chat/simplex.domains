@@ -147,7 +147,7 @@ async function showOpenOrder(signal: AbortSignal): Promise<void> {
   const open = invoices.find(unpaid)
   if (!open || signal.aborted) return
   const show = (seen: api.InvoiceView | null) => {
-    const order = unpaid(seen) ? { invoiceId: open.invoiceId, confirming: seen.paidInFull === true } : null
+    const order = unpaid(seen) ? { invoiceId: open.invoiceId } : null
     if (!signal.aborted && JSON.stringify(order) !== JSON.stringify(state.openOrder)) dispatch({ type: "open-order-seen", order })
     return order !== null
   }
