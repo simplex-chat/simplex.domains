@@ -96,7 +96,7 @@ const CORS = { "access-control-allow-origin": "*", "access-control-expose-header
 const PREFLIGHT = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "*", "access-control-max-age": "86400" }
 
 function reply(res: ServerResponse, status: number, body: unknown, retryAfter: number | null = null): void {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", date: new Date().toUTCString(), ...CORS, ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", date: new Date().toUTCString(), ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) })
   res.end(JSON.stringify(body, (_, v) => (typeof v === "bigint" ? v.toString() : v)))
 }
 
@@ -106,7 +106,10 @@ function refused(res: ServerResponse, e: HttpError): void {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://mock")
-  if (req.method === "OPTIONS" && url.pathname.startsWith("/api/")) return void res.writeHead(200, PREFLIGHT).end()
+  if (url.pathname.startsWith("/api/")) {
+    if (req.method === "OPTIONS") return void res.writeHead(200, PREFLIGHT).end()
+    for (const [name, value] of Object.entries(CORS)) res.setHeader(name, value)
+  }
   const route = routes.find(([method, path]) => method === req.method && path.test(url.pathname))
   if (!route) return reply(res, 404, { type: "not_found" })
   try {
