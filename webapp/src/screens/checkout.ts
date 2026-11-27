@@ -6,7 +6,7 @@ import type { CheckoutStep } from "./routes.ts"
 
 export const FALLBACK_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
 
-export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only" | `link-${LinkKind}`
+export type Refusal = "price-changed" | "too-many" | "failed" | "taken" | "unavailable" | "codes-only" | "downtime" | `link-${LinkKind}`
 export type CheckoutKind = CheckoutStep | `status:${Refusal}`
 
 export interface WaitingOrder { registrationId: string; invoiceId: string }
@@ -28,7 +28,7 @@ export interface CheckoutState {
 }
 
 export type CheckoutEvent =
-  | { type: "opened"; step: CheckoutStep; checkout: Checkout; sending: boolean; waiting: WaitingOrder | null; hold: Hold | null }
+  | { type: "opened"; step: CheckoutStep; checkout: Checkout; sending: boolean; waiting: WaitingOrder | null; hold: Hold | null; downtime: boolean }
   | { type: "link-set"; kind: LinkKind; link: string }
   | { type: "saved"; saved: boolean }
   | { type: "agreed"; agreed: boolean }
@@ -43,7 +43,7 @@ export type CheckoutEvent =
   | { type: "open-order-seen"; order: OpenOrder | null }
   | { type: "send-started" }
   | { type: "order-refused"; reason: "code"; error: string }
-  | { type: "order-refused"; reason: "method" | "failed" | "taken" | "unavailable" | "codes-only" | `link-${LinkKind}` }
+  | { type: "order-refused"; reason: "method" | "failed" | "taken" | "unavailable" | "codes-only" | "downtime" | `link-${LinkKind}` }
   | { type: "price-changed"; price: number }
   | { type: "terms-changed"; terms: Terms; community: Community | null }
   | { type: "hold-started"; until: number }
@@ -79,7 +79,7 @@ export function reduce(s: CheckoutState, e: CheckoutEvent): CheckoutState {
   const change = changeOf(s, e)
   const checkout = change ? { ...s.checkout, ...change } : s.checkout
   switch (e.type) {
-    case "opened": return { ...s, step: e.step, checkout: e.checkout, sending: e.sending, busy: false, waiting: e.waiting, hold: e.hold, refusal: null }
+    case "opened": return { ...s, step: e.step, checkout: e.checkout, sending: e.sending, busy: false, waiting: e.waiting, hold: e.hold, refusal: e.downtime ? "downtime" : null }
     case "link-set":
     case "saved":
     case "agreed":

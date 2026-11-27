@@ -1,5 +1,6 @@
 // The router: one page per route, redrawn on navigation.
-import { loadConfig } from "./config.ts"
+import { readConfig } from "./config.ts"
+import { el } from "./dom.ts"
 import { checkoutStepOf, EDIT_PATH, fromOrder, viewOf } from "./screens/routes.ts"
 import { checkoutPage } from "./views/checkout.ts"
 import { setUpChrome } from "./views/chrome.ts"
@@ -25,41 +26,47 @@ function render(): void {
   }
 }
 
-setRenderer(render)
-// The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
-// Its listener is added before the await below, as Chromium fires load without waiting for a module's top-level await.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  addEventListener("load", () => {
-    // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
-    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
+async function start(): Promise<void> {
+  setRenderer(render)
+  // The worker keeps this build for opening offline, registered after load so it does not slow the first visit; the dev server has none.
+  // Its listener is added before the await below, as Chromium fires load without waiting for a module's top-level await.
+  if (import.meta.env.PROD && "serviceWorker" in navigator) {
+    addEventListener("load", () => {
+      // checked for updates past the HTTP cache, which could keep a returning reader on an old worker
+      navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((e: unknown) => console.warn("This page will not open offline:", e))
+    })
+  }
+  const config = await readConfig()
+  setUpChrome()
+  window.addEventListener("popstate", (e) => {
+    if (historyMoved(e) && !reloadedForRoute()) render()
   })
+  // The second click of a double click is dropped everywhere: an action that redraws the page or opens a popup puts
+  // another control under the pointer, where it would land (a checkbox, a payment method, the popup's backdrop).
+  document.addEventListener("click", (e) => {
+    if (e.detail <= 1) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+  }, true)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== " " || !(e.target instanceof Element) || !e.target.matches('a[role="button"]')) return
+    e.preventDefault()
+    if (!e.repeat) (e.target as HTMLElement).click()
+  })
+  // A link from /?order=… to /#/… would load a new document, dropping what this page holds in memory, so its views switch in place.
+  document.addEventListener("click", (e) => {
+    const a = (e.target as Element | null)?.closest("a")
+    const href = a?.getAttribute("href")
+    if (!a || !href || a.target || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    if (!/^\/(#|\?)/.test(href)) return
+    e.preventDefault()
+    go(href)
+  })
+  followServedMode(config)
+  render()
 }
-// The mode decides the first screen, so nothing between the header and the footer is drawn before it is known.
-await loadConfig()
-setUpChrome()
-window.addEventListener("popstate", (e) => {
-  if (historyMoved(e) && !reloadedForRoute()) render()
-})
-// The second click of a double click is dropped everywhere: an action that redraws the page or opens a popup puts
-// another control under the pointer, where it would land (a checkbox, a payment method, the popup's backdrop).
-document.addEventListener("click", (e) => {
-  if (e.detail <= 1) return
-  e.preventDefault()
-  e.stopImmediatePropagation()
-}, true)
-document.addEventListener("keydown", (e) => {
-  if (e.key !== " " || !(e.target instanceof Element) || !e.target.matches('a[role="button"]')) return
-  e.preventDefault()
-  if (!e.repeat) (e.target as HTMLElement).click()
-})
-// A link from /?order=… to /#/… would load a new document, dropping what this page holds in memory, so its views switch in place.
-document.addEventListener("click", (e) => {
-  const a = (e.target as Element | null)?.closest("a")
-  const href = a?.getAttribute("href")
-  if (!a || !href || a.target || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-  if (!/^\/(#|\?)/.test(href)) return
-  e.preventDefault()
-  go(href)
-})
-render()
-followServedMode()
+
+if (window.top !== window.self) {
+  document.body.replaceChildren(el("p", { class: "own-tab" }, "This page can be used only in its own tab. Please ",
+    el("a", { href: location.href, target: "_blank", rel: "noopener" }, "open it in a new tab"), "."))
+} else await start()

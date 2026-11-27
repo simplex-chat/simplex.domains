@@ -2,14 +2,13 @@
 // A development fixture: memory only, no money, and not a specification of the real service.
 import { createHash } from "node:crypto"
 import {
-  encodeFunctionData, getAddress, hashTypedData, isAddress, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
+  encodeFunctionData, getAddress, hashTypedData, isAddress, isHex, keccak256, namehash, recoverAddress, recoverMessageAddress, recoverTypedDataAddress, toHex,
   zeroHash, type Address, type Hex,
 } from "viem"
 import { communityAgreed, type FailReason, type Preview, signedHash, termsLink } from "../../src/api.ts"
-import type { NamesSite } from "../../src/config.ts"
 import { codeHash, parseNameCode } from "../../src/crypto/code.ts"
 import { CHANNEL_KEY, CONTACT_KEY, durationFor, YEAR_S } from "../../src/crypto/registration.ts"
-import { CODES_ONLY, type Mode } from "../../src/mode.ts"
+import { CODES_ONLY } from "../../src/mode.ts"
 import { labelProblem, LINK_MAX_BYTES, linkKind, type LinkKind, linkProblem, MAX_LABEL_LENGTH, MIN_LABEL_LENGTH } from "../../src/names.ts"
 import {
   baseRegistrar, chainNow, contractsOwner, controller, deployment, holder, mined, moveChainTo, namePolicy, NotSent, ownerOf, read, registry, resolver, Reverted, send, sponsor,
@@ -17,7 +16,7 @@ import {
 import { TERM_START_S, untilChainTime } from "../chain-time.ts"
 import { registerNameTypedData } from "../register-name.ts"
 import { savedTerms } from "../serve-terms.ts"
-import { addressFor } from "./addresses.ts"
+import { type Payee, payeeFor } from "./addresses.ts"
 import { setClock } from "./clock.ts"
 import { coreLink, deepLinkOf } from "./links.ts"
 import { randomBytes, seedRandom } from "./random.ts"
@@ -138,6 +137,7 @@ interface Invoice {
   // what a credit of confirmed late money waits on, set by the tests: the service's next pass, or support
   lateWait: "crediting" | "support" | null
   closedBy: "expired" | "cancelled" | null
+  payee: Payee | null
 }
 
 // An order's balance, in cents.
@@ -169,14 +169,18 @@ const taking = new Map<string, Promise<void>>()
 // a fetch of a link in fetchDelays takes that many milliseconds;
 // a late payment is credited at the lower of its invoice's rate and the coin's current rate in cents, when one is set;
 // in codes mode, as the service's [names] codes_only, names are registered only with prepaid codes
-const control: { mode: Mode; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
-  { mode: "open", chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
+const control: { mode: "open" | "codes"; downtime: boolean; chainDown: boolean; limitedUntil: number; invoiceError: string | null; findLimitedUntil: number; unsentUntil: number; unreadUntil: number; writeDelayMs: number; fetchDelays: Record<string, number>; rates: Record<Coin, bigint | null> } =
+  { mode: "open", downtime: false, chainDown: false, limitedUntil: 0, invoiceError: null, findLimitedUntil: 0, unsentUntil: 0, unreadUntil: 0, writeDelayMs: 0, fetchDelays: {}, rates: { btc: null, xmr: null } }
 
 const sendTx: typeof send = (...args) => Date.now() < control.unsentUntil ? Promise.reject(new NotSent()) : send(...args)
 
+const mismatch: { price: number | null; policy: boolean; termsHash: boolean; method: boolean; address: Coin | null; amount: boolean } =
+  { price: null, policy: false, termsHash: false, method: false, address: null, amount: false }
+const OTHER_METHOD: Record<Method, Method> = { card: "btc", btc: "xmr", xmr: "btc" }
+const OTHER_AMOUNT_CENTS = 100
+const OTHER_TERMS_HASH = keccak256(toHex("other terms"))
+
 const INVOICE_ERRORS: Record<string, number> = { provider_unavailable: 503, rate_limited: 429, catalog_changed: 409, internal: 500 }
-// the raised price an injected catalog_changed reports, in cents
-const RAISED_PRICE_CENTS = 5000
 const RETRY_AFTER_SECONDS = wholeEnv("MOCK_RETRY_AFTER_SECONDS", 30)
 
 export class HttpError extends Error {
@@ -359,7 +363,7 @@ async function answerFor(hash: Hex, length: number, terms: Terms | null, listed:
     const years = listed ? COMMUNITY_YEARS : YEARS
     const price = await priceOf(length, years).catch(unavailable)
     const readable = terms && await termsText(terms).catch(() => null) !== null ? terms : null
-    return { type: "available", price, years, ...readable ? { terms: readable } : {} }
+    return { type: "available", price: mismatch.price ?? price, years, ...readable ? { terms: readable } : {} }
   }
   const registered = { type: "registered", owner: found.owner, resolver: found.resolver, expiresAt: found.expires, gracePeriod: found.grace }
   // Records are read only from the store's own resolver: calling whatever contract a name points at would let anyone
@@ -442,7 +446,10 @@ async function acceptanceOf(reg: Pick<Registration, "labelHash" | "owner">): Pro
   const { listed, terms } = await nameTerms(reg.labelHash)
   // before the policy has these terms there are none to accept: the view reads unread, and a reveal waits
   if (!terms) throw new Error("the name policy has not set these terms yet")
-  return { community: listed, policy: deployment.namePolicy, termsHash: terms.hash, nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])) }
+  return {
+    community: listed, policy: mismatch.policy ? deployment.sponsor : deployment.namePolicy, termsHash: mismatch.termsHash ? OTHER_TERMS_HASH : terms.hash,
+    nonce: Number(await read<bigint>(namePolicy, "nonces", [reg.owner])),
+  }
 }
 
 // the chain reads the owner signs with, unread when either fails: the view still answers
@@ -571,7 +578,7 @@ async function invoiceView(inv: Invoice): Promise<Record<string, unknown>> {
   }
   for (const k of ["amountPaid", "cryptoAmountPaid", "cryptoAmountDue", "paidInFull", "settledAt"] as const) if (inv[k] !== null) view[k] = inv[k]
   if (inv.method === "card") view.clientSecret = inv.clientSecret
-  else Object.assign(view, { address: addressFor(inv.method, inv.id), cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, requiredConfirmations: 1 })
+  else Object.assign(view, { ...inv.payee, cryptoAmount: inv.cryptoAmount, cryptoCurrency: inv.method, requiredConfirmations: 1 })
   return view
 }
 
@@ -685,7 +692,7 @@ async function injectedRefusal(length: number): Promise<void> {
   const injected = control.invoiceError
   if (!injected) return
   control.invoiceError = null
-  const extra = injected === "catalog_changed" ? { price: await chainPrice(length, YEARS) + RAISED_PRICE_CENTS } : {}
+  const extra = injected === "catalog_changed" ? { price: await chainPrice(length, YEARS) } : {}
   throw new HttpError(INVOICE_ERRORS[injected], injected, extra, injected === "rate_limited" ? RETRY_AFTER_SECONDS : null)
 }
 
@@ -694,8 +701,11 @@ function refuseWhenCodesOnly(): void {
   if (control.mode === "codes") throw new HttpError(403, CODES_ONLY)
 }
 
+const refuseInDowntime = () => { if (control.downtime) throw new HttpError(503, "downtime") }
+
 export async function createInvoice(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (body.kind !== "name") throw badRequest()
+  refuseInDowntime()
   refuseWhenCodesOnly()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
@@ -714,13 +724,17 @@ export async function createInvoice(body: Record<string, unknown>): Promise<Reco
   const price = await chainPrice(order.length, YEARS)
   if (body.price !== price) throw new HttpError(409, "catalog_changed", { price })
   const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS[method] }, body.reveal)
-  const reg = newRegistration(order, { years: YEARS, paid: price, method, prepaidCode: null, phase: "unpaid", orderHash }, rv)
-  return invoiceView(openInvoice(reg, method, price))
+  const invoiced = mismatch.method ? OTHER_METHOD[method] : method
+  const [amount, outside] = [mismatch.amount ? price + OTHER_AMOUNT_CENTS : price, mismatch.address === invoiced]
+  Object.assign(mismatch, { method: false, amount: false }, outside ? { address: null } : {})
+  const reg = newRegistration(order, { years: YEARS, paid: price, method: invoiced, prepaidCode: null, phase: "unpaid", orderHash, disputeDays: DISPUTE_DAYS[method] }, rv)
+  return invoiceView(openInvoice(reg, invoiced, amount, outside))
 }
 
-function openInvoice(reg: Registration, method: Method, amount: number): Invoice {
+function openInvoice(reg: Registration, method: Method, amount: number, outside: boolean): Invoice {
+  const invoiceId = id()
   const inv: Invoice = {
-    id: id(), registrationId: reg.id, method, status: "open", amount,
+    id: invoiceId, registrationId: reg.id, method, status: "open", amount, payee: method === "card" ? null : payeeFor(method, invoiceId, outside),
     expiresAt: iso(nowSeconds() + INVOICE_MINUTES * 60),
     cryptoAmount: method === "card" ? null : (amount / 100 / RATES[method]).toFixed(method === "btc" ? 5 : 3),
     amountPaid: null, cryptoAmountPaid: null, cryptoAmountDue: null, paidInFull: null, confirmed: false, settledAt: null,
@@ -731,7 +745,7 @@ function openInvoice(reg: Registration, method: Method, amount: number): Invoice
   return inv
 }
 
-type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash">
+type NewRegistration = Pick<Registration, "years" | "paid" | "method" | "prepaidCode" | "phase" | "orderHash" | "disputeDays">
 
 const DISPUTE_DAYS: Record<Method | "code", number> = { card: 120, btc: 14, xmr: 14, code: 14 }
 
@@ -739,15 +753,60 @@ function newRegistration(order: OrderBody, extra: NewRegistration, rv: Reveal): 
   const reg: Registration = {
     id: id(), invoiceId: null, ...order, ...extra, ...rv, commitTx: null, registerTx: null,
     revealAfter: null, revealBefore: null, expiresAt: null, error: null, createdAt: iso(nowSeconds()), failNext: false, staleNext: false, version: 1,
-    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null, disputeDays: DISPUTE_DAYS[extra.method], disputeUntil: null,
+    paidAt: extra.phase === "queued" ? nowSeconds() : null, takenAt: null, disputeUntil: null,
   }
   registrations.set(reg.id, reg)
   return reg
 }
 
-export async function readInvoice(invoiceId: string, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
+interface RequestSignature { timestamp?: unknown; signature?: unknown }
+const orderRequests = { signed: 0, refused: 0 }
+const notFound = () => {
+  orderRequests.refused += 1
+  return new HttpError(404, "not_found")
+}
+
+async function requester(id: string, action: "read" | "cancel" | "retry" | "reveal", { timestamp, signature }: RequestSignature): Promise<Address> {
+  if (!Number.isInteger(timestamp)) throw notFound()
+  freshTimestamp(timestamp)
+  if (typeof signature !== "string" || !isHex(signature)) throw notFound()
+  try {
+    return await recoverMessageAddress({ message: `simplex.domains order ${id} ${action} ${timestamp}`, signature })
+  } catch {
+    throw notFound()
+  }
+}
+
+async function ownInvoice(invoiceId: string, action: "read" | "cancel", signed: RequestSignature): Promise<Invoice> {
+  const signer = await requester(invoiceId, action, signed)
+  const inv = invoices.get(invoiceId)
+  if (!inv || registrations.get(inv.registrationId)!.owner !== signer) throw notFound()
+  orderRequests.signed += 1
+  return inv
+}
+
+async function ownRegistration(registrationId: string, action: "read" | "retry", signed: RequestSignature): Promise<Registration> {
+  const signer = await requester(registrationId, action, signed)
+  const reg = registrations.get(registrationId)
+  if (!reg || reg.owner !== signer) throw notFound()
+  orderRequests.signed += 1
+  return reg
+}
+
+export async function invoiceOf(invoiceId: string): Promise<Record<string, unknown>> {
   const inv = invoices.get(invoiceId)
   if (!inv) throw new HttpError(404, "not_found")
+  return invoiceView(inv)
+}
+
+export async function registrationOf(registrationId: string): Promise<Record<string, unknown>> {
+  const reg = registrations.get(registrationId)
+  if (!reg) throw new HttpError(404, "not_found")
+  return registrationView(reg)
+}
+
+export async function readInvoice(invoiceId: string, signed: RequestSignature, wait: string | null, seenVersion: number | null, seenPaid: string | null, seenFull: boolean): Promise<Record<string, unknown>> {
+  const inv = await ownInvoice(invoiceId, "read", signed)
   expireIfDue(inv)
   const reg = registrations.get(inv.registrationId)!
   if (wait !== null) {
@@ -757,9 +816,8 @@ export async function readInvoice(invoiceId: string, wait: string | null, seenVe
   return invoiceView(inv)
 }
 
-export async function readRegistration(registrationId: string, seenVersion: number | null): Promise<Record<string, unknown>> {
-  const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
+export async function readRegistration(registrationId: string, signed: RequestSignature, seenVersion: number | null): Promise<Record<string, unknown>> {
+  const reg = await ownRegistration(registrationId, "read", signed)
   if (seenVersion !== null) await hold(reg.id, () => reg.version === seenVersion)
   return registrationView(reg)
 }
@@ -770,9 +828,8 @@ function expireIfDue(inv: Invoice): void {
   if (overdue(inv)) close(inv)
 }
 
-export async function cancelInvoice(invoiceId: string): Promise<Record<string, unknown>> {
-  const inv = invoices.get(invoiceId)
-  if (!inv) throw new HttpError(404, "not_found")
+export async function cancelInvoice(invoiceId: string, signed: RequestSignature): Promise<Record<string, unknown>> {
+  const inv = await ownInvoice(invoiceId, "cancel", signed)
   expireIfDue(inv)
   if (inv.status !== "open") throw new HttpError(409, "not_open")
   if (inv.amountPaid) throw new HttpError(409, "funded")
@@ -801,6 +858,7 @@ const stateOf = (row: PrepaidCode) => row.registrationId !== null && row.state =
 const CODE_ERRORS: Partial<Record<PrepaidCode["state"], string>> = { used: "code_used", reserved: "code_reserved", expired: "code_expired", unpaid: "payment_pending", revoked: "code_invalid" }
 
 export async function registerWithCode(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  refuseInDowntime()
   if (typeof body.code !== "string") throw badRequest()
   const sent = flatOrder(body.order)
   const order = orderBody(sent)
@@ -818,7 +876,7 @@ export async function registerWithCode(body: Record<string, unknown>): Promise<R
   if (error) throw new HttpError(error === "code_invalid" ? 400 : 409, error)
   if (order.length < row.minLength) throw new HttpError(409, "code_not_covering")
   const rv = await orderReveal({ ...order, disputeDays: DISPUTE_DAYS.code }, body.reveal)
-  const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash }, rv)
+  const reg = newRegistration(order, { years: row.years, paid: 0, method: "code", prepaidCode: hash, phase: "queued", orderHash, disputeDays: DISPUTE_DAYS.code }, rv)
   row.state = "reserved"
   row.registrationId = reg.id
   void advance(reg)
@@ -1101,8 +1159,10 @@ async function orderReveal(o: Ordered, body: unknown): Promise<Reveal> {
 }
 
 export async function reveal(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const requested = await requester(registrationId, "reveal", typeof body.request === "object" && body.request !== null ? body.request as RequestSignature : {})
   const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
+  if (!reg || reg.owner !== requested) throw notFound()
+  orderRequests.signed += 1
   const signature = checkSignature(body.signature)
   if (reg.label !== null) {
     if (reg.label === body.label && reg.intent?.signature === signature) return {}
@@ -1135,12 +1195,17 @@ async function checkSigned(owner: Address, message: string, timestamp: unknown, 
 const sha256Hex = (text: string) => "0x" + createHash("sha256").update(text, "ascii").digest("hex")
 
 export async function selectName(registrationId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  refuseInDowntime()
+  const sent = flatSigned(body)
+  const fields = orderFields(sent)
+  const revealBody = objectOf(body.reveal)
+  if (!Number.isInteger(sent.timestamp)) throw badRequest()
+  const signature = checkSignature(sent.signature)
   const reg = registrations.get(registrationId)
   if (!reg) throw new HttpError(404, "not_found")
-  const sent = flatSigned(body)
-  const order = orderBody({ ...sent, owner: reg.owner })
-  const revealBody = objectOf(body.reveal)
-  await checkSigner(reg.owner, `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`, sent.timestamp, sent.signature)
+  const order: OrderBody = { ...fields, owner: reg.owner }
+  const message = `simplex.domains name ${reg.id} ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${sha256Hex(order.sealed)} ${order.terms} ${sent.timestamp}`
+  if (await recoverMessageAddress({ message, signature }) !== reg.owner) throw new HttpError(404, "not_found")
   const current = reg.labelHash === order.labelHash && reg.length === order.length && reg.duration === order.duration && reg.commitment === order.commitment && reg.sealed === order.sealed
     && reg.terms === order.terms
   // a repeat is answered however old its signature, as the service answers it before the age
@@ -1183,9 +1248,8 @@ function codeReservable(row: PrepaidCode, reg: Registration, length: number): vo
   if (length < row.minLength) throw new HttpError(409, "code_not_covering")
 }
 
-export async function retry(registrationId: string): Promise<Record<string, unknown>> {
-  const reg = registrations.get(registrationId)
-  if (!reg) throw new HttpError(404, "not_found")
+export async function retry(registrationId: string, signed: RequestSignature): Promise<Record<string, unknown>> {
+  const reg = await ownRegistration(registrationId, "retry", signed)
   // only a commitment that lapsed unsigned is committed again
   if (control.writeDelayMs) await sleep(control.writeDelayMs)
   if (!lapsed(reg)) throw badRequest()
@@ -1538,7 +1602,15 @@ export function controlSearch(body: Record<string, unknown>): Record<string, unk
   return { ok: true }
 }
 
-// The service's mode as a restart with codes_only on or off sets it; the dev server reads it into the page it serves.
+export function controlMismatch(body: Record<string, unknown>): Record<string, unknown> {
+  const { price = null, policy = false, termsHash = false, method = false, address = null, amount = false } = body
+  if ((price !== null && !(Number.isInteger(price) && (price as number) >= 0)) || [policy, termsHash, method, amount].some((flag) => typeof flag !== "boolean")
+    || (address !== null && address !== "btc" && address !== "xmr")) throw badRequest()
+  Object.assign(mismatch, { price, policy, termsHash, method, address, amount })
+  return { ...mismatch }
+}
+
+// The service's mode as a restart with codes_only on or off sets it.
 export function controlMode(body: Record<string, unknown>): Record<string, unknown> {
   if (body.mode !== "open" && body.mode !== "codes") throw badRequest()
   control.mode = body.mode
@@ -1547,9 +1619,15 @@ export function controlMode(body: Record<string, unknown>): Record<string, unkno
 
 export const modeNow = () => ({ mode: control.mode })
 
-export const siteConfig = (): { stripePublishableKey: null; names: NamesSite } => ({
+export function controlDowntime(body: Record<string, unknown>): Record<string, unknown> {
+  if (typeof body.on !== "boolean") throw badRequest()
+  control.downtime = body.on
+  return { downtime: control.downtime }
+}
+
+export const siteConfig = () => ({
   stripePublishableKey: null,
-  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S },
+  names: { codesOnly: control.mode === "codes", chainId: deployment.chainId, resolver: deployment.resolver, sponsor: deployment.sponsor, tld: deployment.tld, termStart: TERM_START_S, downtime: control.downtime },
 })
 
 export async function controlClock(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -1623,7 +1701,7 @@ export async function currentTerms(hash: string): Promise<Record<string, unknown
 export function dump(): unknown {
   return {
     registrations: [...registrations.values()].map((r) => ({ ...r, intent: r.intent && { ...r.intent, nonce: String(r.intent.nonce), deadline: String(r.intent.deadline) } })),
-    invoices: [...invoices.values()], balances: Object.fromEntries(balances),
+    invoices: [...invoices.values()], balances: Object.fromEntries(balances), orderRequests,
   }
 }
 

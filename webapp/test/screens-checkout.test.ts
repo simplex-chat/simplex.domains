@@ -6,7 +6,6 @@ import { NO_LEAD } from "../src/screens/hold.ts"
 import type { Checkout } from "../src/session.ts"
 
 const NOW = Date.parse("2026-10-17T12:00:00Z")
-const CHAIN = { resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", chainId: 31337, tld: "simplex" }
 const CODE = { display: "SN6-AAAAA-BBBBB-CCCCC", minLength: 6, years: 3 }
 const WAITING = { registrationId: "reg-0", invoiceId: "inv-0" }
 const OPEN_ORDER = { invoiceId: "inv-9" }
@@ -16,13 +15,13 @@ const BAKERS = { for: "bakers and pastry chefs", years: 2 }
 
 function checkout(change: Partial<Checkout> = {}): Checkout {
   return {
-    label: "alice1", price: 1500, years: 2, termStart: Date.UTC(2027, 0, 1) / 1000, chain: CHAIN, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF",
+    label: "alice1", price: 1500, years: 2, terms: TERMS, community: null, contact: "", channel: "", method: "btc", code: null, ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF",
     saved: true, agreed: false, searchAt: 0, step: "review", ...change,
   }
 }
 
 const opened = (s: CheckoutState, change: Partial<Extract<CheckoutEvent, { type: "opened" }>> = {}): CheckoutEvent =>
-  ({ type: "opened", step: s.step, checkout: s.checkout, sending: false, waiting: null, hold: null, ...change })
+  ({ type: "opened", step: s.step, checkout: s.checkout, sending: false, waiting: null, hold: null, downtime: false, ...change })
 const open = (change: Partial<CheckoutState> = {}): CheckoutState => ({ ...initialState(checkout(), "review", false), ...change })
 const CONTACT = "https://smp8.simplex.im/a#x"
 const CHANNEL = "https://smp9.simplex.im/c#y"
@@ -38,6 +37,7 @@ const STATES: Record<CheckoutKind, CheckoutState> = {
   "status:taken": open({ refusal: "taken" }),
   "status:unavailable": open({ refusal: "unavailable" }),
   "status:codes-only": open({ refusal: "codes-only" }),
+  "status:downtime": open({ refusal: "downtime" }),
   "status:link-contact": open({ refusal: "link-contact" }),
   "status:link-channel": open({ refusal: "link-channel" }),
 }
@@ -71,6 +71,12 @@ describe("screenOf", () => {
   it("a step opened anew ends the refusal the review showed", () => {
     const refused = reduce(open(), { type: "order-refused", reason: "failed" })
     expect(screenOf(reduce(refused, opened(refused, { step: "links" })))).toBe("links")
+  })
+  it("says that new orders open again soon for a step opened in the service's downtime, and for an order refused in it", () => {
+    for (const step of ["links", "code", "review"] as const) expect(screenOf(reduce(STATES[step], opened(STATES[step], { downtime: true })))).toBe("status:downtime")
+    const refused = reduce(open(), { type: "order-refused", reason: "downtime" })
+    expect([screenOf(refused), refused.sending, refused.checkout]).toEqual(["status:downtime", false, open().checkout])
+    expect(screenOf(reduce(refused, opened(refused))), "a step opened once the downtime is over").toBe("review")
   })
   it("a code refused by the service stays on the review, which then pays another way", () => {
     const refused = reduce(initialState(checkout({ code: CODE }), "review", false), { type: "order-refused", reason: "code", error: "This code was already used." })

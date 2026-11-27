@@ -1,6 +1,6 @@
 // The home: the landing's headline, the search box and every answer it can show.
 import * as api from "../api.ts"
-import { loadedSite, namesSite, readSite } from "../config.ts"
+import { heldPrice, SITE } from "../config.ts"
 import { labelHash } from "../crypto/registration.ts"
 import { hex } from "../crypto/wallet.ts"
 import { btn, el, icon, type Kid, line, link, NO_AUTOFILL, setAction, waitOut } from "../dom.ts"
@@ -21,6 +21,7 @@ import { type Builder, CONTACT_EMAIL, currentRoute, draw, go, historyPlace, isRe
 import { chatButton } from "./chats.ts"
 import { CODES_ONLY_LINE, useCodeFor } from "./codes.ts"
 import { holdEnd, holdEnder, holdFrom, holdNotice, secondsLeft, tabHold } from "./hold.ts"
+import { downtimeNow, inDowntime, NEW_ORDERS_SOON } from "./served-mode.ts"
 import { NO_ORDERS, rowName } from "./terms.ts"
 
 // word joiners keep "a–z" and "0–9" whole: a line may otherwise break after their dash
@@ -46,12 +47,12 @@ export function searchPage(params: URLSearchParams): void {
   const fresh = !isRedraw() || shown === null || state.opening !== opening
   const returned = fresh && throughHistory()
   if (fresh) {
-    state = returned ? returnedTo(state, opening, name, loadedSite()?.tld, store.orders()) : initialSearch()
+    state = returned ? returnedTo(state, opening, name, SITE.tld, store.orders()) : initialSearch()
     shown = null
     opens += 1
   }
   pageRoute = currentRoute()
-  dispatch({ type: "opened", opening, name, order, hold: tabHold() })
+  dispatch({ type: "opened", opening, name, order, hold: tabHold(), downtime: inDowntime() })
   if (state.order) void checkOrder(state.order)
   if (searchDue(state)) submit()
   else if (returned && state.answer) void runSearch(state.name, state.seq)
@@ -96,15 +97,16 @@ async function runSearch(label: string, seq: number): Promise<void> {
   const awaited = () => onPage(page) && seq === state.seq
   const hash = hex(labelHash(label))
   let answer: api.SearchAnswer
+  let downtime: boolean
   try {
-    answer = await api.searchName(hash, label.length, (await namesSite()).chainId)
+    [answer, downtime] = await Promise.all([api.searchName(hash, label.length), downtimeNow()])
   } catch (e) {
     if (!awaited()) return
     if (holdFrom(e)) return dispatch({ type: "search-held", seq, until: holdEnd() })
     return dispatch({ type: "unanswered", seq })
   }
   if (!awaited()) return
-  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer) !== undefined, now: api.serviceNow() })
+  dispatch({ type: "answered", seq, label, answer, mine: mineFor(hash, answer) !== undefined, now: api.serviceNow(), downtime })
   if (answer.found.type === "available" || answer.found.type === "taken") void pointAtOwnOrder(label, hash, page)
 }
 
@@ -120,8 +122,9 @@ let ownRead: { label: string; orders: Promise<OwnOrders> } | null = null
 async function pointAtOwnOrder(label: string, hash: string, page: number): Promise<void> {
   const read = async (o: store.OrderRecord): Promise<OrderRead | null> => {
     if (!onPage(page)) return null
-    const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId).catch(() => null) : null
-    const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId).catch(() => null))
+    const sign = flow.orderSigner(o)
+    const invoice = o.invoiceId ? await api.readInvoice(o.invoiceId, sign).catch(() => null) : null
+    const reg = invoice?.registration ?? (o.invoiceId ? null : await api.readRegistration(o.registrationId, sign).catch(() => null))
     return reg && { phase: reg.phase.type, failure: reg.phase.type === "failed" ? reg.phase.reason : null, invoice: invoice?.status ?? null }
   }
   const orders = ownOrders(store.orders().filter((r) => r.request.labelHash === hash), read)
@@ -133,7 +136,8 @@ async function pointAtOwnOrder(label: string, hash: string, page: number): Promi
 }
 
 export async function readOrder(record: store.OrderRecord): Promise<{ view: api.RegistrationView; synced: store.OrderRecord } | null> {
-  const view = await (record.invoiceId ? api.readInvoice(record.invoiceId).then((i) => i.registration) : api.readRegistration(record.registrationId)).catch(() => null)
+  const sign = flow.orderSigner(record)
+  const view = await (record.invoiceId ? api.readInvoice(record.invoiceId, sign).then((i) => i.registration) : api.readRegistration(record.registrationId, sign)).catch(() => null)
   if (!view) return null
   const synced = await flow.syncRecord(record, view) ?? record
   return { view, synced: { ...synced, paid: view.price } }
@@ -163,26 +167,25 @@ function offered({ answer }: SearchState): { label: string; answer: flow.Availab
 
 async function register(): Promise<void> {
   const shown = offered(state)
-  if (!shown || !flow.orderable(shown.answer)) return
+  if (!shown || state.downtime || !orderableBy(state, shown.label, shown.answer)) return
   const page = opens
   const closed = ownRead?.label === shown.label ? (await ownRead.orders).closed : null
   const still = offered(state)
   // an order of the name that the reads found still open is the buyer's, which the page points at instead
-  if (!onPage(page) || still?.label !== shown.label || state.ownOrder !== null || !flow.orderable(still.answer)) return
+  if (!onPage(page) || still?.label !== shown.label || state.ownOrder !== null || state.downtime || !orderableBy(state, still.label, still.answer)) return
   checkOut(state, still.label, still.answer, closed?.ownerCode ?? null)
 }
 
 function checkOut(s: SearchState, label: string, answer: flow.Quote, closedCode: string | null): void {
-  const site = readSite()
-  const chain = flow.chainOf(site)
   const code = codeFor(s, label)
   const taken = s.order
   const { ownerCode, saved } = taken ? { ownerCode: taken.ownerCode, saved: true } : orderCode(closedCode)
   const order = taken ? { registrationId: taken.registrationId, method: taken.method, paid: taken.paid } : undefined
   const started = session.checkout()
-  const quote = { price: answer.price, years: taken?.years ?? answer.years, termStart: site.termStart, chain, terms: answer.terms, community: answer.community }
+  const price = heldPrice(label.length)
+  const quote = { price, years: taken?.years ?? answer.years, terms: answer.terms, community: answer.community }
   const sameCode = !ownerCode || started?.ownerCode == null || started.ownerCode === ownerCode
-  if (started && started.label === label && started.price === answer.price && started.chain.chainId === chain.chainId && !session.isSending(started) && sameCode) {
+  if (started && started.label === label && started.price === price && !session.isSending(started) && sameCode) {
     const agreed = started.agreed && api.currentTerms(started) === api.currentTerms(answer)
     const accepted = started.accepted && api.currentTerms(started) === api.currentTerms(answer)
     session.updateCheckout(label, {
@@ -259,7 +262,7 @@ function buildSearch(s: SearchState, signal: AbortSignal): HTMLElement {
   // the answer's room is kept from the start, so the headline and the field never move as an answer comes
   return el("section", { class: "home" },
     el("h1", {}, HEADLINE), el("p", { class: "sub" }, SUB),
-    el("div", { class: "search" }, box, keptLive("search-answer", "answer", locked ? codesOnlyAnswer() : answerOf(s, retry, signal))))
+    el("div", { class: "search" }, box, keptLive("search-answer", "answer", locked ? codesOnlyAnswer() : answerOf(s, retry, signal), s.downtime ? line("", "clock", `${NEW_ORDERS_SOON}.`) : null)))
 }
 
 function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
@@ -277,7 +280,7 @@ function answerOf(s: SearchState, retry: () => void, signal: AbortSignal): Kid {
 
 function reservedAnswer(label: string, answer: api.SearchAnswer): Kid[] {
   return [
-    el("div", { class: "card row" }, rowName(label, readSite().tld, answer.community, "community"), el("span", { class: "soft" }, "Reserved")),
+    el("div", { class: "card row" }, rowName(label, SITE.tld, answer.community, "community"), el("span", { class: "soft" }, "Reserved")),
     line("info", "info", "If you want to use this name, please contact us via ", el("a", { class: "nowrap", href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL),
       " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX"), "."),
   ]
@@ -302,26 +305,28 @@ const codeFor = (s: SearchState, label: string) => {
   const code = session.activeCode()
   return code && usesCode(s) && label.length >= code.minLength ? code : null
 }
+const freeBy = (s: SearchState, label: string) => codeFor(s, label) ?? (s.order && codeCover(s.order))
+const orderableBy = (s: SearchState, label: string, answer: flow.Available): answer is flow.Quote =>
+  flow.orderable(answer) && (freeBy(s, label) !== null || answer.price === heldPrice(label.length))
 
 function availableAnswer(s: SearchState, label: string, answer: flow.Available, signal: AbortSignal): Kid[] {
   const cover = s.order && codeCover(s.order)
   const own = s.ownOrder
-  const code = codeFor(s, label)
-  const free = code ?? cover
-  const paid = s.order && !cover && s.order.paid === answer.price ? s.order : null
+  const free = freeBy(s, label)
+  const paid = s.order && !cover && s.order.paid === heldPrice(label.length) ? s.order : null
   const unpaid = s.order && !free && !paid ? s.order : null
   const short = usesCode(s) ? session.activeCode() : cover
-  const orderable = flow.orderable(answer)
-  const button = setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable || unpaid !== null)
-  button.dataset.focus = "register"
-  const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(answer.price)),
+  const orderable = orderableBy(s, label, answer)
+  const button = s.downtime ? null : setAction(btn("Register", "small", () => void register()), false, own !== null || s.hold !== null || !orderable || unpaid !== null)
+  if (button) button.dataset.focus = "register"
+  const deal = [el("b", { class: "price" }, free ? "Free" : paid ? "Paid" : dollars(heldPrice(label.length))),
     el("span", { class: "soft" }, ` / ${api.termYears(answer.community, (free ?? paid)?.years ?? answer.years)} years`)]
   return [
-    el("div", { class: "card row buy" }, rowName(label, readSite().tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
+    el("div", { class: "card row buy" }, rowName(label, SITE.tld, answer.community, "community"), el("div", { class: "offer" }, el("span", { class: "deal" }, deal), button)),
     !free && short ? el("p", { class: "hint" }, `${letters(label.length)}. ${useCodeFor(short.minLength)}.`) : null,
     unpaid ? el("p", { class: "hint" }, `Your payment covers names at ${dollars(unpaid.paid)} for ${unpaid.years} years.`) : null,
     own ? line("", "info", "You already have an order for this name. ", el("a", { class: "nowrap", href: own }, "Open that order")) : null,
-    orderable ? null : line("warn", "alert", `${NO_ORDERS}. Please try again later.`),
+    orderable || s.downtime ? null : line("warn", "alert", `${NO_ORDERS}. Please try again later.`),
     own || !s.hold ? null : holdNotice(s.hold, signal),
   ]
 }
@@ -340,7 +345,7 @@ function takenAnswer(s: SearchState, found: Found, answer: api.SearchAnswer): Ki
   const own = answer.found.type === "taken" ? s.ownOrder : null
   const whose = own ? null : mine && again?.when !== "taken" ? (lapsed ? el("span", { class: "soft" }, "Expired") : el("a", { class: "nowrap", href: "/#/names" }, "Your name"))
     : el("span", { class: "soft" }, "Taken")
-  const { tld } = readSite()
+  const { tld } = SITE
   const name = `${label}.${tld}`
   const entities = registered?.entities ?? []
   return [

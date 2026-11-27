@@ -1,7 +1,9 @@
 // The page's frame: theme switch and navigation between views; index.html draws the header and footer.
+import type { AddressProof } from "../api.ts"
 import { alertBox, announce, btn, copyButton, el, fitNames, icon, type Kid, liveRegion, reducedMotion, refill, type Tone, waitOut } from "../dom.ts"
+import { SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
-import { type Hold, LIMITED_LEAD } from "../screens/hold.ts"
+import { type Hold, PLEASE_LEAD } from "../screens/hold.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { secondsLeft } from "./hold.ts"
@@ -147,7 +149,7 @@ export type Builder<S> = (state: S, signal: AbortSignal) => HTMLElement
 // a screen's main action and its text-link alternative, which a step holds at one place on every step
 interface Actions { action?: Node | null; alt?: Node | null }
 interface ScreenHead extends Actions { title: Kid; lead?: Kid; back?: string }
-interface Outcome extends Actions { tone: Tone; icon: IconName; title: string; text: Kid; reference?: string; extra?: Kid; agreement?: Kid; back?: string }
+interface Outcome extends Actions { tone: Tone; icon: IconName; title: string; text: Kid; reference?: string; proof?: AddressProof; extra?: Kid; agreement?: Kid; back?: string }
 
 export function kept<T>(key: string, make: () => T): T {
   const known = keptNodes.get(key)
@@ -275,17 +277,17 @@ export function asStep(screen: HTMLElement): HTMLElement {
 
 export function outcome(o: Outcome): HTMLElement {
   return el("section", { class: "screen outcome" }, screenHead(o.title, o.back),
-    el("div", { class: "screen-body" }, o.text === null ? null : alertBox(o.tone, o.icon, null, o.text), o.extra ?? null, o.reference ? referenceLine(o.reference) : null, o.agreement ?? null),
+    el("div", { class: "screen-body" }, o.text === null ? null : alertBox(o.tone, o.icon, null, o.text), o.extra ?? null, o.reference ? referenceLine(o.reference, o.proof) : null, o.agreement ?? null),
     actionsOf(o))
 }
 
 export function limitScreen(hold: Hold | null, again: () => void, back: string, signal: AbortSignal): HTMLElement {
-  const line = el("span", {}, `${LIMITED_LEAD}try again.`)
+  const line = el("span", {}, `${PLEASE_LEAD}try again.`)
   const tryAgain = btn("Try again", "", again)
   tryAgain.disabled = hold !== null
   const shown = outcome({ tone: "warn", icon: "clock", title: "Too many attempts", text: line, action: tryAgain, back })
   // the count goes in once the line is in its notice, where its spoken copy goes beside it
-  if (hold) waitOut(line, Math.max(1, secondsLeft(hold)), (left) => `${LIMITED_LEAD}try again in ${left}.`, () => undefined, signal)
+  if (hold) waitOut(line, Math.max(1, secondsLeft(hold)), (left) => `${PLEASE_LEAD}try again in ${left}.`, () => undefined, signal)
   return shown
 }
 
@@ -315,8 +317,8 @@ export function showPopup(key: string, kids: Kid[], first: HTMLElement | null): 
 }
 
 // Support refunds a balance by hand, on a message that quotes the order's reference.
-export function showRefund(reference: string, key: string): void {
-  const copy = copyButton(reference, "field-copy", "Copy reference")
+export function showRefund(reference: string, key: string, proof?: AddressProof): void {
+  const copy = proof === undefined ? copyButton(reference, "field-copy", "Copy reference") : copyButton(withProof(reference, proof), "field-copy", WITH_PROOF)
   showPopup(key, [
     el("h2", { id: POPUP_TITLE }, "Refund"),
     el("p", {}, ...contactSupport("Please contact", reference), ". Support refunds what is left of your balance."),
@@ -324,7 +326,11 @@ export function showRefund(reference: string, key: string): void {
   ], copy)
 }
 
-export const referenceLine = (reference: string) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference))
+const WITH_PROOF = "Copy the order reference and address proof for support"
+const withProof = (reference: string, proof: AddressProof) => `Order reference ${reference}, address proof ${JSON.stringify(proof)}`
+
+export const referenceLine = (reference: string, proof?: AddressProof) => el("p", { class: "note ref" }, "Reference ", el("span", { class: "mono" }, reference),
+  ...proof === undefined ? [] : [SEP, copyButton(withProof(reference, proof), "text-link", WITH_PROOF, "Copy for support")])
 
 // shown only before a document's first draw, placed as the screen after it will be, so its heading stays put
 export function drawLoading(title: string, place = (screen: HTMLElement) => screen): void {

@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test"
-import { mockUrl, pagePort, pageUrl } from "./e2e/slots.ts"
+import { codesPagePort, codesPageUrl, mockUrl, pagePort, pageUrl } from "./e2e/slots.ts"
+import { LOCAL } from "./src/config.ts"
 
 // BASE_URL points the tests at another server, such as `npx vite preview` of the production build
 const BASE_URL = process.env.BASE_URL
@@ -9,6 +10,8 @@ const SLOTS = BASE_URL ? 1 : Number(process.env.SLOTS ?? "4")
 const CHROME = { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, permissions: ["clipboard-read", "clipboard-write"] }
 const FIREFOX = { ...devices["Desktop Firefox"], viewport: { width: 1280, height: 900 } }
 const SAFARI = { ...devices["Desktop Safari"], viewport: { width: 1280, height: 900 } }
+
+const pageServer = (port: number, url: string, env: Record<string, string>) => ({ command: `npx vite --host 127.0.0.1 --port ${port}`, url, env, reuseExistingServer: true })
 
 const FRAMES = /frames\.spec\.ts$/
 const SCREENS = /screens\.spec\.ts$/
@@ -41,10 +44,11 @@ export default defineConfig({
     ...FIREFOX_158_PROJECT,
     ...SCREENS_PROJECT,
   ],
-  webServer: BASE_URL ? undefined : Array.from({ length: SLOTS }, (_, slot) => ({
-    command: `npx vite --host 127.0.0.1 --port ${pagePort(slot)}`,
-    url: pageUrl(slot),
-    env: { MOCK_URL: mockUrl(slot) },
-    reuseExistingServer: true,
-  })),
+  webServer: [
+    { command: "npx vite --config card/vite.config.ts", url: LOCAL.cardOrigin, reuseExistingServer: true },
+    ...BASE_URL ? [] : Array.from({ length: SLOTS }, (_, slot) => [
+      pageServer(pagePort(slot), pageUrl(slot), { MOCK_URL: mockUrl(slot) }),
+      pageServer(codesPagePort(slot), codesPageUrl(slot), { MOCK_URL: mockUrl(slot), VITE_CODES_ONLY: "true" }),
+    ]).flat(),
+  ],
 })

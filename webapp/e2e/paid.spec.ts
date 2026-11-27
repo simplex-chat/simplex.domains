@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { walletOf } from "../src/flow.ts"
 import { checksumAddress } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
@@ -7,6 +8,7 @@ import { CARD_FORM_TIMEOUT_MS } from "../src/stripe.ts"
 import {
   blockTimeOf, chainExpiry, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, LINKS_HEADING, MOCK, mockRegistration, onStep, oracleQuote, payButton, previewsShown, REGISTRATION_MS,
   offCentre, orderOwnerCode, qrText, registeredAnswer, registrationOf, restoreOrder, SAVED, AGREE, agreeToTerms, savedToReview, search, searchName, shot, shownCode, SLOW_FETCH_MS, startOrder, test, TERMS, toCodeStep, toFullReview, toReview, uniqueLabel, waitRegistered, withStripeKey, AVAILABLE_BRIEF, TAKEN_BRIEF,
+  cardFrame, fakeIntent, keepOrder,
 } from "./helpers.ts"
 
 // the card form these tests pay with is the dev server's stand-in; a production build loads Stripe's own
@@ -94,7 +96,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await expect(onStep(page).locator(".pay-status")).toHaveText(new RegExp(`^Waiting for paymentInvoice valid for \\d+:\\d\\dReference ${invoiceId}$`))
   await shot(page, "N4-bitcoin")
   // the wallet link is a BIP21 URI for what is left to send, and each copy button says what it copies
-  const invoice = async () => (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as Promise<{ address: string; cryptoAmount: string; cryptoAmountDue: string }>
+  const invoice = async () => (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as Promise<{ address: string; cryptoAmount: string; cryptoAmountDue: string }>
   const wallet = onStep(page).getByRole("link", { name: "Open in wallet" })
   const { address, cryptoAmount } = await invoice()
   await expect(wallet).toHaveAttribute("href", `bitcoin:${address}?amount=${cryptoAmount}`)
@@ -194,7 +196,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await channelField.fill(nextChannel)
   await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
   await page.getByRole("button", { name: "Save links" }).click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Please try again in/ })).toBeVisible({ timeout: 30_000 })
   expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["contact", "channel"]])
   expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
   await page.unroute("**/api/name/records")
@@ -314,7 +316,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.getByRole("radio")).toHaveText(["Card", "Bitcoin", "Monero"])
   // the ETH link ends the note under the methods, and nothing sits under Pay
   const dapp = step.locator(".notes").getByRole("link", { name: "Pay with ETH" })
-  await expect(dapp).toHaveAttribute("href", "https://app.simplex.domains")
+  await expect(dapp).toHaveAttribute("href", LOCAL.appOrigin)
   await expect(step.locator(".notes")).toHaveText("After paying, keep this page open until the name is registered. Pay with ETH")
   await expect(step.locator(".actions-row .alt")).toHaveCount(0)
   // the one box to tick, the terms, holds Pay until it is ticked; its link opens the terms beside the order
@@ -352,7 +354,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   const main = page.locator("body > main")
   await expect(main.locator(".lead")).toHaveText(`Registered until ${dateOf((await searchName(request, label)).expiresAt as number)}.`)
   // on chain: the price charged is the oracle's quote for the paid years, and the name expires the sent duration after the register's block
-  const paidInvoice = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
+  const paidInvoice = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { amount: number; registration: { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } } }
   expect(paidInvoice.amount).toBe(await oracleQuote(label, paidInvoice.registration.years))
   expect(await chainExpiry(label)).toBe(await blockTimeOf(paidInvoice.registration.registerTx) + paidInvoice.registration.duration)
   expect(paidInvoice.registration.phase.disputeUntil, "a Bitcoin payment's dispute end, 14 days after the register's block").toBe(await blockTimeOf(paidInvoice.registration.registerTx) + 14 * 86400)
@@ -361,7 +363,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(await shownCode(page)).toHaveText(ownerCode)
   await expect(main.getByRole("button", { name: "Copy code" })).toBeVisible()
   await expect(main.getByRole("checkbox")).toHaveCount(0)
-  await expect(main.getByRole("link", { name: "Your names" })).toHaveCount(0)
+  await expect(main.getByRole("link", { name: "Your names", exact: true })).toHaveCount(0)
   await expect(main.getByRole("link", { name: "Edit links" })).toHaveCount(0)
   const answer = await searchName(request, label)
   expect(answer.owner, "the code saved before paying owns the name").toBe(checksumAddress(walletOf(ownerCode)!.address))
@@ -424,7 +426,6 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
 const reviewLayout = (page: Page) => onStep(page).locator(".screen-body, .card.order, .trow, .pay-with, .notes, .check.terms, .actions-row .btn")
   .evaluateAll((nodes) => nodes.map((n) => [n.className, ...Object.values(n.getBoundingClientRect().toJSON())]))
 const bonusOf = (page: Page) => onStep(page).getByRole("button", { name: /^and (\d+ days|1 day)$/ })
-const termStartOf = (page: Page) => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).termStart as number, CHECKOUT_KEY)
 const inWindow = async (page: Page, node: Locator) => {
   const box = (await node.boundingBox())!
   const { width, height } = page.viewportSize()!
@@ -436,7 +437,7 @@ const termLines = (page: Page) => onStep(page).locator(".trow").first().locator(
 test("the term's free days are the early adopter bonus, explained on hover, focus and tap, with nothing moving", async ({ page, browser, baseURL }) => {
   await search(page, uniqueLabel("bonus"))
   await toReview(page, false)
-  const hint = `Early adopter bonus: your 2 years start on ${dateOf(await termStartOf(page))}.`
+  const hint = `Early adopter bonus: your 2 years start on ${dateOf(LOCAL.termStart)}.`
   const bonus = bonusOf(page)
   const tip = onStep(page).getByRole("tooltip")
   await expect(bonus).toHaveAccessibleDescription(hint)
@@ -492,14 +493,17 @@ test("the term's free days are the early adopter bonus, explained on hover, focu
 test("a term that has started has no free days, so no bonus or hint, which come back with the days", async ({ page }) => {
   await search(page, uniqueLabel("nobonus"))
   await toReview(page, false)
-  const termStart = await termStartOf(page)
-  const startAt = (at: number) => page.evaluate(([key, start]) => sessionStorage.setItem(key as string, JSON.stringify({ ...JSON.parse(sessionStorage.getItem(key as string)!), termStart: start })), [CHECKOUT_KEY, at])
-  await startAt(Math.floor(Date.now() / 1000) - 86400)
+  await page.route("**/api/**", async (route) => {
+    const res = await route.fetch()
+    const { date: _, ...headers } = res.headers()
+    await route.fulfill({ response: res, headers })
+  })
+  await page.clock.install({ time: (LOCAL.termStart + 86400) * 1000 })
   await page.reload()
   await expect(onStep(page).locator(".trow").first()).toHaveText("Term2 years")
   await expect(bonusOf(page)).toHaveCount(0)
   await expect(onStep(page).locator("[role=tooltip]")).toHaveCount(0)
-  await startAt(termStart)
+  await page.clock.setSystemTime(Date.now())
   await page.reload()
   await expect(bonusOf(page)).toHaveAccessibleDescription(/^Early adopter bonus/)
 })
@@ -699,7 +703,7 @@ test("Continue on the links step waits for a link being checked, and takes focus
 test("a Monero invoice's wallet link is monero:// for Monero GUI on a laptop and monero: on a phone, and its QR keeps monero:", async ({ page, request }) => {
   const { invoiceId } = await startOrder(page, uniqueLabel("xmrlink"), { method: "xmr" })
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
-  const { address, cryptoAmount } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
+  const { address, cryptoAmount } = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
   const wallet = onStep(page).getByRole("link", { name: "Open in wallet" })
   await expect(wallet).toHaveAttribute("href", `monero://${address}?tx_amount=${cryptoAmount}`)
   await expect(wallet.locator("xpath=..")).toHaveClass(/\bqr\b/)
@@ -713,7 +717,7 @@ test("the owner code restores an order in another browser, and a bad code is ref
   const label = uniqueLabel("rest")
   const { invoiceId, ownerCode } = await startOrder(page, label, { method: "xmr" })
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
-  const { address, cryptoAmount } = await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
+  const { address, cryptoAmount } = await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { address: string; cryptoAmount: string }
   await expect(onStep(page).getByRole("link", { name: "Open in wallet" }), "the Monero URI").toHaveAttribute("href", `monero://${address}?tx_amount=${cryptoAmount}`)
   await control(request, `confirming/${invoiceId}`)
   await expect(page.getByText("Waiting for 1 confirmation")).toBeVisible()
@@ -756,7 +760,7 @@ test("a card order waits for Stripe, blocks a second card order meanwhile, then 
   await expect(onStep(page).getByRole("button", { name: /^Pay \$\d+$/ })).toBeVisible()
   await expect(onStep(page).getByText("The card form is provided by Stripe. Your card will be charged only when you press Pay.")).toBeVisible()
   // the development stand-in says what it is, and the invoice can be cancelled from the form as from a crypto invoice
-  await expect(onStep(page).locator(".stripe > .label")).toHaveText("Test card form: no Stripe key is set, so Pay simulates a payment.")
+  await expect(cardFrame(page).locator(".stand-in > .label")).toHaveText("Test card form: no Stripe key is set, so Pay simulates a payment.")
   await expect(onStep(page).getByRole("button", { name: "Cancel this invoice" })).toBeVisible()
   await onStep(page).getByRole("button", { name: /^Pay \$/ }).click()
   await expect(page.getByText("Waiting for Stripe to confirm")).toBeVisible()
@@ -808,7 +812,7 @@ test("the card form stays in place while another tab writes the order, the same 
     (k) => localStorage.setItem(k, JSON.stringify({ ...JSON.parse(localStorage.getItem(k)!), contact: "https://smp8.simplex.im/a#S1" })),
   ]
   for (const write of writes) {
-    const read = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/invoice/${invoiceId}` && !r.url().includes("?"))
+    const read = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/invoice/${invoiceId}` && !new URL(r.url()).searchParams.has("wait"))
     await other.evaluate(write, key)
     await read
     await expect(page.locator("main[aria-busy]")).toHaveCount(0)
@@ -1009,7 +1013,7 @@ test("a part payment on a closed invoice, once credited, says so and gets an inv
   await actions.getByRole("button", { name: "Get a new invoice" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
   const second = new URL(page.url()).searchParams.get("order")!
-  const invoice = async (id: string) => (await request.get(`${MOCK}/api/invoice/${id}`)).json()
+  const invoice = async (id: string) => (await request.get(`${MOCK}/control/invoice/${id}`)).json()
   const [closed, whole] = [await invoice(invoiceId), await invoice(second)]
   expect([whole.amount, whole.registration.price, whole.registration.payment, whole.registration.labelHash], "the whole price, for the same name")
     .toEqual([10000, 10000, { type: "invoice", method: "btc" }, closed.registration.labelHash])
@@ -1181,7 +1185,7 @@ test("a cancel refused for a rate limit keeps the invoice payable and says so un
   await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   const cancel = onStep(page).getByText("Cancel this invoice", { exact: true })
   await cancel.click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible()
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Please try again in/ })).toBeVisible()
   await expect(onStep(page).getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
   await page.unroute("**/api/invoice/*/cancel")
   await expect(page.getByText("Too many attempts")).toHaveCount(0, { timeout: 10_000 })
@@ -1259,7 +1263,8 @@ test("a forgotten order whose code's lookup is rate limited waits as asked, then
   await control(request, "search", { findLimitSeconds: 0 })
 })
 
-test("an unknown order link says so", async ({ page }) => {
+test("an order link whose order the service does not know says so, in the browser holding its code", async ({ page }) => {
+  await keepOrder(page, "reg-nothing-here", "nothing-here", uniqueLabel("gone"))
   await page.goto("/?order=nothing-here")
   await expect(page.getByRole("heading", { name: "This link does not work" })).toBeVisible()
   await shot(page, "N11-unknown")
@@ -1284,20 +1289,21 @@ test("a card form that does not load says so and offers a new invoice", async ({
   await page.getByRole("button", { name: "Pay with Monero" }).click()
   await page.waitForURL((url) => url.searchParams.get("order") !== card)
   await expect(page.getByRole("heading", { name: "Pay with Monero" })).toBeVisible()
-  const cancelled = await (await page.request.get(`${MOCK}/api/invoice/${card}`)).json() as { status: string }
+  const cancelled = await (await page.request.get(`${MOCK}/control/invoice/${card}`)).json() as { status: string }
   expect(cancelled.status, "the card invoice").toBe("expired")
 })
 
 // a Stripe.js whose card form reports, once mounted, that it could not load, as it does for an intent Stripe refuses
-const STRIPE_FORM_FAILS = `window.Stripe = () => ({ elements: () => ({ create: () => {
+const stripeFormFails = (amount: number) => `window.Stripe = () => ({ retrievePaymentIntent: async () => (${fakeIntent(amount)}), elements: () => ({ create: () => {
   const handlers = {}
   return { on: (event, handler) => { handlers[event] = handler }, mount: () => setTimeout(() => handlers.loaderror?.({ elementType: "payment" })), destroy: () => undefined }
 } }) })`
 
 test("a card form that Stripe cannot load says so and offers a new invoice, rather than a form that never comes", async ({ page }) => {
-  await startOrder(page, uniqueLabel("cardfail"), { method: "card" })
+  const label = uniqueLabel("cardfail")
+  await startOrder(page, label, { method: "card" })
   await withStripeKey(page)
-  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_FORM_FAILS }))
+  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeFormFails(heldPrice(label.length)) }))
   await page.reload()
   await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
   await expect(page.getByText("The card form did not load, so your card was not charged. Please reload the page.")).toBeVisible()
@@ -1305,21 +1311,23 @@ test("a card form that Stripe cannot load says so and offers a new invoice, rath
 })
 
 // a Stripe.js whose card form, once mounted, neither loads nor says it failed, as on a stalled network
-const STRIPE_FORM_STALLS = `window.Stripe = () => ({ elements: () => ({ create: () => ({ on: () => undefined, mount: () => undefined, destroy: () => undefined }) }) })`
+const stripeFormStalls = (amount: number) => `window.Stripe = () => ({ retrievePaymentIntent: async () => (${fakeIntent(amount)}),
+  elements: () => ({ create: () => ({ on: () => undefined, mount: () => undefined, destroy: () => undefined }) }) })`
 // room past the bound for the page to draw what follows
 const CARD_FORM_SLACK_MS = 15_000
 
 // Stripe.js loaded with a form that never says how it went, or a request for Stripe.js that is never answered
-const STALLS: [string, (route: Route) => Promise<void> | undefined][] = [
-  ["form", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_FORM_STALLS })],
-  ["script", () => undefined],
+const STALLS: [string, (amount: number) => (route: Route) => Promise<void> | undefined][] = [
+  ["form", (amount) => (route) => route.fulfill({ contentType: "text/javascript", body: stripeFormStalls(amount) })],
+  ["script", () => () => undefined],
 ]
 
 for (const [stalled, answer] of STALLS) {
   test(`a card ${stalled} that neither loads nor fails gives up after its bound and offers a new invoice, rather than Pay off for good`, async ({ page }) => {
-    await startOrder(page, uniqueLabel("cardstall"), { method: "card" })
+    const label = uniqueLabel("cardstall")
+    await startOrder(page, label, { method: "card" })
     await withStripeKey(page)
-    await page.route("https://js.stripe.com/**", answer)
+    await page.route("https://js.stripe.com/**", answer(heldPrice(label.length)))
     await page.reload()
     await expect(page.getByRole("heading", { name: "Pay by card" })).toBeVisible()
     await expect(payButton(page)).toBeDisabled()
@@ -1329,13 +1337,12 @@ for (const [stalled, answer] of STALLS) {
   })
 }
 
-test("a card form that does not load, in a browser without the order, leads to the name code", async ({ page }) => {
+test("a card order's page in a browser that lost the order leads to the name code, with no card form", async ({ page }) => {
   await startOrder(page, uniqueLabel("nocardrec"), { method: "card" })
-  await withStripeKey(page)
-  await page.route("https://js.stripe.com/**", (route) => route.abort())
   await page.evaluate(() => localStorage.clear())
   await page.reload()
-  await expect(page.getByRole("heading", { name: "Card payment not confirmed" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
+  await expect(page.locator("body > main .stripe")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Get a new invoice" })).toHaveCount(0)
   await page.getByRole("button", { name: "Enter your name code" }).click()
   await expect(codeField(page)).toBeVisible()

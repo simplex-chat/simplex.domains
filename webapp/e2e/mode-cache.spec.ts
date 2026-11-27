@@ -3,9 +3,9 @@ import { readFileSync, statSync } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { extname, join, normalize } from "node:path"
-import type { Mode } from "../src/mode.ts"
+import { loads } from "./helpers.ts"
 
-// The production build, which has the worker, served by this spec as the store service serves it.
+// The production build, which has the worker, served by this spec with the caching headers of the host before GitHub Pages.
 test.skip(!process.env.BASE_URL, "needs the production build in dist/, which runs with BASE_URL")
 
 const DIST = new URL("../dist/", import.meta.url).pathname
@@ -16,16 +16,15 @@ const SLOW_ANSWER_MS = 4000
 const SETTLE_MS = 3000
 // long enough for a load the check started to have finished
 const RELOAD_MS = 1000
-const OTHER: Record<Mode, Mode> = { open: "codes", codes: "open" }
 // Playwright turns Chromium's back/forward cache off by its flag, and its headless shell has none; Firefox's and WebKit's stay off
 const CHROMIUM_WITH_BFCACHE = { channel: "chromium", ignoreDefaultArgs: ["--disable-back-forward-cache"] }
 
-// The service's names site: its mode at /api/config, and each file as built with Last-Modified, which Warp's
+// The service's names site: its downtime at /api/config, and each file as built with Last-Modified, which Warp's
 // responseFile answers If-Modified-Since against with a 304.
 class Service {
-  mode: Mode = "open"
+  downtime = false
   delayMs = 0
-  // the mode turns over with each config it answers, as a service restarted again and again
+  // the downtime turns over with each config it answers, as a service restarted again and again
   flips = false
   private server: Server | null = null
   private port = 0
@@ -38,10 +37,9 @@ class Service {
       const file = join(DIST, path === "/" ? "index.html" : path)
       const answer = () => {
         if (path === "/api/config") {
-          const mode = this.mode
-          if (this.flips) this.mode = OTHER[mode]
-          const names = { codesOnly: mode === "codes", chainId: 31337, resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318", sponsor: "0x0B306BF915C4d645ff596e518fAf3F9669b97016", tld: "simplex", termStart: 1798761600 }
-          return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ stripePublishableKey: null, names }))
+          const downtime = this.downtime
+          if (this.flips) this.downtime = !downtime
+          return void res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ stripePublishableKey: null, names: { downtime } }))
         }
         if (path.startsWith("/api/")) return void res.writeHead(404, { "Cache-Control": "no-store" }).end()
         let stat
@@ -71,33 +69,20 @@ class Service {
 }
 
 const nameField = (page: Page) => page.getByLabel("Name", { exact: true })
-// the mode the home was drawn in: in codes mode its search waits for a code
-async function pageMode(page: Page): Promise<Mode> {
-  await expect(nameField(page)).toBeVisible()
-  return (await nameField(page).isDisabled()) ? "codes" : "open"
-}
-const expectMode = (page: Page, mode: Mode) => mode === "codes" ? expect(nameField(page)).toBeDisabled() : expect(nameField(page)).toBeEnabled()
 
 // the tab coming back into view, as a reader switching back to it; headless browsers keep every tab in view
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 // the page's own check of the service's mode, answered
 const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config").then((r) => r.finished())
 
-// Every document the page loads from now on, counted as it fires load.
-function loads(page: Page): { count: number } {
-  const seen = { count: 0 }
-  page.on("load", () => { seen.count += 1 })
-  return seen
-}
-
-// A reader's page, opened once the service is in the given mode, and controlled by the worker it installed then.
-async function installedIn(page: Page, service: Service, mode: Mode): Promise<void> {
-  service.mode = mode
+// A reader's page, opened once the service is in or out of its downtime, and controlled by the worker it installed then.
+async function installedIn(page: Page, service: Service, downtime: boolean): Promise<void> {
+  service.downtime = downtime
   await page.goto(service.url)
   await page.evaluate(() => navigator.serviceWorker.ready)
   const controlled = await page.reload()
   expect(controlled?.fromServiceWorker(), "the page loads through its worker").toBe(true)
-  expect(await pageMode(page)).toBe(mode)
+  await expect(nameField(page)).toBeVisible()
 }
 
 let service: Service
@@ -109,71 +94,73 @@ test.afterEach(async () => {
   await service.stop()
 })
 
-test("a reload shows the mode the service switched to, while the service answers slowly after its restart", async ({ page }) => {
+const downtimeShown = (page: Page) => page.getByText("You will be able to order names again soon.")
+
+test("a reload shows the downtime the service entered, while the service answers slowly after its restart", async ({ page }) => {
   test.setTimeout(60_000)
-  await installedIn(page, service, "codes")
+  await installedIn(page, service, false)
   await service.stop()
-  service.mode = "open"
+  service.downtime = true
   service.delayMs = SLOW_ANSWER_MS
   await service.start()
   await page.reload()
-  expect(await pageMode(page), "the service's answer, not the one the worker kept").toBe("open")
-  service.mode = "codes"
+  await expect(downtimeShown(page), "the service's answer, not the one the worker kept").toBeVisible()
+  service.downtime = false
   await page.reload()
-  expect(await pageMode(page)).toBe("codes")
+  await expect(nameField(page)).toBeVisible()
+  await expect(downtimeShown(page)).toHaveCount(0)
 })
 
-test("while the service is down, the page opens in the last mode the service gave, not the one it had at install", async ({ page }) => {
-  await installedIn(page, service, "codes")
+test("while the service is down, the page opens in the downtime the service last gave, not as it was at install", async ({ page }) => {
+  await installedIn(page, service, false)
   await service.stop()
-  service.mode = "open"
+  service.downtime = true
   await service.start()
   await page.reload()
-  expect(await pageMode(page)).toBe("open")
+  await expect(downtimeShown(page)).toBeVisible()
   await service.stop()
   const offline = await page.reload()
   expect(offline?.fromServiceWorker(), "the kept shell").toBe(true)
-  expect(await pageMode(page), "the worker's copy of the service's last answer").toBe("open")
-  await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
-  // the page's check finds no service, so the page offline stays as it opened
+  await expect(downtimeShown(page), "the worker's copy of the service's last answer").toBeVisible()
   const seen = loads(page)
   await becomeVisible(page)
   await page.waitForTimeout(SETTLE_MS)
-  expect(seen.count).toBe(0)
-  await expect(page.getByRole("heading", { name: "Your SimpleX domain" })).toBeVisible()
+  expect(seen.count, "the page's check finds no service, so the page offline stays as it opened").toBe(0)
+  await expect(downtimeShown(page)).toBeVisible()
 })
 
-test("a tab open across the switch loads again in the service's mode as it comes back into view, both ways", async ({ page }) => {
-  await installedIn(page, service, "open")
-  service.mode = "codes"
-  await becomeVisible(page)
-  await expect(nameField(page), "the search waits for a code").toBeDisabled()
-  service.mode = "open"
-  await becomeVisible(page)
-  await expect(nameField(page)).toBeEnabled()
+test("a tab open across a downtime loads again as it comes back into view once the downtime has ended", async ({ page }) => {
+  await installedIn(page, service, false)
+  const seen = loads(page)
+  service.downtime = true
+  await Promise.all([modeChecked(page), becomeVisible(page)])
+  await page.waitForTimeout(RELOAD_MS)
+  expect(seen.count, "a downtime begun loads nothing").toBe(0)
+  service.downtime = false
+  await Promise.all([page.waitForEvent("load"), becomeVisible(page)])
+  await expect(nameField(page)).toBeVisible()
+  expect(seen.count).toBe(1)
 })
 
-test("a page restored by Back loads again in the service's mode", async ({ page, browserName }) => {
+test("a page restored by Back loads again once a downtime it read has ended", async ({ page, browserName }) => {
   if (browserName !== "chromium") {
-    await installedIn(page, service, "codes")
-    service.mode = "open"
+    await installedIn(page, service, true)
+    service.downtime = false
     // the restore's own event stands for the cache Playwright keeps off in Firefox and WebKit
-    await page.evaluate(() => dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))
-    await expectMode(page, "open")
+    await Promise.all([page.waitForEvent("load"), page.evaluate(() => dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))])
     return
   }
   const browser = await chromium.launch(CHROMIUM_WITH_BFCACHE)
   try {
     const restoring = await browser.newPage()
-    await installedIn(restoring, service, "codes")
+    await installedIn(restoring, service, true)
     const restored: boolean[] = []
     restoring.on("console", (m) => { if (m.text().startsWith("pageshow ")) restored.push(m.text() === "pageshow true") })
     await restoring.evaluate(() => addEventListener("pageshow", (e) => console.log(`pageshow ${e.persisted}`)))
-    service.mode = "open"
+    service.downtime = false
     await restoring.goto(`${service.url}/robots.txt`)
     // a restored page fires no load
-    await restoring.goBack({ waitUntil: "commit" })
-    await expectMode(restoring, "open")
+    await Promise.all([restoring.waitForEvent("load"), restoring.goBack({ waitUntil: "commit" })])
     expect(restored, "Chromium restored the page from its back/forward cache").toEqual([true])
   } finally {
     await browser.close()
@@ -181,25 +168,22 @@ test("a page restored by Back loads again in the service's mode", async ({ page,
 })
 
 test("a name typed and not searched is kept: the page loads again only as the reader leaves the screen", async ({ page }) => {
-  await installedIn(page, service, "open")
+  await installedIn(page, service, true)
   await nameField(page).fill("halftyped")
-  service.mode = "codes"
+  service.downtime = false
   const checked = modeChecked(page)
   await becomeVisible(page)
   await checked
   await page.waitForTimeout(SETTLE_MS)
   await expect(nameField(page)).toHaveValue("halftyped")
-  expect(await pageMode(page)).toBe("open")
   const seen = loads(page)
   await page.locator("body > header").getByRole("link", { name: "Check your code" }).click()
   await expect(page.getByRole("heading", { name: "Check your code" })).toBeVisible()
-  expect(seen.count, "leaving the screen loads the page again, in the service's mode").toBe(1)
-  await page.goBack()
-  await expectMode(page, "codes")
+  expect(seen.count, "leaving the screen loads the page again").toBe(1)
 })
 
-test("no reload loop: a service whose mode flips with every answer loads the page again at most once", async ({ page }) => {
-  await installedIn(page, service, "open")
+test("no reload loop: a service whose downtime flips with every answer loads the page again at most once", async ({ page }) => {
+  await installedIn(page, service, false)
   service.flips = true
   const seen = loads(page)
   await page.goto(service.url)
@@ -213,8 +197,8 @@ test("no reload loop: a service whose mode flips with every answer loads the pag
   expect(seen.count, "each return to the tab loads it again at most once").toBeLessThanOrEqual(5)
 })
 
-test("no reload while the service keeps answering the page's own mode", async ({ page }) => {
-  await installedIn(page, service, "codes")
+test("no reload while the service stays in its downtime", async ({ page }) => {
+  await installedIn(page, service, true)
   const seen = loads(page)
   for (let i = 0; i < 3; i++) {
     const checked = modeChecked(page)
@@ -223,5 +207,4 @@ test("no reload while the service keeps answering the page's own mode", async ({
   }
   await page.waitForTimeout(SETTLE_MS)
   expect(seen.count).toBe(0)
-  expect(await pageMode(page)).toBe("codes")
 })

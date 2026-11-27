@@ -1,5 +1,5 @@
 // This tab's checkout in progress, which ends with the tab.
-import type { ChainInfo, Community, Method, SignedOrder, Terms } from "./api.ts"
+import type { Community, Method, SignedOrder, Terms } from "./api.ts"
 import type { CheckoutStep } from "./screens/routes.ts"
 
 export interface AppliedCode {
@@ -10,11 +10,9 @@ export interface AppliedCode {
 
 export interface Checkout {
   label: string
-  // the search answer's price, for its years or a community name's own, and when the paid years start
+  // the search answer's price, for its years or a community name's own
   price: number
   years: number
-  termStart: number
-  chain: ChainInfo
   terms: Terms
   community: Community | null
   contact: string
@@ -83,11 +81,11 @@ function write(key: string, value: unknown): void {
 export const scrolled = (): Record<number, number> => read<Record<number, number>>(SCROLLED) ?? {}
 export const setScrolled = (at: number, y: number) => write(SCROLLED, { ...scrolled(), [at]: y })
 
-// a checkout without its name, chain, term or terms, or with the terms version an older page kept, is a leftover, not one to
+// a checkout without its name or terms, or with the terms version an older page kept, is a leftover, not one to
 // continue; one kept without its step opens the review, which sends it on
 export function checkout(): Checkout | null {
   const c = read<Checkout>(CHECKOUT)
-  return c?.label && c.chain && typeof c.terms?.hash === "string" && typeof c.termStart === "number" ? { ...c, step: c.step ?? "review" } : null
+  return c?.label && typeof c.terms?.hash === "string" ? { ...c, step: c.step ?? "review" } : null
 }
 export const setCheckout = (c: Checkout | null) => write(CHECKOUT, c)
 

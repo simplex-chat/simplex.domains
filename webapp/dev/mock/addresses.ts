@@ -1,90 +1,66 @@
-// Each invoice its own address, as BTCPay gives one: a Bitcoin regtest or a Monero stagenet address with a valid checksum,
-// so a wallet on those test networks takes it, derived from the invoice id and payable by nobody here.
+// Each invoice its own address, as the service gives one, with the proof the page checks it by: derived from the dev keys
+// of the store service's recorded fixtures (simplex-chat tests/fixtures/store-service/rest-api/deployment.json), which
+// LOCAL in src/config.ts holds.
 import { createHash } from "node:crypto"
 import { ed25519 } from "@noble/curves/ed25519"
+import { bytesToNumberLE, numberToBytesBE, numberToBytesLE } from "@noble/curves/utils"
+import { hmac } from "@noble/hashes/hmac"
+import { sha256, sha512 } from "@noble/hashes/sha2"
 import { keccak_256 } from "@noble/hashes/sha3"
+import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils"
+import { base58xmr } from "@scure/base"
+import { HDKey } from "@scure/bip32"
+import type { AddressProof } from "../../src/api.ts"
+import { hashToScalar, moneroKeys, p2wpkh } from "../../src/crypto/payees.ts"
 
-// BIP-173: the regtest prefix, and bech32's alphabet and checksum generator
-const REGTEST_HRP = "bcrt"
-const WITNESS_V0 = 0
-const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-const BECH32_GENERATOR = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
-const P2WPKH_BYTES = 20
-
-function polymod(values: number[]): number {
-  let chk = 1
-  for (const v of values) {
-    const top = chk >>> 25
-    chk = ((chk & 0x1ffffff) << 5) ^ v
-    BECH32_GENERATOR.forEach((g, i) => { if ((top >>> i) & 1) chk ^= g })
-  }
-  return chk
-}
-
-const hrpExpand = (hrp: string) => [...[...hrp].map((c) => c.charCodeAt(0) >>> 5), 0, ...[...hrp].map((c) => c.charCodeAt(0) & 31)]
-
-function toFiveBits(bytes: Uint8Array): number[] {
-  const out: number[] = []
-  let acc = 0
-  let bits = 0
-  for (const b of bytes) {
-    acc = (acc << 8) | b
-    bits += 8
-    while (bits >= 5) {
-      bits -= 5
-      out.push((acc >>> bits) & 31)
-    }
-  }
-  if (bits > 0) out.push((acc << (5 - bits)) & 31)
-  return out
-}
-
-function regtestAddress(program: Uint8Array): string {
-  const data = [WITNESS_V0, ...toFiveBits(program)]
-  const mod = polymod([...hrpExpand(REGTEST_HRP), ...data, 0, 0, 0, 0, 0, 0]) ^ 1
-  const checksum = Array.from({ length: 6 }, (_, i) => (mod >>> (5 * (5 - i))) & 31)
-  return `${REGTEST_HRP}1${[...data, ...checksum].map((v) => BECH32[v]).join("")}`
-}
-
-// Monero's stagenet standard address: network byte 24, the public spend and view keys, and 4 bytes of keccak-256 checksum,
-// in Monero's base58, which encodes each 8-byte block alone
-const STAGENET_STANDARD = 24
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-const FULL_BLOCK = 8
-// the characters a block of n bytes takes
-const BLOCK_CHARS = [0, 2, 3, 5, 6, 7, 9, 10, 11]
+export const DEV_XPUB = "tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M"
+export const TESTNET_VERSIONS = { private: 0x04358394, public: 0x043587cf }
+const DEV_HRP = "bcrt"
+export const DEV_MONERO_PRIMARY = "52jzuBBUMty3xPL3JsQxGP74LDuV6E1LS8Zda1PbdqQjGzFmH6N9ep9McbFKMALujVT9S5mKpbEgC5VPhfoAiVj8LdAqbp6"
+const DEV_VIEW_KEY = hexToBytes("fd5c0d25f8f994268079a4f7844274dc870a7c2b88fbfc24ba318375e1d9430f")
+const STAGENET_SUBADDRESS = 36
+const INDEX_BYTES = 4
+const KEY_BYTES = 32
 const CHECKSUM_BYTES = 4
+const NON_HARDENED = 2 ** 31
+const G = ed25519.Point.BASE
 
-function base58Block(block: Uint8Array): string {
-  let n = block.reduce((acc, b) => acc * 256n + BigInt(b), 0n)
-  let text = ""
-  for (let i = 0; i < BLOCK_CHARS[block.length]; i++) {
-    text = BASE58[Number(n % 58n)] + text
-    n /= 58n
+type BitcoinProof = Extract<AddressProof, { type: "btc" }>
+type MoneroProof = Extract<AddressProof, { type: "xmr" }>
+export interface Payee<P extends AddressProof = AddressProof> { address: string; addressProof: P }
+
+export function bitcoinPayee(branch: HDKey, hrp: string, index: number): Payee<BitcoinProof> {
+  const il = hmac(sha512, branch.chainCode!, concatBytes(branch.publicKey!, numberToBytesBE(index, INDEX_BYTES))).slice(0, KEY_BYTES)
+  return { address: p2wpkh(hrp, branch.deriveChild(index).publicKey!), addressProof: { type: "btc", keyTweak: bytesToHex(il) } }
+}
+
+export const devReceiving = HDKey.fromExtendedKey(DEV_XPUB, TESTNET_VERSIONS).deriveChild(0)
+const otherReceiving = HDKey.fromMasterSeed(sha256(utf8ToBytes("another Bitcoin wallet")), TESTNET_VERSIONS).deriveChild(0)
+
+const scalarHex = (v: bigint) => bytesToHex(numberToBytesLE(v, KEY_BYTES))
+interface MoneroWallet { spendKey: typeof G; viewKey: Uint8Array }
+const devWallet: MoneroWallet = { spendKey: ed25519.Point.fromBytes(moneroKeys(DEV_MONERO_PRIMARY)!.spend), viewKey: DEV_VIEW_KEY }
+const otherMonero: MoneroWallet = {
+  spendKey: G.multiply(hashToScalar(utf8ToBytes("another Monero wallet's spend key"))),
+  viewKey: numberToBytesLE(hashToScalar(utf8ToBytes("another Monero wallet's view key")), KEY_BYTES),
+}
+
+export function moneroPayee(account: number, index: number, { spendKey, viewKey } = devWallet): Payee<MoneroProof> {
+  const viewSecret = bytesToNumberLE(viewKey)
+  const m = hashToScalar(utf8ToBytes("SubAddr\0"), viewKey, numberToBytesLE(account, INDEX_BYTES), numberToBytesLE(index, INDEX_BYTES))
+  const D = spendKey.add(G.multiply(m))
+  const C = D.multiply(viewSecret)
+  const k = hashToScalar(utf8ToBytes("simplex.domains view proof nonce"), viewKey, D.toBytes())
+  const c = hashToScalar(utf8ToBytes("simplex.domains view proof"), G.multiply(viewSecret).toBytes(), D.toBytes(), C.toBytes(), G.multiply(k).toBytes(), D.multiply(k).toBytes())
+  const s = ed25519.Point.Fn.create(k - c * viewSecret)
+  const body = concatBytes(new Uint8Array([STAGENET_SUBADDRESS]), D.toBytes(), C.toBytes())
+  return {
+    address: base58xmr.encode(concatBytes(body, keccak_256(body).slice(0, CHECKSUM_BYTES))),
+    addressProof: { type: "xmr", spendTweak: scalarHex(m), viewProof: { challenge: scalarHex(c), response: scalarHex(s) } },
   }
-  return text
 }
 
-function moneroBase58(bytes: Uint8Array): string {
-  let text = ""
-  for (let at = 0; at < bytes.length; at += FULL_BLOCK) text += base58Block(bytes.slice(at, at + FULL_BLOCK))
-  return text
-}
-
-// a private key is a scalar below the group order; its public key is that multiple of the base point
-function publicKey(seed: Uint8Array): Uint8Array {
-  const scalar = seed.reduceRight((acc, b) => acc * 256n + BigInt(b), 0n) % ed25519.Point.Fn.ORDER
-  return ed25519.Point.BASE.multiply(scalar).toBytes()
-}
-
-function stagenetAddress(seed: Uint8Array): string {
-  const spend = publicKey(seed.slice(0, 32))
-  const view = publicKey(keccak_256(seed.slice(0, 32)))
-  const body = new Uint8Array([STAGENET_STANDARD, ...spend, ...view])
-  return moneroBase58(new Uint8Array([...body, ...keccak_256(body).slice(0, CHECKSUM_BYTES)]))
-}
-
-export function addressFor(method: "btc" | "xmr", invoiceId: string): string {
-  const seed = createHash("sha512").update(`${method} ${invoiceId}`).digest()
-  return method === "btc" ? regtestAddress(seed.subarray(0, P2WPKH_BYTES)) : stagenetAddress(seed)
+export function payeeFor(method: "btc" | "xmr", invoiceId: string, otherWallet = false): Payee {
+  const index = createHash("sha256").update(invoiceId).digest().readUInt32BE(0) % (NON_HARDENED - 1) + 1
+  return method === "btc" ? bitcoinPayee(otherWallet ? otherReceiving : devReceiving, DEV_HRP, index) : moneroPayee(0, index, otherWallet ? otherMonero : devWallet)
 }

@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256, sha256, toHex, zeroHash } from "viem"
 import {
-  ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retryDelay, searchName, seenOf, selectName, TermsChanged,
-  communityAgreed, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
+  addressProven, ApiError, cancelInvoice, checkCode, createOrder, currentTerms, editRecords, EditLimited, previewLink, readInvoice, readRegistration, registerWithCode, retry, retryDelay, reveal, searchName, seenOf, selectName, TermsChanged,
+  communityAgreed, type OrderSigner, readerUrl, type RegistrationView, selectable, signedHash, termsFor, termsLink, termsText, termYears,
 } from "../src/api.ts"
+import { LOCAL } from "../src/config.ts"
 
 const HASH = "ab".repeat(32)
+const SIGN: OrderSigner = (id, action) => ({ timestamp: 7, signature: `0x${id}${action}` })
 const COMMIT = "4cb24444a1f2e3d4c5b6a7980716253443526170"
 const FORGEJO = `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${COMMIT}`
 const GITHUB = `https://raw.githubusercontent.com/simplex-chat/simplex-chat/${COMMIT}`
@@ -15,15 +17,14 @@ function answerWith(status: number, body: string, headers: Record<string, string
   vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status, headers })))
 }
 
-const CHAIN_ID = 31337
 const REVEAL = {
   label: "alicebakery", secret: `0x${"11".repeat(32)}`, records: { contact: null, channel: null }, nonce: 0, deadline: 1800000000, signature: "0x",
   acceptance: { termsHash: `0x${"ab".repeat(32)}`, nonce: 0, signature: "0x" },
 }
 const REGISTERED = { type: "registered", owner: "0x1", resolver: "0x2", expiresAt: 1, gracePeriod: 2, entities: [], records: { type: "other" } }
 
-async function errorOf(chainId = CHAIN_ID): Promise<ApiError> {
-  const e = await searchName(HASH, 8, chainId).then(() => null, (e: unknown) => e)
+async function errorOf(): Promise<ApiError> {
+  const e = await searchName(HASH, 8).then(() => null, (e: unknown) => e)
   expect(e).toBeInstanceOf(ApiError)
   return e as ApiError
 }
@@ -81,7 +82,7 @@ describe("termsText", () => {
   it("asks the service for the terms by their hash and reads the text once it is the file their link names", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify({ link: LINK, text: TEXT }), { status: 200 }))
     vi.stubGlobal("fetch", fetched)
-    await expect(termsText(terms, 1)).resolves.toBe(TEXT)
+    await expect(termsText(terms)).resolves.toBe(TEXT)
     expect((fetched.mock.calls[0] as unknown as [string])[0]).toBe(`/api/terms/${terms.hash}`)
   })
   it("is no answer for another text or link, terms whose hash is not their link's, or a link the page does not take", async () => {
@@ -90,14 +91,14 @@ describe("termsText", () => {
       [{ link: LINK, text: TEXT }, { ...terms, hash: zeroHash }], [{ link: LINK.replace("https:", "http:"), text: TEXT }, termsOf(LINK.replace("https:", "http:"))],
     ] as const) {
       answerWith(200, JSON.stringify(body))
-      await expect(termsText(asked, 1), JSON.stringify(body)).rejects.toMatchObject({ code: "network" })
+      await expect(termsText(asked), JSON.stringify(body)).rejects.toMatchObject({ code: "network" })
     }
   })
   it("passes the service's refusal, with its wait", async () => {
     answerWith(404, JSON.stringify({ type: "not_found" }))
-    await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "not_found" })
+    await expect(termsText(terms)).rejects.toMatchObject({ code: "not_found" })
     answerWith(503, JSON.stringify({ type: "terms_unavailable" }), { "retry-after": "30" })
-    await expect(termsText(terms, 1)).rejects.toMatchObject({ code: "terms_unavailable", retryAfter: 30 })
+    await expect(termsText(terms)).rejects.toMatchObject({ code: "terms_unavailable", retryAfter: 30 })
   })
 })
 
@@ -138,6 +139,13 @@ describe("service errors", () => {
     expect([e.code, e.status]).toEqual(["provider_unavailable", 503])
     answerWith(409, JSON.stringify({ type: "order_exists" }))
     expect((await errorOf()).code).toBe("order_exists")
+  })
+
+  it("reads the service's downtime, which refuses new orders, as its own refusal and not a gateway's failure", async () => {
+    answerWith(503, JSON.stringify({ type: "downtime" }))
+    const e = await createOrder({ labelHash: HASH, length: 8, duration: 1, owner: "0x1", commitment: HASH, sealed: "s", terms: HASH, timestamp: 1, signature: "0x", reveal: REVEAL }, "btc", 10000)
+      .then(() => null, (e: unknown) => e)
+    expect([(e as ApiError).code, (e as ApiError).status]).toEqual(["downtime", 503])
   })
 
   it("takes a refusal the page does not know as the service's own failure, or the network's under a gateway status", async () => {
@@ -188,7 +196,7 @@ describe("service errors", () => {
     for (const [edits, read] of [[{ left: 3 }, { left: 3, nextAt: null }], [{ left: 0, nextAt: "2027-10-23T00:00:00Z" }, { left: 0, nextAt: 1824249600 }],
       [{ left: 1, nextAt: "2027-10-23T00:00:00Z" }, { left: 1, nextAt: 1824249600 }]] as const) {
       answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
-      expect(await searchName(HASH, 8, CHAIN_ID), JSON.stringify(edits)).toMatchObject({ found: { records: { ...own, edits: read } } })
+      expect(await searchName(HASH, 8), JSON.stringify(edits)).toMatchObject({ found: { records: { ...own, edits: read } } })
     }
     for (const edits of [{ left: 0 }, { left: -1 }, { left: 1.5 }, {}, { left: 2, nextAt: "soon" }, { left: 2, nextAt: 1824249600 }, 3, undefined]) {
       answerWith(200, JSON.stringify({ found: { ...REGISTERED, records: { ...own, edits } } }))
@@ -211,7 +219,7 @@ describe("service errors", () => {
     }
   })
 
-  const TERMS = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
+  const TERMS = LOCAL.generalTerms[0]
   const GROUP = { kind: "channel", displayName: "Alice", fullName: "Alice's news", subscribers: 12 }
   const channelPreview = (profile: Record<string, unknown> = GROUP) => ({ kind: "channel", profile: { type: "ok", linkProfile: profile } })
   const PREVIEW = channelPreview()
@@ -223,14 +231,14 @@ describe("service errors", () => {
   it("passes a search answer the page can draw", async () => {
     const available = { type: "available", price: 10000, years: 2, terms: TERMS }
     answerWith(200, JSON.stringify({ found: available }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: available, community: null })
+    expect(await searchName("ab".repeat(32), 8)).toEqual({ found: available, community: null })
     answerWith(200, JSON.stringify({ found: { type: "available", price: 10000, years: 2 } }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
+    expect(await searchName("ab".repeat(32), 8), "terms that can't be read now").toEqual({ found: { type: "available", price: 10000, years: 2, terms: null }, community: null })
     answerWith(200, registeredWith({ preview: PREVIEW, ...LINK }))
-    expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
+    expect(await searchName("ab".repeat(32), 8)).toEqual({ found: { ...REGISTERED, entities: [{ ...DRAWN, ...LINK }] }, community: null })
     for (const type of ["taken", "reserved"]) {
       answerWith(200, JSON.stringify({ found: { type } }))
-      expect(await searchName("ab".repeat(32), 8, CHAIN_ID)).toEqual({ found: { type }, community: null })
+      expect(await searchName("ab".repeat(32), 8)).toEqual({ found: { type }, community: null })
     }
   })
 
@@ -252,14 +260,14 @@ describe("service errors", () => {
     for (const [kind, type] of [["contact", "address"], ["channel", "channel"]]) {
       for (const profile of ["unread", "unavailable"]) {
         answerWith(200, registeredWith({ preview: { kind, profile: { type: profile } }, ...LINK }))
-        expect(await searchName("ab".repeat(32), 8, CHAIN_ID), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
+        expect(await searchName("ab".repeat(32), 8), `${kind} ${profile}`).toMatchObject({ found: { entities: [{ type, kind, displayName: "", fullName: "", image: null, subscribers: null, profile, ...LINK }] } })
       }
     }
     // an address opens a contact, a business or a bot, as the service tells them apart
     const contactPreview = (kind: unknown) => ({ kind: "contact", profile: { type: "ok", linkProfile: { kind, displayName: "Alice", fullName: "" } } })
     for (const kind of ["contact", "business", "bot"]) {
       answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
-      expect(await searchName("ab".repeat(32), 8, CHAIN_ID), kind).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
+      expect(await searchName("ab".repeat(32), 8), kind).toMatchObject({ found: { entities: [{ type: "address", kind, displayName: "Alice", subscribers: null, ...LINK }] } })
     }
     for (const kind of [undefined, "robot", 5]) {
       answerWith(200, registeredWith({ preview: contactPreview(kind), ...LINK }))
@@ -277,6 +285,17 @@ describe("service errors", () => {
     expect(await checkCode("SN6-X")).toEqual({ state: "unused", minLength: 6, years: 2 })
   })
 
+  it("takes a code check only for the years a code may give", async () => {
+    for (const years of [LOCAL.minCodeYears, LOCAL.maxCodeYears]) {
+      answerWith(200, JSON.stringify({ state: "unused", minLength: 6, years }))
+      expect((await checkCode("SN6-X")).years).toBe(years)
+    }
+    for (const years of [LOCAL.minCodeYears - 1, LOCAL.maxCodeYears + 1]) {
+      answerWith(200, JSON.stringify({ state: "unused", minLength: 6, years }))
+      expect(((await checkCode("SN6-X").then(() => null, (e: unknown) => e)) as ApiError).code, String(years)).toBe("network")
+    }
+  })
+
   it("takes a success whose body was cut off as no answer", async () => {
     answerWith(200, '{"status":"avail')
     expect((await errorOf()).code).toBe("network")
@@ -291,22 +310,38 @@ describe("service errors", () => {
 
   it("passes an invoice the page can draw, and takes one it cannot, or one that cannot be so, as no answer", async () => {
     answerWith(200, JSON.stringify(INVOICE))
-    expect(await readInvoice("inv1")).toMatchObject({ invoiceId: "inv1", registration: { id: "r1" } })
+    expect(await readInvoice("inv1", SIGN)).toMatchObject({ invoiceId: "inv1", registration: { id: "r1" } })
     for (const body of [
       {}, { ...INVOICE, registration: undefined }, { ...INVOICE, registration: { ...REGISTRATION, phase: { type: "lost" } } }, { ...INVOICE, status: "weird" },
       { ...INVOICE, amount: "lots" }, { ...INVOICE, amount: -1 }, { ...INVOICE, cryptoAmount: "a lot" }, { ...INVOICE, registration: { ...REGISTRATION, years: 0 } },
       { ...INVOICE, registration: { ...REGISTRATION, version: "4" } }, { ...INVOICE, registration: { ...REGISTRATION, phase: "unpaid" } },
+      { ...INVOICE, cryptoCurrency: undefined, address: undefined, clientSecret: 42 },
     ]) {
       answerWith(200, JSON.stringify(body))
-      const e = await readInvoice("inv1").then(() => null, (e: unknown) => e)
+      const e = await readInvoice("inv1", SIGN).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(body).slice(0, 120)).toBe("network")
+    }
+  })
+
+  it("keeps an address proof of either coin's shape, and drops one of another shape, which leaves the address unproven", async () => {
+    const btcProof = { type: "btc", keyTweak: "ab".repeat(32) }
+    const xmrProof = { type: "xmr", spendTweak: "cd".repeat(32), viewProof: { challenge: "ef".repeat(32), response: "01".repeat(32) } }
+    for (const addressProof of [btcProof, xmrProof]) {
+      answerWith(200, JSON.stringify({ ...INVOICE, addressProof }))
+      expect((await readInvoice("inv1", SIGN)).addressProof).toEqual(addressProof)
+    }
+    for (const addressProof of [null, "ab", { keyTweak: "ab" }, { type: "btc", keyTweak: 1 }, { ...xmrProof, viewProof: null }, { ...xmrProof, viewProof: { challenge: "ef" } }, { type: "eth" }]) {
+      answerWith(200, JSON.stringify({ ...INVOICE, addressProof }))
+      const read = await readInvoice("inv1", SIGN)
+      expect(read.addressProof, JSON.stringify(addressProof)).toBeUndefined()
+      expect(addressProven(read), JSON.stringify(addressProof)).toBe(false)
     }
   })
 
   it("takes an overpaid invoice's negative due as nothing left to pay, from every request that answers an invoice", async () => {
     const overpaid = { ...INVOICE, cryptoAmountPaid: "0.00256", cryptoAmountDue: "-0.001", paidInFull: true }
     const reads: [string, () => Promise<unknown>][] = [
-      ["a read", () => readInvoice("inv1")], ["a cancel", () => cancelInvoice("inv1")],
+      ["a read", () => readInvoice("inv1", SIGN)], ["a cancel", () => cancelInvoice("inv1", SIGN)],
     ]
     for (const [name, read] of reads) {
       answerWith(200, JSON.stringify(overpaid))
@@ -314,7 +349,7 @@ describe("service errors", () => {
     }
     for (const cryptoAmountDue of ["-", "--0.001", "-0.001x", "- 0.001"]) {
       answerWith(200, JSON.stringify({ ...overpaid, cryptoAmountDue }))
-      const e = await readInvoice("inv1").then(() => null, (e: unknown) => e)
+      const e = await readInvoice("inv1", SIGN).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, cryptoAmountDue).toBe("network")
     }
   })
@@ -324,7 +359,7 @@ describe("service errors", () => {
   it("passes what a late payment waits on", async () => {
     for (const waiting of ["confirming", "crediting", "support"]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, latePayment: waiting }))
-      expect((await readRegistration("r1")).latePayment).toEqual(waiting)
+      expect((await readRegistration("r1", SIGN)).latePayment).toEqual(waiting)
     }
   })
 
@@ -340,7 +375,7 @@ describe("service errors", () => {
       { type: "failed", reason: "monthEnded" }, { type: "failed", reason: "unread" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
-      expect((await readRegistration("r1")).phase, JSON.stringify(phase)).toEqual(phase)
+      expect((await readRegistration("r1", SIGN)).phase, JSON.stringify(phase)).toEqual(phase)
     }
     for (const phase of [
       { type: "closed" }, { type: "closed", closedBy: "paid" }, { type: "committed", revealAfter: 1, revealBefore: 2 }, committed({ type: "awaiting" }),
@@ -348,7 +383,7 @@ describe("service errors", () => {
       { ...committed({ type: "signed" }), revealAfter: null }, { type: "registered" }, { type: "failed" }, { type: "failed", reason: "not_registered" }, { type: "failed", reason: "linksRefused" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, phase }))
-      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      const e = await readRegistration("r1", SIGN).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(phase)).toBe("network")
     }
   })
@@ -356,7 +391,7 @@ describe("service errors", () => {
   it("passes an order's balance and how it was paid, and takes either malformed as no answer", async () => {
     for (const payment of [{ type: "invoice", method: "btc" }, { type: "code" }]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, payment, balance: BALANCE }))
-      expect(await readRegistration("r1"), JSON.stringify(payment)).toMatchObject({ payment, balance: BALANCE })
+      expect(await readRegistration("r1", SIGN), JSON.stringify(payment)).toMatchObject({ payment, balance: BALANCE })
     }
     for (const change of [
       { payment: undefined }, { payment: { type: "invoice" } }, { payment: { type: "invoice", method: "eth" } },
@@ -365,21 +400,59 @@ describe("service errors", () => {
       { latePayment: undefined }, { latePayment: {} }, { latePayment: "later" },
     ]) {
       answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
-      const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+      const e = await readRegistration("r1", SIGN).then(() => null, (e: unknown) => e)
       expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
     }
   })
 
-  it("holds a poll on the registration's version and the payment marks it has seen", async () => {
+  it("holds a poll on the registration's version and the payment marks it has seen, each read signed in its query", async () => {
     const fetched = vi.fn(async () => new Response(JSON.stringify(INVOICE), { status: 200 }))
     vi.stubGlobal("fetch", fetched)
-    const invoice = await readInvoice("inv1")
-    await readInvoice("inv1", seenOf({ ...invoice, cryptoAmountPaid: "0.5", paidInFull: true }))
+    const invoice = await readInvoice("inv1", SIGN)
+    await readInvoice("inv1", SIGN, seenOf({ ...invoice, cryptoAmountPaid: "0.5", paidInFull: true }))
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(REGISTRATION), { status: 200 })))
-    await readRegistration("r1", 4)
-    await readRegistration("r1", 0)
+    await readRegistration("r1", SIGN, 4)
+    await readRegistration("r1", SIGN, 0)
     const urls = [...fetched.mock.calls, ...(fetch as unknown as typeof fetched).mock.calls].map((c) => (c as unknown as [string])[0])
-    expect(urls).toEqual(["/api/invoice/inv1", "/api/invoice/inv1?wait=open&seenVersion=4&seenPaid=0.5&seenFull=1", "/api/registration/r1?seenVersion=4", "/api/registration/r1?seenVersion=0"])
+    expect(urls).toEqual(["/api/invoice/inv1?timestamp=7&signature=0xinv1read", "/api/invoice/inv1?timestamp=7&signature=0xinv1read&wait=open&seenVersion=4&seenPaid=0.5&seenFull=1",
+      "/api/registration/r1?timestamp=7&signature=0xr1read&seenVersion=4", "/api/registration/r1?timestamp=7&signature=0xr1read&seenVersion=0"])
+  })
+
+  it("signs a cancel and a retry in their bodies, and signs once more when a refused timestamp set the clock", async () => {
+    const bodies: unknown[] = []
+    const answers = [new Response(JSON.stringify({ type: "bad_request" }), { status: 400, headers: { date: new Date(Date.now() + 3_600_000).toUTCString() } }),
+      new Response(JSON.stringify(INVOICE), { status: 200 }), new Response(JSON.stringify(REGISTRATION), { status: 200, headers: { date: new Date().toUTCString() } })]
+    vi.stubGlobal("fetch", vi.fn(async (_: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string))
+      return answers.shift()!
+    }))
+    await cancelInvoice("inv1", SIGN)
+    await retry("r1", SIGN)
+    expect(bodies).toEqual([{ timestamp: 7, signature: "0xinv1cancel" }, { timestamp: 7, signature: "0xinv1cancel" }, { timestamp: 7, signature: "0xr1retry" }])
+  })
+
+  it("signs a reveal's order request beside its fields, and signs once more when a refused timestamp set the clock", async () => {
+    const bodies: unknown[] = []
+    const answers = [new Response(JSON.stringify({ type: "bad_request" }), { status: 400, headers: { date: new Date(Date.now() + 3_600_000).toUTCString() } }),
+      new Response("{}", { status: 200 })]
+    vi.stubGlobal("fetch", vi.fn(async (_: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string))
+      return answers.shift()!
+    }))
+    await reveal("r1", REVEAL, SIGN)
+    expect(bodies).toEqual([{ ...REVEAL, request: { timestamp: 7, signature: "0xr1reveal" } }, { ...REVEAL, request: { timestamp: 7, signature: "0xr1reveal" } }])
+  })
+
+  it("sends a refused request of a device off by an hour once, when its answer's Date moved the clock by a second", async () => {
+    const at = (s: number) => ({ date: new Date(Date.now() + s * 1000).toUTCString() })
+    const answers = [new Response(JSON.stringify(REGISTRATION), { status: 200, headers: at(3600) }),
+      new Response(JSON.stringify({ type: "bad_request" }), { status: 400, headers: at(3601) })]
+    const fetched = vi.fn(async () => answers.shift()!)
+    vi.stubGlobal("fetch", fetched)
+    await retry("r1", SIGN)
+    const e = await reveal("r1", REVEAL, SIGN).then(() => null, (e: unknown) => e)
+    expect((e as ApiError).code).toBe("bad_request")
+    expect(fetched).toHaveBeenCalledTimes(2)
   })
 
   it("takes a link preview whose image is no image the page can show as no answer, and an image the service dropped as none", async () => {
@@ -408,8 +481,8 @@ describe("service errors", () => {
 
   describe("terms and community names", () => {
     const COMMUNITY = { for: "bakers and pastry chefs", years: 2 }
-    const COMMUNITY_TERMS = termsOf(`${FORGEJO}/docs/community-terms.md#sha256=${"c7".repeat(32)}`)
-    const LOCAL_TERMS = termsOf(`http://127.0.0.1:8098/terms/${"c7".repeat(32)}.md#sha256=${"c7".repeat(32)}`)
+    const COMMUNITY_TERMS = LOCAL.communityTerms[2]
+    const LOCAL_TERMS = LOCAL.communityTerms[0]
     const SIGNED = `community/${COMMUNITY_TERMS.hash.slice(2)}`
     const OLDER_SIGNED = `2026-10-23/community/${"c7".repeat(32)}`
     const AVAILABLE = { found: { type: "available", price: 10000, years: 2, terms: COMMUNITY_TERMS }, community: COMMUNITY }
@@ -446,10 +519,18 @@ describe("service errors", () => {
         { ...AVAILABLE, community: { years: 2 } }, { ...availableWith(TERMS), community: null }, availableWith(LOCAL_TERMS),
       ]) {
         answerWith(200, JSON.stringify(body))
-        expect(await searchName(HASH, 6, CHAIN_ID), JSON.stringify(body)).toEqual(body)
+        expect(await searchName(HASH, 6), JSON.stringify(body)).toEqual(body)
       }
       answerWith(200, JSON.stringify({ found: REGISTERED }))
-      expect(await searchName(HASH, 6, CHAIN_ID), "a name off the community list").toEqual({ found: REGISTERED, community: null })
+      expect(await searchName(HASH, 6), "a name off the community list").toEqual({ found: REGISTERED, community: null })
+    })
+
+    it("reads the terms of an available answer as none unless they are the page's own terms of the name's kind", async () => {
+      const unheld = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
+      for (const body of [availableWith(TERMS), availableWith(LOCAL.generalTerms[1]), { ...availableWith(COMMUNITY_TERMS), community: null }, { ...availableWith(unheld), community: null }]) {
+        answerWith(200, JSON.stringify(body))
+        expect((await searchName(HASH, 6)).found, JSON.stringify(body)).toEqual({ ...body.found, terms: null })
+      }
     })
 
     it("takes a community entry that cannot be so, or the available answer with terms whose link the page does not take or whose hash is not their link's, as no answer", async () => {
@@ -457,26 +538,24 @@ describe("service errors", () => {
         { ...AVAILABLE, community: "bakers" }, { ...AVAILABLE, community: { ...COMMUNITY, for: 5 } }, { ...AVAILABLE, community: { ...COMMUNITY, for: "" } }, { ...AVAILABLE, community: { ...COMMUNITY, for: null } },
         { ...AVAILABLE, community: { ...COMMUNITY, years: 0 } }, { ...AVAILABLE, community: { for: COMMUNITY.for } }, availableWith({ link: TERMS.link }), availableWith({ hash: TERMS.hash }),
         availableWith(null), availableWith({ ...TERMS, hash: COMMUNITY_TERMS.hash }), availableWith({ ...TERMS, hash: TERMS.hash.toUpperCase().replace("0X", "0x") }),
-        availableWith(termsOf(TERMS.link.replace("https:", "http:"))), availableWith(termsOf("https://simplex.chat/terms")),
+        availableWith(termsOf(COMMUNITY_TERMS.link.replace("https:", "http:"))), availableWith(termsOf("https://simplex.chat/terms")),
         { found: { type: "registered" } }, { community: COMMUNITY },
       ]) {
         answerWith(200, JSON.stringify(body))
         expect((await errorOf()).code, JSON.stringify(body)).toBe("network")
       }
-      answerWith(200, JSON.stringify(availableWith(LOCAL_TERMS)))
-      expect((await errorOf(1)).code, "terms on this machine, on another chain").toBe("network")
     })
 
     it("passes an order's community entry and the terms it signed", async () => {
       const agreed = { communityName: true, termsHash: COMMUNITY_TERMS.hash }
       for (const change of [{ community: COMMUNITY, terms: agreed }, { community: null, terms: { communityName: false, termsHash: TERMS.hash } }]) {
         answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
-        expect(await readRegistration("r1"), JSON.stringify(change)).toMatchObject(change)
+        expect(await readRegistration("r1", SIGN), JSON.stringify(change)).toMatchObject(change)
       }
       for (const change of [{ community: undefined }, { community: { ...COMMUNITY, for: 1 } }, { terms: undefined }, { terms: null }, { terms: SIGNED }, { terms: { ...agreed, communityName: "yes" } },
         { terms: { ...agreed, termsHash: COMMUNITY_TERMS.hash.slice(2) } }, { terms: { communityName: true } }]) {
         answerWith(200, JSON.stringify({ ...REGISTRATION, ...change }))
-        const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+        const e = await readRegistration("r1", SIGN).then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(change)).toBe("network")
       }
     })
@@ -487,20 +566,20 @@ describe("service errors", () => {
         signature: { type: "awaiting", toSign: { type: "read", intentNonce: 0, acceptance: accepted } } } })
       for (const accepted of [acceptance, { ...acceptance, community: false, termsHash: TERMS.hash }]) {
         answerWith(200, JSON.stringify(withAcceptance(accepted)))
-        expect(await readRegistration("r1"), JSON.stringify(accepted)).toMatchObject(withAcceptance(accepted))
+        expect(await readRegistration("r1", SIGN), JSON.stringify(accepted)).toMatchObject(withAcceptance(accepted))
       }
       for (const accepted of [undefined, null, { ...acceptance, termsHash: "0x1" }, { ...acceptance, nonce: -1 }, { ...acceptance, nonce: 1.5 },
         { ...acceptance, policy: 3 }, { ...acceptance, community: undefined }, { ...acceptance, community: "community" }]) {
         answerWith(200, JSON.stringify(withAcceptance(accepted)))
-        const e = await readRegistration("r1").then(() => null, (e: unknown) => e)
+        const e = await readRegistration("r1", SIGN).then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(accepted)).toBe("network")
       }
     })
 
     const SENDS: [string, () => Promise<unknown>][] = [
-      ["an order", () => createOrder(ORDER, "btc", 10000, 31337)],
-      ["a code order", () => registerWithCode(ORDER, "SN6-X", 31337)],
-      ["a selection", () => selectName("r1", ORDER, 31337)],
+      ["an order", () => createOrder(ORDER, "btc", 10000)],
+      ["a code order", () => registerWithCode(ORDER, "SN6-X")],
+      ["a selection", () => selectName("r1", ORDER)],
     ]
 
     it.each(SENDS)("sends %s with the terms the buyer agreed to and the reveal", async (_, send) => {
@@ -514,7 +593,7 @@ describe("service errors", () => {
     })
 
     it.each(SENDS)("gives %s refused for changed terms the terms of the name's kind and the community entry as they are now", async (_, send) => {
-      for (const [terms, community] of [[COMMUNITY_TERMS, COMMUNITY], [TERMS, null], [LOCAL_TERMS, null]] as const) {
+      for (const [terms, community] of [[COMMUNITY_TERMS, COMMUNITY], [TERMS, null], [LOCAL_TERMS, COMMUNITY]] as const) {
         answerWith(409, JSON.stringify({ type: "terms_changed", terms, community }))
         const e = await send().then(() => null, (e: unknown) => e)
         expect(e).toBeInstanceOf(TermsChanged)
@@ -525,6 +604,26 @@ describe("service errors", () => {
         answerWith(409, JSON.stringify(body))
         const e = await send().then(() => null, (e: unknown) => e)
         expect((e as ApiError).code, JSON.stringify(body)).toBe("network")
+      }
+    })
+
+    it.each(SENDS)("takes %s refused for changed terms as no answer unless they are the page's own terms of the name's kind", async (_, send) => {
+      const unheld = termsOf(`${FORGEJO}/docs/general-terms.md#sha256=${"0b".repeat(32)}`)
+      for (const [terms, community] of [[TERMS, COMMUNITY], [COMMUNITY_TERMS, null], [unheld, null]] as const) {
+        answerWith(409, JSON.stringify({ type: "terms_changed", terms, community }))
+        const e = await send().then(() => null, (e: unknown) => e)
+        expect((e as ApiError).code, JSON.stringify(terms)).toBe("network")
+      }
+    })
+
+    it.each(SENDS.filter(([name]) => name !== "a code order"))("takes %s refused for a changed price only at the price the page holds for the name's length", async (_, send) => {
+      const held = LOCAL.priceExceptions.find((e) => e.labelLength === ORDER.length)!.centsPerYear * LOCAL.paidYears
+      answerWith(409, JSON.stringify({ type: "catalog_changed", price: held }))
+      expect(await send().then(() => null, (e: unknown) => e)).toMatchObject({ code: "catalog_changed", body: { price: held } })
+      for (const price of [held - 1, LOCAL.priceBaseCentsPerYear * LOCAL.paidYears, undefined]) {
+        answerWith(409, JSON.stringify({ type: "catalog_changed", price }))
+        const e = await send().then(() => null, (e: unknown) => e)
+        expect((e as ApiError).code, String(price)).toBe("network")
       }
     })
 

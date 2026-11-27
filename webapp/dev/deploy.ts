@@ -8,6 +8,7 @@ import {
 } from "viem"
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts"
 import { foundry } from "viem/chains"
+import { LOCAL } from "../src/config.ts"
 import { durationFor } from "../src/crypto/registration.ts"
 import { BLOCK_POLL_MS, TERM_START_S, untilChainTime } from "./chain-time.ts"
 import { registerNameTypedData } from "./register-name.ts"
@@ -27,8 +28,8 @@ const MAX_LABEL_LENGTH = 63n
 const FEED_DECIMALS = 8
 const FEED_PRICE = 100_000_000n
 // the launch prices in cents a year (owner, 2026-10-21): $100, $200 and $400 for 2 years at 8 or more, 7 and 6 letters
-const PRICE_BASE = 5000n
-const PRICE_EXCEPTIONS = [{ labelLength: 7n, priceCentsPerYear: 10000n }, { labelLength: 6n, priceCentsPerYear: 20000n }]
+const PRICE_BASE = BigInt(LOCAL.priceBaseCentsPerYear)
+const PRICE_EXCEPTIONS = LOCAL.priceExceptions.map((e) => ({ labelLength: BigInt(e.labelLength), priceCentsPerYear: BigInt(e.centsPerYear) }))
 // the seeded names are registered as a paid order is, for paid years from the term start
 const SEED_YEARS = 2
 const SEED_DISPUTE_DAYS = 120n
@@ -116,6 +117,12 @@ await write(owner, namePolicy, "setCommunityTerms", [COMMUNITY_TERMS_LINK])
 await write(owner, namePolicy, "addCommunityNames", [COMMUNITY_NAMES])
 
 const chainId = await publicClient.getChainId()
+const differs = ([
+  ["chainId", chainId, LOCAL.chainId], ["tld", TLD, LOCAL.tld], ["sponsor", sponsor.address, LOCAL.sponsor], ["resolver", resolver.address, LOCAL.resolver],
+  ["namePolicy", namePolicy.address, LOCAL.namePolicy], ["baseRegistrar", baseRegistrar.address, LOCAL.baseRegistrar], ["general terms", GENERAL_TERMS_LINK, LOCAL.generalTerms[0].link],
+  ["community terms", COMMUNITY_TERMS_LINK, LOCAL.communityTerms[0].link],
+] as const).filter(([, deployed, held]) => deployed !== held)
+if (differs.length) throw new Error(`the deployment differs from LOCAL in src/config.ts: ${differs.map(([what, deployed, held]) => `${what} ${deployed}, not ${held}`).join("; ")}`)
 const holderAccount = privateKeyToAccount(holderKey)
 
 // A name registered to the holder through the sponsor, as the store's service registers names.

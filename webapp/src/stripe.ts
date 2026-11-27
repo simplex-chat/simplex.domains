@@ -1,8 +1,9 @@
-// Stripe's Payment Element for card orders, as the badges webapp mounts it (apps/simplex-badge-service/web/src/stripe.ts).
+// Stripe's Payment Element for card orders, as the badges webapp mounts it (apps/simplex-badge-service/web/src/stripe.ts),
+// in the card page (card/), and the messages between that page and the names page.
 
 // Stripe.js must load from js.stripe.com and may not be bundled or self-hosted, so this is a script tag.
 const STRIPE_JS_URL = "https://js.stripe.com/dahlia/stripe.js"
-const CONFIRM_FAILED = "The card was not accepted. Check the details and try again."
+export const CONFIRM_FAILED = "Sorry, the card was not accepted. Please check the details and try again."
 // a form that neither loads nor fails, as on a stalled network, has failed once this long has gone by
 export const CARD_FORM_TIMEOUT_MS = 20_000
 
@@ -15,9 +16,11 @@ interface StripeElements {
   create(kind: "payment", options: { wallets: Record<"applePay" | "googlePay" | "link", "never"> }): PaymentElement
   update(options: { appearance: Appearance }): void
 }
+interface PaymentIntent { id: string; amount: number; currency: string; livemode: boolean; payment_method_types: string[]; status?: string }
 interface StripeInstance {
+  retrievePaymentIntent(clientSecret: string): Promise<{ paymentIntent?: PaymentIntent; error?: { type?: string } }>
   elements(options: { clientSecret: string; appearance: Appearance }): StripeElements
-  confirmPayment(options: { elements: StripeElements; confirmParams: { return_url: string }; redirect: "if_required" }): Promise<{ paymentIntent?: { status?: string }; error?: { type?: string; message?: string } }>
+  confirmPayment(options: { elements: StripeElements; confirmParams: { return_url: string }; redirect: "if_required" }): Promise<{ paymentIntent?: { id?: string; status?: string }; error?: { type?: string; message?: string } }>
 }
 type StripeGlobal = (publishableKey: string) => StripeInstance
 interface Appearance {
@@ -31,10 +34,6 @@ declare global {
     Stripe?: StripeGlobal
   }
 }
-
-let key = ""
-export const setPublishableKey = (served: string) => { key = served }
-export const publishableKey = (): string => key
 
 let loading: Promise<StripeGlobal> | null = null
 
@@ -92,7 +91,7 @@ function appearance(dark: boolean): Appearance {
   }
 }
 
-type ConfirmOutcome = { kind: "submitted" } | { kind: "invalid" } | { kind: "error"; message: string }
+export type ConfirmOutcome = { kind: "submitted"; id: string } | { kind: "invalid" } | { kind: "error"; message: string }
 export type MountedCard = { confirm: () => Promise<ConfirmOutcome>; destroy: () => void }
 // the page's theme: whether it is dark, and its changes, heard until the returned stop is called
 export interface Theme {
@@ -100,9 +99,28 @@ export interface Theme {
   watch(follow: (dark: boolean) => void): () => void
 }
 
-// The form once ready, or null when the script, the SDK or the form fails or is not ready within the bound. The form
-// follows the page's theme in place, as mounting it again would lose what was typed.
-export async function mountCard(key: string, clientSecret: string, target: HTMLElement, theme: Theme): Promise<MountedCard | null> {
+export type ToCard =
+  | { type: "mount"; clientSecret: string; amount: number; dark: boolean }
+  | { type: "theme"; dark: boolean }
+  | { type: "confirm" }
+export type FromCard =
+  | { type: "mounted" }
+  | { type: "height"; px: number }
+  | { type: "paid"; id: string }
+  | { type: "invalid" }
+  | { type: "declined"; message: string }
+  | { type: "failed"; reason: "mismatched" | "unloaded" }
+
+export interface Expected { amount: number; currency: string; live: boolean }
+export const MISMATCHED = "mismatched"
+
+const intentHeld = (pi: PaymentIntent | undefined, { amount, currency, live }: Expected) =>
+  pi !== undefined && pi.amount === amount && pi.currency === currency && pi.livemode === live && pi.payment_method_types.length === 1 && pi.payment_method_types[0] === "card"
+
+// The form once ready; MISMATCHED when the PaymentIntent is not the one expected, or not of the key's account; null when
+// the script, the SDK or the form fails or is not ready within the bound. The form follows the page's theme in place, as
+// mounting it again would lose what was typed.
+export async function mountCard(key: string, clientSecret: string, expected: Expected, target: HTMLElement, theme: Theme): Promise<MountedCard | typeof MISMATCHED | null> {
   let stalled: ReturnType<typeof setTimeout> | undefined
   const late = new Promise<false>((done) => { stalled = setTimeout(done, CARD_FORM_TIMEOUT_MS, false) })
   let unwatch: () => void = () => undefined
@@ -110,6 +128,9 @@ export async function mountCard(key: string, clientSecret: string, target: HTMLE
     const stripe = await Promise.race([loadStripeJs(), late])
     if (!stripe) return null
     const sdk = stripe(key)
+    const read = await Promise.race([sdk.retrievePaymentIntent(clientSecret), late])
+    if (!read || (read.error && read.error.type !== "invalid_request_error")) return null
+    if (!intentHeld(read.paymentIntent, expected)) return MISMATCHED
     const elements = sdk.elements({ clientSecret, appearance: appearance(theme.dark()) })
     unwatch = theme.watch((dark) => elements.update({ appearance: appearance(dark) }))
     const element = elements.create("payment", { wallets: { applePay: "never", googlePay: "never", link: "never" } })
@@ -129,7 +150,7 @@ export async function mountCard(key: string, clientSecret: string, target: HTMLE
           if (r.error?.type === "validation_error") return { kind: "invalid" }
           if (r.error) return { kind: "error", message: r.error.message ?? CONFIRM_FAILED }
           const status = r.paymentIntent?.status
-          return status === "succeeded" || status === "processing" ? { kind: "submitted" } : { kind: "error", message: CONFIRM_FAILED }
+          return status === "succeeded" || status === "processing" ? { kind: "submitted", id: r.paymentIntent?.id ?? "" } : { kind: "error", message: CONFIRM_FAILED }
         } catch {
           return { kind: "error", message: CONFIRM_FAILED }
         }

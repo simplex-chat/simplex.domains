@@ -1,11 +1,13 @@
 import { type APIRequestContext, expect, type Locator, type Page } from "@playwright/test"
+import { bitcoinPayee, devReceiving } from "../dev/mock/addresses.ts"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { YEAR_S } from "../src/crypto/registration.ts"
 import { MAX_LABEL_LENGTH } from "../src/names.ts"
 import { TX_STALL_MS } from "../src/screens/order.ts"
 import {
   AVAILABLE_BRIEF, brokenNames, channelLink, CHECKOUT_KEY, CODE_HEADING, codeField, contactLink, control, fakeRegisteredName, fillLinks, FIT_SIZES, keepOrder, type KeptOrder, LINKS_HEADING, okPreview, onStep, payButton, previewsShown, SAVED,
   lineStarts, offCentre, recordedFrames, recordFrames, REGISTRATION_MS, registeredAnswer, registrationOf, registrationView, rowFit, savedToReview, search, shot, startOrder, takenOrder, TERMS, test, toCodeStep,
-  TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey,
+  TAKEN_BRIEF, toFullReview, toReview, uniqueLabel, useCode, waitRegistered, withStripeKey, cardFrame, cardFrameOf, fakeIntent,
 } from "./helpers.ts"
 
 test("the purchase steps swap the whole page, one screen at a time rising in, and Back walks them in reverse", async ({ page }) => {
@@ -61,11 +63,12 @@ const METHOD_TILES = [66, 72]
 
 // The screen in view fits the window at each size, its content above its actions' row, its methods' tiles at their
 // height and no name broken that fits its line whole; a step's heading and actions' row stand where every step's do,
-// which the caller compares. Captured for review when shots are asked for.
-async function fitsWindow(page: Page, name: string, frames?: Record<string, Frame[]>): Promise<void> {
+// which the caller compares; a screen that grows, as the name-is-yours screen of a long name, may reach past the window.
+// Captured for review when shots are asked for.
+async function fitsWindow(page: Page, name: string, frames?: Record<string, Frame[]>, grows = false): Promise<void> {
   for (const [i, size] of FIT_SIZES.entries()) {
     await page.setViewportSize(size)
-    const measured = async () => ({ broken: await brokenNames(page), ...await page.evaluate((tile) => {
+    const measured = async () => ({ broken: await brokenNames(page), ...await page.evaluate(([tile, mayGrow]) => {
       const shown = document.querySelector("body > main > section")!
       // a step with no action gives its content the action row's room, down to the step's foot; one with only a link,
       // the empty place of a main button above it
@@ -77,12 +80,12 @@ async function fitsWindow(page: Page, name: string, frames?: Record<string, Fram
       // what is kept whole, as a name's end with its TLD, a price with its term and a name code, drawn on more than one line
       const split = [...shown.querySelectorAll(".nowrap, .deal, .code-text")].filter((n) => new Set([...n.getClientRects()].map((r) => Math.round(r.top))).size > 1)
       return {
-        overflow: Math.max(0, document.scrollingElement!.scrollHeight - innerHeight - footer),
+        overflow: mayGrow ? 0 : Math.max(0, document.scrollingElement!.scrollHeight - innerHeight - footer),
         overlap: actions && content.length ? Math.max(0, Math.round(Math.max(...content.map((b) => b.bottom)) - actions.top)) : 0,
         split: split.map((n) => n.textContent),
         tiles: [...shown.querySelectorAll(".method")].map((m) => Math.round(m.getBoundingClientRect().height)).filter((h) => h !== tile),
       }
-    }, METHOD_TILES[i]) })
+    }, [METHOD_TILES[i], grows] as const) })
     await expect.poll(measured, { message: `${name} at ${size.width}x${size.height}` }).toEqual({ broken: [], overflow: 0, overlap: 0, split: [], tiles: [] })
     if (frames) {
       const at = await page.evaluate(() => {
@@ -203,7 +206,8 @@ const DECLINED = "Your card was declined."
 // A Stripe.js whose card form comes when the test calls __loadCard, `px` tall for the column, and grows by __growCard;
 // it declines every card when asked to. It counts its mounts in __mounts, and keeps in __logos Stripe's logo tone of
 // each appearance the form is given once made.
-const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
+const stripeOnCue = (px: FormPx, amount: number, declines = false) => `window.Stripe = () => ({
+  retrievePaymentIntent: async () => (${fakeIntent(amount)}),
   confirmPayment: async () => (${declines} ? { error: { type: "card_error", message: "${DECLINED}" } } : { paymentIntent: { status: "processing" } }),
   elements: () => ({ update: ({ appearance }) => { (window.__logos ??= []).push(appearance.variables.logoColor) }, create: () => {
     const handlers = {}
@@ -220,14 +224,15 @@ const stripeOnCue = (px: FormPx, declines = false) => `window.Stripe = () => ({
   } }),
 })`
 const loadCard = async (page: Page) => {
-  await page.waitForFunction(() => typeof (window as unknown as { __loadCard?: unknown }).__loadCard === "function")
-  await page.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
+  const frame = await cardFrameOf(page)
+  await frame.waitForFunction(() => typeof (window as unknown as { __loadCard?: unknown }).__loadCard === "function")
+  await frame.evaluate(() => (window as unknown as { __loadCard: () => void }).__loadCard())
 }
-const cardSeen = (page: Page) => page.evaluate(() => {
+const cardSeen = async (page: Page) => (await cardFrameOf(page)).evaluate(() => {
   const w = window as unknown as { __logos?: string[]; __mounts?: number }
   return { logos: w.__logos ?? [], mounts: w.__mounts ?? 0 }
 })
-const growCard = (page: Page, by: number) => page.evaluate((px) => (window as unknown as { __growCard: (by: number) => void }).__growCard(px), by)
+const growCard = async (page: Page, by: number) => (await cardFrameOf(page)).evaluate((px) => (window as unknown as { __growCard: (by: number) => void }).__growCard(px), by)
 // the card page's windows: a laptop's, a narrow desktop window's, and two phones'
 const CARD_SIZES = [{ width: 1280, height: 800 }, { width: 600, height: 800 }, { width: 390, height: 844 }, { width: 360, height: 780 }]
 // the widest window drawn as a phone (styles.css)
@@ -267,7 +272,7 @@ function cardFollows(drawn: Awaited<ReturnType<typeof cardPage>>, where: string)
 // notice stays above the form; Stripe's note is under Cancel, centred, clear of the invest note. With `declines`, Pay is
 // pressed once the form loads, and Stripe declines the card. A page that `scrolls`, for a name of the most wide letters,
 // may reach past a laptop's window, as its actions take their whole height under the form.
-async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, { declines = false, scrolls = false } = {}): Promise<void> {
+async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, amount: number, { declines = false, scrolls = false } = {}): Promise<void> {
   for (const size of CARD_SIZES) {
     for (const px of FORMS_PX) {
       const wide = size.width > PHONE_WIDTH
@@ -276,14 +281,15 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
       const where = `${size.width}x${size.height}, a form of ${formPx} px`
       await page.setViewportSize(size)
       await page.unroute("https://js.stripe.com/**")
-      await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(px, declines) }))
+      await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(px, amount, declines) }))
       await open()
       await expect(onStep(page).getByRole("heading", { name: "Pay by card" }), where).toBeVisible()
       await expect(onStep(page).locator(".name-check:not(.unchecked)"), `${where}: the notice`).toBeVisible()
       await page.evaluate(() => document.fonts.ready)
       const before = await cardPage(page)
       await loadCard(page)
-      await expect(onStep(page).locator(".stripe > div"), where).toHaveCount(1)
+      await expect(cardFrame(page).locator("#form > div"), where).toHaveCount(1)
+      await expect.poll(async () => (await cardPage(page)).form!.bottom - (await cardPage(page)).form!.top, `${where}: the frame grown to the form`).toBe(Math.max(formPx, room))
       if (declines) await payButton(page).click()
       await expect(onStep(page).locator(".name-check > :not(.sizer)"), `${where}: the notice`).toHaveText(notice)
       const loaded = await cardPage(page)
@@ -309,6 +315,8 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
       if (!scrolls && formPx <= room && FIT_SIZES.some((fit) => fit.width === size.width && fit.height === size.height)) expect(await overflow(page), where).toBe(0)
       // an error line under a field: the form grows past its room by the line, and Pay and what follows move down with it
       await growCard(page, ERROR_LINE_PX)
+      await expect.poll(async () => (await cardPage(page)).form!.bottom - (await cardPage(page)).form!.top, `${where}: the frame grown by the line`)
+        .toBe(Math.max(formPx + ERROR_LINE_PX, room))
       for (const dark of [false, true]) {
         await page.evaluate((d) => document.documentElement.classList.toggle("dark", d), dark)
         const grown = await cardPage(page)
@@ -325,19 +333,20 @@ async function cardFits(page: Page, notice: RegExp, open: () => Promise<void>, {
 
 const CARD_INVOICE = "inv-cardfit"
 const CARD_REGISTRATION = "reg-cardfit"
-interface CardOrder { label: string; price: number; taken?: boolean; forgetful?: boolean }
+interface CardOrder { label: string; taken?: boolean; forgetful?: boolean }
 
 // A card order of this browser's, answered by routes, whose page opens at `/?order=`; the name is available or taken,
 // and the browser can keep a record or not.
 async function routedCardOrder(page: Page, o: CardOrder): Promise<() => Promise<void>> {
   const order = await keepOrder(page, CARD_REGISTRATION, CARD_INVOICE, o.label)
   await page.evaluate((r) => localStorage.setItem(`simplex-names:order:${r.registrationId}`, JSON.stringify({ ...r, method: "card" })), order)
-  const registration = registrationView(order, { price: o.price, payment: { type: "invoice", method: "card" } })
-  const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: o.price, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
+  const price = heldPrice(o.label.length)
+  const registration = registrationView(order, { price, payment: { type: "invoice", method: "card" } })
+  const invoice = { invoiceId: CARD_INVOICE, status: "open", amount: price, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name",
     registration, clientSecret: "pi_cardfit_secret" }
   await page.route(`**/api/invoice/${CARD_INVOICE}*`, (route) => route.fulfill({ json: invoice }))
   await page.route(`**/api/registration/${CARD_REGISTRATION}*`, (route) => route.fulfill({ json: registration }))
-  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? homeAnswers(order.owner).taken : homeAnswers(order.owner).available }))
+  await page.route("**/api/name/**", (route) => route.fulfill({ json: o.taken ? homeAnswers(order.owner, o.label).taken : homeAnswers(order.owner, o.label).available }))
   if (o.forgetful) await page.addInitScript(() => {
     const keep = Storage.prototype.setItem
     Storage.prototype.setItem = function (key: string, value: string) {
@@ -354,7 +363,8 @@ test.describe(() => {
   test.use({ serviceWorkers: "block" })
 
   test("a card invoice opened in place of a new Bitcoin one says why in the card page's one notice, above the form", async ({ page }) => {
-    await search(page, uniqueLabel("cardinst"))
+    const label = uniqueLabel("cardinst")
+    await search(page, label)
     await toReview(page)
     await page.getByRole("radio", { name: "Card" }).click()
     const checkout = await page.evaluate((key) => sessionStorage.getItem(key)!, CHECKOUT_KEY)
@@ -369,16 +379,16 @@ test.describe(() => {
       await copy.getByRole("radio", { name: "Bitcoin" }).click()
       await payButton(copy).click()
       await copy.waitForURL(/\?order=/)
-    })
+    }, heldPrice(label.length))
   })
 })
 
 // the service worker of a production build answers these pages before Playwright's routes in WebKit
 test.describe(() => {
   test.use({ serviceWorkers: "block" })
-  const tenLetters = { label: "cardfitabc", price: 10000 }
-  const sixWide = { label: "w".repeat(6), price: 10000 }
-  const longest = { label: "w".repeat(MAX_LABEL_LENGTH), price: 20000 }
+  const tenLetters = { label: "cardfitabc" }
+  const sixWide = { label: "w".repeat(6) }
+  const longest = { label: "w".repeat(MAX_LABEL_LENGTH) }
   const CARD_CASES: [string, CardOrder, RegExp][] = [
     ["a name of 10 letters", tenLetters, AVAILABLE_BRIEF],
     ["a name of 6 wide letters", sixWide, AVAILABLE_BRIEF],
@@ -389,28 +399,28 @@ test.describe(() => {
   ]
   for (const [name, order, notice] of CARD_CASES) {
     test(`the card page draws Pay under Stripe's form as it loads and grows, its one notice above it, for ${name}`, async ({ page }) => {
-      await cardFits(page, notice, await routedCardOrder(page, order), { scrolls: order.label.length === MAX_LABEL_LENGTH })
+      await cardFits(page, notice, await routedCardOrder(page, order), heldPrice(order.label.length), { scrolls: order.label.length === MAX_LABEL_LENGTH })
     })
   }
 
   test("a card Stripe declines is said in the card page's one notice, Pay under the form", async ({ page }) => {
-    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, tenLetters), { declines: true })
+    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, tenLetters), heldPrice(tenLetters.label.length), { declines: true })
     await expect(onStep(page).locator(".name-check")).toHaveClass(/\bdanger\b/)
   })
 
   test("a card Stripe declines in a browser that cannot remember a card payment takes the warning's place, Pay under the form", async ({ page }) => {
-    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, { ...tenLetters, forgetful: true }), { declines: true })
+    await cardFits(page, new RegExp(`^${DECLINED}$`), await routedCardOrder(page, { ...tenLetters, forgetful: true }), heldPrice(tenLetters.label.length), { declines: true })
   })
 
   // Stripe's logo tone stands for the appearance: light on the dark theme, dark on the light one
   test("the card form follows the system's theme while none is chosen, and the theme switch, in place", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" })
     const open = await routedCardOrder(page, tenLetters)
-    await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(FORMS_PX[1]) }))
+    await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: stripeOnCue(FORMS_PX[1], heldPrice(tenLetters.label.length)) }))
     await open()
     await expect(onStep(page).getByRole("heading", { name: "Pay by card" })).toBeVisible()
     await loadCard(page)
-    await expect(onStep(page).locator(".stripe > div")).toHaveCount(1)
+    await expect(cardFrame(page).locator("#form > div")).toHaveCount(1)
     expect(await cardSeen(page), "made in the light theme").toEqual({ logos: [], mounts: 1 })
     const html = page.locator("html")
     await page.emulateMedia({ colorScheme: "dark" })
@@ -437,8 +447,8 @@ test.describe(() => {
 const FIT_INVOICE = "inv-fitall"
 // an invoice of a kept order, as the service answers it, for a page to draw
 const invoiceOf = (o: KeptOrder, status: string, reg: Record<string, unknown>, change: Record<string, unknown> = {}) => ({
-  invoiceId: FIT_INVOICE, status, amount: 10000, currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name", registration: registrationView(o, reg),
-  cryptoCurrency: "btc", cryptoAmount: "0.00156", address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s", ...change,
+  invoiceId: FIT_INVOICE, status, amount: heldPrice(o.label.length), currency: "usd", expiresAt: new Date(Date.now() + 3_600_000).toISOString(), kind: "name", registration: registrationView(o, reg),
+  cryptoCurrency: "btc", cryptoAmount: "0.00156", ...bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 0), ...change,
 })
 // the money that reached an invoice short of its amount
 const PART = { cryptoAmountPaid: "0.0005", cryptoAmountDue: "0.00106", paidInFull: false }
@@ -493,7 +503,7 @@ test.describe(() => {
     await expect(onStep(page).getByText("Card is unavailable right now")).toBeVisible()
     await fitsWindow(page, "o6-review-code-and-method-refused", frames)
     await page.unroute("**/api/invoice")
-    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: 12345 } }) : route.continue())
+    await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 409, json: { type: "catalog_changed", price: heldPrice(label.length) } }) : route.continue())
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "The price changed" })).toBeVisible()
     await fitsWindow(page, "o7-price-changed", frames)
@@ -588,8 +598,8 @@ test("the home keeps its headline and search still as each kind of answer comes,
 
 const linked = (kind: "contact" | "channel") => ({ preview: okPreview(kind, kind), link: kind === "contact" ? contactLink("H1") : channelLink("H2"), deepLink: "simplex:/a#x" })
 // the search's answers for a name: available, taken with two chats, and this browser's, of `owner`, with two chats
-const homeAnswers = (owner: string) => ({
-  available: { found: { type: "available", price: 10000, years: 2, terms: TERMS } },
+const homeAnswers = (owner: string, label: string) => ({
+  available: { found: { type: "available", price: heldPrice(label.length), years: 2, terms: TERMS } },
   taken: registeredAnswer(`0x${"00".repeat(19)}01`, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
   yours: registeredAnswer(owner, Math.floor(Date.now() / 1000) + YEAR_S, { contact: "", channel: "" }, [linked("contact"), linked("channel")]),
 })
@@ -610,7 +620,7 @@ test.describe(() => {
     for (const label of [SHORT_NAME, wideLabel(6), wideLabel(MAX_LABEL_LENGTH)]) {
       const { owner } = await keepOrder(page, "reg-rowfit", null, label)
       await page.route("**/api/registration/reg-rowfit*", (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
-      for (const [state, answer] of Object.entries(homeAnswers(owner))) {
+      for (const [state, answer] of Object.entries(homeAnswers(owner, label))) {
         await page.unroute("**/api/name/**")
         await page.route("**/api/name/**", (route) => route.fulfill({ json: answer }))
         for (const size of FIT_SIZES) {
@@ -752,6 +762,7 @@ test.describe(() => {
 // A name of the widest letters breaks its lines as early as any name of its length can; drawn at random from two
 // letters, it is still new to the chain on each run.
 const wideLabel = (length: number) => Array.from({ length }, () => (Math.random() < 0.5 ? "m" : "w")).join("")
+const LONG_REGISTERED = 25
 
 for (const length of [15, 25, MAX_LABEL_LENGTH]) {
   test(`every purchase step fits both windows for a name of ${length} wide letters`, async ({ page, request }) => {
@@ -779,7 +790,7 @@ for (const length of [15, 25, MAX_LABEL_LENGTH]) {
     await expect(page.locator(".stage.active", { hasText: "Waiting" })).toBeVisible({ timeout: REGISTRATION_MS })
     await fitsWindow(page, `${shots}-6-registering`)
     await waitRegistered(page, label)
-    await fitsWindow(page, `${shots}-7-registered`)
+    await fitsWindow(page, `${shots}-7-registered`, undefined, length > LONG_REGISTERED)
     // a heading with the name in it may take more lines; the main button stays where every step's is
     for (const [i, size] of FIT_SIZES.entries()) {
       expect(new Set(Object.values(frames).map((f) => f[i].actions)).size, `the actions' row at ${size.width}x${size.height}: ${JSON.stringify(frames)}`).toBe(1)
@@ -795,7 +806,7 @@ test(`the name-is-yours screen fits both windows for a name of ${MAX_LABEL_LENGT
   await page.goto(`/?registration=${registrationId}`)
   await expect(page.getByRole("heading", { name: `${label}.simplex is yours` })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Edit links" })).toBeVisible()
-  await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`)
+  await fitsWindow(page, `long-${MAX_LABEL_LENGTH}-m-registered`, undefined, true)
 })
 
 test("a part paid takes the name's note with its notice, the payment keeping its heading still and fitting both windows", async ({ page, request }) => {

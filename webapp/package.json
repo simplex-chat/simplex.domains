@@ -5,15 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:card": "vite --config card/vite.config.ts",
     "build": "tsc --noEmit && vite build",
+    "build:card": "vite build --config card/vite.config.ts",
     "test": "vitest run",
     "e2e": "playwright test",
     "chain:deploy": "node dev/deploy.ts",
+    "check:mainnet": "node dev/check-mainnet.ts",
     "mock": "node dev/mock.ts"
   },
   "dependencies": {
     "@noble/curves": "1.9.7",
     "@noble/hashes": "1.8.0",
+    "@scure/base": "1.2.6",
     "@scure/bip32": "1.7.0",
     "@scure/bip39": "1.6.0",
     "jsqr": "1.4.0"

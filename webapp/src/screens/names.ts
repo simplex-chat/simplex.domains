@@ -2,7 +2,7 @@ import { holdsPayment, type CodeState, type Found, type InvoiceView, type LateWa
 import { YEAR_S } from "../crypto/registration.ts"
 import { dateOf, dollars, methodName } from "../format.ts"
 import { type CodeRecord, type OrderRecord, orderUrl, type PendingCode } from "../store.ts"
-import { type Hold, LIMITED_LEAD, NO_LEAD } from "./hold.ts"
+import { type Hold, NO_LEAD, PLEASE_LEAD } from "./hold.ts"
 
 export interface RowSeen { view: RegistrationView; invoice: InvoiceView | null; answer?: SearchAnswer | null }
 export type CodeCheck = CodeState | "unchecked"
@@ -375,7 +375,7 @@ function applyToForm(f: EditForm, e: EditEvent): EditForm {
       return { ...saved, saving: false, result: "saved", settled: Object.keys(changesOf(saved)).length === 0 }
     }
     case "save-unanswered": return { ...f, saving: false, unanswered: true, result: "unanswered", edits: e.counted ? spent(f.edits, e.at) : f.edits }
-    case "save-held": return { ...f, saving: false, result: null, hold: { until: e.until, lead: LIMITED_LEAD } }
+    case "save-held": return { ...f, saving: false, result: null, hold: { until: e.until, lead: PLEASE_LEAD } }
     // the edits line says when they return
     case "save-limited": return { ...f, saving: false, result: null, edits: { left: 0, nextAt: e.nextAt } }
     case "save-refused": {

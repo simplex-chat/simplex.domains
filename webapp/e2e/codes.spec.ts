@@ -113,7 +113,7 @@ test("a prepaid code from Check your code shows a name as Free and registers it 
   expect(registered.type).toBe("registered")
   await expect(page.locator("body > main .lead")).toHaveText(`Registered until ${dateOf(registered.expiresAt as number)}.`)
   // the code's term, its 5 years and the free days, sent as the duration, counted on chain from the register's block
-  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as
+  const view = await (await request.get(`${MOCK}/control/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as
     { years: number; duration: number; registerTx: string; phase: { disputeUntil: number } }
   expect(view.years).toBe(5)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
@@ -151,7 +151,7 @@ test("a registration ended in its dispute period is shown as ended on its order'
   const { registrationId, label } = await registerWithCode(page, request, "ended")
   await waitRegistered(page, label)
   await control(request, `unregister/${registrationId}`)
-  expect((await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json()).phase, "the view the service gives an ended order").toEqual({ type: "ended" })
+  expect((await (await request.get(`${MOCK}/control/registration/${registrationId}`)).json()).phase, "the view the service gives an ended order").toEqual({ type: "ended" })
   await page.reload()
   await expect(onStep(page).getByRole("heading", { name: "Registration cancelled" })).toBeVisible()
   await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was cancelled because its payment was disputed or refunded.`)
@@ -175,7 +175,7 @@ test("a prepaid code registers a name with its links, which its records on chain
   expect(answer.records).toMatchObject(links)
   const owner = checksumAddress(walletOf(await ownerCodeOf(page, registrationId))!.address)
   expect(answer.owner, "the name code's wallet owns the name").toBe(owner)
-  const { registerTx } = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { registerTx: string }
+  const { registerTx } = await (await request.get(`${MOCK}/control/registration/${registrationId}`)).json() as { registerTx: string }
   expect(await acceptedOnChain(registerTx)).toEqual({ kind: "general", name: label, holder: owner, termsHash: GENERAL_TERMS_HASH })
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer .row .chat"), "the name's answer opens both chats").toHaveCount(2)
@@ -187,7 +187,7 @@ test("a prepaid code registers a name the contracts' owner listed on chain, its 
   await contractsOwnerLists(label)
   await payWithCode(page, label, code)
   await waitRegistered(page, label)
-  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { owner: string; registerTx: string }
+  const view = await (await request.get(`${MOCK}/control/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { owner: string; registerTx: string }
   expect(await acceptedOnChain(view.registerTx)).toEqual({ kind: "community", name: label, holder: view.owner, termsHash: COMMUNITY_TERMS_HASH })
 })
 
@@ -204,7 +204,7 @@ test("a prepaid code for 5 years registers a community name for its 2 years and 
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
   await page.waitForURL(/\?registration=/)
   await waitRegistered(page, label)
-  const view = await (await request.get(`${MOCK}/api/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { duration: number; registerTx: string }
+  const view = await (await request.get(`${MOCK}/control/registration/${new URL(page.url()).searchParams.get("registration")}`)).json() as { duration: number; registerTx: string }
   expect(Math.floor(view.duration / YEAR_S), "2 years and the free days").toBe(2)
   expect(await chainExpiry(label)).toBe(await blockTimeOf(view.registerTx) + view.duration)
 })
@@ -899,14 +899,13 @@ test("Your names words a code order before its registration as a free name with 
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
-test("a code order opened in a browser without its name code asks for the name code saved for it", async ({ page }) => {
-  const order = { registrationId: "reg-code-elsewhere", invoiceId: null, label: uniqueLabel("ce"), ownerCode: "", owner: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
-    request: { labelHash: `0x${"ab".repeat(32)}`, commitment: `0x${"01".repeat(32)}` } }
-  await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { label: null, phase: { type: "queued" }, payment: { type: "code" }, price: 0 }) }))
-  await page.goto(`/?registration=${order.registrationId}`)
+test("a code order's link in a browser without its name code asks for the code, reading nothing", async ({ page }) => {
+  const asked: string[] = []
+  page.on("request", (r) => { if (new URL(r.url()).pathname.startsWith("/api/registration/")) asked.push(r.url()) })
+  await page.goto("/?registration=reg-code-elsewhere")
   await expect(onStep(page).getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
-  await expect(onStep(page).locator(".notice")).toContainText("Please enter the name code you saved for this order.")
-  await page.unrouteAll({ behavior: "ignoreErrors" })
+  await expect(onStep(page).locator(".notice")).toHaveText("Please enter the name code you saved for this order.")
+  expect(asked).toEqual([])
 })
 
 test("a code order whose name was reserved meanwhile says so, and offers selecting another name", async ({ page, request }) => {
@@ -930,11 +929,8 @@ test("a code order taken first asks a browser without its name code for the code
   const other = await browser.newContext()
   const stranger = await other.newPage()
   await stranger.goto(`/?registration=${registrationId}`)
-  await expect(stranger.getByRole("heading", { name: takenHeading(label) })).toBeVisible()
-  await expect(onStep(stranger).locator(".notice", { hasText: "The name code is not in this browser" }))
-    .toHaveText("The name code is not in this browserAdd it in Check your code to choose another name.")
-  await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toBeDisabled()
-  await expect(onStep(stranger).getByRole("button", { name: "Search another name" })).toHaveCount(0)
+  await expect(stranger.getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
+  await expect(onStep(stranger).getByRole("button", { name: "Enter your name code" })).toBeVisible()
   await other.close()
   await page.goto("/#/names")
   await expect(page.locator(".list-row", { hasText: code }).locator(".chip")).toHaveText("In use")

@@ -4,13 +4,11 @@
 import { createHash } from "node:crypto"
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test"
 import {
-  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, COMMUNITY_HEADING, control, MOCK, onStep, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search,
+  ACCEPT, acceptCommunityTerms, AGREE, agreeToTerms, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, COMMUNITY_HEADING, control, MOCK, onStep, orderedAtMock, payButton, REGISTRATION_MS, registrationOf, restoreOrder, search,
   SAVED, startOrder, takenOrder, test, toCodeStep, toReview, uniqueLabel, waitRegistered, withStripeKey, acceptedOnChain, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, PLAIN_TERMS,
 } from "./helpers.ts"
 import { keccak256, toHex } from "viem"
 import * as api from "../src/api.ts"
-import { labelHash } from "../src/crypto/registration.ts"
-import { hex } from "../src/crypto/wallet.ts"
 import { RETRY_MS } from "../src/screens/order.ts"
 
 const COMMUNITY_LABEL = "bakers"
@@ -41,8 +39,8 @@ async function withTerms<T>(request: APIRequestContext, kind: "general-terms" | 
     await control(request, kind, { text: null })
   }
 }
-const withGeneralTerms = <T>(request: APIRequestContext, text: string, f: (hash: string) => Promise<T>) => withTerms(request, "general-terms", text, f)
-const withCommunityTerms = <T>(request: APIRequestContext, text: string, f: (hash: string) => Promise<T>) => withTerms(request, "community-terms", text, f)
+const withGeneralTerms = <T>(request: APIRequestContext, f: (hash: string) => Promise<T>) => withTerms(request, "general-terms", ALTERNATE_GENERAL_TERMS, f)
+const withCommunityTerms = <T>(request: APIRequestContext, f: (hash: string) => Promise<T>) => withTerms(request, "community-terms", ALTERNATE_COMMUNITY_TERMS, f)
 
 // The names on the chain's community list, with the ini's words, while `f` runs.
 async function listed<T>(request: APIRequestContext, labels: string[], f: () => Promise<T>): Promise<T> {
@@ -59,12 +57,12 @@ async function orderBeforeTermsChange(page: Page, request: APIRequestContext, pr
   const label = uniqueLabel(prefix)
   await listed(request, [label], async () => {
     const { invoiceId } = await startOrder(page, label)
-    await withCommunityTerms(request, `the community terms, changed for ${label}`, (hash) => f(label, invoiceId, hash))
+    await withCommunityTerms(request, (hash) => f(label, invoiceId, hash))
   })
 }
 
-const viewOf = async (request: APIRequestContext, registrationId: string) => (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as Promise<api.RegistrationView>
-const invoiceViewOf = async (request: APIRequestContext, invoiceId: string) => (await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { registration: api.RegistrationView }).registration
+const viewOf = async (request: APIRequestContext, registrationId: string) => (await request.get(`${MOCK}/control/registration/${registrationId}`)).json() as Promise<api.RegistrationView>
+const invoiceViewOf = async (request: APIRequestContext, invoiceId: string) => (await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { registration: api.RegistrationView }).registration
 const revealAfterOf = async (request: APIRequestContext, invoiceId: string) => api.committedOf(await invoiceViewOf(request, invoiceId))!.revealAfter
 
 // Where a community name's marker stands: its baseline against the name's, its gap after the name's TLD, its gap to the
@@ -132,7 +130,7 @@ test("a community name's order shows its community terms on their own step befor
   await toCodeStep(page)
   await onStep(page).getByText(SAVED).click()
   await onStep(page).getByRole("button", { name: "Continue" }).click()
-  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
   const text = onStep(page).locator(".terms-text")
   const onChain = await termsOnChain(page)
   expect(keccak256(toHex(onChain.link)), "the service answers the text of the link whose hash the order signs").toBe(COMMUNITY_TERMS_HASH)
@@ -156,7 +154,7 @@ test("a community name's order shows its community terms on their own step befor
   await expect(onStep(page).locator(".check.terms"), "the community terms include the general terms, accepted once").toHaveCount(0)
   await expect(payButton(page)).toBeEnabled()
   await onStep(page).getByRole("link", { name: "Back" }).click()
-  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+  await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
   await expect(onStep(page).getByRole("checkbox", { name: ACCEPT }), "the step gone back to keeps its tick").toBeChecked()
 })
 
@@ -203,7 +201,7 @@ test("an order refused for terms changed meanwhile unticks the box and says so i
   await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
   const parts = [".card.order", ".check.terms .box", ".actions-row .btn"]
   const before = await places(page, parts)
-  await withGeneralTerms(request, `the general terms, changed for ${label}`, async (hash) => {
+  await withGeneralTerms(request, async (hash) => {
     await payButton(page).click()
     const notice = onStep(page).locator(".line", { hasText: TERMS_CHANGED })
     await expect(notice).toBeVisible()
@@ -239,8 +237,7 @@ test("a name whose terms can't be read now can't be ordered: its search says so,
   } finally {
     await control(request, "general-terms", { text: null })
   }
-  const { registrations } = await (await request.get(`${MOCK}/control/state`)).json() as { registrations: { labelHash: string }[] }
-  expect(registrations.some((r) => r.labelHash === hex(labelHash(label))), "no order made").toBe(false)
+  expect(await orderedAtMock(request, label), "no order made").toBe(false)
 })
 
 test("a name put on the list meanwhile is refused for the community terms, which their step then asks for, the review showing its marker, and Your names marks the name", async ({ page, request }) => {
@@ -249,7 +246,7 @@ test("a name put on the list meanwhile is refused for the community terms, which
   await toReview(page)
   await listed(request, [label], async () => {
     await payButton(page).click()
-    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
     await expect(onStep(page).getByText(TERMS_CHANGED)).toBeVisible()
     await acceptCommunityTerms(page)
     await expect(onStep(page).locator(".check.terms"), "the community terms include the general terms").toHaveCount(0)
@@ -275,14 +272,14 @@ test("a name selected for a taken order asks for that name's terms first, a comm
     await expect(page.locator(".answer .row .name").getByRole("button", { name: MARKER })).toBeVisible()
     await onStep(page).getByRole("button", { name: "Register", exact: true }).click()
     await onStep(page).getByRole("button", { name: "Skip for now" }).click()
-    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+    await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
     await expect(onStep(page).locator(".terms-text h3"), "the terms of the hash the selection signs").toHaveText(headingOf((await termsOnChain(page)).text))
     await acceptCommunityTerms(page)
     await expect(onStep(page).locator(".check.terms"), "the community terms include the general terms").toHaveCount(0)
     const select = onStep(page).getByRole("button", { name: "Register with your payment" })
-    await withCommunityTerms(request, `the community terms, changed for the selection of ${target}`, async (hash) => {
+    await withCommunityTerms(request, async (hash) => {
       await select.click()
-      await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING })).toBeVisible()
+      await expect(onStep(page).getByRole("heading", { name: COMMUNITY_HEADING, level: 1 })).toBeVisible()
       await expect(onStep(page).getByText(TERMS_CHANGED)).toBeVisible()
       await acceptCommunityTerms(page)
       await select.click()
@@ -314,7 +311,7 @@ test("a new invoice for the same name signs the order's own terms without asking
   const again = onStep(page).getByRole("button", { name: "Get a new invoice" })
   const parts = [".notice", ".ref", ".actions-row .btn"]
   const before = await places(page, parts)
-  await withGeneralTerms(request, `the general terms, changed for ${label}`, async (hash) => {
+  await withGeneralTerms(request, async (hash) => {
     await again.click()
     await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
     await expect(onStep(page).getByRole("checkbox", { name: AGREE }), "the box takes focus as it comes").toBeFocused()
@@ -335,15 +332,15 @@ test("a card form that did not load asks for changed terms before cancelling its
   await page.reload()
   await expect(page.getByText("The card form did not load, so your card was not charged. Please reload the page.")).toBeVisible()
   const again = onStep(page).getByRole("button", { name: "Get a new invoice" })
-  await withGeneralTerms(request, "the general terms, changed for a card order", async (hash) => {
+  await withGeneralTerms(request, async (hash) => {
     await again.click()
     await expect(onStep(page).locator(".check.terms")).toHaveText(PLAIN_WORDS)
     await expect(again).toBeDisabled()
-    expect((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()).status, "nothing cancelled before the tick").toBe("open")
+    expect((await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json()).status, "nothing cancelled before the tick").toBe("open")
     await agreeToTerms(page)
     await again.click()
     await page.waitForURL((url) => url.searchParams.get("order") !== invoiceId)
-    expect((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()).status).toBe("expired")
+    expect((await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json()).status).toBe("expired")
     expect(api.signedTermsOf((await invoiceViewOf(request, new URL(page.url()).searchParams.get("order")!)).terms)).toBe(hash.slice(2))
   })
 })
@@ -411,19 +408,11 @@ test("changed community terms whose searches fail for now are asked for once a s
   })
 })
 
-test("changed community terms are asked for by the hash the order's view asks to accept, the view read again while the service has no terms of that hash", async ({ page, request }) => {
+test("changed community terms are asked for by the hash the order's view asks to accept, as the page holds them, whatever the service answers for that hash", async ({ page, request }) => {
   await orderBeforeTermsChange(page, request, "cr", async (_, invoiceId, hash) => {
-    let refused = false
-    await page.route(`**/api/terms/${hash}`, async (route) => {
-      if (refused) return route.fallback()
-      refused = true
-      await route.fulfill({ status: 404, json: { type: "not_found" } })
-    })
-    let reads = 0
-    page.on("request", (r) => { if (refused && r.url().endsWith(`/api/invoice/${invoiceId}`)) reads++ })
+    await page.route(`**/api/terms/${hash}`, (route) => route.fulfill({ status: 404, json: { type: "not_found" } }))
     await control(request, `settle/${invoiceId}`)
     await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
-    expect([refused, reads > 0], "the view is read again after its terms were not found").toEqual([true, true])
   })
 })
 
@@ -449,7 +438,7 @@ test("community terms changed after the reveal, before its relay, are agreed to 
       // the relay is held back while the reveal is stored and the terms change, then refused for the old terms
       await control(request, "search", { unsentSeconds: REGISTRATION_MS / 1000 })
       await expect.poll(async () => (await invoiceViewOf(request, invoiceId)).label, { timeout: REGISTRATION_MS }).toBe(label)
-      await withCommunityTerms(request, `the community terms, changed after the reveal of ${label}`, async (hash) => {
+      await withCommunityTerms(request, async (hash) => {
         await control(request, "search", { unsentSeconds: 0 })
         await expect(onStep(page).locator(".line", { hasText: TERMS_CHANGED })).toBeVisible({ timeout: REGISTRATION_MS })
         await agreeToTerms(page)

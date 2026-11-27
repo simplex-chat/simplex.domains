@@ -1,4 +1,8 @@
-import { committedOf, type Community, type FailReason, type Found, holdsPayment, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, type Terms, toSignOf } from "../api.ts"
+import {
+  addressProven, committedOf, type Community, type FailReason, type Found, heldTerms, holdsPayment, invoiceMethod, type InvoiceView, lapsedOf, paidLate, type RegistrationView, reversedOrder, signedHash,
+  type Terms, toSignOf,
+} from "../api.ts"
+import { heldPrice, SITE } from "../config.ts"
 import type { IconName } from "../icons.ts"
 import type { CodeRefusal, OrderRecord } from "../store.ts"
 import { type Hold, NO_LEAD } from "./hold.ts"
@@ -17,7 +21,7 @@ export const TX_STALL_MS = 180_000
 const UNREAD_PACING_MS = [5_000, 15_000, 30_000]
 export const unreadDelay = (reads: number) => UNREAD_PACING_MS[Math.min(reads, UNREAD_PACING_MS.length - 1)]
 
-export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "registered" | "ended" | "taken" | "failed" | "not-on-device"
+export type OrderKind = "pay-crypto" | "pay-card" | "confirming" | "registering" | "registered" | "ended" | "taken" | "failed" | "status:no-code"
   | "status:closed" | "status:card-unconfirmed" | "status:paid-by-invoice" | "status:unreadable" | "status:unknown-link" | "status:price-changed"
 
 export type ClosedCase = "paid-late" | "cancelled" | "received" | "expired" | "reversed"
@@ -37,12 +41,14 @@ export interface OrderState {
   record: OrderRecord | null
   cardSubmittedAt: string | null
   cardFailed: boolean
+  cardMismatched: boolean
   reveal: Reveal | null
   busy: Action | null
   note: Note | null
   hold: Hold | null
   price: number | null
   gone: boolean
+  noCode: boolean
   codeRefused: boolean
   // the service said the order's code is unspent, which the failed page waits for before saying so
   codeKept: boolean
@@ -53,17 +59,21 @@ export interface OrderState {
   nameStatus: Found["type"] | null
   // when this page first saw the stage, or the buyer ticked changed terms in it, on the service's clock
   since: { stage: string; at: number } | null
+  downtime: boolean
 }
 
 export type OrderEvent =
-  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: Found["type"] | null }
+  | { type: "answered"; seq: number; now: number; invoice: InvoiceView | null; view: RegistrationView; record: OrderRecord | null; cardSubmittedAt: string | null; nameStatus: Found["type"] | null
+    downtime: boolean }
   | { type: "record-changed"; record: OrderRecord | null; cardSubmittedAt: string | null }
   | { type: "read-failed" }
   | { type: "not-found" }
+  | { type: "no-code" }
   | { type: "tick"; now: number }
   | { type: "card-started" }
   | { type: "card-submitted"; at: string }
   | { type: "card-failed" }
+  | { type: "card-mismatched" }
   | { type: "card-refused"; note: Note | null }
   | { type: "reveal-sent"; key: string }
   | { type: "reveal-refused"; key: string }
@@ -88,7 +98,7 @@ export type OrderEvent =
   | { type: "hold-ended" }
 
 export function initialState(reference: string, hold: Hold | null, reveal: Reveal | null = null): OrderState {
-  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, reveal, busy: null, note: null, hold, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null }
+  return { reference, seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardMismatched: false, reveal, busy: null, note: null, hold, price: null, gone: false, noCode: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null, nameStatus: null, since: null, downtime: false }
 }
 
 const stageOf = (view: RegistrationView) => `${view.id} ${view.phase.type}${view.phase.type === "committed" && view.label !== null ? " signed" : ""}`
@@ -105,13 +115,15 @@ function apply(s: OrderState, e: OrderEvent): OrderState {
       // a reveal the view shows as stored is no longer sending, so one the service clears is signed again under the same key
       return { ...s, seq: e.seq, now: e.now, invoice: e.invoice, view: e.view, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? e.view.label),
         nameStatus: e.nameStatus, since: sinceOf(s.since, e.view, e.now), reveal: e.view.label !== null && s.reveal ? { ...s.reveal, sending: false } : s.reveal,
-        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy }
+        busy: s.busy === "retry" && !lapsedOf(e.view) ? null : s.busy, downtime: e.downtime, noCode: false, gone: false }
     case "record-changed": return { ...s, record: e.record, cardSubmittedAt: e.cardSubmittedAt, ask: askKept(s.ask, e.record?.label ?? null) }
     case "read-failed": return s
     case "not-found": return { ...s, gone: true }
+    case "no-code": return { ...s, noCode: true }
     case "tick": return { ...s, now: e.now }
     case "card-submitted": return { ...s, cardSubmittedAt: e.at }
     case "card-failed": return { ...s, cardFailed: true }
+    case "card-mismatched": return { ...s, cardMismatched: true }
     case "card-started": return start(s, "card")
     case "card-refused": return end(s, "card", { note: e.note })
     // at a reveal, the ask is kept only for the changed terms whose acceptance the reveal includes
@@ -193,10 +205,15 @@ export const unpaidOrClosed = (view: RegistrationView) => view.phase.type === "u
 
 export const coinOf = (invoice: InvoiceView) => invoice.cryptoCurrency === "btc" || invoice.cryptoCurrency === "xmr" ? invoice.cryptoCurrency : null
 
+export const paymentChecked = ({ invoice, record, cardMismatched }: OrderState) => invoice === null || (!cardMismatched && record !== null
+  && invoice.currency === SITE.currency && addressProven(invoice) && invoiceMethod(invoice) === record.method && invoice.amount === heldPrice(record.label.length)
+  && (record.invoiceId !== invoice.invoiceId || record.payee === undefined || record.payee.address === invoice.address))
+
 // What the order's name costs; null for a code, which costs nothing.
 export const costOf = (view: RegistrationView, invoice: InvoiceView | null): number | null => invoice ? view.price : null
 
 export function screenOf(s: OrderState): OrderKind {
+  if (s.noCode) return "status:no-code"
   if (s.gone) return "status:unknown-link"
   if (s.price !== null) return "status:price-changed"
   const { invoice, view, record } = s
@@ -208,7 +225,7 @@ export function screenOf(s: OrderState): OrderKind {
   if (view.phase.type === "ended") return "ended"
   if (view.phase.type === "taken") return "taken"
   if (view.phase.type === "failed") return "failed"
-  if (view.phase.type !== "registering" && view.label === null && !record) return "not-on-device"
+  if (view.phase.type !== "registering" && view.label === null && !record) return "status:no-code"
   return "registering"
 }
 
@@ -258,9 +275,10 @@ export const revealKey = (view: RegistrationView) => {
 }
 
 // The terms of the name's kind on chain are not the ones the order signed, so the buyer agrees to them again before the reveal.
-const termsChanged = ({ view }: OrderState) => {
+const termsChanged = ({ view, record }: OrderState) => {
   const read = view && readToSign(view)
-  return !!read && read.acceptance.termsHash !== view.terms.termsHash
+  const signed = record ? signedHash(record.terms) : view?.terms.termsHash
+  return !!read && read.acceptance.termsHash !== signed && heldTerms(read.acceptance.termsHash, read.acceptance.community) !== undefined
 }
 
 // The buyer is asked for the changed terms, ticked or not.
@@ -278,7 +296,7 @@ export function refusalsOf({ view, reveal }: OrderState): number {
 
 export function revealDue(s: OrderState): boolean {
   const { view, record, reveal } = s
-  if (view?.phase.type !== "committed" || view.label !== null || !readToSign(view) || !record) return false
+  if (view?.phase.type !== "committed" || view.label !== null || !readToSign(view) || !record || s.downtime) return false
   if (termsToAgree(s)) return false
   if (view.phase.revealAfter * 1000 > s.now) return false
   return !(reveal?.key === revealKey(view) && reveal.sending) && refusalsOf(s) < REVEAL_ATTEMPTS
@@ -288,6 +306,7 @@ export function stalledAt(s: OrderState): number | null {
   const { view, since } = s
   if (!view || !since || screenOf(s) !== "registering" || refusalsOf(s) >= REVEAL_ATTEMPTS || (termsAskedAgain(s) && !ticked(s.ask!))) return null
   if (view.phase.type !== "committed" || view.label !== null) return since.at + TX_STALL_MS
+  if (s.downtime) return null
   return Math.max(since.at, view.phase.revealAfter * 1000) + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS
 }
 

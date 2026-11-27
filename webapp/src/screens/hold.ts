@@ -2,3 +2,4 @@
 export interface Hold { until: number; lead: string }
 export const NO_LEAD = ""
 export const LIMITED_LEAD = "Too many attempts. Please "
+export const PLEASE_LEAD = "Please "

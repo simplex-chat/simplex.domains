@@ -4,13 +4,13 @@ import { expect, type APIRequestContext } from "@playwright/test"
 import type { Hex } from "viem"
 import { CODE_LIMIT } from "../dev/mock/limits.ts"
 import * as api from "../src/api.ts"
-import { namesSite, readSite } from "../src/config.ts"
+import { LOCAL } from "../src/config.ts"
 import { CHANNEL_KEY, CONTACT_KEY, labelHash, namehash, setTextDigest, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, fromHex, hex, personalDigest, signDigest } from "../src/crypto/wallet.ts"
 import * as flow from "../src/flow.ts"
 import * as store from "../src/store.ts"
 import {
-  acceptedOnChain, channelLink, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, contactLink, control, GENERAL_TERMS_HASH, LISTED_TERMS, MOCK, NAME_POLICY, newClient, oracleQuote, ownerSetsResolver, ownerSetsText,
+  acceptedOnChain, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, channelLink, COMMUNITY_TERMS, COMMUNITY_TERMS_HASH, contactLink, control, GENERAL_TERMS_HASH, LISTED_TERMS, MOCK, NAME_POLICY, newClient, oracleQuote, ownerSetsResolver, ownerSetsText,
   PLAIN_TERMS, relayedAhead, TERMS, test, textChangesOf, uniqueLabel,
 } from "./helpers.ts"
 
@@ -34,9 +34,35 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   return ownFetch(`${MOCK}${path}`, asClient({ method, headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }))
 }
 
+const ownerCodes = new Map<string, string>()
+const orderOwners = new Map<string, string>()
+const ORDER_ROUTE = /^\/api\/(invoice|registration)\/([^/?]+)(?:\/(cancel|retry|reveal))?(?:\?|$)/
+
+function noteOrders(json: Json, body: unknown): void {
+  const sent = (body as { order?: { owner?: unknown } } | undefined)?.order?.owner
+  if (typeof json.registrationId === "string" && typeof sent === "string") orderOwners.set(json.registrationId, sent)
+  const reg = (json.registration ?? json) as Json
+  if (typeof reg.id !== "string" || typeof reg.owner !== "string") return
+  orderOwners.set(reg.id, reg.owner)
+  if (typeof json.invoiceId === "string") orderOwners.set(json.invoiceId, reg.owner)
+}
+
+function signed(method: string, path: string, body: unknown): { path: string; body: unknown } {
+  const m = ORDER_ROUTE.exec(path)
+  const kept = m ? store.orderByInvoice(m[2]) ?? store.orderByRegistration(m[2]) : undefined
+  const code = m && m[2] !== "find" ? ownerCodes.get(orderOwners.get(m[2]) ?? "") ?? kept?.ownerCode : undefined
+  if (!m || !code) return { path, body }
+  const proof = flow.orderSigner({ ownerCode: code })(m[2], (m[3] ?? "read") as api.OrderAction)
+  if (method === "GET") return { path: `${path}${path.includes("?") ? "&" : "?"}timestamp=${proof.timestamp}&signature=${proof.signature}`, body }
+  return { path, body: m[3] === "reveal" ? { ...body as Json, request: proof } : { ...body as Json, ...proof } }
+}
+
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: Json }> {
-  const res = await send(method, path, body)
-  return { status: res.status, json: await res.json() as Json }
+  const request = signed(method, path, body)
+  const res = await send(method, request.path, request.body)
+  const json = await res.json() as Json
+  noteOrders(json, body)
+  return { status: res.status, json }
 }
 
 const TERM_START = Date.UTC(2027, 0, 1) / 1000
@@ -58,13 +84,15 @@ async function quote(label: string): Promise<Quote> {
 
 async function draftOf(label: string, links = { contact: "", channel: "" }, method: flow.Draft["method"] = "btc"): Promise<flow.Draft> {
   const q = await quote(label)
-  return { label, links, chain: flow.chainOf(readSite()), years: q.years, termStart: readSite().termStart, ownerCode: flow.newOwnerCode(), terms: api.currentTerms(q), method }
+  const ownerCode = flow.newOwnerCode()
+  ownerCodes.set(checksumAddress(flow.walletOf(ownerCode)!.address), ownerCode)
+  return { label, links, years: q.years, ownerCode, terms: api.currentTerms(q), method }
 }
 
 // a name selected for the order, under the terms the service has for that name now or `terms`
 async function selectionOf(record: store.OrderRecord, to: string, terms?: string, method = record.method): Promise<api.RegistrationView> {
   const q = await quote(to)
-  const draft: flow.Draft = { label: to, links: NO_LINKS, chain: flow.chainOf(readSite()), years: api.termYears(q.community, record.years), termStart: readSite().termStart, ownerCode: record.ownerCode,
+  const draft: flow.Draft = { label: to, links: NO_LINKS, years: api.termYears(q.community, record.years), ownerCode: record.ownerCode,
     terms: terms ?? api.currentTerms(q), method }
   return flow.selectName(record, draft, await flow.orderRequest(draft))
 }
@@ -132,7 +160,7 @@ function withAcceptance(view: api.RegistrationView, acceptance: api.Acceptance):
   return { ...view, phase: { ...committed, signature: { type: "awaiting", toSign: { ...toSign, acceptance } } } }
 }
 
-async function unacceptedReveal(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
+async function revealBodyOf(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
   const sending = globalThis.fetch
   let body: Json = {}
   globalThis.fetch = async (_, init) => {
@@ -140,13 +168,20 @@ async function unacceptedReveal(view: api.RegistrationView, record: store.OrderR
     return new Response("{}", { status: 200 })
   }
   try {
-    await flow.revealOrder(view, record)
+    await flow.revealOrder(view, record, record.terms)
   } finally {
     globalThis.fetch = sending
   }
+  return body
+}
+
+async function unacceptedReveal(view: api.RegistrationView, record: store.OrderRecord): Promise<Json> {
+  const body = await revealBodyOf(view, record)
   delete body.acceptance
   return body
 }
+
+const acceptedAs = (acceptance: api.Acceptance) => api.signedTermsOf({ communityName: acceptance.community, termsHash: acceptance.termsHash })
 
 // The order with a register the service then fails.
 async function failAtRegister(request: APIRequestContext, id: string): Promise<api.RegistrationView> {
@@ -220,7 +255,7 @@ test("an order refuses a wrong signer, a stale timestamp, free days off the term
   const q = await quote(label)
   const { request } = await flow.orderRequest(draft)
   const stranger = flow.newOwnerCode()
-  const off = (await flow.orderRequest({ ...draft, termStart: draft.termStart + TERM_SLACK_S + 100 })).request
+  const off = await signedAt(draft.ownerCode, { ...request, duration: request.duration + TERM_SLACK_S + 100 }, request.timestamp)
   const refusals: [string, api.SignedOrder, number, Json][] = [
     ["another key's signature", await signedAt(stranger, request, request.timestamp), 400, { type: "bad_request" }],
     ["a timestamp past the window", await signedAt(draft.ownerCode, request, request.timestamp - SIGNED_WINDOW_S - 100), 400, { type: "bad_request" }],
@@ -326,7 +361,7 @@ test("a code order closes an overdue invoice of its wallet and name with nothing
 test("search quotes the oracle with the term's start, and a registered name carries its grace period", async () => {
   const label = uniqueLabel("cq")
   const answer = await quote(label)
-  expect([answer.price, answer.years, (await namesSite()).termStart]).toEqual([await oracleQuote(label, 2), 2, TERM_START])
+  expect([answer.price, answer.years, LOCAL.termStart]).toEqual([await oracleQuote(label, 2), 2, TERM_START])
   for (const [length, cents] of [[6, 40000], [7, 20000], [12, 10000]]) {
     const res = await call("GET", `/api/name/${hex(labelHash("x".repeat(length)))}?length=${length}`)
     expect((res.json.found as Json).price, `${length} letters`).toBe(cents)
@@ -439,7 +474,8 @@ test("a name is selected only for a paid order taken first, at its own price, ag
   await untilPhase(id, ["committed"])
   await expect(select(shortLabel(7)), "a committed order").rejects.toMatchObject({ code: "bad_request" })
   await control(request, "take", { label })
-  await flow.revealOrder(await untilRevealable(id), store.orderByRegistration(id)!)
+  const record = store.orderByRegistration(id)!
+  await flow.revealOrder(await untilRevealable(id), record, record.terms)
   await untilPhase(id, ["taken"])
   await expect(select(shortLabel(6)), "a dearer name").rejects.toMatchObject({ code: "catalog_changed", body: { price: PRICE.six } })
   await expect(select(uniqueLabel("cm")), "a cheaper name").rejects.toMatchObject({ code: "catalog_changed", body: { price: PRICE.long } })
@@ -490,7 +526,8 @@ async function nameBody(record: store.OrderRecord, view: api.RegistrationView, t
   const sealedHash = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(view.sealed))))
   const length = record.label.length
   const message = `simplex.domains name ${view.id} ${view.labelHash} ${length} ${view.duration} ${view.commitment} ${sealedHash} ${terms} ${timestamp}`
-  const reveal = await flow.revealFor(record, view.duration, await api.signFor(view.labelHash, view.owner))
+  const toSign = await api.signFor(view.labelHash, view.owner)
+  const reveal = flow.revealFor(record, view, toSign, acceptedAs(toSign.acceptance))
   return { ...api.signedFields({ labelHash: view.labelHash, length, duration: view.duration, commitment: view.commitment, sealed: view.sealed, terms, timestamp,
     signature: hex(signDigest(flow.walletOf(record.ownerCode)!.privateKey, personalDigest(message))) }), reveal } as unknown as Json
 }
@@ -509,7 +546,7 @@ type LinkEdit = { key: "contact" | "channel"; value: string; nonce: number; dead
 // one edit of a link of the name, signed by its key at this records nonce
 function linkEdit(name: RegisteredName, key: LinkEdit["key"], value: string, nonce: number): LinkEdit {
   const deadline = Math.floor(Date.now() / 1000) + 3600
-  const digest = setTextDigest(BigInt(name.draft.chain.chainId), fromHex(name.draft.chain.resolver), namehash("simplex", name.label), flow.KEYS[key], value, BigInt(nonce), BigInt(deadline))
+  const digest = setTextDigest(BigInt(LOCAL.chainId), fromHex(LOCAL.resolver), namehash("simplex", name.label), flow.KEYS[key], value, BigInt(nonce), BigInt(deadline))
   return { key, value, nonce, deadline, signature: hex(signDigest(flow.walletOf(name.draft.ownerCode)!.privateKey, digest)) }
 }
 
@@ -578,7 +615,7 @@ test("a link edit of a name pointed at another resolver is bad_request, and goes
   const edit = await contactEdit(name, contactLink("Cg"))
   await ownerSetsResolver(name.draft.ownerCode, name.label, ELSEWHERE)
   expect(await call("POST", "/api/name/records", edit)).toEqual({ status: 400, json: { type: "bad_request" } })
-  await ownerSetsResolver(name.draft.ownerCode, name.label, name.draft.chain.resolver as Hex)
+  await ownerSetsResolver(name.draft.ownerCode, name.label, LOCAL.resolver as Hex)
   const sent = await call("POST", "/api/name/records", edit)
   expect(sent.status, JSON.stringify(sent.json)).toBe(200)
 })
@@ -869,7 +906,7 @@ test("an order signs the terms of its name's kind: the other kind or other terms
     const res = await call("POST", "/api/invoice", { ...body, order: { ...body.order, fields: { ...body.order.fields, terms } } })
     expect([res.status, res.json], JSON.stringify(terms)).toEqual([400, { type: "bad_request" }])
   }
-  await withTerms(request, "general-terms", `the general terms, changed for ${label}`, async (terms) => {
+  await withTerms(request, "general-terms", ALTERNATE_GENERAL_TERMS, async (terms) => {
     // a stale timestamp is checked before the terms
     const stale = await signedAt(draft.ownerCode, signed, signed.timestamp - SIGNED_WINDOW_S - 100)
     expect((await call("POST", "/api/invoice", invoiceBody(stale, "btc", q.price))).json, "a stale timestamp").toEqual({ type: "bad_request" })
@@ -888,7 +925,7 @@ test("an exact resend is answered after the terms changed, and two orders differ
   const built = await flow.orderRequest(draft)
   const first = await call("POST", "/api/invoice", invoiceBody(built.request, "btc", q.price))
   expect(first.status).toBe(200)
-  await withTerms(request, "general-terms", `the general terms, changed for ${label}`, async (terms) => {
+  await withTerms(request, "general-terms", ALTERNATE_GENERAL_TERMS, async (terms) => {
     const again = await call("POST", "/api/invoice", invoiceBody(built.request, "btc", q.price))
     expect([again.status, again.json.invoiceId]).toEqual([200, first.json.invoiceId])
     const other = await signedAt(draft.ownerCode, { ...built.request, terms: terms.hash.slice(2) }, built.request.timestamp)
@@ -919,7 +956,7 @@ test("a selection signs the new name's terms: a community name needs the communi
     const repeat = await call("POST", `/api/registration/${id}/name`, await nameBody(record, selected))
     expect([repeat.status, repeat.json.version], "a repeat answers the view unchanged").toEqual([200, (await viewOf(id)).version])
     const taken = await untilPhase(id, ["taken"])
-    await withTerms(request, "community-terms", `the community terms, changed for ${label}`, async () => {
+    await withTerms(request, "community-terms", ALTERNATE_COMMUNITY_TERMS, async () => {
       // the current fields under the terms they were signed with are still a repeat, answered before the terms
       const again = await call("POST", `/api/registration/${id}/name`, await nameBody(record, taken))
       expect([again.status, (again.json.phase as Json).type]).toEqual([200, "taken"])
@@ -927,7 +964,7 @@ test("a selection signs the new name's terms: a community name needs the communi
   })
 })
 
-test("a committed community name's view asks for the owner's acceptance of the community terms on chain; its reveal without one, or with one for another nonce, terms, kind or policy, is bad_request, and with it the register records it", async ({ request }) => {
+test("a committed community name's view asks for the owner's acceptance of the community terms on chain; its reveal without one, or with one for another nonce, terms or kind, is bad_request, and with it the register records it", async ({ request }) => {
   const label = uniqueLabel("tk")
   await listed(request, label, async () => {
     const { draft, built, id } = await codeOrder(request, label)
@@ -937,11 +974,11 @@ test("a committed community name's view asks for the owner's acceptance of the c
     const accept = acceptanceOf(view)
     expect(accept).toEqual({ community: true, policy: NAME_POLICY, termsHash: COMMUNITY_TERMS_HASH, nonce: 0 })
     expect(await call("POST", `/api/registration/${id}/reveal`, await unacceptedReveal(view, record)), "none").toEqual({ status: 400, json: { type: "bad_request" } })
-    for (const [what, acceptance] of [["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: `0x${"d8".repeat(32)}` }],
-      ["the other kind", { ...accept, community: false }], ["another policy", { ...accept, policy: readSite().sponsor }]] as const) {
-      await expect(flow.revealOrder(withAcceptance(view, acceptance), record), what).rejects.toMatchObject({ code: "bad_request" })
+    for (const [what, acceptance] of [["another nonce", { ...accept, nonce: accept.nonce + 1 }], ["other terms", { ...accept, termsHash: LOCAL.communityTerms[1].hash }],
+      ["the other kind", { ...accept, community: false, termsHash: GENERAL_TERMS_HASH }]] as const) {
+      await expect(flow.revealOrder(withAcceptance(view, acceptance), record, acceptedAs(acceptance)), what).rejects.toMatchObject({ code: "bad_request" })
     }
-    await flow.revealOrder(view, record)
+    await flow.revealOrder(view, record, record.terms)
     const done = await untilPhase(id, ["registered"])
     expect(api.toSignOf(done), "no acceptance asked once registered").toBeNull()
     expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "community", name: label, holder: record.owner, termsHash: COMMUNITY_TERMS_HASH })
@@ -955,8 +992,9 @@ test("a plain name's committed view asks for the owner's acceptance of the gener
   const view = await signAgain(request, id)
   expect(acceptanceOf(view)).toEqual({ community: false, policy: NAME_POLICY, termsHash: GENERAL_TERMS_HASH, nonce: 0 })
   expect(await call("POST", `/api/registration/${id}/reveal`, await unacceptedReveal(view, record)), "none").toEqual({ status: 400, json: { type: "bad_request" } })
-  await expect(flow.revealOrder(withAcceptance(view, { ...acceptanceOf(view), community: true }), record), "the other kind").rejects.toMatchObject({ code: "bad_request" })
-  await flow.revealOrder(view, record)
+  const otherKind = { ...acceptanceOf(view), community: true, termsHash: COMMUNITY_TERMS_HASH }
+  await expect(flow.revealOrder(withAcceptance(view, otherKind), record, acceptedAs(otherKind)), "the other kind").rejects.toMatchObject({ code: "bad_request" })
+  await flow.revealOrder(view, record, record.terms)
   const done = await untilPhase(id, ["registered"])
   expect(await acceptedOnChain(done.registerTx!)).toEqual({ kind: "general", name: label, holder: record.owner, termsHash: GENERAL_TERMS_HASH })
 })
@@ -993,8 +1031,25 @@ test("a reveal signed over other dispute days than its order's payment's is bad_
   const { draft, built, id } = await codeOrder(request, uniqueLabel("tu"))
   const recordAs = (method: store.OrderRecord["method"]) => flow.recordFor(draft, built, method, 0, { registrationId: id, invoiceId: null })
   const view = await signAgain(request, id)
-  await expect(flow.revealOrder(view, recordAs("card")), "a card's days for a code order").rejects.toMatchObject({ code: "bad_request" })
-  await flow.revealOrder(view, recordAs("code"))
+  await expect(flow.revealOrder(view, recordAs("card"), draft.terms), "a card's days for a code order").rejects.toMatchObject({ code: "bad_request" })
+  await flow.revealOrder(view, recordAs("code"), draft.terms)
+  await untilPhase(id, ["registered"])
+})
+
+test("a reveal without its order request signed by the order's name key, or by another key, is not_found, one signed too long ago bad_request, and the signed one registers the name", async ({ request }) => {
+  const { draft, built, id } = await codeOrder(request, uniqueLabel("rq"))
+  const record = flow.recordFor(draft, built, "code", 0, { registrationId: id, invoiceId: null })
+  const view = await signAgain(request, id)
+  const unsigned = await revealBodyOf(view, record)
+  delete unsigned.request
+  const path = `/api/registration/${id}/reveal`
+  expect((await send("POST", path, unsigned)).status, "unsigned").toBe(404)
+  const other = flow.orderSigner({ ownerCode: flow.newOwnerCode() })(id, "reveal")
+  expect((await send("POST", path, { ...unsigned, request: other })).status, "another key").toBe(404)
+  const old = Math.floor(Date.now() / 1000) - 2 * SIGNED_WINDOW_S
+  const stale = { timestamp: old, signature: hex(signDigest(flow.walletOf(draft.ownerCode)!.privateKey, personalDigest(`simplex.domains order ${id} reveal ${old}`))) }
+  expect((await send("POST", path, { ...unsigned, request: stale })).status, "signed too long ago").toBe(400)
+  await flow.revealOrder(view, record, draft.terms)
   await untilPhase(id, ["registered"])
 })
 

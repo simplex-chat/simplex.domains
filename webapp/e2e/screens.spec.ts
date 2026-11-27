@@ -2,21 +2,21 @@ import { chromium, expect, type APIRequestContext, type Browser, type BrowserCon
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { keccak256, toHex } from "viem"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { labelHash, YEAR_S } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { newOwnerCode, walletOf } from "../src/flow.ts"
 import {
-  addNameCode, agreeToTerms, answersReserved, CHAIN, channelLink, CHECKOUT_KEY, checkoutOwnerCode, CODE_HEADING, codeField, COMMUNITY_HEADING, contactLink, contractsOwnerLists, control, fillLinks,
+  addNameCode, agreeToTerms, ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS, answersReserved, channelLink, CHECKOUT_KEY, CODES_PAGE, codesPageHolds, codesTest, onCodesPage, checkoutOwnerCode, CODE_HEADING, codeField, COMMUNITY_HEADING, contactLink, contractsOwnerLists, control, fillLinks,
   keepOrder, type KeptOrder, LINKS_HEADING, MOCK, mockRegistration, newClient, okPreview, onStep, ownerSetsResolver, ownerSetsText, payButton, previewsShown, registeredAnswer, registeredPhase,
   REGISTRATION_MS, registrationOf, registrationView, SAVED,
-  savedToReview, search, searchName, selectedToReview, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey,
+  savedToReview, search, searchName, selectedToReview, shownCode, startOrder, takenOrder, test, toCodeStep, toFullReview, toReview, useCode, waitRegistered, withStripeKey, fakeIntent,
 } from "./helpers.ts"
 
 const START_S = Date.UTC(2026, 10, 2, 8) / 1000
 const STEP_S = 300
 const SIZES = [["desktop", { width: 1280, height: 800 }], ["phone", { width: 390, height: 844 }]] as const
 const LAPSED = "The name was not signed in time"
-const TERMS_TEXT = "The general terms, changed for the screens"
 const FLAT_BACKGROUND = fileURLToPath(new URL("screens.css", import.meta.url))
 
 interface Reach { page: Page; request: APIRequestContext; browser: Browser; baseURL: string; id: string; now: number }
@@ -47,10 +47,11 @@ interface ScreenOptions {
   before?: Size
   covers?: string[]
   timeout?: number
+  codes?: boolean
 }
 
-function screen(slot: number, id: string, reach: (r: Reach) => Promise<Page | void>, { sizes = ["desktop", "phone"], before, timeout }: ScreenOptions = {}): void {
-  test(id, async ({ page, request, browser, baseURL }) => {
+function screen(slot: number, id: string, reach: (r: Reach) => Promise<Page | void>, { sizes = ["desktop", "phone"], before, timeout, codes = false }: ScreenOptions = {}): void {
+  (codes ? codesTest : test)(id, async ({ page, request, browser, baseURL }) => {
     if (timeout) test.setTimeout(timeout)
     const now = START_S + slot * STEP_S
     await control(request, "clock", { now })
@@ -84,6 +85,7 @@ test.afterEach(async ({ page, request }) => {
   await Promise.all(launched.splice(0).map((browser) => browser.close()))
   await control(request, "search", { chainDown: false, limitSeconds: 0, findLimitSeconds: 0, invoiceError: null, unsentSeconds: 0, unreadSeconds: 0, fetchDelays: {} })
   await control(request, "mode", { mode: "open" })
+  await control(request, "downtime", { on: false })
   await control(request, "general-terms", { text: null })
   await control(request, "seed", { seed: null })
 })
@@ -537,19 +539,19 @@ screen(194, "home-codes-only-locked", async ({ page, request }) => {
   await control(request, "mode", { mode: "codes" })
   await page.goto("/#/?name=bakery")
   await shown(page, "Names can be registered only with a code right now.")
-})
+}, { codes: true })
 screen(196, "home-codes-only-uncovered", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   await withCode(r, 7)
   await searchHere(r.page, "abcdef")
   await answerLine(r.page)
-})
+}, { codes: true })
 screen(198, "home-codes-only-covered", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   await withCode(r, 7, { years: 2 })
   await searchHere(r.page, r.id)
   await answerRow(r.page)
-})
+}, { codes: true })
 screen(200, "home-header-code-chip", async (r) => { await withCode(r, 7) })
 screen(204, "home-phone-menu", async ({ page }) => {
   await page.goto("/")
@@ -638,13 +640,13 @@ screen(226, "checkout-select-busy", async (r) => {
 screen(234, "checkout-select-code", (r) => codeReview(r))
 screen(240, "checkout-select-terms-changed", async (r) => {
   await selectReview(r)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await press(r.page, "Register with your payment")
   await shown(r.page, "The Names Conditions changed.")
 })
 const selectionRefusals: [number, string, number, string, Record<string, unknown>?][] = [
   [242, "checkout-select-refused-taken", 409, "name_taken"],
-  [244, "checkout-select-refused-price", 409, "catalog_changed", { price: 20000 }],
+  [244, "checkout-select-refused-price", 409, "catalog_changed", { price: 10000 }],
   [248, "checkout-select-refused-unavailable", 503, "terms_unavailable"],
   [250, "checkout-select-refused-failed", 503, "name_check_unavailable"],
 ]
@@ -728,15 +730,6 @@ screen(1016, "checkout-review-unticked", async ({ page, id }) => {
   await search(page, id)
   await toReview(page, false)
 })
-screen(1018, "checkout-review-term-started", async ({ page, id }) => {
-  await page.route("**/api/config", async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, names: { ...json.names, termStart: START_S - 86400 } } })
-  })
-  await search(page, id)
-  await toReview(page)
-})
 screen(1020, "checkout-review-bonus-tip", async (r) => {
   await review(r)
   await onStep(r.page).getByRole("button", { name: /^and (\d+ days|1 day)$/ }).focus()
@@ -810,7 +803,7 @@ screen(1078, "checkout-review-hold", async (r) => {
 })
 screen(1080, "checkout-review-terms-changed", async (r) => {
   await review(r)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await payButton(r.page).click()
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/, checked: false })).toBeVisible()
 })
@@ -1119,7 +1112,7 @@ screen(1196, "checkout-review-codes-only-code", async (r) => {
   await withCode(r, 6)
   await searchHere(r.page, r.id)
   await toReview(r.page)
-})
+}, { codes: true })
 screen(1198, "checkout-review-codes-only-field", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   await withCode(r, 6)
@@ -1127,7 +1120,7 @@ screen(1198, "checkout-review-codes-only-field", async (r) => {
   await toReview(r.page)
   await r.page.locator(".code-chip").getByRole("button", { name: "Remove code" }).click()
   await expect(codeField(r.page)).toBeVisible()
-})
+}, { codes: true })
 screen(1200, "checkout-review-codes-only-refused", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
   const code = await withCode(r, 6)
@@ -1136,7 +1129,7 @@ screen(1200, "checkout-review-codes-only-refused", async (r) => {
   await control(r.request, "code/state", { code, state: "used" })
   await press(r.page, "Register with your code")
   await shown(r.page, "Enter another code.")
-})
+}, { codes: true })
 screen(1212, "checkout-review-waiting-card", async (r) => {
   await startOrder(r.page, `${r.id}-card`, { method: "card" })
   await onStep(r.page).getByRole("button", { name: /^Pay \$/ }).click()
@@ -1172,7 +1165,7 @@ screen(1224, "checkout-status-failed-retrying", async (r) => {
 })
 screen(1226, "checkout-status-unavailable", (r) => refusedOrder(r, () => control(r.request, "general-terms", { link: UNREADABLE_TERMS }), "Names can't be ordered right now"))
 screen(1228, "checkout-status-unavailable-retrying", async (r) => {
-  await refusedOrder(r, () => control(r.request, "general-terms", { link: UNREADABLE_TERMS }), "Names can't be ordered right now")
+  await refusedOrder(r, () => r.page.route("**/api/invoice", posting(/\/api\/invoice$/, (route) => answer(route, 503, "terms_unavailable"))), "Names can't be ordered right now")
   await r.page.route("**/api/invoice", posting(/\/api\/invoice$/, held))
   await press(r.page, "Try again")
   await expect(onStep(r.page).getByRole("button", { name: "Try again" })).toHaveAttribute("aria-busy", "true")
@@ -1258,7 +1251,7 @@ screen(2014, "order-registering-signature-refused", async (r) => {
 
 const termsChangedOrder = async (r: Reach) => {
   const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await control(r.request, `settle/${invoiceId}`)
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/ })).toBeVisible({ timeout: REGISTRATION_MS })
   return invoiceId
@@ -1268,7 +1261,7 @@ screen(2016, "order-registering-terms-asked", async (r) => { await termsChangedO
 screen(2018, "order-registering-community-terms-asked", async (r) => {
   await control(r.request, "community", { label: r.id, for: "screens of the names page" })
   const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, "community-terms", { text: "The community terms, changed for the screens" })
+  await control(r.request, "community-terms", { text: ALTERNATE_COMMUNITY_TERMS })
   await control(r.request, `settle/${invoiceId}`)
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/ })).toBeVisible({ timeout: REGISTRATION_MS })
   await control(r.request, "community-terms", { text: null })
@@ -1282,7 +1275,7 @@ const goneWhileTermsWait = async (r: Reach, gone: Record<string, unknown>, says:
   const { invoiceId } = await ordered(r, r.id)
   let answered = false
   await r.page.route(`**/api/name/${hex(labelHash(r.id))}*`, (route) => answered ? route.fulfill({ json: gone }) : route.fallback())
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   answered = true
   await control(r.request, `settle/${invoiceId}`)
   await shown(r.page, says)
@@ -1292,32 +1285,6 @@ screen(2022, "order-registering-name-registered-meanwhile", (r) =>
   goneWhileTermsWait(r, registeredTo(OTHER_OWNER, START_S + 2 * YEAR_S), "The Names Conditions changed."))
 screen(2024, "order-registering-name-reserved-meanwhile", (r) => goneWhileTermsWait(r, { found: { type: "reserved" } }, "The Names Conditions changed."))
 screen(2026, "order-registering-lapsed", async (r) => { await lapsedOrder(r, r.id) })
-screen(2028, "order-lapsed-no-record", async (r) => {
-  const { invoiceId } = await lapsedOrder(r, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "The name code is not in this browser")
-  return other
-})
-screen(2030, "order-registering-no-record-committing", async (r) => {
-  const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, "search", { unsentSeconds: 120 })
-  await control(r.request, `settle/${invoiceId}`)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await expect(onStep(other).getByRole("heading")).toBeVisible()
-  return other
-})
-screen(2032, "order-registering-no-record-wait", async (r) => {
-  const { invoiceId } = await committedUnsigned(r, r.id)
-  const other = await elsewhere(r, "/#/trademarks")
-  await other.route(`**/api/invoice/${invoiceId}*`, async (route) => {
-    const res = await route.fetch()
-    const json = await res.json()
-    await route.fulfill({ response: res, json: { ...json, registration: { ...json.registration, phase: committedPhase(r) } } })
-  })
-  await other.goto(`/?order=${invoiceId}`)
-  await expect(onStep(other).getByRole("heading")).toBeVisible()
-  return other
-})
 const BALANCE = { amount: 10000, refunded: 0 }
 const codeOrderAs = async (r: Reach, change: Record<string, unknown>) => {
   const order = await kept(r, `reg-${r.id}`, null, r.id)
@@ -1339,12 +1306,6 @@ screen(2057, "order-taken-before-commit", async (r) => {
   await heading(r.page, `${r.id}.simplex is no longer available`)
 })
 screen(2060, "order-failed-generic-paid", async (r) => { await failed(r, r.id) })
-screen(2062, "order-failed-generic-paid-no-record", async (r) => {
-  const { invoiceId } = await failed(r, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Paid, not registered")
-  return other
-})
 screen(2064, "order-failed-generic-code-unchecked", async (r) => {
   await codeFailed(r, r.id)
   await r.page.route("**/api/code/check", () => new Promise(() => undefined))
@@ -1367,12 +1328,6 @@ screen(2070, "order-failed-generic-code-refused", async (r) => {
   await control(r.request, "code/state", { code, state: "used" })
   await r.page.reload()
   await shown(r.page, "Your code was used for another name")
-})
-screen(2072, "order-failed-generic-code-no-record", async (r) => {
-  const { registrationId } = await codeFailed(r, r.id)
-  const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, "Not registered")
-  return other
 })
 screen(2084, "order-failed-name-gone-since", async (r) => {
   await failed(r, r.id)
@@ -1420,18 +1375,12 @@ const unreadOrder = async (r: Reach) => {
   return order
 }
 screen(2094, "order-failed-unread-paid", async (r) => { await unreadOrder(r) })
-screen(2096, "order-failed-unread-paid-no-record", async (r) => {
-  const { invoiceId } = await unreadOrder(r)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Paid, not registered")
-  return other
-})
 screen(2098, "order-failed-unread-code", async (r) => {
   await unsigned(r.page)
   const { registrationId } = await codeOrder(r, r.id)
   await control(r.request, `stale/${registrationId}`)
   await expect.poll(async () => {
-    const { phase, label } = await (await r.request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { phase: { type: string }; label: string | null }
+    const { phase, label } = await (await r.request.get(`${MOCK}/control/registration/${registrationId}`)).json() as { phase: { type: string }; label: string | null }
     return phase.type === "committed" && label === null
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await control(r.request, `unread/${registrationId}`)
@@ -1452,7 +1401,8 @@ screen(2102, "order-failed-action-failed", (r) => continueRefused(r, (route) => 
 const nameChecked = (page: Page) => expect(onStep(page).locator(".name-check:not(.unchecked)")).toBeVisible()
 const TAKEN_ANSWER = registeredTo(OTHER_OWNER, START_S + 2 * YEAR_S)
 const cancelAnswer = (page: Page, f: (route: Route) => Promise<unknown>) => page.route("**/api/invoice/*/cancel", posting(/\/cancel$/, f))
-const STRIPE_STUB = (declines: boolean) => `window.Stripe = () => ({
+const STRIPE_STUB = (declines: boolean, amount: number) => `window.Stripe = () => ({
+  retrievePaymentIntent: async () => (${fakeIntent(amount)}),
   confirmPayment: async () => (${declines} ? { error: { type: "card_error", message: "Your card was declined." } } : { paymentIntent: { status: "processing" } }),
   elements: () => ({ update: () => undefined, create: () => {
     const handlers = {}
@@ -1485,12 +1435,6 @@ screen(2120, "order-pay-crypto-unchecked", async ({ page, id }) => {
   await page.reload()
   await heading(page, "Pay with Bitcoin")
   await page.waitForTimeout(1500)
-})
-screen(2122, "order-pay-crypto-no-record", async (r) => {
-  const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Pay with Bitcoin")
-  return other
 })
 screen(2124, "order-pay-crypto-part-paid", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
@@ -1543,16 +1487,10 @@ screen(2136, "order-pay-card-taken-on-chain", async ({ page, id }) => {
   await page.reload()
   await shown(page, "Taken at")
 })
-screen(2138, "order-pay-card-no-record", async (r) => {
-  const { invoiceId } = await startOrder(r.page, r.id, { method: "card" })
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Pay by card")
-  return other
-})
 screen(2140, "order-pay-card-declined", async ({ page, id }) => {
   await startOrder(page, id, { method: "card" })
   await withStripeKey(page)
-  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_STUB(true) }))
+  await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "text/javascript", body: STRIPE_STUB(true, heldPrice(id.length)) }))
   await page.reload()
   await heading(page, "Pay by card")
   await nameChecked(page)
@@ -1615,8 +1553,10 @@ const cardFormFailed = async (r: Reach, before: () => Promise<unknown> = async (
   await heading(r.page, "Card payment not confirmed")
 }
 screen(2156, "order-card-form-failed", (r) => cardFormFailed(r))
-screen(2158, "order-card-form-failed-no-record", (r) => cardFormFailed(r, () => r.page.evaluate(() => localStorage.clear())))
-screen(2160, "order-card-form-failed-codes-only", (r) => cardFormFailed(r, () => control(r.request, "mode", { mode: "codes" })))
+screen(2160, "order-card-form-failed-codes-only", (r) => cardFormFailed(r, async () => {
+  await control(r.request, "mode", { mode: "codes" })
+  await onCodesPage(r.page)
+}))
 const cardSlow = async (r: Reach) => {
   const invoiceId = await cardSubmitted(r.page, r.id)
   await r.page.evaluate(([id, at]) => {
@@ -1643,25 +1583,6 @@ screen(2166, "order-paid-by-invoice-record", async (r) => {
   await r.page.goto(`/?registration=${await registrationOf(r.request, invoiceId)}`)
   await heading(r.page, "This order is paid by invoice")
 })
-screen(2168, "order-paid-by-invoice-no-record", async (r) => {
-  const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
-  const other = await elsewhere(r, `/?registration=${await registrationOf(r.request, invoiceId)}`)
-  await heading(other, "This order is paid by invoice")
-  return other
-})
-screen(2170, "order-registering-no-record-signed", async (r) => {
-  const order = await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
-  const view = registrationView(order, { phase: { type: "registering" }, commitTx: "0x02", registerTx: "0x03" })
-  const other = await elsewhere(r, "/#/trademarks")
-  await other.route(`**/api/invoice/inv-${r.id}*`, (route) => route.fulfill({ json: {
-    invoiceId: `inv-${r.id}`, status: "paid", amount: 10000, currency: "usd", expiresAt: new Date((r.now + 3600) * 1000).toISOString(), kind: "name", registration: view,
-    cryptoCurrency: "btc", cryptoAmount: "0.00156", cryptoAmountPaid: "0.00156", cryptoAmountDue: "0", paidInFull: true, address: "bcrt1qjhmc6927ct4w4vnas0g70pg3sdhgfdhcl8pd7s",
-  } }))
-  await other.route(`**/api/registration/reg-${r.id}*`, (route) => route.fulfill({ json: view }))
-  await other.goto(`/?order=inv-${r.id}`)
-  await heading(other, `Registering ${r.id}.simplex`)
-  return other
-})
 screen(2172, "order-not-on-device", async (r) => {
   const { invoiceId } = await committedUnsigned(r, r.id)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
@@ -1677,14 +1598,6 @@ screen(2176, "order-registered-no-links", async (r) => {
   const { invoiceId } = await ordered(r, r.id)
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
-})
-screen(2178, "order-registered-no-record", async (r) => {
-  const { invoiceId } = await ordered(r, r.id)
-  await control(r.request, `settle/${invoiceId}`)
-  await waitRegistered(r.page, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, `${r.id}.simplex is yours`)
-  return other
 })
 screen(2179, "order-ended", async (r) => {
   const { invoiceId, registrationId } = await ordered(r, r.id)
@@ -1702,12 +1615,6 @@ screen(2182, "order-taken-reserved", async (r) => {
   await control(r.request, `settle/${invoiceId}`)
   await heading(r.page, `${r.id}.simplex is reserved`)
 })
-screen(2184, "order-taken-no-record", async (r) => {
-  const { invoiceId } = await takenOrder(r.page, r.request, r.id)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, `${r.id}.simplex is no longer available`)
-  return other
-})
 screen(2186, "order-taken-balance-spent", async (r) => {
   const { invoiceId } = await takenOrder(r.page, r.request, r.id)
   await control(r.request, `refund/${invoiceId}`)
@@ -1717,7 +1624,7 @@ screen(2186, "order-taken-balance-spent", async (r) => {
 screen(2190, "order-taken-codes-only", async (r) => {
   await takenOrder(r.page, r.request, r.id)
   await control(r.request, "mode", { mode: "codes" })
-  await r.page.reload()
+  await onCodesPage(r.page)
   await shown(r.page, "You can ask for a refund.")
 })
 const codeTaken = async (r: Reach) => {
@@ -1739,13 +1646,6 @@ screen(2196, "order-taken-code-reserved", async (r) => {
   await answersReserved(r.page, r.id)
   await heading(r.page, `${r.id}.simplex is reserved`)
 })
-screen(2198, "order-taken-code-no-record", async (r) => {
-  const registrationId = await codeTaken(r)
-  await heading(r.page, `${r.id}.simplex is no longer available`)
-  const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, `${r.id}.simplex is no longer available`)
-  return other
-})
 const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
   const { invoiceId } = await startOrder(r.page, r.id, { method })
   await control(r.request, `expire/${invoiceId}`)
@@ -1754,19 +1654,13 @@ const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
 }
 screen(2200, "order-closed-expired-crypto", async (r) => { await closed(r) })
 screen(2202, "order-closed-expired-card", async (r) => { await closed(r, "card") })
-screen(2204, "order-closed-expired-no-record", async (r) => {
-  const invoiceId = await closed(r)
-  const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, "Invoice closed")
-  return other
-})
 screen(2206, "order-closed-cancelled", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
   await press(page, "Cancel this invoice")
   await heading(page, "Invoice closed")
 })
 const halfOf = async (r: Reach, invoiceId: string) => {
-  const invoice = await (await r.request.get(`${MOCK}/api/invoice/${invoiceId}`)).json() as { cryptoAmountPaid: string }
+  const invoice = await (await r.request.get(`${MOCK}/control/invoice/${invoiceId}`)).json() as { cryptoAmountPaid: string }
   return invoice.cryptoAmountPaid
 }
 const closedPart = async (r: Reach) => {
@@ -1828,12 +1722,12 @@ screen(2222, "order-closed-replaced", async (r) => {
 screen(2224, "order-closed-codes-only", async (r) => {
   await closed(r)
   await control(r.request, "mode", { mode: "codes" })
-  await r.page.reload()
+  await onCodesPage(r.page)
   await heading(r.page, "Invoice closed")
 })
 screen(2226, "order-closed-terms-asked", async (r) => {
   await closed(r)
-  await control(r.request, "general-terms", { text: TERMS_TEXT })
+  await control(r.request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
   await press(r.page, "Get a new invoice")
   await expect(onStep(r.page).getByRole("checkbox", { name: /^I accept/, checked: false })).toBeVisible()
 })
@@ -1869,19 +1763,22 @@ screen(2246, "order-price-changed", async (r) => {
   await press(r.page, "Get a new invoice")
   await heading(r.page, "The price changed")
 })
-screen(2248, "order-unreadable", async ({ page, id }) => {
-  await page.route(`**/api/invoice/inv-${id}*`, (route) => answer(route, 500, "internal"))
-  await page.goto(`/?order=inv-${id}`)
-  await heading(page, "The order could not be loaded now")
+screen(2248, "order-unreadable", async (r) => {
+  await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
+  await r.page.route(`**/api/invoice/inv-${r.id}*`, (route) => answer(route, 500, "internal"))
+  await r.page.goto(`/?order=inv-${r.id}`)
+  await heading(r.page, "The order could not be loaded now")
 })
-screen(2250, "order-loading", async ({ page, id }) => {
-  await page.route(`**/api/invoice/inv-${id}*`, held)
-  await page.goto(`/?order=inv-${id}`)
-  await shown(page, "Opening the order")
+screen(2250, "order-loading", async (r) => {
+  await kept(r, `reg-${r.id}`, `inv-${r.id}`, r.id)
+  await r.page.route(`**/api/invoice/inv-${r.id}*`, held)
+  await r.page.goto(`/?order=inv-${r.id}`)
+  await shown(r.page, "Opening the order")
 })
-screen(2252, "order-unknown-link", async ({ page }) => {
-  await page.goto("/?order=nothing-here")
-  await heading(page, "This link does not work")
+screen(2252, "order-unknown-link", async (r) => {
+  await kept(r, `reg-${r.id}`, "nothing-here", r.id)
+  await r.page.goto("/?order=nothing-here")
+  await heading(r.page, "This link does not work")
 })
 const REVERSED = { phase: { type: "closed", closedBy: "reversed" } }
 screen(2254, "order-closed-reversed", async (r) => {
@@ -2016,8 +1913,8 @@ screen(3030, "names-edit-field-noncanonical-kept", async (r) => {
 })
 
 const listRow = (page: Page, text: string) => page.locator(".list-row", { hasText: text }).first()
-const yourNames = async (page: Page, rows: string[] = []) => {
-  await page.goto("/#/names")
+const yourNames = async (page: Page, rows: string[] = [], origin = "") => {
+  await page.goto(`${origin}/#/names`)
   await heading(page, "Your names")
   for (const text of rows) await expect(listRow(page, text)).toBeVisible({ timeout: 30_000 })
   await page.waitForTimeout(2000)
@@ -2166,7 +2063,7 @@ screen(3046, "names-rows-registered", async (r) => {
   await registered(r, "rows-community")
   const expiresAt = START_S + 2 * YEAR_S
   const other = await faked(r, "rows-other-owner", { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" })
-  await answerName(r.page, "rows-other-owner", registeredFor(other, expiresAt, CHAIN.sponsor))
+  await answerName(r.page, "rows-other-owner", registeredFor(other, expiresAt, LOCAL.sponsor))
   const expired = await faked(r, "rows-expired", { phase: registeredPhase(r.now - 86400), commitTx: "0x02", registerTx: "0x03" })
   await answerName(r.page, "rows-expired", registeredFor(expired, r.now - 86400))
   await r.page.route(`**/api/name/${hex(labelHash("rows-answer-failed"))}*`, (route) => answer(route, 503, "unavailable"))
@@ -2179,7 +2076,7 @@ const BALANCE_ROWS = ["names-balance-taken", "names-balance-rest", "names-balanc
 screen(3048, "names-rows-balances", async (r) => {
   await takenOrder(r.page, r.request, "rows-balance-taken")
   const rest = await startOrder(r.page, "rows-balance-rest", { method: "btc" })
-  const due = await (await r.request.get(`${MOCK}/api/invoice/${rest.invoiceId}`)).json() as { cryptoAmount: string }
+  const due = await (await r.request.get(`${MOCK}/control/invoice/${rest.invoiceId}`)).json() as { cryptoAmount: string }
   await control(r.request, `settle/${rest.invoiceId}`, { paid: (Number(due.cryptoAmount) * 2).toFixed(8) })
   await waitRegistered(r.page, "rows-balance-rest")
   const whole = await takenOrder(r.page, r.request, "rows-refunded-whole")
@@ -2252,7 +2149,8 @@ screen(3054, "names-pending-held", async (r) => {
 screen(3056, "names-balance-taken-codes-only", async (r) => {
   await takenOrder(r.page, r.request, r.id)
   await control(r.request, "mode", { mode: "codes" })
-  await yourNames(r.page, [r.id])
+  await codesPageHolds(r.page)
+  await yourNames(r.page, [r.id], CODES_PAGE)
 })
 screen(3058, "names-popup-refund", async (r) => {
   await takenOrder(r.page, r.request, r.id)
@@ -2395,7 +2293,7 @@ screen(3118, "names-check-from-order", async (r) => {
   await control(r.request, `settle/${invoiceId}`)
   await waitRegistered(r.page, r.id)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await press(other, "Restore with your name code")
+  await press(other, "Enter your name code")
   await codeField(other).fill(ownerCode)
   await verdict(other)
   return other
@@ -2647,5 +2545,30 @@ screen(3196, "names-row-failed-unread", async (r) => {
 screen(3198, "names-balance-ended", async (r) => {
   await faked(r, r.id, { ...failedFor("monthEnded"), balance: BALANCE }, {})
   await yourNames(r.page, [r.id])
+})
+
+screen(3200, "home-available-downtime", async ({ page, request, id }) => {
+  await control(request, "downtime", { on: true })
+  await search(page, id)
+  await answerRow(page)
+  await shown(page, "You will be able to order names again soon.")
+})
+screen(3202, "checkout-status-downtime", async ({ page, request, id }) => {
+  await search(page, id)
+  await toReview(page)
+  await control(request, "downtime", { on: true })
+  await payButton(page).click()
+  await heading(page, "You will be able to order names again soon")
+})
+screen(3204, "order-pay-crypto-downtime", async (r) => {
+  await ordered(r, r.id)
+  await control(r.request, "downtime", { on: true })
+  await r.page.reload()
+  await shown(r.page, "You will be able to pay again soon.")
+})
+
+screen(17200, "checkout-review-term-started", async ({ page, id }) => {
+  await search(page, id)
+  await toReview(page)
 })
 

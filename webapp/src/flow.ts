@@ -1,6 +1,6 @@
 // The order flows, between the views and the crypto: build an order, reveal it, select a name for it, restore, edit links.
 import * as api from "./api.ts"
-import { namesSite, readSite } from "./config.ts"
+import { heldPrice, SITE } from "./config.ts"
 import { formatOwnerCode, parseNameCode } from "./crypto/code.ts"
 import {
   acceptTermsDigest, CHANNEL_KEY, CONTACT_KEY, commitmentSecret, durationFor, labelHash, makeCommitment, namehash, registerIntentDigest, setTextDigest,
@@ -19,14 +19,21 @@ const now = api.serviceSeconds
 
 export const newOwnerCode = () => formatOwnerCode(crypto.getRandomValues(new Uint8Array(16)))
 
+const wallets = new Map<string, Wallet | null>()
+
 export function walletOf(code: string): Wallet | null {
-  const parsed = parseNameCode(code)
-  return parsed?.kind === "owner" ? walletFromEntropy(parsed.entropy) : null
+  if (!wallets.has(code)) {
+    const parsed = parseNameCode(code)
+    wallets.set(code, parsed?.kind === "owner" ? walletFromEntropy(parsed.entropy) : null)
+  }
+  return wallets.get(code)!
 }
 
-function registrationOf(label: string, owner: Uint8Array, secret: Uint8Array, links: api.Links, chain: api.ChainInfo, duration: bigint): Registration {
+export const forgetWallets = () => wallets.clear()
+
+function registrationOf(label: string, owner: Uint8Array, secret: Uint8Array, links: api.Links, duration: bigint): Registration {
   return {
-    label, tld: chain.tld, owner, duration, secret, resolver: fromHex(chain.resolver),
+    label, tld: SITE.tld, owner, duration, secret, resolver: fromHex(SITE.resolver),
     contactLink: links.contact || null, channelLink: links.channel || null,
   }
 }
@@ -34,9 +41,7 @@ function registrationOf(label: string, owner: Uint8Array, secret: Uint8Array, li
 export interface Draft {
   label: string
   links: api.Links
-  chain: api.ChainInfo
   years: number
-  termStart: number
   ownerCode: string
   terms: string
   method: store.OrderRecord["method"]
@@ -44,47 +49,54 @@ export interface Draft {
 
 export type Available = Extract<api.Found, { type: "available" }> & { community: api.Community | null }
 export type Quote = Available & { terms: api.Terms }
-export const orderable = (a: Available): a is Quote => a.terms !== null
+export const orderable = (a: Available): a is Quote => a.terms !== null && a.years === SITE.paidYears && (a.community === null || a.community.years === SITE.communityYears)
 export const availableOf = ({ found, community }: api.SearchAnswer): Available | null => found.type === "available" ? { ...found, community } : null
-export const chainOf = (q: api.ChainInfo): api.ChainInfo => ({ resolver: q.resolver, sponsor: q.sponsor, chainId: q.chainId, tld: q.tld })
 
 // The name's search answer as an order needs it, or null when it can no longer be ordered.
 export async function quoteOf(label: string): Promise<Quote | null> {
-  const available = availableOf(await api.searchName(hex(labelHash(label)), label.length, (await namesSite()).chainId))
+  const available = availableOf(await api.searchName(hex(labelHash(label)), label.length))
   if (available === null) return null
-  if (!orderable(available)) throw new api.ApiError("terms_unavailable", 503, null, {})
+  if (!orderable(available) || available.price !== heldPrice(label.length)) throw new api.ApiError("terms_unavailable", 503, null, {})
   return available
 }
 
 // An order of a record's name and links again, as a new order of its code: a new commitment for the term from now.
 export const draftAgain = (record: store.OrderRecord, quote: Quote, terms: string, method: api.Method): Draft =>
-  ({ label: record.label, links: { contact: record.contact, channel: record.channel }, chain: chainOf(readSite()), years: api.termYears(quote.community, quote.years), termStart: readSite().termStart, ownerCode: record.ownerCode, terms, method })
+  ({ label: record.label, links: { contact: record.contact, channel: record.channel }, years: api.termYears(quote.community, quote.years), ownerCode: record.ownerCode, terms, method })
 
 export type BuiltOrder = { request: api.SignedOrder; owner: string }
+
+export class Unsignable extends Error {}
+
+const heldAcceptance = (a: api.Acceptance) => a.policy.toLowerCase() === SITE.namePolicy.toLowerCase() && api.heldTerms(a.termsHash, a.community) !== undefined
+const agreedTo = (a: api.Acceptance, agreed: string | undefined) => a.termsHash === api.signedHash(agreed) && a.community === api.communityAgreed(agreed)
 
 // The order and its owner's signature over it, which proves that the code's wallet placed it, with the signed registration
 // and terms acceptance the service registers with after payment.
 export async function orderRequest(draft: Draft): Promise<BuiltOrder> {
   const wallet = walletOf(draft.ownerCode)!
   const timestamp = now()
-  const duration = durationFor(draft.years, draft.termStart, timestamp)
-  const r = registrationOf(draft.label, wallet.address, commitmentSecret(wallet.seed, draft.label), draft.links, draft.chain, duration)
+  const duration = durationFor(draft.years, SITE.termStart, timestamp)
+  const r = registrationOf(draft.label, wallet.address, commitmentSecret(wallet.seed, draft.label), draft.links, duration)
   const commitment = makeCommitment(r)
-  const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links })
+  const sealed = await seal(wallet.seed, { label: draft.label, ...draft.links, method: draft.method, terms: draft.terms })
   const owner = checksumAddress(wallet.address)
   const order = { labelHash: hex(labelHash(draft.label)), length: draft.label.length, duration: Number(duration), owner, commitment: hex(commitment), sealed, terms: draft.terms }
-  const reveal = signedReveal(wallet, r, commitment, await api.signFor(order.labelHash, owner), draft.chain, draft.method)
+  const toSign = await api.signFor(order.labelHash, owner)
+  const acceptance = { ...toSign.acceptance, community: api.communityAgreed(draft.terms), termsHash: api.signedHash(draft.terms) ?? "" }
+  if (!heldAcceptance(toSign.acceptance) || !heldAcceptance(acceptance)) throw new Unsignable()
+  const reveal = signedReveal(wallet, r, commitment, { ...toSign, acceptance }, draft.method)
   const message = `simplex.domains order ${order.labelHash} ${order.length} ${order.duration} ${order.commitment} ${await sha256Hex(sealed)} ${order.terms} ${timestamp}`
   return { request: { ...order, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal }, owner }
 }
 
-function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, toSign: api.ToSignRead, chain: Pick<api.ChainInfo, "chainId" | "sponsor">, method: store.OrderRecord["method"]): api.RevealBody {
+function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, toSign: api.ToSignRead, method: store.OrderRecord["method"]): api.RevealBody {
   const deadline = now() + REVEAL_DEADLINE_SECONDS
-  const digest = registerIntentDigest(BigInt(chain.chainId), fromHex(chain.sponsor), r, BigInt(DISPUTE_DAYS[method]), BigInt(toSign.intentNonce), BigInt(deadline))
+  const digest = registerIntentDigest(BigInt(SITE.chainId), fromHex(SITE.sponsor), r, BigInt(DISPUTE_DAYS[method]), BigInt(toSign.intentNonce), BigInt(deadline))
   const a = toSign.acceptance
   const acceptance = {
     termsHash: a.termsHash, nonce: a.nonce,
-    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.community, BigInt(chain.chainId), fromHex(a.policy), commitment, fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
+    signature: hex(signDigest(wallet.privateKey, acceptTermsDigest(a.community, BigInt(SITE.chainId), fromHex(SITE.namePolicy), commitment, fromHex(a.termsHash), BigInt(a.nonce), BigInt(deadline)))),
   }
   return {
     label: r.label, secret: hex(r.secret), records: { contact: r.contactLink, channel: r.channelLink },
@@ -92,27 +104,26 @@ function signedReveal(wallet: Wallet, r: Registration, commitment: Uint8Array, t
   }
 }
 
-// what the order is worth
-export const paidWith = (res: api.InvoiceView): { method: api.Method; paid: number } => ({ method: res.cryptoCurrency ?? "card", paid: res.registration.price })
+export const payeeOf = ({ address, addressProof }: api.InvoiceView): Pick<store.OrderRecord, "payee"> => ({ payee: address === undefined ? undefined : { address, addressProof } })
 
 export function recordFor(draft: Draft, built: BuiltOrder, method: store.OrderRecord["method"], paid: number, ids: { registrationId: string; invoiceId: string | null }): store.OrderRecord {
   return {
     ...ids, label: draft.label, ownerCode: draft.ownerCode, owner: built.owner, ...draft.links, method, paid, years: draft.years,
-    request: built.request, terms: draft.terms, tld: draft.chain.tld, createdAt: new Date(api.serviceNow()).toISOString(),
+    request: built.request, terms: draft.terms, tld: SITE.tld, createdAt: new Date(api.serviceNow()).toISOString(),
   }
 }
 
-export async function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method">, duration: number, toSign: api.ToSignRead): Promise<api.RevealBody> {
+export function revealFor(record: Pick<store.OrderRecord, "label" | "contact" | "channel" | "ownerCode" | "method" | "request">, view: api.RegistrationView, toSign: api.ToSignRead, agreed: string | undefined): api.RevealBody {
+  if (view.duration !== record.request.duration || !heldAcceptance(toSign.acceptance) || !agreedTo(toSign.acceptance, agreed)) throw new Unsignable()
   const wallet = walletOf(record.ownerCode)!
-  const site = await namesSite()
-  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, site, BigInt(duration))
-  return signedReveal(wallet, r, makeCommitment(r), toSign, site, record.method)
+  const r = registrationOf(record.label, wallet.address, commitmentSecret(wallet.seed, record.label), record, BigInt(record.request.duration))
+  return signedReveal(wallet, r, makeCommitment(r), toSign, record.method)
 }
 
-export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord): Promise<void> {
+export async function revealOrder(view: api.RegistrationView, record: store.OrderRecord, agreed: string | undefined): Promise<void> {
   const toSign = api.toSignOf(view)
   if (toSign?.type !== "read") throw new Error("the order's view has nothing read to sign")
-  await api.reveal(view.id, await revealFor(record, view.duration, toSign))
+  await api.reveal(view.id, revealFor(record, view, toSign, agreed), orderSigner(record))
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -127,33 +138,28 @@ export async function selectName(record: store.OrderRecord, draft: Draft, built:
   const timestamp = now()
   const { labelHash: lh, length, duration, commitment, sealed } = built.request
   const message = `simplex.domains name ${record.registrationId} ${lh} ${length} ${duration} ${commitment} ${await sha256Hex(sealed)} ${terms} ${timestamp}`
-  const view = await api.selectName(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal }, draft.chain.chainId)
+  const view = await api.selectName(record.registrationId, { labelHash: lh, length, duration, commitment, sealed, terms, timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(message))), reveal: built.request.reveal })
   store.saveOrder({ ...record, label, ...links, paid: view.price, request: built.request, terms })
   return view
 }
 
 type RestoreResult = { record: store.OrderRecord; view: api.RegistrationView }
 
-// The order's name and links, unsealed with the code, after checking that they rebuild the order's commitment.
-async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pick<store.OrderRecord, "label" | "contact" | "channel" | "request" | "terms">> {
+// The order's name and links, and the payment and terms it agreed to once those are sealed too, unsealed with the code, after
+// checking that they rebuild the order's commitment; an order sealed before its terms were takes the view's.
+async function openOrder(wallet: Wallet, view: api.RegistrationView): Promise<Pick<store.OrderRecord, "label" | "contact" | "channel" | "request" | "terms"> & Partial<Pick<store.OrderRecord, "method">>> {
   const opened = await unseal(wallet.seed, view.sealed)
   if (!opened) throw new Error("the code does not open this order")
-  const r = registrationOf(opened.label, wallet.address, commitmentSecret(wallet.seed, opened.label), opened, await namesSite(), BigInt(view.duration))
+  const r = registrationOf(opened.label, wallet.address, commitmentSecret(wallet.seed, opened.label), opened, BigInt(view.duration))
   if (hex(makeCommitment(r)) !== view.commitment) throw new Error("the order's commitment does not match the code")
-  const request = { labelHash: view.labelHash, length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
-  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: api.signedTermsOf(view.terms) }
+  const request = { labelHash: hex(labelHash(opened.label)), length: opened.label.length, duration: view.duration, owner: checksumAddress(wallet.address), commitment: view.commitment, sealed: view.sealed }
+  return { label: opened.label, contact: opened.contact, channel: opened.channel, request, terms: opened.terms ?? api.signedTermsOf(view.terms), ...opened.method ? { method: opened.method } : {} }
 }
 
 // A name selected for the order elsewhere (another browser, or a selection whose answer was lost) is read back from the
-// service; other terms alone keep the commitment.
+// service.
 export async function syncRecord(record: store.OrderRecord, view: api.RegistrationView): Promise<store.OrderRecord | null> {
-  if (view.commitment === record.request.commitment) {
-    const terms = api.signedTermsOf(view.terms)
-    if (terms === record.terms) return record
-    const synced = { ...record, terms }
-    store.saveOrder(synced)
-    return synced
-  }
+  if (view.commitment === record.request.commitment) return record
   try {
     const synced = { ...record, ...await openOrder(walletOf(record.ownerCode)!, view), paid: view.price }
     store.saveOrder(synced)
@@ -174,13 +180,7 @@ async function findOrders(wallet: Wallet): Promise<Found[]> {
     const signature = hex(signDigest(wallet.privateKey, personalDigest(`simplex.domains find ${owner.toLowerCase()} ${timestamp}`)))
     return api.findRegistrations(owner, timestamp, signature)
   }
-  const clock = api.clockVersion()
-  try {
-    return (await ask()).registrations
-  } catch (e) {
-    if (e instanceof api.ApiError && e.code === "bad_request" && api.clockVersion() !== clock) return (await ask()).registrations
-    throw e
-  }
+  return (await api.signedOnce(ask)).registrations
 }
 
 export interface CodeOrder { code: string; name: string; order: Found }
@@ -225,6 +225,26 @@ export async function ownOrderFor(ownerCode: string, nameHash: string): Promise<
   return chosen ? (await reopen(wallet, ownerCode, chosen)).record : null
 }
 
+const notListing = new Map<string, Set<string>>()
+
+export async function orderOfCodes(id: string): Promise<store.OrderRecord | null> {
+  const asked = notListing.get(id) ?? new Set<string>()
+  notListing.set(id, asked)
+  for (const code of new Set(store.orders().map((o) => o.ownerCode))) {
+    const wallet = walletOf(code)
+    if (!wallet || asked.has(code)) continue
+    const found = (await findOrders(wallet)).find((r) => r.invoiceId === id || r.registrationId === id)
+    if (!found) {
+      asked.add(code)
+      continue
+    }
+    const { record } = await reopen(wallet, code, found)
+    if (found.phase === "closed") await newerOrder(record)
+    return store.orderByRegistration(record.registrationId) ?? record
+  }
+  return null
+}
+
 // orders this tab found nothing newer for; find has its own rate limit, so each is asked once
 const nothingNewer = new Set<string>()
 
@@ -250,24 +270,27 @@ export async function newerOrder(record: store.OrderRecord): Promise<store.Order
   return next
 }
 
-// When the service made one of the code's orders, which an adopted order's invoice does not say; null when the service does not list it.
-export async function createdAtOf(record: store.OrderRecord, registrationId: string): Promise<string | null> {
-  const wallet = walletOf(record.ownerCode)
-  if (!wallet) return null
-  return (await findOrders(wallet)).find((r) => r.registrationId === registrationId)?.createdAt ?? null
+const signerOf = (wallet: Wallet): api.OrderSigner => (id, action) => {
+  const timestamp = now()
+  return { timestamp, signature: hex(signDigest(wallet.privateKey, personalDigest(`simplex.domains order ${id} ${action} ${timestamp}`))) }
 }
+export const orderSigner = ({ ownerCode }: Pick<store.OrderRecord, "ownerCode">): api.OrderSigner => signerOf(walletOf(ownerCode)!)
 
 async function reopen(wallet: Wallet, code: string, chosen: Found): Promise<RestoreResult> {
   const owner = checksumAddress(wallet.address)
-  const invoice = chosen.invoiceId ? await api.readInvoice(chosen.invoiceId) : null
-  const view = invoice?.registration ?? await api.readRegistration(chosen.registrationId)
+  const sign = signerOf(wallet)
+  const invoice = chosen.invoiceId ? await api.readInvoice(chosen.invoiceId, sign) : null
+  const view = invoice?.registration ?? await api.readRegistration(chosen.registrationId, sign)
   const opened = await openOrder(wallet, view)
   // what only this browser knew about the order (a card in confirmation, a cancel, the prepaid code that paid) is kept
   const known = store.orderByRegistration(view.id)
+  const payeeKnown = known !== undefined && invoice !== null && known.invoiceId === invoice.invoiceId && known.payee !== undefined
   const record: store.OrderRecord = {
     ...known, registrationId: view.id, invoiceId: chosen.invoiceId, ownerCode: code, owner, ...opened,
-    method: known?.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
-    tld: readSite().tld, createdAt: chosen.createdAt,
+    method: known?.method ?? opened.method ?? (view.payment.type === "invoice" ? view.payment.method : view.payment.type), paid: view.price, years: view.years,
+    tld: SITE.tld, createdAt: chosen.createdAt,
+    ...known && known.request.commitment === view.commitment ? { terms: known.terms } : {},
+    ...invoice && !payeeKnown ? payeeOf(invoice) : {},
   }
   store.saveOrder(record)
   return { record, view }
@@ -277,13 +300,13 @@ export const KEYS = { contact: CONTACT_KEY, channel: CHANNEL_KEY } as const
 
 // One signed SetText per changed key, in one request the service relays as one transaction. The resolver takes an
 // owner's intents only in nonce order, so the second is signed with the nonce the first spends.
-export async function saveLinks(record: store.OrderRecord, chain: { chainId: number; resolver: string; tld: string }, nonce: number, changes: Partial<api.Links>): Promise<string | null> {
+export async function saveLinks(record: store.OrderRecord, nonce: number, changes: Partial<api.Links>): Promise<string | null> {
   const wallet = walletOf(record.ownerCode)!
-  const node = namehash(chain.tld, record.label)
+  const node = namehash(SITE.tld, record.label)
   const deadline = now() + EDIT_DEADLINE_SECONDS
   const edits = api.LINK_KINDS.filter((kind) => changes[kind] !== undefined).map((kind, i) => {
     const value = changes[kind]!
-    const digest = setTextDigest(BigInt(chain.chainId), fromHex(chain.resolver), node, KEYS[kind], value, BigInt(nonce + i), BigInt(deadline))
+    const digest = setTextDigest(BigInt(SITE.chainId), fromHex(SITE.resolver), node, KEYS[kind], value, BigInt(nonce + i), BigInt(deadline))
     return { key: kind, value, nonce: nonce + i, deadline, signature: hex(signDigest(wallet.privateKey, digest)) }
   })
   const { tx } = await api.editRecords({ labelHash: hex(labelHash(record.label)), edits })

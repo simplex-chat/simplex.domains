@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
+import { bitcoinPayee, devReceiving, moneroPayee } from "../dev/mock/addresses.ts"
 import type { Acceptance, Community, InvoiceView, RegistrationView } from "../src/api.ts"
+import { heldPrice, LOCAL } from "../src/config.ts"
 import { LIMITED_LEAD, NO_LEAD } from "../src/screens/hold.ts"
 import {
   CARD_SLOW_MS, closedBalance, type ClosedCase, closedCase, costOf, failedAlert, failedLead, finished, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, reduce, refusalsOf, RETRY_MS, retryRefusal, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, STALL_MARGIN_MS, stalledAt, TX_STALL_MS, unreadDelay, wakeAt,
-  askAgainDue, retryDue, supportCase,
+  askAgainDue, paymentChecked, retryDue, supportCase,
 } from "../src/screens/order.ts"
 import { askFor } from "../src/screens/terms.ts"
 import type { CodeRefusal, OrderRecord } from "../src/store.ts"
@@ -36,7 +38,7 @@ function record(change: Partial<OrderRecord> = {}): OrderRecord {
   return {
     registrationId: "reg-1", invoiceId: "inv-1", label: "alice", ownerCode: "SN-AAAAA-BBBBB-CCCCC-DDDDD-EEEEE-FFFFF", owner: OWNER, contact: "", channel: "",
     method: "btc", paid: 1500, years: 2, request: { labelHash: "0x4f1b", length: 5, duration: 2 * 365 * 86400, owner: OWNER, commitment: COMMITMENT, sealed: "sealed-box" },
-    tld: "simplex", createdAt: "2026-10-17T11:59:00Z", ...change,
+    terms: SIGNED.slice(2), tld: "simplex", createdAt: "2026-10-17T11:59:00Z", ...change,
   }
 }
 
@@ -45,13 +47,13 @@ function read(invoice: InvoiceView | null, view: RegistrationView = invoice!.reg
 }
 
 const answered = (s: OrderState, next: OrderState): Extract<OrderEvent, { type: "answered" }> =>
-  ({ type: "answered", seq: s.seq + 1, now: next.now, invoice: next.invoice, view: next.view!, record: next.record, cardSubmittedAt: next.cardSubmittedAt, nameStatus: next.nameStatus })
+  ({ type: "answered", seq: s.seq + 1, now: next.now, invoice: next.invoice, view: next.view!, record: next.record, cardSubmittedAt: next.cardSubmittedAt, nameStatus: next.nameStatus, downtime: next.downtime })
 
 const submittedAgo = (ms: number) => new Date(NOW - ms).toISOString()
 // the community terms an order signed, others on chain, a community entry, the view's acceptance of some terms, and the
 // buyer's ask of them
 const SIGNED = `0x${"c7".repeat(32)}`
-const CHANGED = `0x${"d8".repeat(32)}`
+const CHANGED = LOCAL.communityTerms[1].hash
 const communityEntry = (text?: string): Community => ({ ...text === undefined ? {} : { for: text }, years: 2 })
 const termsOf = (hash: string) => ({ hash, link: `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${"83".repeat(20)}/docs/terms.md#sha256=${"02".repeat(32)}` })
 const acceptanceFor = (termsHash: string, community = true): Acceptance => ({ community, policy: "0x3", termsHash, nonce: 0 })
@@ -70,7 +72,7 @@ const STATES: Record<OrderKind, OrderState> = {
   ended: read(null, registration({ phase: "ended", label: "alice", registerTx: "0xe9" })),
   taken: read(crypto({ status: "paid", paidInFull: true }, { phase: "taken" })),
   failed: read(crypto({ status: "paid", paidInFull: true }, { phase: "failed", reason: "registryRefused" })),
-  "not-on-device": read(null, registration({ phase: "committing" }), { record: null }),
+  "status:no-code": read(null, registration({ phase: "committing" }), { record: null }),
   "status:closed": read(crypto({ status: "expired" })),
   "status:card-unconfirmed": read(card(), undefined, { record: record({ method: "card" }), cardFailed: true }),
   "status:paid-by-invoice": read(null, registration(), { reference: "reg-1" }),
@@ -102,7 +104,10 @@ describe("screenOf", () => {
     ["a registration ended, seen without the name code", read(null, registration({ phase: "ended", label: "alice" }), { record: null }), "ended"],
     ["a name taken first", STATES.taken, "taken"],
     ["a failed registration", STATES.failed, "failed"],
-    ["a commit in a browser without the name code", STATES["not-on-device"], "not-on-device"],
+    ["a commit in a browser without the name code", STATES["status:no-code"], "status:no-code"],
+    ["an order's link in a browser without its name code, which reads nothing", reduce(initialState("inv-1", null), { type: "no-code" }), "status:no-code"],
+    ["an order's link answered once another tab added its name code", reduce(reduce(initialState("inv-1", null), { type: "no-code" }), answered(initialState("inv-1", null), STATES.registered)), "registered"],
+    ["an order's link answered after it was not found", reduce(reduce(initialState("inv-1", null), { type: "not-found" }), answered(initialState("inv-1", null), STATES.registered)), "registered"],
     ["a commit in the browser with the name code", STATES.registering, "registering"],
     ["a registration being sent, seen without the name code", read(null, registration({ phase: "registering" }), { record: null }), "registering"],
     ["a revealed name, seen without the name code", read(null, registration({ phase: "committed", label: "alice" }), { record: null }), "registering"],
@@ -341,6 +346,63 @@ describe("reduce", () => {
   })
 })
 
+describe("paymentChecked", () => {
+  const held = heldPrice(record().label.length)
+  const btc = bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 0)
+  const xmr = moneroPayee(0, 1)
+  const coin = (change: Partial<InvoiceView> = {}) => crypto({ amount: held, ...btc, ...change })
+  const asXmr = { cryptoCurrency: "xmr", ...xmr } as const
+  const priced = (change: Partial<InvoiceView> = {}) => card({ amount: held, ...change })
+  const cardRecord = { record: record({ method: "card" }) }
+
+  it("is an invoice of the payment its order asked for, at the price the page holds, in dollars, to an address proven from the page's keys", () => {
+    expect(paymentChecked(read(coin()))).toBe(true)
+    expect(paymentChecked(read(coin(asXmr), undefined, { record: record({ method: "xmr" }) }))).toBe(true)
+    expect(paymentChecked(read(priced(), undefined, cardRecord))).toBe(true)
+  })
+
+  it("is not an invoice of another payment than the order asked for", () => {
+    expect(paymentChecked(read(coin(asXmr)))).toBe(false)
+    expect(paymentChecked(read(priced()))).toBe(false)
+    expect(paymentChecked(read(coin(), undefined, cardRecord))).toBe(false)
+    expect(paymentChecked(read(coin({ clientSecret: "pi_1_secret_2" })))).toBe(false)
+  })
+
+  it("is not an invoice of another amount or currency", () => {
+    for (const amount of [held - 100, held + 100, 1500]) {
+      expect(paymentChecked(read(coin({ amount }))), String(amount)).toBe(false)
+      expect(paymentChecked(read(priced({ amount }), undefined, cardRecord)), `card ${amount}`).toBe(false)
+    }
+    expect(paymentChecked(read(coin({ currency: "eur" })))).toBe(false)
+    expect(paymentChecked(read(priced({ currency: "USD" }), undefined, cardRecord))).toBe(false)
+  })
+
+  it("is not an invoice whose address its proof does not derive from the page's keys, or that has no proof", () => {
+    expect(paymentChecked(read(coin({ address: moneroPayee(0, 2).address, cryptoCurrency: "xmr", addressProof: xmr.addressProof }), undefined, { record: record({ method: "xmr" }) }))).toBe(false)
+    expect(paymentChecked(read(coin({ address: bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 1).address })))).toBe(false)
+    expect(paymentChecked(read(coin({ addressProof: undefined })))).toBe(false)
+    expect(paymentChecked(read(coin({ address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" })))).toBe(false)
+  })
+
+  it("is not an invoice whose address differs from the one the order's record keeps for it", () => {
+    const other = bitcoinPayee(devReceiving, LOCAL.bitcoinHrp, 1)
+    expect(paymentChecked(read(coin(), undefined, { record: record({ payee: btc }) }))).toBe(true)
+    expect(paymentChecked(read(coin(other), undefined, { record: record({ payee: btc }) }))).toBe(false)
+    expect(paymentChecked(read(coin(other), undefined, { record: record({ payee: btc, invoiceId: "inv-0" }) })), "another invoice's address").toBe(true)
+  })
+
+  it("is not a card invoice whose PaymentIntent the card page found other than the invoice, which the reducer keeps for the page", () => {
+    const mismatched = reduce(read(priced(), undefined, cardRecord), { type: "card-mismatched" })
+    expect(mismatched.cardMismatched).toBe(true)
+    expect(paymentChecked(mismatched)).toBe(false)
+  })
+
+  it("is not an invoice whose order the page holds no record of, as its name and payment are then the service's alone", () => {
+    expect(paymentChecked(read(coin(), undefined, { record: null }))).toBe(false)
+    expect(paymentChecked(read(priced(), undefined, { record: null }))).toBe(false)
+  })
+})
+
 describe("costOf", () => {
   it("is the invoice's amount for an order paid by its invoice", () => {
     expect(costOf(registration(), crypto())).toBe(1500)
@@ -482,12 +544,16 @@ describe("a stalled stage", () => {
     expect(stalledAt(seen(registration(committed)))).toBe(NOW + REVEAL_ATTEMPTS * RETRY_MS + STALL_MARGIN_MS)
   })
   it("is not said on any other page, nor once the service refused the reveal, which the page says instead", () => {
-    for (const kind of ["registered", "taken", "failed", "not-on-device", "pay-crypto"] as const) {
+    for (const kind of ["registered", "taken", "failed", "status:no-code", "pay-crypto"] as const) {
       const s = STATES[kind]
       expect(stalledAt(reduce(s, answered(s, s))), kind).toBeNull()
     }
     const view = registration(committed)
     expect(stalledAt({ ...seen(view), reveal: { key: revealKey(view), sending: false, refusals: REVEAL_ATTEMPTS } })).toBeNull()
+  })
+  it("of a reveal waits while the service is in its downtime, which signs nothing, and of a transaction does not", () => {
+    expect(stalledAt({ ...seen(registration(committed)), downtime: true })).toBeNull()
+    expect(stalledAt({ ...seen(committing), downtime: true })).toBe(NOW + TX_STALL_MS)
   })
   it("waits while changed community terms are asked for, and is timed from the last tick", () => {
     const asking = registration({ ...committed, acceptance: acceptanceFor(CHANGED) })
@@ -545,15 +611,29 @@ describe("reveal helpers", () => {
   })
   it("revealDue and askAgainDue for a plain name: the reveal waits for changed general terms to be ticked", () => {
     const PLAIN = `0x${"21".repeat(32)}`
+    const CHANGED_PLAIN = LOCAL.generalTerms[1].hash
     const plain = (termsHash: string, change: Partial<OrderState> = {}) =>
-      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash, false), terms: { communityName: false, termsHash: PLAIN } }), change)
+      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash, false), terms: { communityName: false, termsHash: PLAIN } }), { record: record({ terms: PLAIN.slice(2) }), ...change })
     expect([revealDue(plain(PLAIN)), askAgainDue(plain(PLAIN))]).toEqual([true, false])
-    expect([revealDue(plain(CHANGED)), askAgainDue(plain(CHANGED))], "terms changed on chain since the order").toEqual([false, true])
-    const ask = { ...askFor(record().label, termsOf(CHANGED), null, true), agreed: true }
-    expect(revealDue(plain(CHANGED, { ask })), "ticked").toBe(true)
+    expect([revealDue(plain(CHANGED_PLAIN)), askAgainDue(plain(CHANGED_PLAIN))], "terms changed on chain since the order").toEqual([false, true])
+    const ask = { ...askFor(record().label, termsOf(CHANGED_PLAIN), null, true), agreed: true }
+    expect(revealDue(plain(CHANGED_PLAIN, { ask })), "ticked").toBe(true)
+  })
+  it("takes the terms the order signed from this browser's record, whatever terms the view names, and asks only for terms the page holds", () => {
+    const claimed = (termsHash: string, change: Partial<OrderState> = {}) =>
+      read(null, registration({ ...committed, acceptance: acceptanceFor(termsHash), terms: { communityName: true, termsHash } }), change)
+    expect([revealDue(claimed(CHANGED)), askAgainDue(claimed(CHANGED))], "a view naming the changed terms as the order's").toEqual([false, true])
+    expect([revealDue(claimed(CHANGED, { record: null })), askAgainDue(claimed(CHANGED, { record: null }))], "no name code in this browser").toEqual([false, false])
+    const unheld = `0x${"d8".repeat(32)}`
+    expect([revealDue(claimed(unheld)), askAgainDue(claimed(unheld))], "terms the page does not hold, which its own check refuses").toEqual([true, false])
   })
   it("unreadDelay reads a view with unread fields again after 5 s, 15 s, then every 30 s", () => {
     expect([0, 1, 2, 3, 10].map(unreadDelay)).toEqual([5000, 15000, 30000, 30000, 30000])
+  })
+  it("revealDue not in the service's downtime, and once the page read the downtime's end", () => {
+    const down = reduce(waiting, answered(waiting, { ...waiting, downtime: true }))
+    expect([down.downtime, revealDue(down)]).toEqual([true, false])
+    expect(revealDue(reduce(down, answered(down, { ...down, downtime: false })))).toBe(true)
   })
   it("revealDue not while a reveal is on its way, nor once refused as often as the page tries", () => {
     const key = revealKey(view)
@@ -646,9 +726,9 @@ describe("initialState", () => {
   it("starts with nothing read, holding as the tab does, and keeps a reveal carried over", () => {
     const reveal = { key: "reg-1 0x9c 4 1", sending: true, refusals: 1 }
     expect(initialState("inv-1", { until: NOW + 1000, lead: NO_LEAD }, reveal)).toEqual({
-      reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false,
-      reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
-      nameStatus: null, since: null,
+      reference: "inv-1", seq: 0, now: 0, invoice: null, view: null, record: null, cardSubmittedAt: null, cardFailed: false, cardMismatched: false,
+      reveal, busy: null, note: null, hold: { until: NOW + 1000, lead: NO_LEAD }, price: null, gone: false, noCode: false, codeRefused: false, codeKept: false, codeCheckAt: null, ask: null,
+      nameStatus: null, since: null, downtime: false,
     })
   })
 })

@@ -1,8 +1,12 @@
+import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
+import { ed25519 } from "@noble/curves/ed25519"
+import { secp256k1 } from "@noble/curves/secp256k1"
+import { keccak256, toHex } from "viem"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { CONFIG_PATH, configOf, loadConfig, readConfig } from "../src/config.ts"
-import { codesOnly, pageMode, setPageMode } from "../src/mode.ts"
-import { publishableKey, setPublishableKey } from "../src/stripe.ts"
+import { ALTERNATE_COMMUNITY_TERMS, ALTERNATE_GENERAL_TERMS } from "../e2e/terms.ts"
+import { CONFIG_PATH, CONFIG_TIMEOUT_MS, configOf, heldPrice, LOCAL, MAINNET, readConfig, SITE } from "../src/config.ts"
+import { moneroKeys } from "../src/crypto/payees.ts"
 
 const INDEX = readFileSync(new URL("../index.html", import.meta.url), "utf8")
 
@@ -17,33 +21,46 @@ function serviceAnswering(status: number, body: unknown): ReturnType<typeof vi.f
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  setPageMode("open")
-  setPublishableKey("")
 })
 
 describe("configOf", () => {
-  it("reads the service's answer with and without a key and a names deployment", () => {
-    expect(configOf({ stripePublishableKey: "pk_test_x", names: { ...NAMES, codesOnly: true } })).toEqual({ stripePublishableKey: "pk_test_x", names: { ...NAMES, codesOnly: true } })
-    expect(configOf({ stripePublishableKey: null, names: NAMES })).toEqual({ stripePublishableKey: "", names: NAMES })
-    expect(configOf({ stripePublishableKey: " pk_test_y\n", names: null })).toEqual({ stripePublishableKey: "pk_test_y", names: null })
+  it("reads the service's downtime", () => {
+    expect(configOf({ stripePublishableKey: null, names: { ...NAMES, downtime: true } })).toEqual({ downtime: true })
+    expect(configOf({ stripePublishableKey: null, names: { ...NAMES, downtime: false } })).toEqual({ downtime: false })
+    expect(configOf({ stripePublishableKey: null, names: null })).toEqual({ downtime: false })
+    expect(configOf({ stripePublishableKey: null, names: NAMES }), "a service from before the downtime").toEqual({ downtime: false })
+    expect(configOf({ names: { downtime: true } }), "an answer without the badge page's Stripe key").toEqual({ downtime: true })
   })
-  it("refuses an answer that is not the service's, as a portal's, or a deployment it cannot use", () => {
+  it("takes nothing else the service answers: with another sponsor, resolver, chain, TLD, term, mode or Stripe key, only the downtime differs", () => {
+    const changes = [{ sponsor: "0x000000000000000000000000000000000000dEaD" }, { resolver: "0x000000000000000000000000000000000000dEaD" }, { chainId: 1 }, { tld: "other" },
+      { termStart: 0 }, { codesOnly: true }, { namePolicy: "0x000000000000000000000000000000000000dEaD" }]
+    for (const downtime of [false, true]) {
+      for (const change of changes) expect(configOf({ stripePublishableKey: null, names: { ...NAMES, ...change, downtime } }), JSON.stringify(change)).toEqual({ downtime })
+      expect(configOf({ stripePublishableKey: "pk_live_other", names: { ...NAMES, downtime } }), "another Stripe key").toEqual({ downtime })
+    }
+  })
+  it("refuses an answer that is not the service's, as a portal's", () => {
     expect(configOf(null)).toBeNull()
     expect(configOf("<!doctype html>")).toBeNull()
     expect(configOf({ type: "not_found" })).toBeNull()
     expect(configOf({ stripePublishableKey: null })).toBeNull()
-    for (const change of [{ codesOnly: "no" }, { chainId: -1 }, { chainId: "1" }, { resolver: 1 }, { sponsor: null }, { tld: undefined }, { termStart: 1.5 }]) {
-      expect(configOf({ stripePublishableKey: null, names: { ...NAMES, ...change } }), JSON.stringify(change)).toBeNull()
-    }
+    expect(configOf({ stripePublishableKey: null, names: "simplex" })).toBeNull()
+    expect(configOf({ stripePublishableKey: null, names: [{ downtime: true }] })).toBeNull()
   })
 })
 
 describe("readConfig", () => {
   it("asks GET /api/config with the init given", async () => {
-    const fetch = serviceAnswering(200, { stripePublishableKey: null, names: { ...NAMES, codesOnly: true } })
-    expect(await readConfig({ cache: "no-store" })).toEqual({ stripePublishableKey: "", names: { ...NAMES, codesOnly: true } })
-    expect(fetch).toHaveBeenCalledWith(CONFIG_PATH, { cache: "no-store" })
+    const fetch = serviceAnswering(200, { stripePublishableKey: null, names: { ...NAMES, downtime: true } })
+    expect(await readConfig({ cache: "no-store" })).toEqual({ downtime: true })
+    expect(fetch).toHaveBeenCalledWith(CONFIG_PATH, { cache: "no-store", signal: expect.any(AbortSignal) })
   })
+  it("is null when the service does not answer in time, so the page draws without it", async () => {
+    vi.stubGlobal("fetch", vi.fn((_: string, init: RequestInit) => new Promise((_resolve, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))))
+    const started = Date.now()
+    expect(await readConfig()).toBeNull()
+    expect(Date.now() - started).toBeGreaterThanOrEqual(CONFIG_TIMEOUT_MS - 100)
+  }, CONFIG_TIMEOUT_MS + 5000)
   it("is null when the service answers an error or the network fails", async () => {
     serviceAnswering(503, { type: "unavailable" })
     expect(await readConfig()).toBeNull()
@@ -52,44 +69,49 @@ describe("readConfig", () => {
   })
 })
 
-describe("loadConfig", () => {
-  it("sets the page's mode and Stripe key from the service", async () => {
-    serviceAnswering(200, { stripePublishableKey: "pk_test_load", names: { ...NAMES, codesOnly: true } })
-    await loadConfig()
-    expect([pageMode(), codesOnly(), publishableKey()]).toEqual(["codes", true, "pk_test_load"])
+describe("the deployment the page holds", () => {
+  it("is LOCAL outside a production build", () => {
+    expect(SITE).toEqual(LOCAL)
   })
-  it("leaves the page open with no card form when the service cannot be read", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
-    await loadConfig()
-    expect([pageMode(), codesOnly(), publishableKey()]).toEqual(["open", false, ""])
+  it("holds each terms by the keccak of their link", () => {
+    for (const terms of [MAINNET, LOCAL].flatMap((d) => [...d.generalTerms, ...d.communityTerms])) expect(keccak256(toHex(terms.link)), terms.link).toBe(terms.hash)
   })
-})
-
-describe("namesSite", () => {
-  it("reads the deployment again when the load could not, with the page's mode and Stripe key, and asks no more once it has it", async () => {
-    vi.resetModules()
-    const config = await import("../src/config.ts")
-    const mode = await import("../src/mode.ts")
-    const stripe = await import("../src/stripe.ts")
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
-    await config.loadConfig()
-    expect(config.loadedSite()).toBeNull()
-    expect(() => config.readSite()).toThrow()
-    await expect(config.namesSite()).rejects.toMatchObject({ code: "network" })
-    expect([mode.pageMode(), stripe.publishableKey()]).toEqual(["open", ""])
-    const codes = { ...NAMES, codesOnly: true }
-    const fetch = serviceAnswering(200, { stripePublishableKey: "pk_test_again", names: codes })
-    expect(await config.namesSite()).toEqual(codes)
-    expect(await config.namesSite()).toEqual(codes)
-    expect(fetch).toHaveBeenCalledTimes(1)
-    expect(config.readSite()).toEqual(codes)
-    expect([mode.pageMode(), stripe.publishableKey()]).toEqual(["codes", "pk_test_again"])
+  it("holds the terms the browser tests switch to, at the links of their texts", () => {
+    for (const [held, text] of [[LOCAL.generalTerms[1], ALTERNATE_GENERAL_TERMS], [LOCAL.communityTerms[1], ALTERNATE_COMMUNITY_TERMS]] as const) {
+      const digest = createHash("sha256").update(text).digest("hex")
+      expect(held.link).toBe(`http://127.0.0.1:8098/terms/${digest}.md#sha256=${digest}`)
+    }
   })
-  it("refuses a service that sells no names", async () => {
-    vi.resetModules()
-    const config = await import("../src/config.ts")
-    serviceAnswering(200, { stripePublishableKey: null, names: null })
-    await expect(config.namesSite()).rejects.toMatchObject({ code: "network" })
+  it("prices a name for its paid years at the exception of its length, else at the base, as the price oracle does", () => {
+    expect([6, 7, 8, 63].map(heldPrice)).toEqual([40000, 20000, 10000, 10000])
+    expect([MAINNET.priceBaseCentsPerYear * MAINNET.paidYears, MAINNET.priceExceptions], "mainnet: $100 for every name").toEqual([10000, []])
+  })
+  it("holds the card page's origin and the names page's, in production on https, and a test key in no build but a dev one", () => {
+    expect([MAINNET.cardOrigin, MAINNET.pageOrigins, MAINNET.stripeLive]).toEqual(["https://pay.simplex.domains", ["https://simplex.domains"], true])
+    expect(MAINNET.stripeKey === "" || MAINNET.stripeKey.startsWith("pk_live_"), "a live key, once set").toBe(true)
+    expect([new URL(LOCAL.cardOrigin).hostname, LOCAL.stripeKey, LOCAL.stripeLive]).toEqual(["127.0.0.1", "", false])
+    for (const origin of [...MAINNET.pageOrigins, ...LOCAL.pageOrigins]) expect(new URL(origin).origin, origin).toBe(origin)
+  })
+  it("holds the SimpleX Names app's origin, in production on https and in development on a loopback port nothing serves", () => {
+    expect(MAINNET.appOrigin).toBe("https://app.simplex.domains")
+    expect([new URL(LOCAL.appOrigin).origin, new URL(LOCAL.appOrigin).hostname]).toEqual([LOCAL.appOrigin, "127.0.0.1"])
+  })
+  it("takes payments in production only with a live Stripe key and the keys of both coins' wallets", () => {
+    expect(MAINNET.codesOnly || (MAINNET.stripeKey.startsWith("pk_live_") && MAINNET.bitcoinReceiveKeys.length > 0 && MAINNET.moneroPrimaryAddresses.length > 0)).toBe(true)
+  })
+  it("holds each payee key as a public key of its curve: a compressed Bitcoin key, and a Monero primary address of its network", () => {
+    for (const [d, primaryPrefix, subaddressPrefix, hrp] of [[MAINNET, 18, 42, "bc"], [LOCAL, 24, 36, "bcrt"]] as const) {
+      expect([d.currency, d.bitcoinHrp, d.moneroSubaddressPrefix]).toEqual(["usd", hrp, subaddressPrefix])
+      for (const key of d.bitcoinReceiveKeys) {
+        expect(key).toMatch(/^0x0[23][0-9a-f]{64}$/)
+        expect(() => secp256k1.Point.fromHex(key.slice(2)), key).not.toThrow()
+      }
+      for (const address of d.moneroPrimaryAddresses) {
+        const keys = moneroKeys(address)
+        expect(keys?.prefix, address).toBe(primaryPrefix)
+        for (const key of [keys!.spend, keys!.view]) expect(ed25519.Point.fromBytes(key).isTorsionFree(), address).toBe(true)
+      }
+    }
   })
 })
 

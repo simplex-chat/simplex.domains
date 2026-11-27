@@ -142,7 +142,7 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   }
   await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await page.getByRole("button", { name: "Get a new invoice" }).click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible()
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Please try again in/ })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
 })
 
@@ -163,8 +163,8 @@ test("a registered order opened in a browser without its code offers restore", a
   const other = await browser.newContext()
   const page2 = await other.newPage()
   await page2.goto(`/?order=${invoiceId}`)
-  await expect(page2.getByText("Its name code is not in this browser.")).toBeVisible()
-  await page2.getByRole("button", { name: "Restore with your name code" }).click()
+  await expect(page2.getByText("Please enter the name code you saved for this order.")).toBeVisible()
+  await page2.getByRole("button", { name: "Enter your name code" }).click()
   await codeField(page2).fill(ownerCode)
   await page2.getByRole("button", { name: "Add to Your names" }).click()
   // back on the order's page, which now has the code
@@ -324,22 +324,19 @@ test("a row Your names could not read is read again while the page stays open", 
   await expect(chip, "the row read again by itself").toHaveText("Waiting for payment", { timeout: UNREAD_ROUND_MS })
 })
 
-test("Your names draws a row as last read while the service's config cannot be read, and reads the row once it can", async ({ page }) => {
+test("Your names reads its rows while the service's config cannot be read, as the page holds its deployment", async ({ page }) => {
   const order = await keepOrder(page, "reg-config", null, "configunread")
   const expiresAt = Math.floor(Date.now() / 1000) + ROW_YEAR_S
   const registered = registrationView(order, { phase: registeredPhase(expiresAt), commitTx: "0x02", registerTx: "0x03" })
-  await page.evaluate(([id, view]) => localStorage.setItem("simplex-names-seen", JSON.stringify({ [id]: { view, invoice: null } })), [order.registrationId, registered] as const)
   await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registered }))
   await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(order.owner, expiresAt, { contact: "", channel: "" }) }))
-  let unread = true
-  await page.route("**/api/config", (route) => unread ? route.fulfill({ status: 500, json: { type: "internal" } }) : route.continue())
+  await page.route("**/api/config", (route) => route.fulfill({ status: 500, json: { type: "internal" } }))
   await page.goto("about:blank")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: "configunread" })
   await expect(row).toContainText("configunread.simplex")
-  await expect(row.locator(".chip")).toHaveText("Not checked")
-  unread = false
-  await expect(row.locator(".chip"), "the row read again once the config is read").toHaveCount(0, { timeout: UNREAD_ROUND_MS })
+  await expect(row.locator(".sub")).toHaveText(/^Until /)
+  await expect(row.locator(".chip")).toHaveCount(0)
 })
 
 test("a code Your names could not check is checked again while the page stays open", async ({ page, request }) => {
@@ -467,7 +464,7 @@ test("Back from a paused order keeps the order paused", async ({ page }) => {
   await toReview(page)
   await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
-  await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many attempts\. Please try again in \d+ seconds\.$/)
+  await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Please try again in \d+ seconds\.$/)
   await page.goBack()
   await expect(page.getByRole("heading", { name: CODE_HEADING })).toBeVisible()
   await page.goForward()

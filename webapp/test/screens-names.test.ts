@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Found, InvoiceView, Links, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
-import { type Hold, LIMITED_LEAD, NO_LEAD } from "../src/screens/hold.ts"
+import { type Hold, NO_LEAD, PLEASE_LEAD } from "../src/screens/hold.ts"
 import {
   balanceRows, changesOf, CODE_CHIPS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
   initialList, initialRestore, lapsed, lateLine, listedOrders, nameRows, ORDER_CHIP_WORDS, rowShown, rowsDrawn, unanswered, paidLine, type ListEvent, type ListState, phaseChip, reduceEdit, reduceList, reduceRestore, REFUSALS,
@@ -532,10 +532,10 @@ describe("edit", () => {
       expect(form(reduceEdit(sending, { type: "save-unanswered", counted: false, at: NOW / 1000 }))).toMatchObject({ saving: false, unanswered: true, result: "unanswered", edits: { left: 3, nextAt: null } })
       expect(form(reduceEdit(sending, { type: "save-unanswered", counted: true, at: NOW / 1000 })).edits).toEqual({ left: 2, nextAt: NOW / 1000 + YEAR_S })
     })
-    it("save-held holds Save, saying there were too many attempts; hold-ended lets it go", () => {
+    it("save-held holds Save, asking to try again once the wait is over; hold-ended lets it go", () => {
       const both = reduceEdit(reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "contact", value: "" }), { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
       const held = reduceEdit(both, { type: "save-held", until: NOW + 5000 })
-      expect(form(held)).toMatchObject({ saving: false, result: null, nonce: 3, hold: { until: NOW + 5000, lead: LIMITED_LEAD } })
+      expect(form(held)).toMatchObject({ saving: false, result: null, nonce: 3, hold: { until: NOW + 5000, lead: PLEASE_LEAD } })
       expect(form(reduceEdit(held, { type: "hold-ended" })).hold).toBeNull()
     })
     it("save-refused after the nonce moved takes the chain's nonce and links", () => {

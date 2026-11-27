@@ -3,8 +3,9 @@ import { walletOf } from "../src/flow.ts"
 import { labelHash } from "../src/crypto/registration.ts"
 import { checksumAddress, hex } from "../src/crypto/wallet.ts"
 import { dateOf } from "../src/format.ts"
+import { ALTERNATE_GENERAL_TERMS } from "./terms.ts"
 import {
-  addNameCode, answersReserved, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, REGISTRATION_MS, registrationOf,
+  addNameCode, agreeToTerms, answersReserved, control, failedOrder, FIT_SIZES, keepOrder, MOCK, mockRegistration, onStep, REGISTRATION_MS, registrationOf,
   registrationView, offCentre, search, searchName, selectedToReview, sevenLetters, shot, startOrder, takenHeading, takenOrder, test, uniqueLabel, waitRegistered,
 } from "./helpers.ts"
 
@@ -18,7 +19,7 @@ async function paidOrder(page: Parameters<typeof keepOrder>[0], id: string, reg:
   await page.goto(`/?order=inv-${id}`)
 }
 
-const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await (await request.get(`${MOCK}/api/invoice/${invoiceId}`)).json()) as { registration: { phase: { type: string } } }).registration.phase.type
+const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await (await request.get(`${MOCK}/control/invoice/${invoiceId}`)).json()) as { registration: { phase: { type: string } } }).registration.phase.type
 
 test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
   await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, refunded: 0 } })
@@ -39,12 +40,12 @@ test("a name taken first keeps its payment as its balance, with which a name sel
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Taken")
   await expect(page.getByText(`Reference ${invoiceId}`)).toBeVisible()
   await shot(page, "N8-taken")
-  // a browser without the order's code says where to add it, and offers neither the selection nor the refund
+  // a browser without the order's code asks for it, and offers neither the selection nor the refund
   const elsewhere = await page.context().browser()!.newContext()
   const stranger = await elsewhere.newPage()
   await stranger.goto(`/?order=${invoiceId}`)
-  await expect(stranger.getByText("Add it in Check your code to use the balance.")).toBeVisible()
-  await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toBeDisabled()
+  await expect(stranger.getByText("Please enter the name code you saved for this order.")).toBeVisible()
+  await expect(onStep(stranger).getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await expect(onStep(stranger).getByText("Get a refund")).toHaveCount(0)
   await elsewhere.close()
 
@@ -174,7 +175,7 @@ test("an order failed while its page was not read says until when the name stays
   }, { timeout: REGISTRATION_MS }).toBe(true)
   await control(request, `unread/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
-  const view = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { phase: { heldUntil: string } }
+  const view = await (await request.get(`${MOCK}/control/registration/${registrationId}`)).json() as { phase: { heldUntil: string } }
   const until = dateOf(Date.parse(view.phase.heldUntil) / 1000)
   await expect(onStep(page).locator(".notice", { hasText: "The order was not opened for 3 days" })).toHaveText(
     `The order was not opened for 3 daysPlease choose Continue before ${until} to finish the registration, or contact support via chat@simplex.chat or SimpleX, with the name and the order reference ${invoiceId}.`)
@@ -182,6 +183,42 @@ test("an order failed while its page was not read says until when the name stays
   await page.unrouteAll({ behavior: "wait" })
   await onStep(page).getByRole("button", { name: "Continue" }).click()
   await waitRegistered(page, label)
+})
+
+test("an order failed unread offers Continue only outside the service's downtime, asks at Continue for terms changed since, and signs and registers it once they are accepted", async ({ page, request }) => {
+  const label = uniqueLabel("unt")
+  const { invoiceId } = await startOrder(page, label, { method: "btc" })
+  const registrationId = await registrationOf(request, invoiceId)
+  await page.route("**/api/registration/*/reveal", (route) => route.abort())
+  await control(request, `stale/${registrationId}`)
+  await control(request, `settle/${invoiceId}`)
+  await expect.poll(async () => {
+    const { phase, label: revealed } = await mockRegistration(request, invoiceId)
+    return phase === "committed" && revealed === null
+  }, { timeout: REGISTRATION_MS }).toBe(true)
+  await control(request, `unread/${registrationId}`)
+  await expect(page.getByRole("heading", { name: "Paid, not registered" })).toBeVisible({ timeout: REGISTRATION_MS })
+  await page.unrouteAll({ behavior: "wait" })
+  const continued = onStep(page).getByRole("button", { name: "Continue" })
+  await page.route("**/api/config", (route) => route.fulfill({ json: { stripePublishableKey: null, names: { downtime: true } } }))
+  await page.reload()
+  await expect(onStep(page).getByText("You will be able to continue the registration soon.")).toBeVisible()
+  await expect(continued).toBeDisabled()
+  await page.unrouteAll({ behavior: "wait" })
+  await page.reload()
+  await control(request, "general-terms", { text: ALTERNATE_GENERAL_TERMS })
+  try {
+    await continued.click()
+    const notice = onStep(page).locator(".line", { hasText: "The Names Conditions changed. Please accept them to continue." })
+    await expect(notice).toBeVisible()
+    await expect(notice, "the notice takes the focus of Continue, which waits for the tick").toBeFocused()
+    await expect(continued).toBeDisabled()
+    await agreeToTerms(page)
+    await continued.click()
+    await waitRegistered(page, label)
+  } finally {
+    await control(request, "general-terms", { text: null })
+  }
 })
 
 // a chain that fails each transaction before it goes out, as an RPC provider down for a while, and a look half way through

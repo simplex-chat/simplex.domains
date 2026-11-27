@@ -1,4 +1,5 @@
 import * as api from "../api.ts"
+import { SITE } from "../config.ts"
 import { el, icon, line, nameText, nameTitle } from "../dom.ts"
 import { blocksOf, spansOf } from "../markdown.ts"
 import { POPUP_TITLE, showPopup } from "./shell.ts"
@@ -29,16 +30,16 @@ export function termsText(text: string): HTMLDivElement {
     : el(b.ordered ? "ol" : "ul", {}, b.items.map((item) => el("li", {}, inline(item))))))
 }
 
-export function commitLink(terms: api.Terms, chainId: number): HTMLElement | null {
-  const commit = api.termsLink(terms.link, chainId)?.commit
+export function commitLink(terms: api.Terms): HTMLElement | null {
+  const commit = api.termsLink(terms.link, SITE.chainId)?.commit
   return commit ? el("p", { class: "note center" }, el("a", { href: api.readerUrl(terms.link), target: "_blank", rel: "noopener" }, `View at commit ${commit.slice(0, 7)}`)) : null
 }
 
 // the community terms' text as the service fetches it by the chain's link
-function showTerms(terms: api.Terms, chainId: number, key: string): void {
+function showTerms(terms: api.Terms, key: string): void {
   const reading = el("p", { class: "note" }, "Loading the terms…")
   showPopup(key, [el("h2", { id: POPUP_TITLE }, "Community terms"), reading], null)
-  api.termsText(terms, chainId).then((read) => reading.replaceWith(termsText(read), commitLink(terms, chainId) ?? ""), () => { reading.textContent = CANT_SHOW })
+  api.termsText(terms).then((read) => reading.replaceWith(termsText(read), commitLink(terms) ?? ""), () => { reading.textContent = CANT_SHOW })
 }
 
 // `listed` marks a community name whose entry is not read yet, so the marker takes its place before the entry comes
@@ -56,8 +57,6 @@ export interface Agreement {
   accepted?: boolean
   changed: boolean
   label: string
-  tld: string
-  chainId: number
   disabled: boolean
 }
 
@@ -75,10 +74,10 @@ export function communityCheck(a: Agreement, accept: (accepted: boolean) => void
   const box = el("input", { type: "checkbox", checked: a.accepted, disabled: a.disabled, "data-focus": "accepted" })
   box.addEventListener("change", () => accept(box.checked))
   const terms = shown ? "Names Conditions" : el("button", { class: "text-link", type: "button", "aria-haspopup": "dialog", "data-focus": TERMS_KEY,
-    onclick: () => showTerms(a.terms, a.chainId, TERMS_KEY) }, "Names Conditions")
+    onclick: () => showTerms(a.terms, TERMS_KEY) }, "Names Conditions")
   return el("label", { class: "check terms" }, box, el("span", { class: "box" }), el("span", {}, "I accept the ", terms, " and will use this name to benefit its community.",
     el("button", { class: "cinfo", type: "button", "aria-label": "Which community this name is for", "aria-haspopup": "dialog", "data-focus": INFO_KEY,
-      onclick: () => showCommunity(a.label, a.tld, community, INFO_KEY) }, icon("info"))))
+      onclick: () => showCommunity(a.label, SITE.tld, community, INFO_KEY) }, icon("info"))))
 }
 
 // the general terms' box, or a community name's own tick in its place, as its community terms include the general terms

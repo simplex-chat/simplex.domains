@@ -1,11 +1,12 @@
 import { expect } from "@playwright/test"
-import { test } from "./helpers.ts"
+import { keepOrder, test } from "./helpers.ts"
 
 // The service worker is in the production build only: run with BASE_URL at `npx vite preview`.
 test.skip(!process.env.BASE_URL, "needs the production build, as BASE_URL")
 
 test("the production build opens offline: the page, an order's link and Your names, with a note while the network is gone", async ({ page, context }) => {
   const OFFLINE_NOTE = "You are offline. Searches, payments and order updates need the connection."
+  await keepOrder(page, "reg-abc", "abc", "offlinename")
   await page.goto("/")
   await page.evaluate(() => localStorage.setItem("simplex-names:code:SN6-OFFLINE", JSON.stringify({ code: "SN6-Z6VPA-7YPF0-XN8B4-9S1ZD", minLength: 6, years: 2, addedAt: new Date().toISOString() })))
   // the worker takes no page it did not load, so it is active once the next load comes through it

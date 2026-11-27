@@ -1,6 +1,5 @@
 // Your names: this browser's orders and codes, restoring an order with its name code, and editing a name's links.
 import * as api from "../api.ts"
-import { namesSite, readSite } from "../config.ts"
 import { alertBox, announce, btn, chip, codeDisplay, copyButton, el, type Kid, nameCodeQr, nameText, nameTitle, reducedMotion, setAction, waitOut } from "../dom.ts"
 import * as flow from "../flow.ts"
 import { dateOf, dollars, SEP } from "../format.ts"
@@ -10,6 +9,7 @@ import {
   initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
   reduceList, reduceRestore, REFUSALS, registrableAgain, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
 } from "../screens/names.ts"
+import { PLEASE_LEAD } from "../screens/hold.ts"
 import { checkoutUrl, CODE_URL, editUrl } from "../screens/routes.ts"
 import * as session from "../session.ts"
 import type { AppliedCode } from "../session.ts"
@@ -23,6 +23,7 @@ import {
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, secondsLeft, tabHold } from "./hold.ts"
+import { nameAddressAndApp, nameAddressLine } from "./name-address.ts"
 import { rowName } from "./terms.ts"
 
 const UNREAD_RETRY_MS = 5_000
@@ -94,7 +95,7 @@ function showList(): void {
   lastChecked = list.checked
   if (!isRoute(listRoute)) return
   draw("names", (signal) => buildNames(list, signal))
-  readRows()
+  requestAnimationFrame(() => setTimeout(readRows))
 }
 
 const answerList = (route: number, event: ListEvent) => { if (isRoute(route)) dispatchList(event) }
@@ -149,11 +150,11 @@ async function readOrder(id: string, route: number): Promise<void> {
   let view: api.RegistrationView
   let invoice: api.InvoiceView | null = null
   try {
-    await namesSite()
+    const sign = flow.orderSigner(o)
     if (o.invoiceId) {
-      invoice = await api.readInvoice(o.invoiceId)
+      invoice = await api.readInvoice(o.invoiceId, sign)
       view = invoice.registration
-    } else view = await api.readRegistration(o.registrationId)
+    } else view = await api.readRegistration(o.registrationId, sign)
   } catch (e) {
     // the service forgets an unpaid order some time after it closes
     if (e instanceof api.ApiError && e.code === "not_found" && await replaceWithNewer(o, route)) return
@@ -168,7 +169,7 @@ async function readOrder(id: string, route: number): Promise<void> {
   if (!isRoute(route)) return
   dispatchList({ type: "row-read", id, view, invoice, now: api.serviceNow() })
   if (view.phase.type !== "registered") return
-  const answer = await api.searchName(view.labelHash, (view.label ?? synced.label).length, readSite().chainId).catch(() => null)
+  const answer = await api.searchName(synced.request.labelHash, synced.label.length).catch(() => null)
   answerList(route, { type: "row-answered", id, answer })
 }
 
@@ -202,6 +203,7 @@ function removePending(p: store.PendingCode): void {
 
 function forgetEverything(): void {
   store.forgetEverything()
+  flow.forgetWallets()
   session.setCheckout(null)
   dispatchList({ type: "forget-confirmed" })
   focusHeading()
@@ -302,13 +304,12 @@ export const NAME_CODE_NOTE = "You need this code to control your name and edit 
 
 const rowCode = (code: string) => el("div", { class: "row-code" },
   el("p", { class: "note" }, NAME_CODE_NOTE),
-  codeDisplay(code), nameCodeQr(code))
+  codeDisplay(code), nameAddressAndApp(code), nameCodeQr(code))
 
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId
   const seen = s.seen[id]
-  // another name may have been selected for the order since it was stored
-  const label = seen?.view.label ?? o.label
+  const label = o.label
   const tld = o.tld
   // a registered row takes its final shape at once; its name's answer, read after it, only takes Edit links away
   const registered = seen?.view.phase.type === "registered"
@@ -374,10 +375,9 @@ const BALANCE_FROM: Record<BalanceRow["from"], string | null> = {
 // Support refunds a balance.
 function balanceRow(b: BalanceRow, s: ListState): HTMLElement {
   const o = s.orders.find((r) => r.registrationId === b.id)!
-  const { view } = s.seen[b.id]
-  const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`), true)] : []
+  const acts = b.amount > 0 ? [small("Refund", `${b.id}-refund`, () => showRefund(o.invoiceId ?? o.registrationId, `${b.id}-refund`, o.invoiceId ? o.payee?.addressProof : undefined), true)] : []
   const from = BALANCE_FROM[b.from]
-  const sub = ["From ", nameText(view.label ?? o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
+  const sub = ["From ", nameText(o.label, o.tld), from && [", ", el("span", { class: "nowrap" }, from)],
     b.refunded ? `${SEP}refunded ${dollars(b.refunded)} by support` : null]
   const node = row(`balance-${b.id}`, el("b", { class: "price" }, dollars(b.amount)), sub, null, acts)
   if (from) node.classList.add("balance-row")
@@ -457,7 +457,7 @@ async function addNameCode(verdict: Extract<CodeVerdict, { kind: "owner" }>): Pr
     if (!isRoute(checkRoute)) return
     if (e instanceof api.ApiError && e.code === "not_found") return refuse("none")
     // the service asks for a wait before the next lookup; the button stays off until then, whatever is typed meanwhile
-    if (holdFrom(e)) return dispatchRestore({ type: "held", until: holdEnd(), lead: "Please " })
+    if (holdFrom(e)) return dispatchRestore({ type: "held", until: holdEnd(), lead: PLEASE_LEAD })
     refuse(e instanceof api.ApiError ? "unasked" : "other")
   }
 }
@@ -484,7 +484,7 @@ function buildCheck(c: typeof check, signal: AbortSignal): HTMLElement {
   const note = c.restore.hold ? holdNotice(c.restore.hold, signal) : refusal ? alertBox("danger", "alert", refusal.title, refusal.text)
     : c.verdict?.kind === "prepaid" ? el("p", { class: "note center" }, "Search for a name; it shows as Free.") : null
   return screen({ title: "Check your code", lead: checkLead(), back: HOME, action: checkAction(c) },
-    codeField(`${CHECK_CODE}-field`, "Code", heard), keptLive("check-note", undefined, note))
+    codeField(`${CHECK_CODE}-field`, "Code", heard), c.verdict?.kind === "owner" ? nameAddressLine(c.verdict.found.code) : null, keptLive("check-note", undefined, note))
 }
 
 let edit: EditState = initialEdit("", null)
@@ -517,9 +517,10 @@ async function readEdit(route: number): Promise<void> {
   let answer: api.SearchAnswer
   let record = stored
   try {
-    view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId)).registration : await api.readRegistration(stored.registrationId)
+    const sign = flow.orderSigner(stored)
+    view = stored.invoiceId ? (await api.readInvoice(stored.invoiceId, sign)).registration : await api.readRegistration(stored.registrationId, sign)
     record = await flow.syncRecord(stored, view) ?? stored
-    answer = await api.searchName(record.request.labelHash, record.label.length, (await namesSite()).chainId)
+    answer = await api.searchName(record.request.labelHash, record.label.length)
   } catch (e) {
     // a forgotten unpaid order may have a newer one, found with the code
     const newer = e instanceof api.ApiError && e.code === "not_found" ? await flow.newerOrder(stored).catch(() => null) : null
@@ -594,7 +595,7 @@ async function saveLinks(links: LinkFields): Promise<void> {
   const { record, form } = edit
   if (!form?.saving) return
   try {
-    await flow.saveLinks(record!, readSite(), form.nonce, form.changes)
+    await flow.saveLinks(record!, form.nonce, form.changes)
     answerEdit(route, { type: "save-done", at: api.serviceSeconds() })
   } catch (e) {
     // no answer is not a refusal: the edit may still be mined, and sending it again would pay for it twice
@@ -607,7 +608,7 @@ async function saveLinks(links: LinkFields): Promise<void> {
     if (holdFrom(e)) return answerEdit(route, { type: "save-held", until: holdEnd() })
     // A refused edit may mean the nonce moved: an earlier save, from a page reloaded before it was mined, or from
     // another browser. The next save signs with the fresh one, and the page says why this one did not go.
-    const fresh = await api.searchName(record!.request.labelHash, record!.label.length, readSite().chainId).catch(() => null)
+    const fresh = await api.searchName(record!.request.labelHash, record!.label.length).catch(() => null)
     if (!isRoute(route)) return
     const now = edit.form!
     const own = fresh?.found.type === "registered" && fresh.found.records.type === "own" ? fresh.found.records : null
