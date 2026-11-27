@@ -5,7 +5,7 @@ import {
 } from "./helpers.ts"
 
 const RELOAD_MS = 1000
-const NEW_ORDERS = "New orders open again soon"
+const NEW_ORDERS = "You will be able to order names again soon"
 const UNSIGNED_MS = 15_000
 
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
@@ -132,7 +132,7 @@ test("an open invoice's page in the service's downtime withholds its payment det
   await expect(address).toBeVisible()
   await serviceInDowntime(request, async () => {
     await page.reload()
-    await expect(onStep(page).getByText("Payment opens again soon.")).toBeVisible()
+    await expect(onStep(page).getByText("You will be able to pay again soon.")).toBeVisible()
     await expect(address).toHaveCount(0)
     await expect(onStep(page).locator(".qr")).toHaveCount(0)
   })

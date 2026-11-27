@@ -92,6 +92,10 @@ describe("the deployment the page holds", () => {
     expect([new URL(LOCAL.cardOrigin).hostname, LOCAL.stripeKey, LOCAL.stripeLive]).toEqual(["127.0.0.1", "", false])
     for (const origin of [...MAINNET.pageOrigins, ...LOCAL.pageOrigins]) expect(new URL(origin).origin, origin).toBe(origin)
   })
+  it("holds the SimpleX Names app's origin, in production on https and in development on a loopback port nothing serves", () => {
+    expect(MAINNET.appOrigin).toBe("https://app.simplex.domains")
+    expect([new URL(LOCAL.appOrigin).origin, new URL(LOCAL.appOrigin).hostname]).toEqual([LOCAL.appOrigin, "127.0.0.1"])
+  })
   it("takes payments in production only with a live Stripe key and the keys of both coins' wallets", () => {
     expect(MAINNET.codesOnly || (MAINNET.stripeKey.startsWith("pk_live_") && MAINNET.bitcoinReceiveKeys.length > 0 && MAINNET.moneroPrimaryAddresses.length > 0)).toBe(true)
   })

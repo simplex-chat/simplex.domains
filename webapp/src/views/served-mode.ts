@@ -13,9 +13,9 @@ const cardForm = () => document.querySelector("body > main iframe") !== null
 // what a reload would lose besides the screen: an order or change on its way, or what storage did not take
 const reloadKeeps = () => !changeOnItsWay() && !session.anySending() && session.allKept() && store.canPersist() && !cardForm()
 
-export const NEW_ORDERS_SOON = "New orders open again soon"
-export const PAYMENT_SOON = "Payment opens again soon"
-export const SIGNING_SOON = "Signing opens again soon"
+export const NEW_ORDERS_SOON = "You will be able to order names again soon"
+export const PAYMENT_SOON = "You will be able to pay again soon"
+export const SIGNING_SOON = "You will be able to continue the registration soon"
 
 let downtime = false
 let afresh = false

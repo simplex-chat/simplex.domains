@@ -67,5 +67,6 @@ async function start(): Promise<void> {
 }
 
 if (window.top !== window.self) {
-  document.body.replaceChildren(el("p", { class: "own-tab" }, "This page opens only in its own tab. ", el("a", { href: location.href, target: "_blank", rel: "noopener" }, "Open it")))
+  document.body.replaceChildren(el("p", { class: "own-tab" }, "This page can be used only in its own tab. Please ",
+    el("a", { href: location.href, target: "_blank", rel: "noopener" }, "open it in a new tab"), "."))
 } else await start()

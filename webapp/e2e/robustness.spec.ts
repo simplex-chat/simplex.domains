@@ -142,7 +142,7 @@ test("Get a new invoice keeps an invoice the service would not cancel", async ({
   }
   await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   await page.getByRole("button", { name: "Get a new invoice" }).click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible()
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Please try again in/ })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
 })
 
@@ -464,7 +464,7 @@ test("Back from a paused order keeps the order paused", async ({ page }) => {
   await toReview(page)
   await page.route("**/api/invoice", (route) => route.request().method() === "POST" ? route.fulfill({ status: 429, headers: { "retry-after": "20" }, json: { type: "rate_limited" } }) : route.continue())
   await payButton(page).click()
-  await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Too many attempts\. Please try again in \d+ seconds\.$/)
+  await expect(page.locator(".outcome .notice span[aria-hidden=true]")).toHaveText(/^Please try again in \d+ seconds\.$/)
   await page.goBack()
   await expect(page.getByRole("heading", { name: CODE_HEADING })).toBeVisible()
   await page.goForward()

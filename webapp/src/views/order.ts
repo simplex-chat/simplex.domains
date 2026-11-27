@@ -9,7 +9,7 @@ import {
   closedBalance, type ClosedCase, closedCase, coinOf, costOf, failedAlert, failedLead, finished, supportCase, type SupportCase, initialState, type Note, type OrderEvent, type OrderKind,
   type OrderState, paymentChecked, readToSign, reduce, refusalsOf, RETRY_MS, retryDue, REVEAL_ATTEMPTS, revealDue, revealKey, screenOf, stalledAt, unpaidOrClosed, unreadDelay, wakeAt, askAgainDue, termsAskedAgain, termsToAgree,
 } from "../screens/order.ts"
-import { LIMITED_LEAD } from "../screens/hold.ts"
+import { PLEASE_LEAD } from "../screens/hold.ts"
 import { termsToSign, ticked } from "../screens/terms.ts"
 import { CODES_ONLY, codesOnly } from "../mode.ts"
 import type { LinkKind } from "../names.ts"
@@ -18,7 +18,7 @@ import { hasLinks, linksAction } from "../screens/names.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { mountCardFrame } from "../card-frame.ts"
-import { nameAddressAndExplorer } from "./name-address.ts"
+import { nameAddressAndApp } from "./name-address.ts"
 import { type MountedCard, MISMATCHED } from "../stripe.ts"
 import { CODES_ONLY_LINE, CODES_ONLY_TITLE } from "./codes.ts"
 import { NAME_CODE_NOTE, seenRegistered } from "./names.ts"
@@ -549,7 +549,7 @@ function cancelLink(s: OrderState): HTMLAnchorElement {
   return cancel
 }
 
-const UNCHECKED_DETAILS = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
+const UNCHECKED_DETAILS = "Sorry, the payment details of this order could not be checked, so they are not shown. Please contact support with the order reference."
 const proofOf = ({ record, invoice }: Pick<OrderState, "record" | "invoice">) => invoice !== null && record?.invoiceId === invoice.invoiceId ? record.payee?.addressProof : undefined
 
 const withheld = (s: OrderState, title: string, alt: HTMLElement | null) => screen({ title, lead: orderLine(s), alt },
@@ -716,7 +716,7 @@ async function agreedFirst(gen: number, record: store.OrderRecord): Promise<bool
     if (!quote) return true
     return termsOrAsk(gen, record, record.terms, quote) !== null
   } catch (e) {
-    if (!holdOn(e, LIMITED_LEAD, gen)) {
+    if (!holdOn(e, PLEASE_LEAD, gen)) {
       answer(gen, { type: "reorder-failed", note: termsUnavailable(e) ? NO_ORDERS_NOTE : warning("A new invoice was not created. Please try again in a moment.") })
     }
     return false
@@ -765,7 +765,7 @@ async function orderAgain(record: store.OrderRecord): Promise<void> {
   try {
     quote = await flow.quoteOf(record.label)
   } catch (e) {
-    if (holdOn(e, LIMITED_LEAD, gen)) return
+    if (holdOn(e, PLEASE_LEAD, gen)) return
     return answer(gen, { type: "reorder-failed", note: termsUnavailable(e) ? NO_ORDERS_NOTE : warning("A new invoice was not created. Please try again in a moment.") })
   }
   if (!isOpen(gen)) return
@@ -836,7 +836,7 @@ async function cancelBeforeReorder(invoice: api.InvoiceView, record: store.Order
     if (after.status !== "paid") store.updateOrder(record.registrationId, { cancelled: true })
   } catch (e) {
     const code = e instanceof api.ApiError ? e.code : "network"
-    if (holdOn(e, LIMITED_LEAD, gen)) return false
+    if (holdOn(e, PLEASE_LEAD, gen)) return false
     if (code !== "not_open") {
       say(code === "funded" ? "A payment was received, so the invoice cannot be cancelled." : "The invoice was not cancelled. Please try again in a moment.")
       return false
@@ -875,7 +875,7 @@ async function cancelInvoice(): Promise<void> {
       return reread(gen)
     }
     if (e instanceof api.ApiError && e.code === "funded") return answer(gen, { type: "cancel-failed", note: warning("A payment was received, so the invoice cannot be cancelled.") })
-    if (holdOn(e, LIMITED_LEAD, gen)) return
+    if (holdOn(e, PLEASE_LEAD, gen)) return
     answer(gen, { type: "cancel-failed", note: warning("The invoice was not cancelled. Please try again in a moment.") })
   }
 }
@@ -961,7 +961,7 @@ async function newInvoice(invoice: api.InvoiceView, record: store.OrderRecord | 
       return dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: `${methodName(method)} is unavailable right now`,
         text: "Please ", link: { text: "order the name again", href: searchLink(record.label), after: " to pay another way." } } })
     }
-    if (holdOn(e, LIMITED_LEAD, gen)) return
+    if (holdOn(e, PLEASE_LEAD, gen)) return
     dispatch({ type: "reorder-failed", note: { tone: "warn", icon: "alert", title: "The order could not be placed", text: "A new invoice was not created. Please try again in a moment." } })
   }
 }
@@ -1096,7 +1096,7 @@ function buildRegistered(s: OrderState): HTMLElement {
   const qr = el("div", { class: "code-qr" })
   const { tld } = SITE
   return screen({ title: [label ? gradName(label, tld) : "The name", " is\u00a0yours"], lead: registeredLead(view), action: registeredAction(s.record) },
-    code ? [nameAddressAndExplorer(code), el("div", { class: "card use" }, el("h2", {}, "Use your name in the app"),
+    code ? [nameAddressAndApp(code), el("div", { class: "card use" }, el("h2", {}, "Use your name in the app"),
       el("p", {}, "In SimpleX, open Your SimpleX address, tap Set SimpleX name and enter ", nameText(label ?? "", tld, "."), " For a channel, set it in the channel's profile.")),
     el("p", { class: "note center" }, NAME_CODE_NOTE),
     codeDisplay(code, "owner-code", true, (shown) => refill(qr, shown && nameCodeQr(code))),
@@ -1201,7 +1201,7 @@ async function continueOrder(): Promise<void> {
     keepAgreed(record, agreed)
     reread(gen)
   } catch (e) {
-    if (holdOn(e, LIMITED_LEAD, gen)) return
+    if (holdOn(e, PLEASE_LEAD, gen)) return
     answer(gen, { type: "continue-failed", note: warning("That did not work. Please try again in a moment.") })
     reread(gen)
   }

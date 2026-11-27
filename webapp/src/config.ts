@@ -10,7 +10,6 @@ export interface Deployment {
   resolver: string
   namePolicy: string
   baseRegistrar: string
-  explorer: string
   termStart: number
   paidYears: number
   communityYears: number
@@ -27,6 +26,7 @@ export interface Deployment {
   cardOrigin: string
   pageOrigins: string[]
   apiOrigin: string
+  appOrigin: string
   bitcoinHrp: string
   bitcoinReceiveKeys: string[]
   moneroSubaddressPrefix: number
@@ -45,7 +45,6 @@ export const MAINNET: Deployment = {
   resolver: "0x9BDa37F19b59Cbc58BA75932B3c598947fD88B0A",
   namePolicy: "0x5147b65F547b766DBaf520127e8f59834475021E",
   baseRegistrar: "0x4c0589dbC22862Babb25EB72D11bBA49d84AAbE8",
-  explorer: "https://etherscan.io",
   termStart: 1798761600,
   paidYears: 2,
   communityYears: 2,
@@ -68,6 +67,7 @@ export const MAINNET: Deployment = {
   cardOrigin: "https://pay.simplex.domains",
   pageOrigins: ["https://simplex.domains"],
   apiOrigin: "https://api.simplex.domains",
+  appOrigin: "https://app.simplex.domains",
   bitcoinHrp: "bc",
   bitcoinReceiveKeys: [],
   moneroSubaddressPrefix: 42,
@@ -81,7 +81,6 @@ export const LOCAL: Deployment = {
   resolver: "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
   namePolicy: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
   baseRegistrar: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-  explorer: "https://etherscan.io",
   termStart: 1798761600,
   paidYears: 2,
   communityYears: 2,
@@ -116,6 +115,7 @@ export const LOCAL: Deployment = {
   cardOrigin: "http://127.0.0.1:5180",
   pageOrigins: ["http://127.0.0.1", "http://localhost"],
   apiOrigin: "",
+  appOrigin: "http://127.0.0.1:5181",
   bitcoinHrp: "bcrt",
   bitcoinReceiveKeys: ["0x036bf340760eb0da07d4d2bbb9d9aee7b7c27891cb72b6388cc0ee8d2a82d33e46"],
   moneroSubaddressPrefix: 36,

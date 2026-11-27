@@ -14,7 +14,7 @@ All screens: how each one makes people feel, the criterion the language audit ap
 
 | # | Screen | Issue |
 |---|---|---|
-| 1 | checkout-code-no-storage | Done: the name address is shown beside each name code, and the registered order's page and each registered row's name code link Etherscan's page of the registrar's tokens the address holds, asking to check that the name is listed. |
+| 1 | checkout-code-no-storage | Done: the name address is shown beside each name code, and the registered order's page and each registered row's name code link the SimpleX Names app's page of the address, asking to check that the name is listed. |
 | 2 | checkout-community-accepted | The community terms shown make no sense. In the screenshots they are the dummy terms in dev/fixtures/terms/ (community-terms.md and general-terms.md), which dev/deploy.ts publishes; the deployed page shows the terms linked on chain. Make the screenshots show the real terms texts, and rewrite the community terms page where its own text is wrong. |
 | 3 | checkout-community-unreadable | The screen says the terms cannot be shown; find why it reaches that state, and change what the person sees. |
 | 4 | checkout-links-scan-dialog (phone), checkout-review-code-scan-dialog (phone) | The screenshots show no QR code; find whether the scan dialogs are broken or only the screenshots. |

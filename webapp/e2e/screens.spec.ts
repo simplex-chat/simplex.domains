@@ -2551,20 +2551,20 @@ screen(3200, "home-available-downtime", async ({ page, request, id }) => {
   await control(request, "downtime", { on: true })
   await search(page, id)
   await answerRow(page)
-  await shown(page, "New orders open again soon.")
+  await shown(page, "You will be able to order names again soon.")
 })
 screen(3202, "checkout-status-downtime", async ({ page, request, id }) => {
   await search(page, id)
   await toReview(page)
   await control(request, "downtime", { on: true })
   await payButton(page).click()
-  await heading(page, "New orders open again soon")
+  await heading(page, "You will be able to order names again soon")
 })
 screen(3204, "order-pay-crypto-downtime", async (r) => {
   await ordered(r, r.id)
   await control(r.request, "downtime", { on: true })
   await r.page.reload()
-  await shown(r.page, "Payment opens again soon.")
+  await shown(r.page, "You will be able to pay again soon.")
 })
 
 screen(17200, "checkout-review-term-started", async ({ page, id }) => {

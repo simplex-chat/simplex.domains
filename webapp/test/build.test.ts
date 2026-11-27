@@ -61,7 +61,7 @@ describe("the page's own policy", () => {
 })
 
 const held = (d: Deployment) => [d.sponsor, d.resolver, d.namePolicy, d.baseRegistrar, ...[...d.generalTerms, ...d.communityTerms].map((t) => t.link), ...d.bitcoinReceiveKeys, ...d.moneroPrimaryAddresses,
-  d.cardOrigin, ...d.apiOrigin ? [d.apiOrigin] : []]
+  d.cardOrigin, d.appOrigin, ...d.apiOrigin ? [d.apiOrigin] : []]
 
 describe("the card form", () => {
   it("is the card page's, which loads Stripe.js; the names page frames it from the card page's origin and never loads Stripe.js", async () => {

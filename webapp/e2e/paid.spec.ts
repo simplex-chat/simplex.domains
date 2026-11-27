@@ -196,7 +196,7 @@ test("a Bitcoin order pays in two parts, registers on chain, takes its links on 
   await channelField.fill(nextChannel)
   await expect(page.locator(".link-field").nth(1)).toHaveAttribute("data-state", "ok")
   await page.getByRole("button", { name: "Save links" }).click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Please try again in/ })).toBeVisible({ timeout: 30_000 })
   expect(refused.map((body) => body.edits.map((e) => e.key))).toEqual([["contact", "channel"]])
   expect((await searchName(request, label)).records).toMatchObject({ contact: "", channel })
   await page.unroute("**/api/name/records")
@@ -316,7 +316,7 @@ test("a purchase walks the steps a buyer expects, and the links set before payin
   await expect(step.getByRole("radio")).toHaveText(["Card", "Bitcoin", "Monero"])
   // the ETH link ends the note under the methods, and nothing sits under Pay
   const dapp = step.locator(".notes").getByRole("link", { name: "Pay with ETH" })
-  await expect(dapp).toHaveAttribute("href", "https://app.simplex.domains")
+  await expect(dapp).toHaveAttribute("href", LOCAL.appOrigin)
   await expect(step.locator(".notes")).toHaveText("After paying, keep this page open until the name is registered. Pay with ETH")
   await expect(step.locator(".actions-row .alt")).toHaveCount(0)
   // the one box to tick, the terms, holds Pay until it is ticked; its link opens the terms beside the order
@@ -1185,7 +1185,7 @@ test("a cancel refused for a rate limit keeps the invoice payable and says so un
   await page.route("**/api/invoice/*/cancel", (route) => route.fulfill({ status: 429, headers: { "retry-after": "2" }, json: { type: "rate_limited" } }))
   const cancel = onStep(page).getByText("Cancel this invoice", { exact: true })
   await cancel.click()
-  await expect(page.locator("[aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in/ })).toBeVisible()
+  await expect(page.locator("[aria-hidden=true]", { hasText: /^Please try again in/ })).toBeVisible()
   await expect(onStep(page).getByRole("heading", { name: "Pay with Bitcoin" })).toBeVisible()
   await page.unroute("**/api/invoice/*/cancel")
   await expect(page.getByText("Too many attempts")).toHaveCount(0, { timeout: 10_000 })

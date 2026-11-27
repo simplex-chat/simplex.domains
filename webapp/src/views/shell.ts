@@ -3,7 +3,7 @@ import type { AddressProof } from "../api.ts"
 import { alertBox, announce, btn, copyButton, el, fitNames, icon, type Kid, liveRegion, reducedMotion, refill, type Tone, waitOut } from "../dom.ts"
 import { SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
-import { type Hold, LIMITED_LEAD } from "../screens/hold.ts"
+import { type Hold, PLEASE_LEAD } from "../screens/hold.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { secondsLeft } from "./hold.ts"
@@ -282,12 +282,12 @@ export function outcome(o: Outcome): HTMLElement {
 }
 
 export function limitScreen(hold: Hold | null, again: () => void, back: string, signal: AbortSignal): HTMLElement {
-  const line = el("span", {}, `${LIMITED_LEAD}try again.`)
+  const line = el("span", {}, `${PLEASE_LEAD}try again.`)
   const tryAgain = btn("Try again", "", again)
   tryAgain.disabled = hold !== null
   const shown = outcome({ tone: "warn", icon: "clock", title: "Too many attempts", text: line, action: tryAgain, back })
   // the count goes in once the line is in its notice, where its spoken copy goes beside it
-  if (hold) waitOut(line, Math.max(1, secondsLeft(hold)), (left) => `${LIMITED_LEAD}try again in ${left}.`, () => undefined, signal)
+  if (hold) waitOut(line, Math.max(1, secondsLeft(hold)), (left) => `${PLEASE_LEAD}try again in ${left}.`, () => undefined, signal)
   return shown
 }
 

@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test"
 import { heldPrice, LOCAL } from "../src/config.ts"
 import { cardFrame, cardFrameOf, fakeIntent, onStep, payButton, startOrder, test, uniqueLabel, withStripeKey } from "./helpers.ts"
 
-const UNCHECKED = "The payment details of this order could not be checked, so they are not shown. Contact support with the order reference."
+const UNCHECKED = "Sorry, the payment details of this order could not be checked, so they are not shown. Please contact support with the order reference."
 const OTHER_ORIGIN = "http://127.0.0.2:5999"
 const SETTLE_MS = 2000
 

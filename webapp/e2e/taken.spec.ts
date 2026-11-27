@@ -202,7 +202,7 @@ test("an order failed unread offers Continue only outside the service's downtime
   const continued = onStep(page).getByRole("button", { name: "Continue" })
   await page.route("**/api/config", (route) => route.fulfill({ json: { stripePublishableKey: null, names: { downtime: true } } }))
   await page.reload()
-  await expect(onStep(page).getByText("Signing opens again soon.")).toBeVisible()
+  await expect(onStep(page).getByText("You will be able to continue the registration soon.")).toBeVisible()
   await expect(continued).toBeDisabled()
   await page.unrouteAll({ behavior: "wait" })
   await page.reload()

@@ -11,8 +11,8 @@ test("the page in another page's frame draws one line, with a link that opens it
   await page.route(`${FRAMER}/**`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><iframe src="${url}" width="600" height="400"></iframe>` }))
   await page.goto(`${FRAMER}/`)
   const inOtherPage = page.frameLocator("iframe")
-  await expect(inOtherPage.locator("p.own-tab")).toHaveText("This page opens only in its own tab. Open it")
-  await expect(inOtherPage.getByRole("link", { name: "Open it" })).toHaveAttribute("href", url)
+  await expect(inOtherPage.locator("p.own-tab")).toHaveText("This page can be used only in its own tab. Please open it in a new tab.")
+  await expect(inOtherPage.getByRole("link", { name: "open it in a new tab" })).toHaveAttribute("href", url)
   await expect(inOtherPage.locator("main, header, input")).toHaveCount(0)
 })
 

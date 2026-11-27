@@ -30,8 +30,6 @@ import { CANT_SHOW, commitLink, communityCheck, NO_ORDERS, rowName, termsBox, te
 
 const CHECKOUT_NOTE = "checkout-note"
 const SAVED_LABEL = "I have saved my name code"
-// the dApp that registers a name paid for in ETH
-const DAPP_URL = "https://app.simplex.domains"
 // the service takes a signed order's timestamp within this many seconds; an older one is signed anew
 const SIGNED_WINDOW_S = 600
 
@@ -373,7 +371,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
   const blocked = blockedBy(s)
   const paid = !(c.code || c.order || codeEntry(c, s.codesOnly) === "field")
   // the other way to pay ends the note under the methods
-  const eth = el("a", { class: "nowrap", href: DAPP_URL, target: "_blank", rel: "noopener" }, "Pay with ETH")
+  const eth = el("a", { class: "nowrap", href: SITE.appOrigin, target: "_blank", rel: "noopener" }, "Pay with ETH")
   return screen({ title: "Check your order", back: checkoutUrl(c.community ? "community" : "code"), action: payButton(s, blocked !== null), alt: removeLink(s) },
     el("div", { class: "review" }, orderCard(c, s.codesOnly),
       !c.codeError ? null : c.order ? line("bad", "alert", c.codeError) : s.codesOnly ? line("bad", "alert", `${c.codeError} Enter another code.`)

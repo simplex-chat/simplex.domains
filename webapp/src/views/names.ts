@@ -9,6 +9,7 @@ import {
   initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
   reduceList, reduceRestore, REFUSALS, registrableAgain, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
 } from "../screens/names.ts"
+import { PLEASE_LEAD } from "../screens/hold.ts"
 import { checkoutUrl, CODE_URL, editUrl } from "../screens/routes.ts"
 import * as session from "../session.ts"
 import type { AppliedCode } from "../session.ts"
@@ -22,7 +23,7 @@ import {
 } from "./shell.ts"
 import { after } from "./effects.ts"
 import { holdEnd, holdEnder, holdFrom, holding, holdNotice, secondsLeft, tabHold } from "./hold.ts"
-import { nameAddressAndExplorer, nameAddressLine } from "./name-address.ts"
+import { nameAddressAndApp, nameAddressLine } from "./name-address.ts"
 import { rowName } from "./terms.ts"
 
 const UNREAD_RETRY_MS = 5_000
@@ -303,7 +304,7 @@ export const NAME_CODE_NOTE = "You need this code to control your name and edit 
 
 const rowCode = (code: string) => el("div", { class: "row-code" },
   el("p", { class: "note" }, NAME_CODE_NOTE),
-  codeDisplay(code), nameAddressAndExplorer(code), nameCodeQr(code))
+  codeDisplay(code), nameAddressAndApp(code), nameCodeQr(code))
 
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
   const id = o.registrationId
@@ -456,7 +457,7 @@ async function addNameCode(verdict: Extract<CodeVerdict, { kind: "owner" }>): Pr
     if (!isRoute(checkRoute)) return
     if (e instanceof api.ApiError && e.code === "not_found") return refuse("none")
     // the service asks for a wait before the next lookup; the button stays off until then, whatever is typed meanwhile
-    if (holdFrom(e)) return dispatchRestore({ type: "held", until: holdEnd(), lead: "Please " })
+    if (holdFrom(e)) return dispatchRestore({ type: "held", until: holdEnd(), lead: PLEASE_LEAD })
     refuse(e instanceof api.ApiError ? "unasked" : "other")
   }
 }

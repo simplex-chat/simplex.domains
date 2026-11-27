@@ -94,7 +94,7 @@ test.afterEach(async () => {
   await service.stop()
 })
 
-const downtimeShown = (page: Page) => page.getByText("New orders open again soon.")
+const downtimeShown = (page: Page) => page.getByText("You will be able to order names again soon.")
 
 test("a reload shows the downtime the service entered, while the service answers slowly after its restart", async ({ page }) => {
   test.setTimeout(60_000)
