@@ -3,7 +3,7 @@
 
 // Stripe.js must load from js.stripe.com and may not be bundled or self-hosted, so this is a script tag.
 const STRIPE_JS_URL = "https://js.stripe.com/dahlia/stripe.js"
-export const CONFIRM_FAILED = "The card was not accepted. Check the details and try again."
+export const CONFIRM_FAILED = "Sorry, the card was not accepted. Please check the details and try again."
 // a form that neither loads nor fails, as on a stalled network, has failed once this long has gone by
 export const CARD_FORM_TIMEOUT_MS = 20_000
 
