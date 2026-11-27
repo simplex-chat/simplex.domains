@@ -538,8 +538,7 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .code-display .masked { color: var(--ink-soft); }
 .code-buttons { display: flex; gap: 6px; }
 .screen-body > .ref { text-align: center; }
-/* the name-is-yours screen tighter, so it fits a phone's window under a name of 25 wide letters with its name address,
-   and a laptop's under one of 63 */
+/* the name-is-yours screen tighter, so it fits a phone's window under a name of 25 wide letters with its name address */
 .screen-body:has(> .yours-edit) { --body-gap: 10px; }
 .card.use { display: grid; gap: 12px; padding-block: 16px; }
 .card.use h2 { font: 700 19px/1.3 var(--body); }
