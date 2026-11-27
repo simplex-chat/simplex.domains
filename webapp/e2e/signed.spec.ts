@@ -1,7 +1,7 @@
 import { expect, type APIRequestContext } from "@playwright/test"
 import { control, MOCK, onStep, REGISTRATION_MS, startOrder, test, uniqueLabel, waitRegistered } from "./helpers.ts"
 
-const NO_CODE = "Enter it in Check your code to see this order."
+const NO_CODE = "Please enter the name code you saved for this order."
 const SKEW_MS = 20 * 60_000
 const ORDER_READ = /\/api\/(invoice|registration)\/[^/]+$/
 
@@ -16,7 +16,7 @@ test("every request for an order is signed with its owner's name key, polls, can
   await waitRegistered(page, label)
   await startOrder(page, uniqueLabel("signedc"), { method: "btc" })
   await onStep(page).getByRole("button", { name: "Cancel this invoice" }).click()
-  await expect(page.getByText("This invoice was cancelled and nothing was received.")).toBeVisible()
+  await expect(page.getByText("This invoice is closed. No payment was received.")).toBeVisible()
   const after = await orderRequests(request)
   expect(after.refused - before.refused, "no order request refused").toBe(0)
   expect(after.signed - before.signed, "the order's reads, signed").toBeGreaterThan(1)

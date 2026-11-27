@@ -308,8 +308,8 @@ export const onStep = (page: Page) => page.locator("body > main > section")
 export const payButton = (page: Page) => onStep(page).getByRole("button", { name: /^Pay / })
 
 // what the card page's note says of its name, in brief
-export const AVAILABLE_BRIEF = /^Available at \d\d:\d\d\. If someone registers it first, you keep the payment as balance\.$/
-export const TAKEN_BRIEF = /^Taken at \d\d:\d\d\. Don't pay this invoice: cancel it and choose another name\.$/
+export const AVAILABLE_BRIEF = /^Available at \d\d:\d\d\.$/
+export const TAKEN_BRIEF = /^Taken at \d\d:\d\d\. Please don't pay: cancel this invoice and choose another name\.$/
 
 // a test key makes the card page, in the order page's frame, load Stripe.js
 export const withStripeKey = (page: Page) => page.addInitScript((card) => {
@@ -558,7 +558,7 @@ export const test = base.extend<{ cspViolations: void }>({
 export const codesTest = test.extend({ baseURL: async ({}, use) => use(CODES_PAGE) })
 
 // a paid order's page once someone registered its name first, which keeps the payment as the order's balance
-export const takenHeading = (label: string) => `${label}.simplex was taken`
+export const takenHeading = (label: string) => `${label}.simplex is no longer available`
 
 // An order paid in Bitcoin whose name a rival registers first, up to its taken page.
 export async function takenOrder(page: Page, request: APIRequestContext, label: string, method: OrderOptions["method"] = "btc"): Promise<{ invoiceId: string; ownerCode: string }> {

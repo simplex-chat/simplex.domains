@@ -64,7 +64,7 @@ test("a checkout drawn again for the tab's open order keeps focus on its heading
   await search(page, uniqueLabel("headnext"))
   // the terms left unticked, so focus stays where the review put it
   await toReview(page, false)
-  await expect(page.getByText(/is waiting for its payment/)).toBeVisible()
+  await expect(page.getByText(/Another order is open/)).toBeVisible()
   await expect(page.getByRole("heading", { name: "Check your order" })).toBeFocused()
 })
 
@@ -84,7 +84,7 @@ test("a name code the service finds no order for says so as its verdict, offers 
   const ownerCode = await page.evaluate(() => Object.keys(localStorage).find((k) => k.startsWith("simplex-names:pending:"))!.split(":").pop()!)
   await page.goto("/#/code")
   await codeField(page).fill(ownerCode)
-  await expect(page.locator(".code-entry .verdict.bad")).toHaveText("No order was found for this code. The service has no order registered to its wallet.")
+  await expect(page.locator(".code-entry .verdict.bad")).toHaveText("No order was found for this name code.")
   await expect(page.getByRole("button", { name: "Add to Your names" })).toHaveCount(0)
   await expect(codeField(page)).toBeFocused()
 })
@@ -120,7 +120,7 @@ test("an order refused for its method draws the checkout again in place, with fo
   const entries = await page.evaluate(() => history.length)
   await payButton(page).focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByText("Card is temporarily unavailable")).toBeVisible()
+  await expect(page.getByText("Card is unavailable right now")).toBeVisible()
   await expect(payButton(page)).toBeFocused()
   expect(await page.evaluate(() => history.length)).toBe(entries)
 })
@@ -130,7 +130,7 @@ test("a well-formed code the service does not know is not called a typo", async 
   await page.route("**/api/code/check", (route) => route.fulfill({ status: 400, json: { type: "code_invalid" } }))
   await page.goto("/#/code")
   await codeField(page).fill(code)
-  await expect(page.locator(".verdict.bad")).toHaveText("This code is not valid: SimpleX did not issue it.")
+  await expect(page.locator(".verdict.bad")).toHaveText("This code was not issued by SimpleX.")
   await expect(page.getByRole("button", { name: "Find a name" })).toBeDisabled()
 })
 

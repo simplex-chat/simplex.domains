@@ -54,7 +54,7 @@ test("a paid order taken first keeps its price as its balance, which support ref
   await expect(balanceRow(page).getByRole("button", { name: "Refund" })).toHaveAttribute("aria-haspopup", "dialog")
   await balanceRow(page).getByRole("button", { name: "Refund" }).click()
   const popup = page.getByRole("dialog", { name: "Refund" })
-  await expect(popup).toContainText(`Contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}. Support refunds what is left of your balance.`)
+  await expect(popup).toContainText(`Please contact support via chat@simplex.chat or SimpleX, with the name and the order reference ${invoiceId}. Support refunds what is left of your balance.`)
   await expect(popup.locator(".code-text")).toHaveText(invoiceId)
   await expect(popup.getByRole("button", { name: WITH_PROOF }), "a Bitcoin order's copy holds its address proof").toBeFocused()
   await shot(page, "B2-refund")

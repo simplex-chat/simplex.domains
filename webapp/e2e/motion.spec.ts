@@ -148,7 +148,7 @@ test("a redraw that only changes the words of what is shown, as a rate limit's w
   await recordFrames(page, RUNNING)
   // the wait's end draws the screen again, its notice saying the same thing in other words
   await expect(onStep(page).getByRole("button", { name: "Try again" })).toBeEnabled()
-  await expect(onStep(page).locator(".notice")).toHaveText(/Nothing was charged/)
+  await expect(onStep(page).locator(".notice")).toHaveText(/Please try again\.$/)
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
   expect((await recordedFrames<string[]>(page)).flat(), "animations run as the wait ends").not.toContain("arrive")
 })

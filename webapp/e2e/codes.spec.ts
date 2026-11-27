@@ -24,7 +24,7 @@ const watchKept = () => {
 }
 const saidKept = (page: Page) => page.evaluate(() => (window as unknown as { __kept: boolean }).__kept)
 
-const USED_WHY = "A code registers one name only."
+const USED_WHY = "Your code was used for another name"
 // With a code refused for good the order registers no name: the page says why and offers another search instead.
 async function offersSearchInstead(page: Page): Promise<void> {
   await expect(page.getByText(USED_WHY)).toBeVisible()
@@ -32,13 +32,10 @@ async function offersSearchInstead(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Search a name" })).toBeVisible()
 }
 
-const REFUSED_LEAD = "Your code can no longer be used for it. Write to support."
-const SUPPORT_LEAD = "Write to support."
-
 async function reopenRefused(page: Page): Promise<void> {
   await page.addInitScript(watchKept)
   await page.reload()
-  await expect(page.locator(".screen-head .lead")).toHaveText(REFUSED_LEAD)
+  await expect(page.locator(".screen-head .lead")).toHaveCount(0)
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
   await offersSearchInstead(page)
   expect(await saidKept(page), "the page said the code is kept before it said it is refused").toBe(false)
@@ -156,15 +153,15 @@ test("a registration ended in its dispute period is shown as ended on its order'
   await control(request, `unregister/${registrationId}`)
   expect((await (await request.get(`${MOCK}/control/registration/${registrationId}`)).json()).phase, "the view the service gives an ended order").toEqual({ type: "ended" })
   await page.reload()
-  await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
-  await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was ended because a payment for it was disputed, reversed or refunded in full.`)
+  await expect(onStep(page).getByRole("heading", { name: "Registration cancelled" })).toBeVisible()
+  await expect(onStep(page).locator(".notice")).toHaveText(`The registration of ${label}.simplex was cancelled because its payment was disputed or refunded.`)
   expect((await searchName(request, label)).type).toBe("available")
   await page.goto("/#/names")
   const row = page.locator(".list-row", { hasText: `${label}.simplex` })
-  await expect(row.locator(".chip")).toHaveText("Ended")
+  await expect(row.locator(".chip")).toHaveText("Cancelled")
   await expect(row.getByRole("button", { name: /links$/ })).toHaveCount(0)
   await page.goto(`/#/edit/${registrationId}`)
-  await expect(onStep(page).getByText("The registration was ended")).toBeVisible()
+  await expect(onStep(page).getByText("The registration was cancelled")).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Save links" })).toHaveCount(0)
 })
 
@@ -641,7 +638,7 @@ test("a prepaid code entered on Check your order makes the order free in place, 
   await reviewFits(page, "the field")
 
   await codeField(page).fill(code)
-  await expect(onStep(page).locator(".code-entry .verdict")).toHaveText("This code allows you to register a free name of 6 or more letters, for 5 years.")
+  await expect(onStep(page).locator(".code-entry .verdict")).toHaveText("Use this code to register a free name with 6 or more letters, for 5 years.")
   await expect(total(page)).toHaveText(FREE_TOTAL)
   await expect(page.locator(".card.order .trow").first()).toHaveText(/^Term5 years and/)
   await expect(register, "the terms are still to be agreed").toBeDisabled()
@@ -679,9 +676,9 @@ test("a code on Check your order that is not valid, used, too short for the name
   await haveCode(page).click()
   const cases: [string, string | RegExp][] = [
     ["SN7-BJTBP-29596-R3HJ8-25YM8", /^This code is not valid/],
-    [used, "This code was already used. Each code registers one name."],
-    [longer, "This code does not cover this name. It covers names of 8 or more letters."],
-    [await checkoutOwnerCode(page), "This is a name code. A code from SimpleX lets you register a free name."],
+    [used, "This code was already used for a name."],
+    [longer, "Please use this code to register a free name with 8 or more letters."],
+    [await checkoutOwnerCode(page), "This is a name code, not a code for a free name."],
   ]
   for (const [text, says] of cases) {
     await codeField(page).fill(text)
@@ -709,10 +706,10 @@ test("Check your code tells a prepaid code, a name code and anything else apart,
   await shot(page, "K6-code-invalid")
   // a name code is judged by the orders find lists for it, none for this one
   await codeField(page).fill("SN-8M7X0-8Z533-AG8DP-RBN5T-BPQ6D-YH09G")
-  await expect(verdict).toHaveText("No order was found for this code. The service has no order registered to its wallet.")
+  await expect(verdict).toHaveText("No order was found for this name code.")
   await expect(find).toBeDisabled()
   await codeField(page).fill(code)
-  await expect(verdict).toHaveText("This code allows you to register a free name of 8 or more letters, for 2 years.")
+  await expect(verdict).toHaveText("Use this code to register a free name with 8 or more letters, for 2 years.")
   await expect(onStep(page).getByText("Search for a name; it shows as Free.")).toBeVisible()
   await expect(onStep(page).locator(".lead")).toHaveText("A code from SimpleX lets you register a free name.A name code brings a name you own to this browser.")
   await shot(page, "K1-code-valid")
@@ -720,7 +717,7 @@ test("Check your code tells a prepaid code, a name code and anything else apart,
   const short = uniqueLabel("k7").slice(0, 7)
   await search(page, short)
   await expect(page.locator(".answer .row .deal")).toHaveText(/^\$\d+ \/ 2 years$/)
-  await expect(page.locator(".answer .hint")).toHaveText("Your code allows you to register a free name of 8 or more letters. This name has 7.")
+  await expect(page.locator(".answer .hint")).toHaveText("7 letters. Please use this code to register a free name with 8 or more letters.")
   await shot(page, "K7-code-too-short")
   await toReview(page)
   await expect(page.getByRole("radio")).toHaveCount(3)
@@ -874,7 +871,7 @@ test("a name selected for a code order taken first is registered with its code, 
   const short = sevenLetters()
   await page.getByLabel("Name", { exact: true }).fill(short)
   await page.getByLabel("Name", { exact: true }).press("Enter")
-  await expect(page.locator(".answer .line")).toHaveText("7 letters. Your code covers names of 10 or more letters.")
+  await expect(page.locator(".answer .line")).toHaveText("7 letters. Please use this code to register a free name with 10 or more letters.")
   await expect(onStep(page).getByRole("button", { name: "Register", exact: true })).toHaveCount(0)
   const next = uniqueLabel("ctk2")
   await page.getByLabel("Name", { exact: true }).fill(next)
@@ -897,8 +894,8 @@ test("Your names words a code order before its registration as a free name with 
     await page.route(`**/api/registration/${o.registrationId}*`, (route) => route.fulfill({ json: registrationView(o, { phase: { type: phase }, payment: { type: "code" }, price: 0 }) }))
   }
   await page.goto("/#/names")
-  await expect(page.locator(".list-row", { hasText: `${queued.label}.simplex` }).locator(".sub")).toHaveText("Waiting to commit · free name with a code")
-  await expect(page.locator(".list-row", { hasText: `${committing.label}.simplex` }).locator(".sub")).toHaveText("Committing · free name with a code")
+  await expect(page.locator(".list-row", { hasText: `${queued.label}.simplex` }).locator(".sub")).toHaveText("Registering · free name with a code")
+  await expect(page.locator(".list-row", { hasText: `${committing.label}.simplex` }).locator(".sub")).toHaveText("Registering · free name with a code")
   await page.unrouteAll({ behavior: "ignoreErrors" })
 })
 
@@ -907,7 +904,7 @@ test("a code order's link in a browser without its name code asks for the code, 
   page.on("request", (r) => { if (new URL(r.url()).pathname.startsWith("/api/registration/")) asked.push(r.url()) })
   await page.goto("/?registration=reg-code-elsewhere")
   await expect(onStep(page).getByRole("heading", { name: "The name code is not in this browser" })).toBeVisible()
-  await expect(onStep(page).locator(".notice")).toHaveText("Enter it in Check your code to see this order.")
+  await expect(onStep(page).locator(".notice")).toHaveText("Please enter the name code you saved for this order.")
   expect(asked).toEqual([])
 })
 
@@ -964,7 +961,7 @@ test("a failed code order opened again after its code was used elsewhere offers 
   await page.addInitScript(watchKept)
   await page.reload()
   await expect(page.getByText("Your code was used for another name")).toBeVisible()
-  await expect(page.locator(".screen-head .lead")).toHaveText(REFUSED_LEAD)
+  await expect(page.locator(".screen-head .lead")).toHaveCount(0)
   await offersSearchInstead(page)
   await page.getByRole("button", { name: "Search a name" }).click()
   await expect(page.getByLabel("Name", { exact: true })).toBeVisible()
@@ -988,7 +985,7 @@ test("a failed code order is drawn before its code is checked, and says the code
     await page.reload()
     await asked
     await expect(page.getByRole("heading", { name: "Not registered" }), unanswered).toBeVisible()
-    await expect(lead, unanswered).toHaveText(SUPPORT_LEAD)
+    await expect(lead, unanswered).toHaveCount(0)
     expect(await saidKept(page), `${unanswered}: the page said the code is kept without an answer`).toBe(false)
     await page.unrouteAll({ behavior: "wait" })
   }
@@ -1000,9 +997,9 @@ test("a failed code order is drawn before its code is checked, and says the code
   })
   await page.reload()
   await expect(page.getByRole("heading", { name: "Not registered" }), "the order is drawn while its code is checked").toBeVisible()
-  await expect(lead).toHaveText(SUPPORT_LEAD)
+  await expect(lead).toHaveCount(0)
   answer()
-  await expect(lead, "the lead says the code is kept once the check answers").toHaveText(`Your code is kept. ${SUPPORT_LEAD}`)
+  await expect(lead, "the lead says the code is kept once the check answers").toHaveText("Your code is kept.")
   await page.unrouteAll({ behavior: "wait" })
 })
 
@@ -1010,13 +1007,13 @@ test("a failed code order whose code check meets the rate limit counts down its 
   const { registrationId } = await registerWithCode(page, request, "climit")
   await control(request, `fail/${registrationId}`)
   await expect(page.getByRole("heading", { name: "Not registered" })).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator(".screen-head .lead")).toHaveText(`Your code is kept. ${SUPPORT_LEAD}`)
+  await expect(page.locator(".screen-head .lead")).toHaveText("Your code is kept.")
   const checks = await limitCodeChecks(page, 1, 3)
   await page.reload()
-  const notice = onStep(page).locator(".notice", { hasText: "Too many checks just now" })
-  await expect(notice.locator("span[aria-hidden=true]")).toHaveText(/^Your code may be fine\. Checking again in [1-3] seconds?\.$/)
-  await expect(page.locator(".screen-head .lead")).toHaveText(SUPPORT_LEAD)
-  await expect(page.locator(".screen-head .lead")).toHaveText(`Your code is kept. ${SUPPORT_LEAD}`, { timeout: 15_000 })
+  const notice = onStep(page).locator(".notice", { hasText: "Too many attempts" })
+  await expect(notice.locator("span[aria-hidden=true]")).toHaveText(/^Checking again in [1-3] seconds?\.$/)
+  await expect(page.locator(".screen-head .lead")).toHaveCount(0)
+  await expect(page.locator(".screen-head .lead")).toHaveText("Your code is kept.", { timeout: 15_000 })
   await expect(notice).toHaveCount(0)
   expect(checks(), "the refused check and the one after its wait").toBe(2)
 })
@@ -1036,12 +1033,12 @@ test("a code held by this browser's failed order is noted as held by it, with a 
   const { code: held } = await control(request, "code", { minLength: 6, state: "reserved" }) as { code: string }
   await page.goto("/#/code")
   await codeField(page).fill(held)
-  await expect(verdict).toHaveText("This code is being used for a name now. Each code registers one name; this one is held by an unfinished registration.")
+  await expect(verdict).toHaveText("This code is in use by an unfinished order.")
   await expect(verdict).toHaveClass(/\bbad\b/)
   const { code: revoked } = await control(request, "code", { minLength: 6, state: "revoked" }) as { code: string }
   await page.goto("/#/code")
   await codeField(page).fill(revoked)
-  await expect(verdict).toHaveText("This code is not valid: SimpleX withdrew it.")
+  await expect(verdict).toHaveText("This code was withdrawn. Please contact support.")
 })
 
 test("a failed code order whose code is revoked or past its date while still held by it says the code is kept", async ({ page, request }) => {
@@ -1051,7 +1048,7 @@ test("a failed code order whose code is revoked or past its date while still hel
   for (const state of ["expired", "revoked"]) {
     await control(request, "code/state", { code, state })
     await page.reload()
-    await expect(page.locator(".screen-head .lead"), state).toHaveText(`Your code is kept. ${SUPPORT_LEAD}`)
+    await expect(page.locator(".screen-head .lead"), state).toHaveText("Your code is kept.")
     expect(await keptRefusal(page, registrationId), state).toBeNull()
   }
 })
@@ -1068,7 +1065,7 @@ test("an order restored in a browser without its code promises nothing of the co
     await restored.addInitScript(watchKept)
     await restoreOrder(restored, ownerCode, label)
     await expect(restored.getByRole("heading", { name: "Not registered" })).toBeVisible()
-    await expect(restored.locator(".screen-head .lead")).toHaveText(SUPPORT_LEAD)
+    await expect(restored.locator(".screen-head .lead")).toHaveCount(0)
     expect(await saidKept(restored), "the restored order said its code is kept").toBe(false)
     expect(await keptRefusal(restored, registrationId)).toBeNull()
   } finally {
@@ -1120,13 +1117,13 @@ test("a code check past the service's limit counts down its wait, then checks th
   await page.goto("/#/code")
   await codeField(page).fill(code)
   const count = page.locator(".code-entry .verdict.bad [aria-hidden=true]")
-  await expect(count).toHaveText(/^Too many checks just now\. Your code may be fine\. Checking again in \d+ seconds\.$/)
+  await expect(count).toHaveText(/^Too many attempts\. Checking again in \d+ seconds\.$/)
   const find = onStep(page).getByRole("button", { name: "Find a name" })
   await expect(find).toBeDisabled()
   const left = async () => Number((await count.textContent())!.match(/(\d+) seconds?/)![1])
   const first = await left()
   await expect.poll(left, "the wait counts down").toBeLessThan(first)
-  await expect(page.locator(".code-entry .verdict.ok")).toHaveText(/^This code allows you to register a free name of 6 or more letters/, { timeout: (first + 5) * 1000 })
+  await expect(page.locator(".code-entry .verdict.ok")).toHaveText(/^Use this code to register a free name with 6 or more letters/, { timeout: (first + 5) * 1000 })
   await expect(find).toBeEnabled()
   expect(checks, "the refused check and the one after the wait").toBe(2)
 })
@@ -1149,12 +1146,12 @@ test("a name code whose order fails on the network to be read gives focus back t
   const { ownerCode } = await startOrder(page, label, { method: "btc" })
   await page.goto("/#/code")
   await codeField(page).fill(ownerCode)
-  await expect(page.locator(".code-entry .verdict")).toHaveText(`Name code of ${label}.simplex. Adding it shows the name in Your names, where you can edit its links.`)
+  await expect(page.locator(".code-entry .verdict")).toHaveText(`Name code of ${label}.simplex.`)
   await page.route("**/api/invoice/*", (route) => route.abort())
   const add = page.getByRole("button", { name: "Add to Your names" })
   await add.focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByText("The service could not be asked now")).toBeVisible()
+  await expect(page.getByText("The code could not be checked now")).toBeVisible()
   await expect(add).toBeFocused()
 })
 
@@ -1237,14 +1234,14 @@ test("Check your code says nothing of a code being typed, and refuses one too sh
   await codeField(page).fill("SN-HELLO-WORLD")
   await expect(verdict).toBeEmpty()
   await codeField(page).press("Enter")
-  await expect(page.locator(".verdict.bad")).toHaveText("This is not a SimpleX names code. Check it and try again.")
+  await expect(page.locator(".verdict.bad")).toHaveText("This code is not valid. Please check it for a typo.")
   await expect(page.locator(".verdict.bad"), "a verdict reads at the body's size").toHaveCSS("font-size", "16px")
   await shot(page, "N7c-check-unfinished")
   await codeField(page).press("End")
   await codeField(page).press("Backspace")
   await expect(verdict, "typing again clears the refusal").toBeEmpty()
   await codeField(page).blur()
-  await expect(page.locator(".verdict.bad")).toHaveText("This is not a SimpleX names code. Check it and try again.")
+  await expect(page.locator(".verdict.bad")).toHaveText("This code is not valid. Please check it for a typo.")
   await expect(onStep(page).getByRole("button", { name: "Find a name" })).toBeDisabled()
 })
 
@@ -1364,6 +1361,6 @@ test("a code applied to the tab is taken off once Your names or Check your code 
   await control(request, "code/state", { code: withdrawn, state: "revoked" })
   await page.goto("/#/code")
   await codeField(page).fill(withdrawn)
-  await expect(onStep(page).locator(".verdict")).toContainText("not valid")
+  await expect(onStep(page).locator(".verdict")).toContainText("withdrawn")
   await expect(chip(page)).toBeHidden()
 })

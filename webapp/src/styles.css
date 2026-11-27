@@ -500,9 +500,7 @@ html:not(.theming) .notice.name-check { transition: background-color 200ms, bord
 .stripe { border-radius: 16px; }
 /* the card page is drawn tighter, so its notice and Stripe's form fit above Pay, and Stripe's note goes under Cancel */
 .screen-body:has(> .stripe) { gap: 10px; }
-/* one line across the column, 355 px wide at 13 px, so it keeps clear of the invest note on the narrowest phone */
-.actions-row:has(.stripe-note) { container-type: inline-size; }
-.actions-row .stripe-note { display: block; margin-top: 4px; font-size: min(13px, 100cqi / 28); line-height: 1.3; white-space: nowrap; }
+.actions-row .stripe-note { display: block; margin-top: 4px; font-size: 13px; line-height: 1.3; white-space: normal; text-wrap: balance; }
 /* Edit links' count of edits left: one line under Save, held while empty, its longest "You can edit links again on 29 September 2027." */
 .actions-row:has(.edit-count) { container-type: inline-size; }
 .actions-row .edit-count { min-height: 1lh; font-size: min(var(--fs-small), 100cqi / 26); white-space: nowrap; }

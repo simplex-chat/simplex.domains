@@ -3,7 +3,7 @@ import type { AddressProof } from "../api.ts"
 import { alertBox, announce, btn, copyButton, el, fitNames, icon, type Kid, liveRegion, reducedMotion, refill, type Tone, waitOut } from "../dom.ts"
 import { SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
-import type { Hold } from "../screens/hold.ts"
+import { type Hold, LIMITED_LEAD } from "../screens/hold.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
 import { secondsLeft } from "./hold.ts"
@@ -12,10 +12,10 @@ import { reloadedForRoute } from "./served-mode.ts"
 export const CONTACT_EMAIL = "chat@simplex.chat"
 export const SIMPLEX_SUPPORT = "https://smp6.simplex.im/a#lrdvu2d8A1GumSmoKb2krQmtKhWXq-tyGpHuM7aMwsw"
 
-export const supportVia = (verb: "Contact" | "contact"): Kid[] =>
+export const supportVia = (verb: "Please contact" | "contact"): Kid[] =>
   [`${verb} support via `, el("a", { class: "nowrap", href: `mailto:${CONTACT_EMAIL}` }, CONTACT_EMAIL), " or ", el("a", { href: SIMPLEX_SUPPORT, target: "_blank", rel: "noopener" }, "SimpleX")]
 
-export const contactSupport = (verb: "Contact" | "contact", reference: Kid): Kid[] => [...supportVia(verb), ", and include order reference ", reference]
+export const contactSupport = (verb: "Please contact" | "contact", reference: Kid): Kid[] => [...supportVia(verb), ", with the name and the order reference ", reference]
 
 let rerender: () => void = () => undefined
 
@@ -281,15 +281,13 @@ export function outcome(o: Outcome): HTMLElement {
     actionsOf(o))
 }
 
-const LIMITED = "Too many orders were tried from here."
-
 export function limitScreen(hold: Hold | null, again: () => void, back: string, signal: AbortSignal): HTMLElement {
-  const line = el("span", {}, `${LIMITED} Nothing was charged.`)
+  const line = el("span", {}, `${LIMITED_LEAD}try again.`)
   const tryAgain = btn("Try again", "", again)
   tryAgain.disabled = hold !== null
   const shown = outcome({ tone: "warn", icon: "clock", title: "Too many attempts", text: line, action: tryAgain, back })
   // the count goes in once the line is in its notice, where its spoken copy goes beside it
-  if (hold) waitOut(line, Math.max(1, secondsLeft(hold)), (left) => `${LIMITED} Try again in ${left}.`, () => undefined, signal)
+  if (hold) waitOut(line, Math.max(1, secondsLeft(hold)), (left) => `${LIMITED_LEAD}try again in ${left}.`, () => undefined, signal)
   return shown
 }
 
@@ -323,7 +321,7 @@ export function showRefund(reference: string, key: string, proof?: AddressProof)
   const copy = proof === undefined ? copyButton(reference, "field-copy", "Copy reference") : copyButton(withProof(reference, proof), "field-copy", WITH_PROOF)
   showPopup(key, [
     el("h2", { id: POPUP_TITLE }, "Refund"),
-    el("p", {}, ...contactSupport("Contact", reference), ". Support refunds what is left of your balance."),
+    el("p", {}, ...contactSupport("Please contact", reference), ". Support refunds what is left of your balance."),
     el("div", { class: "code-display" }, el("span", { class: "code-text" }, reference), el("span", { class: "code-buttons" }, copy)),
   ], copy)
 }

@@ -6,7 +6,7 @@ import {
   toCodeStep, toReview, uniqueLabel, useCode, waitRegistered,
 } from "./helpers.ts"
 
-const CODES_ONLY_LINE = "Names can be registered with an investor code for now."
+const CODES_ONLY_LINE = "Names can be registered only with a code right now."
 const CODES_ONLY_TITLE = "Registration is by code only for now"
 const REGISTER_WITH_CODE = "Register with code"
 const FORBIDDEN = 403
@@ -171,7 +171,7 @@ codesTest("a valid prepaid code opens the search for the names it covers and reg
   const short = "abcdef"
   await nameField(page).fill(short)
   await nameField(page).press("Enter")
-  await expect(page.locator(".answer .line.bad")).toHaveText("6 letters. Your code covers names of 7 or more letters.")
+  await expect(page.locator(".answer .line.bad")).toHaveText("6 letters. Please use this code to register a free name with 7 or more letters.")
   expect(calls).not.toContain(`GET /api/name/${hex(labelHash(short))}`)
   await shot(page, "C3-codes-only-uncovered")
 
@@ -225,8 +225,8 @@ test("an order paid before codes only shows no new invoice or other name, only R
   await setMode(request, "codes")
   await codesPageHolds(page)
   await page.goto(`${CODES_PAGE}/?order=${invoiceId}`)
-  await expect(page.getByRole("heading", { name: `${label}.simplex was taken` })).toBeVisible()
-  await expect(onStep(page).getByText("What you paid is kept as your balance. You can ask for a refund. Your names shows the balance.")).toBeVisible()
+  await expect(page.getByRole("heading", { name: `${label}.simplex is no longer available` })).toBeVisible()
+  await expect(onStep(page).getByText("What you paid is in your balance. You can ask for a refund.")).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: REGISTER_WITH_CODE })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await expect(onStep(page).getByRole("button", { name: "Get a refund" })).toBeVisible()
@@ -254,7 +254,7 @@ codesTest("a registration ended in its dispute period is shown with Register wit
   const order = await keepOrder(page, `reg-${label}`, null, label)
   await page.route(`**/api/registration/${order.registrationId}*`, (route) => route.fulfill({ json: registrationView(order, { phase: { type: "ended" }, commitTx: "0x02", registerTx: "0x03" }) }))
   await page.goto(`/?registration=${order.registrationId}`)
-  await expect(onStep(page).getByRole("heading", { name: "Registration ended" })).toBeVisible()
+  await expect(onStep(page).getByRole("heading", { name: "Registration cancelled" })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Search a name" })).toHaveCount(0)
   await onStep(page).getByRole("button", { name: REGISTER_WITH_CODE }).click()
   await expect(onStep(page).getByRole("heading", { name: "Check your code" })).toBeVisible()
@@ -269,7 +269,7 @@ test("a page opened before codes only, refused as it pays, says registration is 
   const seen = loads(page)
   await payButton(page).click()
   await expect(onStep(page).getByRole("heading", { name: CODES_ONLY_TITLE })).toBeVisible()
-  await expect(onStep(page).getByText(/can be registered with an investor code for now\. Nothing was charged\.$/)).toBeVisible()
+  await expect(onStep(page).getByText(CODES_ONLY_LINE)).toBeVisible()
   await shot(page, "C9-codes-only-refused")
   expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
   await onStep(page).getByRole("button", { name: "Enter a code" }).click()
@@ -285,7 +285,7 @@ test("a closed invoice's page opened before codes only, refused a new invoice, s
   const seen = loads(page)
   await page.getByRole("button", { name: "Get a new invoice" }).click()
   const note = onStep(page).locator(".notice", { hasText: CODES_ONLY_TITLE })
-  await expect(note).toContainText("Nothing was charged. Enter a code.")
+  await expect(note).toContainText(`${CODES_ONLY_LINE} Enter a code.`)
   await expect(page).toHaveURL(new RegExp(`order=${invoiceId}`))
   expect(seen.count, "the refusal stays in view, in the page as it was").toBe(0)
   await Promise.all([

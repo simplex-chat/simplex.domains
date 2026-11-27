@@ -16,10 +16,9 @@ const ANY_LINK = { name: "Link", placeholder: "Paste a contact address or channe
 const ANY_LINK_SCANNED = "Paste or scan a link"
 // styles.css's phone layout
 const PHONE = "(max-width: 520px)"
-const NO_CAMERA = "Allow the camera, or paste the link."
-const SCAN_HINT = "Point the camera at the QR code of your SimpleX address or channel link."
-const NOT_A_LINK = "This is not a SimpleX contact address or channel link."
-const linkName = (kind: LinkKind) => KIND_TEXT[kind].name
+const NO_CAMERA = "The camera could not be used. Please allow it, or paste the link."
+const SCAN_HINT = "Point the camera at the QR code of your link."
+const NOT_A_LINK = "This is not a SimpleX link. Please copy the link from the SimpleX app."
 const otherKind = (kind: LinkKind): LinkKind => kind === "contact" ? "channel" : "contact"
 
 let linkFields = 0
@@ -69,9 +68,9 @@ export function linkChat(link: string, kind: LinkKind, name: string, key: string
   return place
 }
 
-// What a field takes: a link of its kind, or of either kind, less a kind another field holds; `fieldOf` names the field for a kind,
-// and `filled` tells whether the other field already holds a link of a kind.
-interface Takes { kind: LinkKind | null; refused: () => LinkKind | null; fieldOf: (kind: LinkKind) => string; filled: (kind: LinkKind) => boolean }
+// What a field takes: a link of its kind, or of either kind, less a kind another field holds; `filled` tells whether the
+// other field already holds a link of a kind.
+interface Takes { kind: LinkKind | null; refused: () => LinkKind | null; filled: (kind: LinkKind) => boolean }
 
 // data-state is "ok", "bad", "checking" or "empty"; save hears each good link with its kind and the field emptied, never one checked or refused.
 // `valueKind` is the record `value` came from, which a value kept as it is, such as several links, keeps.
@@ -168,10 +167,9 @@ function linkField(takes: Takes, value: string, save: (v: string, kind: LinkKind
     const held = kind !== null && kind === takes.refused() ? kind : null
     if (problem || held) {
       const other = held ?? linkKind(link)
-      return refuse(problem === "long" ? "This link is too long."
-        : other && takes.filled(other) ? `This is a ${KIND_TEXT[other].noun}. Paste a ${KIND_TEXT[otherKind(other)].noun} here.`
-        : other ? `This is a ${linkName(other).toLowerCase()} link: paste it in the ${takes.fieldOf(other)} field.`
-        : takes.kind ? `Paste a SimpleX ${linkName(takes.kind).toLowerCase()} short link.` : NOT_A_LINK)
+      return refuse(problem === "long" ? "This link is too long. Please use the short link."
+        : other && takes.filled(other) ? `This is a ${KIND_TEXT[other].noun}. Please paste a ${KIND_TEXT[otherKind(other)].noun} here.`
+        : other ? `This is a ${KIND_TEXT[other].noun}. Please paste it in the other field.` : NOT_A_LINK)
     }
     if (known) {
       accept()
@@ -195,7 +193,7 @@ function linkField(takes: Takes, value: string, save: (v: string, kind: LinkKind
           (left) => `The link could not be checked now. Checking again in ${left}.`, () => { if (mine === seq) void check() }, waiting.signal)
         return show(null, notice)
       }
-      refuse("This link could not be opened.")
+      refuse(NOT_A_LINK)
     }
   }
   // one scan at a time, ended with the field's page
@@ -242,7 +240,6 @@ export function linkFieldsFor(links: api.Links, save: (kind: LinkKind, link: str
   let second: { kind: LinkKind; field: HTMLElement } | null = null
   let opening = true
   const told = (kind: LinkKind, link: string) => { if (!opening) save(kind, link) }
-  const fieldOf = (kind: LinkKind) => second?.kind === kind ? linkName(kind) : ANY_LINK.name
   const add = link("", () => addSecond(otherKind(held!), "", true))
   const node = el("div", { class: "link-fields" })
   const offerAdd = () => {
@@ -250,14 +247,14 @@ export function linkFieldsFor(links: api.Links, save: (kind: LinkKind, link: str
     if (held) add.textContent = KIND_TEXT[otherKind(held)].add
   }
   const accepted = (field: HTMLElement | undefined) => field?.dataset.state === "ok"
-  const firstField = linkField({ kind: null, refused: () => second?.kind ?? null, fieldOf, filled: (kind) => second?.kind === kind && accepted(second.field) }, links[first], (value, kind) => {
+  const firstField = linkField({ kind: null, refused: () => second?.kind ?? null, filled: (kind) => second?.kind === kind && accepted(second.field) }, links[first], (value, kind) => {
     if (held && held !== kind) told(held, "")
     if (kind) told(kind, value)
     held = kind ?? (second ? held : null)
     offerAdd()
   }, first)
   const addSecond = (kind: LinkKind, value: string, focus: boolean) => {
-    const field = linkField({ kind, refused: () => null, fieldOf, filled: (other) => held === other && accepted(firstField) }, value, (v) => told(kind, v))
+    const field = linkField({ kind, refused: () => null, filled: (other) => held === other && accepted(firstField) }, value, (v) => told(kind, v))
     second = { kind, field }
     add.before(field)
     offerAdd()

@@ -147,7 +147,7 @@ test("terms changed while ordering show their notice without a near-empty frame"
   try {
     await expectNoEmptyFrame(page, "review to its terms notice", async () => {
       await payButton(page).click()
-      await expect(onStep(page).getByText("The Names Conditions changed. Accept them again.")).toBeVisible()
+      await expect(onStep(page).getByText("The Names Conditions changed. Please accept them to continue.")).toBeVisible()
     })
   } finally {
     await control(request, "general-terms", { text: null })

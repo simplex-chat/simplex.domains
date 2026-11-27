@@ -16,16 +16,16 @@ export type CodeVerdict =
   | { kind: "refused"; title: string; line: string; link?: string; checkAgainIn?: number }
 
 export const STATE_LINES: Record<Exclude<api.CodeState, "unused">, [string, string]> = {
-  reserved: ["This code is being used for a name now", "Each code registers one name; this one is held by an unfinished registration."],
-  used: ["This code was already used", "Each code registers one name."],
-  revoked: ["This code is not valid: SimpleX withdrew it", ""],
-  expired: ["This code has expired", "It can no longer register a name."],
-  unpaid: ["This code is not paid for yet", "It works once its payment is confirmed."],
+  reserved: ["This code is in use by an unfinished order", ""],
+  used: ["This code was already used for a name", ""],
+  revoked: ["This code was withdrawn", "Please contact support."],
+  expired: ["This code has expired", "Please contact support."],
+  unpaid: ["This code is not paid for yet", "It can be used once its payment is confirmed."],
 }
 
 // what codes-only mode says, until the full launch opens payments
 export const CODES_ONLY_TITLE = "Registration is by code only for now"
-export const CODES_ONLY_LINE = "Names can be registered with an investor code for now."
+export const CODES_ONLY_LINE = "Names can be registered only with a code right now."
 
 const NOT_COVERING = "This code does not cover this name"
 
@@ -39,33 +39,33 @@ export const CODE_ERRORS: Record<string, string> = {
   code_not_covering: `${NOT_COVERING}.`,
 }
 
-const coversLine = (code: session.AppliedCode) => `This code allows you to register a free name of ${code.minLength} or more letters, for ${code.years} years.`
+export const useCodeFor = (minLength: number | null) => `Please use this code to register a free name with ${minLength} or more letters`
+const coversLine = (code: session.AppliedCode) => `Use this code to register a free name with ${code.minLength} or more letters, for ${code.years} years.`
 const unused = (code: session.AppliedCode): CodeVerdict => ({ kind: "prepaid", code, line: coversLine(code) })
-const notCovering = (code: session.AppliedCode): CodeVerdict => ({ kind: "refused", title: NOT_COVERING, line: `It covers names of ${code.minLength} or more letters.` })
+const notCovering = (code: session.AppliedCode): CodeVerdict => ({ kind: "refused", title: useCodeFor(code.minLength), line: "" })
 // a name code where a prepaid code pays for one name
-const NAME_CODE: CodeVerdict = { kind: "refused", title: "This is a name code", line: "A code from SimpleX lets you register a free name." }
+const NAME_CODE: CodeVerdict = { kind: "refused", title: "This is a name code, not a code for a free name", line: "" }
 
-const MISTYPED: CodeVerdict = { kind: "refused", title: "This code is not valid", line: "Check it for a mistyped character." }
-const NO_CAMERA: CodeVerdict = { kind: "refused", title: "The camera could not be used", line: "Allow the camera, or paste the code." }
-const SCAN_HINT = "Point the camera at the QR code of your name code."
-const UNFINISHED: CodeVerdict = { kind: "refused", title: "This is not a SimpleX names code", line: "Check it and try again." }
+const MISTYPED: CodeVerdict = { kind: "refused", title: "This code is not valid", line: "Please check it for a typo." }
+const NO_CAMERA: CodeVerdict = { kind: "refused", title: "The camera could not be used", line: "Please allow it, or paste the code." }
+const SCAN_HINT = "Point the camera at the QR code."
 
-const ownerLine = (name: string) => `Name code of ${name}.simplex. Adding it shows the name in Your names, where you can edit its links.`
+const ownerLine = (name: string) => `Name code of ${name}.simplex.`
 
 // A refusal that asking again can change: a rate limit, after whose wait the code is checked again, or a service that did not answer.
 function notChecked(e: unknown): CodeVerdict {
   if (e instanceof api.ApiError && e.code === "rate_limited") {
-    return { kind: "refused", title: "Too many checks just now", line: "Your code may be fine.", checkAgainIn: e.retryAfter ?? api.LIMITED_WAIT_S }
+    return { kind: "refused", title: "Too many attempts", line: "", checkAgainIn: e.retryAfter ?? api.LIMITED_WAIT_S }
   }
-  return { kind: "refused", title: "The code could not be checked", line: "Try again in a moment." }
+  return { kind: "refused", title: "The code could not be checked now", line: "Please try again in a moment." }
 }
 
 // A name code is named by the order it restores, which only the code opens; a rate limit holds the tab's lookups too.
 async function judgeNameCode(text: string): Promise<CodeVerdict> {
   try {
     const found = await flow.codeOrderOf(text)
-    if (found === "none") return { kind: "refused", title: "No order was found for this code", line: "The service has no order registered to its wallet." }
-    if (found === "other") return { kind: "refused", title: "This code does not open the order", line: "The order found for it was made with another code." }
+    if (found === "none") return { kind: "refused", title: "No order was found for this name code", line: "" }
+    if (found === "other") return { kind: "refused", title: "This order could not be opened with this name code", line: "Please contact support." }
     return { kind: "owner", found, line: ownerLine(found.name) }
   } catch (e) {
     holdFrom(e)
@@ -95,7 +95,7 @@ async function judgeCode(text: string, signal: AbortSignal, forName?: string): P
     // well formed but unknown to the service: not a typo, which the check digit would have caught
     if (e instanceof api.ApiError && e.code === "code_invalid") {
       session.dropActiveCode(parsed.display)
-      return { kind: "refused", title: "This code is not valid: SimpleX did not issue it", line: "" }
+      return { kind: "refused", title: "This code was not issued by SimpleX", line: "" }
     }
     return notChecked(e)
   }
@@ -135,7 +135,7 @@ function watchCode(input: HTMLInputElement, show: (v: CodeVerdict | null) => voi
   const done = () => {
     if (signal.aborted || codeProgress(input.value) !== "partial") return
     forget()
-    show(UNFINISHED)
+    show(MISTYPED)
   }
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") done() })
   // Chromium blurs the field as a redraw moves it, and the redraw gives focus back before the check

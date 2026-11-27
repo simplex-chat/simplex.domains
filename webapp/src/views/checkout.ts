@@ -16,7 +16,7 @@ import { type CheckoutStep, checkoutUrl, CODE_URL } from "../screens/routes.ts"
 import { ticked } from "../screens/terms.ts"
 import * as session from "../session.ts"
 import * as store from "../store.ts"
-import { CODE_ERRORS, codeField, CODES_ONLY_TITLE, type CodeVerdict } from "./codes.ts"
+import { CODE_ERRORS, codeField, CODES_ONLY_LINE, CODES_ONLY_TITLE, type CodeVerdict } from "./codes.ts"
 import { CHECKING_LINK, linkChat, linkFieldsFor, linksSettled } from "./links.ts"
 import {
   asStep, type Builder, currentRoute, draw, focusOn, go, goFrom, isRedraw, isRoute, kept, keptLive, limitScreen, outcome, redirect, refresh, screen, searchLink, supportVia, whenLeaving,
@@ -153,7 +153,7 @@ async function showOpenOrder(signal: AbortSignal): Promise<void> {
   const open = invoices[at]
   if (!open || signal.aborted) return
   const show = (seen: api.InvoiceView | null) => {
-    const order = unpaid(seen) ? { invoiceId: open.invoiceId, confirming: seen.paidInFull === true } : null
+    const order = unpaid(seen) ? { invoiceId: open.invoiceId } : null
     if (!signal.aborted && JSON.stringify(order) !== JSON.stringify(state.openOrder)) dispatch({ type: "open-order-seen", order })
     return order !== null
   }
@@ -225,9 +225,9 @@ function methodsBlock({ checkout: c, openOrder: order, sending }: CheckoutState)
     methodMark(m), el("b", {}, methodName(m)))
   })
   return el("section", { class: "pay-with" },
-    order ? el("p", { class: "note other-order" }, `Another order ${order.confirming ? "is confirming its payment" : "is waiting for its payment"}. `,
+    order ? el("p", { class: "note other-order" }, "Another order is open. ",
       el("a", { class: "nowrap", href: store.invoiceUrl(order.invoiceId) }, "Open that order")) : null,
-    c.unavailable ? line("warn", "alert", `${methodName(c.unavailable)} is temporarily unavailable. Try another method, or come back later.`) : null,
+    c.unavailable ? line("warn", "alert", `${methodName(c.unavailable)} is unavailable right now. Please choose another way to pay.`) : null,
     el("div", { class: "methods", role: "radiogroup", "aria-label": "Pay with" }, ...radios))
 }
 
@@ -280,8 +280,8 @@ function removeLink(s: CheckoutState): HTMLAnchorElement | null {
 }
 
 const waitingNotice = (blocked: WaitingOrder) => el("section", { class: "pay-with" },
-  alertBox("info", "info", "You have an order waiting to be confirmed", "A second order would be a second charge, so this one cannot start yet. When that payment is confirmed or expires, you can start a new one here."),
-  el("div", {}, btn("Open the waiting order", "quiet", () => go(store.invoiceUrl(blocked.invoiceId)))))
+  alertBox("info", "info", "You have an order waiting to be confirmed", "Please wait until your other card payment is confirmed."),
+  el("div", {}, btn("Open the other order", "quiet", () => go(store.invoiceUrl(blocked.invoiceId)))))
 
 const actionLabel = (text: string, s: CheckoutState) => s.sending && !s.busy ? "Sending your order…" : text
 
@@ -334,7 +334,7 @@ function buildLinks(s: CheckoutState): HTMLElement {
   const skip = linked ? null : link("Skip for now", () => go(checkoutUrl("review")))
   skip?.setAttribute("data-focus", "skip")
   return screen({ title: "Your name's links", back: searchLink(c.label, c.order?.registrationId),
-    lead: ["Paste your SimpleX contact address or channel link. ", el("span", { class: "nowrap" }, "You can change it later.")],
+    lead: ["Paste your SimpleX contact address or channel link. ", el("span", { class: "nowrap" }, "You can change them later.")],
     alt: skip, action: continueButton(() => void linksDone(links.fields()), !linked, awaitingChecks) },
     el("span", { class: "label" }, "Link"), links.node)
 }
@@ -343,12 +343,12 @@ function buildCode(s: CheckoutState): HTMLElement {
   const c = s.checkout
   const box = el("input", { type: "checkbox", checked: c.saved, disabled: s.sending, "data-focus": "saved" })
   box.addEventListener("change", () => { if (!state.sending && !act({ type: "saved", saved: box.checked })) refresh() })
-  return screen({ title: "Save your name code", lead: ["It is the only key to ", nameText(c.label, SITE.tld, "."), " If you lose it, nothing can recover it."], back: checkoutUrl("links"),
+  return screen({ title: "Save your name code", lead: ["It is the only key to ", nameText(c.label, SITE.tld, "."), " If you lose it, it cannot be recovered."], back: checkoutUrl("links"),
     action: continueButton(() => go(checkoutUrl("review")), !c.saved) },
     codeDisplay(c.ownerCode!, "owner-code", true),
     nameAddressLine(c.ownerCode!),
-    store.canPersist() ? el("p", { class: "note center" }, "Private windows and Tor Browser forget it when closed.")
-      : alertBox("danger", "alert", "This code could not be saved in this browser", "Save a copy now: it will be the only one."),
+    store.canPersist() ? el("p", { class: "note center" }, "It may be lost when the window is closed.")
+      : alertBox("danger", "alert", "This code could not be saved in this browser", "Please save a copy now."),
     el("label", { class: "check" }, box, el("span", { class: "box" }), SAVED_LABEL))
 }
 
@@ -387,7 +387,7 @@ function buildReview(s: CheckoutState, signal: AbortSignal): HTMLElement {
 
 function buildPriceChanged({ checkout: c }: CheckoutState): HTMLElement {
   return outcome({ tone: "warn", icon: "alert", title: "The price changed",
-    text: [nameText(c.label, SITE.tld), ` costs ${dollars(c.price)} now; it changed while you were deciding. Nothing was charged.`],
+    text: ["The price of ", nameText(c.label, SITE.tld), ` changed to ${dollars(c.price)}.`],
     action: btn("Search again", "", () => go(searchLink(c.label, c.order?.registrationId))) })
 }
 
@@ -405,7 +405,7 @@ function buildFailed(s: CheckoutState): HTMLElement {
   const c = s.checkout
   // the same order is sent again from here; Back leaves it for the search
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
-  return outcome({ tone: "danger", icon: "alert", title: "That did not go through", text: ["Nothing was charged. If this happens again, ", ...supportVia("contact"), "."],
+  return outcome({ tone: "danger", icon: "alert", title: "The order could not be placed", text: ["Please try again. If this happens again, ", ...supportVia("contact"), "."],
     action: retry, alt: link("Back", () => go(searchLink(c.label, c.order?.registrationId))) })
 }
 
@@ -414,7 +414,7 @@ const buildRefusedLink = (kind: LinkKind) => (): HTMLElement =>
 
 function buildUnavailable(s: CheckoutState): HTMLElement {
   const retry = setAction(btn("Try again", "", () => void submitOrder()), s.busy, false)
-  return outcome({ tone: "warn", icon: "alert", title: NO_ORDERS, text: "Its terms can't be read now. Nothing was charged. Try again later.",
+  return outcome({ tone: "warn", icon: "alert", title: NO_ORDERS, text: "Please try again later.",
     action: retry, alt: link("Back", () => go(searchLink(s.checkout.label, s.checkout.order?.registrationId))) })
 }
 
@@ -424,10 +424,8 @@ function buildDowntime({ checkout: c }: CheckoutState): HTMLElement {
 }
 
 // a page opened before the service took codes only; the code entered there registers the name searched again for free
-function buildCodesOnly({ checkout: c }: CheckoutState): HTMLElement {
-  return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE,
-    text: [nameText(c.label, SITE.tld), " can be registered with an investor code for now. Nothing was charged."],
-    action: btn("Enter a code", "", () => go(CODE_URL)) })
+function buildCodesOnly(): HTMLElement {
+  return outcome({ tone: "info", icon: "key", title: CODES_ONLY_TITLE, text: CODES_ONLY_LINE, action: btn("Enter a code", "", () => go(CODE_URL)) })
 }
 
 const BUILDERS: Record<CheckoutKind, Builder<CheckoutState>> = {
@@ -515,7 +513,7 @@ async function sendOrder(): Promise<void> {
       // this name code already has a live order for the name, which it opens instead
       const own = await flow.ownOrderFor(c.ownerCode!, built.request.labelHash)
       if (!own) throw e
-      if (own.invoiceId && own.method !== chosen) openedInstead({ invoiceId: own.invoiceId, had: own.method, chosen })
+      if (own.invoiceId && own.method !== chosen) openedInstead(own.invoiceId)
       done(store.orderUrl(own))
     }
   } catch (e) {

@@ -6,8 +6,8 @@ import { dateOf, dollars, SEP } from "../format.ts"
 import type { IconName } from "../icons.ts"
 import {
   balanceRows, type BalanceRow, CODE_CHIPS, EDIT_RETRY_MS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit, initialList,
-  againLine, initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
-  reduceList, reduceRestore, REFUSALS, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
+  initialRestore, lapsed, lateLine, ranOut, moneyReached, nameRows, ORDER_CHIP_WORDS, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit,
+  reduceList, reduceRestore, REFUSALS, registrableAgain, ROW_CHIPS, rowsDrawn, unanswered, type RestoreEvent, type RestoreState, type RowSeen, type CodeCheck, screenOfEdit, type Stored, waitsToSign,
 } from "../screens/names.ts"
 import { checkoutUrl, CODE_URL, editUrl } from "../screens/routes.ts"
 import * as session from "../session.ts"
@@ -266,12 +266,7 @@ function buildNames(s: ListState, signal: AbortSignal): HTMLElement {
     forgetQuestion(s))
 }
 
-const PROGRESS: Partial<Record<api.Phase, string>> = {
-  queued: "Paid, waiting to commit",
-  committing: "Committing",
-  committed: "Committed, waiting before it can register",
-  registering: "Registering on chain",
-}
+const REGISTERING: api.Phase[] = ["queued", "committing", "committed", "registering"]
 
 // a row's line goes on after a separator in lower case, as "free name with a code" after a step
 const continued = (text: string | null) => text ? text.charAt(0).toLowerCase() + text.slice(1) : text
@@ -294,9 +289,8 @@ function subLine(o: store.OrderRecord, { view, invoice }: RowSeen, now: number):
       : [`${arrived}; `, ...contactSupport("contact", el("span", { class: "mono" }, invoice.invoiceId)), ", to have it credited"]
   }
   if (view.phase.type === "taken" && o.method === "code") return paid
-  if (waitsToSign(view, now)) return `Open the order so this browser can sign it${SEP}${continued(paid)}`
-  const progress = view.phase.type === "queued" && o.method === "code" ? "Waiting to commit" : PROGRESS[view.phase.type]
-  return progress ? `${progress}${SEP}${continued(paid)}` : paid
+  if (waitsToSign(view, now)) return paid
+  return REGISTERING.includes(view.phase.type) ? `Registering${SEP}${continued(paid)}` : paid
 }
 
 function codeToggle(id: string, shown: boolean): HTMLElement {
@@ -305,8 +299,10 @@ function codeToggle(id: string, shown: boolean): HTMLElement {
   return toggle
 }
 
+export const NAME_CODE_NOTE = "You need this code to control your name and edit the links. Never share it with us or anybody."
+
 const rowCode = (code: string) => el("div", { class: "row-code" },
-  el("p", { class: "note" }, "The name code owns the name and edits its links. Keep it safe."),
+  el("p", { class: "note" }, NAME_CODE_NOTE),
   codeDisplay(code), nameAddressAndExplorer(code), nameCodeQr(code))
 
 function orderRow(o: store.OrderRecord, s: ListState): HTMLElement {
@@ -460,7 +456,7 @@ async function addNameCode(verdict: Extract<CodeVerdict, { kind: "owner" }>): Pr
     if (!isRoute(checkRoute)) return
     if (e instanceof api.ApiError && e.code === "not_found") return refuse("none")
     // the service asks for a wait before the next lookup; the button stays off until then, whatever is typed meanwhile
-    if (holdFrom(e)) return dispatchRestore({ type: "held", until: holdEnd(), lead: "Your code is fine. " })
+    if (holdFrom(e)) return dispatchRestore({ type: "held", until: holdEnd(), lead: "Please " })
     refuse(e instanceof api.ApiError ? "unasked" : "other")
   }
 }
@@ -558,14 +554,15 @@ const notice = (ic: IconName, title: string, text: string): Builder<EditState> =
 function buildExpired(s: EditState): HTMLElement {
   const { view, answer, now } = s.read!
   const expiresAt = api.expiresAtOf(view)
-  return editNotice(s, alertBox("info", "clock", "This name has expired",
-    `${ranOut(expiresAt)} Names are not renewed, so this page no longer edits its links. ${againLine(expiresAt, answer, now)}`))
+  return editNotice(s, registrableAgain(expiresAt, answer, now).when === "taken"
+    ? alertBox("info", "clock", "This name has another owner", ranOut(expiresAt))
+    : alertBox("info", "clock", "This name has expired", "Renewal is not implemented yet."))
 }
 
 function buildUnreadable(s: EditState, signal: AbortSignal): HTMLElement {
   if (!s.reading) after(EDIT_RETRY_MS, readAgain, signal)
   return screen({ title: EDIT_TITLE, back: NAMES, lead: nameOf(s), action: setAction(btn("Try again", "", readAgain), s.reading, false) },
-    alertBox("warn", "alert", "The name could not be read now", "This page tries again by itself."))
+    alertBox("warn", "alert", "The name could not be loaded now", "Loading again in a few seconds."))
 }
 
 function resultNode(f: EditForm, signal: AbortSignal): HTMLElement | null {
@@ -574,11 +571,10 @@ function resultNode(f: EditForm, signal: AbortSignal): HTMLElement | null {
     case null: return null
     case "sending": return el("p", { class: "note" }, "Signing and sending…")
     case "nothing": return alertBox("info", "info", null, "Nothing has changed.")
-    case "saved": return alertBox("ok", "check", "Links saved", "The change is on chain; the app shows it within a few minutes.")
-    case "unanswered": return alertBox("warn", "clock", "No answer yet", "The change may still go through. Reload this page in a few minutes to see whether it did before saving again.")
-    case "moved": return alertBox("warn", "clock", "An earlier save got there first",
-      "It was still on its way when this one was signed. The fields now show the links on chain: change them and save again.")
-    case "refused": return alertBox("danger", "alert", NOT_SAVED, "Try again in a moment.")
+    case "saved": return alertBox("ok", "check", "Links saved", "The app shows them within a few minutes.")
+    case "unanswered": return alertBox("warn", "clock", "No answer yet", "Please reload in a few minutes to see if it was saved.")
+    case "moved": return alertBox("warn", "clock", "The links were changed elsewhere", "Please check the links and save again.")
+    case "refused": return alertBox("danger", "alert", NOT_SAVED, "Please try again in a moment.")
   }
 }
 
@@ -646,7 +642,7 @@ function buildEditForm(s: EditState, signal: AbortSignal): HTMLElement {
     count.removeAttribute("tabindex")
     delete count.dataset.focus
   }
-  return screen({ title: EDIT_TITLE, back: NAMES, lead: [nameText(s.record!.label, s.record!.tld, "."), " Your name code signs the change; ", el("span", { class: "nowrap" }, "nothing to pay.")], action: save, alt: count },
+  return screen({ title: EDIT_TITLE, back: NAMES, lead: [nameText(s.record!.label, s.record!.tld, "."), " Use your name code to sign the change. ", el("span", { class: "nowrap" }, "There is nothing to pay.")], action: save, alt: count },
     el("span", { class: "label" }, "Link"), links.node, keptLive("edit-answer", undefined, answer))
 }
 
@@ -654,10 +650,10 @@ const EDIT_BUILDERS: Record<EditKind, Builder<EditState>> = {
   "edit-no-code": (s) => editNotice(s, alertBox("info", "key", "The name code is not in this browser", "Add it in Check your code to edit this name's links.")),
   "edit-unreadable": buildUnreadable,
   "edit-expired": buildExpired,
-  "edit-ended": notice("alert", "The registration was ended", "A payment for it was disputed, reversed or refunded in full, so this page no longer edits its links."),
-  "edit-in-app": notice("key", "This name has another owner", "Its owner changed, so this browser can no longer edit its links."),
-  "edit-elsewhere": notice("link", "This name's links are kept elsewhere", "It points at another resolver, so its links are not edited here."),
-  "edit-not-registered": notice("clock", "The name is not registered yet", "Its links can be edited once the registration is final."),
+  "edit-ended": notice("alert", "The registration was cancelled", "Its payment was disputed or refunded. Please contact support."),
+  "edit-in-app": notice("key", "This name has another owner", "Its links cannot be edited here."),
+  "edit-elsewhere": notice("link", "This name's links are kept by another resolver", "They cannot be edited here."),
+  "edit-not-registered": notice("clock", "The name is not registered yet", "The links can be edited once the name is registered."),
   edit: buildEditForm,
 }
 

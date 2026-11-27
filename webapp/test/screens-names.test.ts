@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import type { Found, InvoiceView, Links, RecordEdits, RegistrationView, SearchAnswer } from "../src/api.ts"
-import { type Hold, NO_LEAD } from "../src/screens/hold.ts"
+import { type Hold, LIMITED_LEAD, NO_LEAD } from "../src/screens/hold.ts"
 import {
   balanceRows, changesOf, CODE_CHIPS, editable, editsLine, editsShort, hasLinks, linksAction, type EditEvent, type EditForm, type EditKind, type EditState, hasRecords, initialEdit,
-  initialList, initialRestore, lapsed, lateLine, listedOrders, nameRows, ORDER_CHIP_WORDS, rowShown, rowsDrawn, unanswered, paidLine, type ListEvent, type ListState, NOT_SAVED, phaseChip, reduceEdit, reduceList, reduceRestore, REFUSALS,
-  againLine, ranOut, registrableAgain, screenOfEdit, type Stored, waitsToSign,
+  initialList, initialRestore, lapsed, lateLine, listedOrders, nameRows, ORDER_CHIP_WORDS, rowShown, rowsDrawn, unanswered, paidLine, type ListEvent, type ListState, phaseChip, reduceEdit, reduceList, reduceRestore, REFUSALS,
+  ranOut, registrableAgain, screenOfEdit, type Stored, waitsToSign,
 } from "../src/screens/names.ts"
 import type { CodeRecord, OrderRecord, PendingCode } from "../src/store.ts"
 import { type ShortView, viewOf } from "./registration-view.ts"
@@ -80,13 +80,10 @@ describe("list helpers", () => {
     expect(registrableAgain(expiresAt, registered(undefined, { gracePeriod: 3600 }), NOW)).toEqual({ when: "from", at: expiresAt + 3600 })
     expect(registrableAgain(expiresAt, held, NOW)).toEqual({ when: "taken" })
   })
-  it("ranOut and againLine say when a name ran out and when it can be registered again, as the edit page and search show it", () => {
+  it("ranOut says when a name ran out, as the edit page and search show it", () => {
     const expiresAt = Date.parse("2028-11-16T12:00:00Z") / 1000
-    expect(ranOut(expiresAt)).toBe("Its registration ran out on 16\u00a0November 2028.")
-    expect(ranOut(null)).toBe("Its registration ran out.")
-    expect(againLine(expiresAt, registered(), expiresAt * 1000 + 1000)).toBe("It can be registered again from 14\u00a0February 2029.")
-    expect(againLine(expiresAt, available, expiresAt * 1000)).toBe("Search it to register it again.")
-    expect(againLine(expiresAt, registered(undefined, { owner: APP }), (expiresAt + GRACE_S) * 1000)).toBe("It has been registered again since.")
+    expect(ranOut(expiresAt)).toBe("Your registration of this name expired on 16\u00a0November 2028.")
+    expect(ranOut(null)).toBe("Your registration of this name expired.")
   })
   it("waitsToSign: a commit whose wait is over and whose name is still hidden", () => {
     const view = registration({ phase: "committed", revealAfter: NOW / 1000 - 1 })
@@ -112,7 +109,7 @@ describe("list helpers", () => {
       ["nothing paid", registration(), invoice(), record(), ["Waiting for payment", "warn"]],
       ["a registration under way", registration({ phase: "registering" }), null, record(), ["Registering", "brand"]],
       ["a registered name", registeredView(), null, record(), ["Registered", "ok"]],
-      ["a registration ended in its dispute period", registration({ phase: "ended", label: "alice" }), null, record(), ["Ended", "bad"]],
+      ["a registration ended in its dispute period", registration({ phase: "ended", label: "alice" }), null, record(), ["Cancelled", "bad"]],
       ["a name taken first", registration({ phase: "taken" }), null, record(), ["Taken first", "warn"]],
       ["a failed registration", registration({ phase: "failed" }), null, record(), ["Not registered", "bad"]],
     ]
@@ -409,12 +406,12 @@ describe("restore", () => {
   })
   it("edited takes the refusal away, unless the tab is waiting", () => {
     expect(reduceRestore({ ...start, refusal: "none" }, { type: "edited" })).toEqual(start)
-    const held = { ...start, hold: { until: NOW + 5000, lead: "Your code is fine. " } }
+    const held = { ...start, hold: { until: NOW + 5000, lead: "Please " } }
     expect(reduceRestore(held, { type: "edited" })).toBe(held)
   })
   it("held ends the lookup and holds it with its words; hold-ended lets it go", () => {
-    const held = reduceRestore({ ...start, busy: true }, { type: "held", until: NOW + 5000, lead: "Your code is fine. " })
-    expect(held).toEqual({ busy: false, refusal: null, hold: { until: NOW + 5000, lead: "Your code is fine. " } })
+    const held = reduceRestore({ ...start, busy: true }, { type: "held", until: NOW + 5000, lead: "Please " })
+    expect(held).toEqual({ busy: false, refusal: null, hold: { until: NOW + 5000, lead: "Please " } })
     expect(reduceRestore(held, { type: "hold-ended" })).toEqual(start)
   })
   it("REFUSALS: a refusal of the code itself waits for an edit; one of the service can be tried again", () => {
@@ -535,10 +532,10 @@ describe("edit", () => {
       expect(form(reduceEdit(sending, { type: "save-unanswered", counted: false, at: NOW / 1000 }))).toMatchObject({ saving: false, unanswered: true, result: "unanswered", edits: { left: 3, nextAt: null } })
       expect(form(reduceEdit(sending, { type: "save-unanswered", counted: true, at: NOW / 1000 })).edits).toEqual({ left: 2, nextAt: NOW / 1000 + YEAR_S })
     })
-    it("save-held holds Save, saying the links were not saved; hold-ended lets it go", () => {
+    it("save-held holds Save, saying there were too many attempts; hold-ended lets it go", () => {
       const both = reduceEdit(reduceEdit(reduceEdit(editing, { type: "field-changed", kind: "contact", value: "" }), { type: "field-changed", kind: "channel", value: CHANNEL }), { type: "save-started" })
       const held = reduceEdit(both, { type: "save-held", until: NOW + 5000 })
-      expect(form(held)).toMatchObject({ saving: false, result: null, nonce: 3, hold: { until: NOW + 5000, lead: `${NOT_SAVED} ` } })
+      expect(form(held)).toMatchObject({ saving: false, result: null, nonce: 3, hold: { until: NOW + 5000, lead: LIMITED_LEAD } })
       expect(form(reduceEdit(held, { type: "hold-ended" })).hold).toBeNull()
     })
     it("save-refused after the nonce moved takes the chain's nonce and links", () => {
