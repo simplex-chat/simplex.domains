@@ -565,6 +565,7 @@ test("the home keeps its headline and search still as each kind of answer comes,
   for (const [i, size] of FIT_SIZES.entries()) {
     await page.setViewportSize(size)
     await page.goto("/")
+    await expect(page.locator(".home .search-field")).toBeVisible()
     await page.evaluate(() => document.fonts.ready.then(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))))
     const before = await homeTops(page)
     const header = Math.round((await page.locator("body > header").boundingBox())!.height)
@@ -616,6 +617,7 @@ test.describe(() => {
           await page.setViewportSize(size)
           await page.goto("/#/trademarks")
           await page.goto("/")
+          await expect(page.locator(".home .search-field")).toBeVisible()
           await page.evaluate(() => document.fonts.ready)
           const empty = await homeTops(page)
           await page.getByLabel("Name", { exact: true }).fill(label)
@@ -900,6 +902,7 @@ for (const length of [10, MAX_LABEL_LENGTH]) {
     for (const size of FIT_SIZES) {
       await page.setViewportSize(size)
       await page.goto("/")
+      await expect(page.locator(".home .search-field")).toBeVisible()
       await page.evaluate(() => document.fonts.ready.then(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))))
       const before = await homeTops(page)
       await page.getByLabel("Name", { exact: true }).fill(label)

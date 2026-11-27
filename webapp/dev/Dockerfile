@@ -8,7 +8,6 @@ WORKDIR /src/ens-contracts
 RUN git clone https://github.com/simplex-network/ens-contracts.git . \
  && git checkout "$ENS_CONTRACTS_COMMIT"
 RUN npx --yes pnpm@9 install --frozen-lockfile --ignore-scripts && npx hardhat compile
-COPY webapp/dev/fixtures/terms /src/test/fixtures/terms
 
 # Hardhat's own node answers reverts without their data, which the mock needs to tell a taken name from a failure
 FROM debian:bookworm-slim AS anvil

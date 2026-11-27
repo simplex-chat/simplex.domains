@@ -81,7 +81,7 @@ const expectMode = (page: Page, mode: Mode) => mode === "codes" ? expect(nameFie
 // the tab coming back into view, as a reader switching back to it; headless browsers keep every tab in view
 const becomeVisible = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 // the page's own check of the service's mode, answered
-const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config")
+const modeChecked = (page: Page) => page.waitForResponse((r) => new URL(r.url()).pathname === "/api/config").then((r) => r.finished())
 
 // Every document the page loads from now on, counted as it fires load.
 function loads(page: Page): { count: number } {
