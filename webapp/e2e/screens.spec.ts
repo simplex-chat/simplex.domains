@@ -409,12 +409,12 @@ screen(134, "home-checking", async ({ page, request, id }) => {
 screen(136, "home-unchecked", async ({ page, request, id }) => {
   await control(request, "search", { chainDown: true })
   await search(page, id)
-  await shown(page, "This name could not be checked.")
+  await shown(page, "The name could not be checked now.")
 })
 screen(138, "home-paused", async ({ page, request, id }) => {
   await control(request, "search", { limitSeconds: 30 })
   await search(page, id)
-  await shown(page, "Searching is paused")
+  await shown(page, "Too many attempts")
 })
 screen(140, "home-available", async ({ page, id }) => {
   await search(page, id)
@@ -536,7 +536,7 @@ screen(192, "home-chat-popup-unsafe-link", async ({ page }) => {
 screen(194, "home-codes-only-locked", async ({ page, request }) => {
   await control(request, "mode", { mode: "codes" })
   await page.goto("/#/?name=bakery")
-  await shown(page, "Names can be registered with an investor code for now.")
+  await shown(page, "Names can be registered only with a code right now.")
 })
 screen(196, "home-codes-only-uncovered", async (r) => {
   await control(r.request, "mode", { mode: "codes" })
@@ -585,7 +585,7 @@ const selectCode = async (r: Reach): Promise<void> => {
   await searchHere(r.page, r.id)
   await toReview(r.page)
   await press(r.page, "Register with your code")
-  await heading(r.page, `${r.id}.simplex was taken`)
+  await heading(r.page, `${r.id}.simplex is no longer available`)
   await press(r.page, "Choose another name")
   await expect(nameField(r.page)).toBeVisible()
 }
@@ -679,7 +679,7 @@ screen(262, "checkout-select-refused-other-order", async (r) => {
   })
   await selectionAnswer(r.page, (route) => answer(route, 409, "order_exists"))
   await press(r.page, "Register with your payment")
-  await heading(r.page, "That did not go through")
+  await heading(r.page, "The order could not be placed")
 })
 screen(264, "checkout-select-held", async (r) => {
   await selectReview(r)
@@ -791,13 +791,13 @@ screen(1074, "checkout-review-open-order-confirming", async (r) => {
   await search(r.page, r.id)
   await toReview(r.page)
   await control(r.request, `confirming/${invoiceId}`)
-  await shown(r.page, "is confirming its payment")
+  await shown(r.page, "Another order is open.")
 })
 screen(1076, "checkout-review-method-unavailable", async (r) => {
   await review(r)
   await control(r.request, "search", { invoiceError: "provider_unavailable" })
   await payButton(r.page).click()
-  await shown(r.page, "temporarily unavailable")
+  await shown(r.page, "is unavailable right now")
 })
 screen(1078, "checkout-review-hold", async (r) => {
   await review(r)
@@ -933,7 +933,7 @@ screen(1122, "checkout-links-other-kind-field", async ({ page, id }) => {
 screen(1124, "checkout-links-refused-by-service", async ({ page, id }) => {
   await page.route("**/api/link/preview", (route) => answer(route, 400, "invalid_link"))
   await typedLink(page, id, contactLink("R0"))
-  await shown(page, "This link could not be opened.")
+  await shown(page, "This is not a SimpleX link.")
 })
 screen(1126, "checkout-links-not-checked", async ({ page, id }) => {
   await page.route("**/api/link/preview", (route) => answer(route, 429, "rate_limited", 30))
@@ -944,7 +944,7 @@ screen(1128, "checkout-links-no-camera", async (r) => {
   const phone = await cameraPage(r, false)
   await linksStep(phone, r.id)
   await onStep(phone).getByRole("button", { name: "Scan QR code" }).click()
-  await shown(phone, "Allow the camera, or paste the link.")
+  await shown(phone, "Please allow it, or paste the link.")
   return phone
 }, { sizes: ["phone"] })
 screen(1130, "checkout-links-scan-dialog", async (r) => {
@@ -1163,9 +1163,9 @@ screen(1220, "checkout-status-taken", (r) => refusedOrder(r, async () => {
   await control(r.request, "take", { label: r.id })
   await expect.poll(async () => (await searchName(r.request, r.id)).type, { timeout: REGISTRATION_MS }).toBe("registered")
 }, "This name is no longer available"))
-screen(1222, "checkout-status-failed", (r) => refusedOrder(r, () => control(r.request, "search", { invoiceError: "internal" }), "That did not go through"))
+screen(1222, "checkout-status-failed", (r) => refusedOrder(r, () => control(r.request, "search", { invoiceError: "internal" }), "The order could not be placed"))
 screen(1224, "checkout-status-failed-retrying", async (r) => {
-  await refusedOrder(r, () => control(r.request, "search", { invoiceError: "internal" }), "That did not go through")
+  await refusedOrder(r, () => control(r.request, "search", { invoiceError: "internal" }), "The order could not be placed")
   await r.page.route("**/api/invoice", posting(/\/api\/invoice$/, held))
   await press(r.page, "Try again")
   await expect(onStep(r.page).getByRole("button", { name: "Try again" })).toHaveAttribute("aria-busy", "true")
@@ -1178,7 +1178,7 @@ screen(1228, "checkout-status-unavailable-retrying", async (r) => {
   await expect(onStep(r.page).getByRole("button", { name: "Try again" })).toHaveAttribute("aria-busy", "true")
 })
 screen(1230, "checkout-status-codes-only", (r) => refusedOrder(r, () => control(r.request, "mode", { mode: "codes" }), "Registration is by code only for now"))
-screen(1232, "checkout-status-failed-sign-unread", (r) => refusedOrder(r, () => control(r.request, "search", { unreadSeconds: 60 }), "That did not go through"))
+screen(1232, "checkout-status-failed-sign-unread", (r) => refusedOrder(r, () => control(r.request, "search", { unreadSeconds: 60 }), "The order could not be placed"))
 const linkRefusedAtPay = async (r: Reach, kind: "contact" | "channel") => {
   await search(r.page, r.id)
   await toReview(r.page)
@@ -1231,19 +1231,19 @@ const registeringAs = async (r: Reach, change: Record<string, unknown>) => {
 
 screen(2006, "order-registering-wait", async (r) => {
   await registeringAs(r, {})
-  await shown(r.page, "Every new name waits a little")
+  await shown(r.page, "It will take a few minutes")
 })
 screen(2008, "order-registering-signing", async (r) => {
   await registeringAs(r, { phase: committedPhase(r, r.now - 10) })
-  await shown(r.page, "Registering the name.")
+  await shown(r.page, "It will take a few minutes")
 })
 screen(2010, "order-registering-register-sent", async (r) => {
   await registeringAs(r, { phase: { type: "registering" }, registerTx: "0x03" })
-  await shown(r.page, "Registering the name.")
+  await shown(r.page, "It will take a few minutes")
 })
 screen(2012, "order-registering-stalled", async (r) => {
   await registeringAs(r, { phase: { type: "registering" }, registerTx: "0x03" })
-  await shown(r.page, "Registering the name.")
+  await shown(r.page, "It will take a few minutes")
   await control(r.request, "clock", { now: r.now + 240 })
   await r.page.clock.fastForward("04:00")
   await shown(r.page, "This is taking longer than usual")
@@ -1331,12 +1331,12 @@ const outpaid = async (r: Reach) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
   await control(r.request, `settle/${first}`)
   await control(r.request, `settle/${invoiceId}`)
-  await heading(r.page, `${r.id}.simplex was taken`)
+  await heading(r.page, `${r.id}.simplex is no longer available`)
 }
 screen(2056, "order-taken-outpaid", (r) => outpaid(r))
 screen(2057, "order-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })
-  await heading(r.page, `${r.id}.simplex was taken`)
+  await heading(r.page, `${r.id}.simplex is no longer available`)
 })
 screen(2060, "order-failed-generic-paid", async (r) => { await failed(r, r.id) })
 screen(2062, "order-failed-generic-paid-no-record", async (r) => {
@@ -1359,7 +1359,7 @@ screen(2068, "order-failed-generic-code-limited", async (r) => {
   await codeFailed(r, r.id)
   await r.page.route("**/api/code/check", (route) => answer(route, 429, "rate_limited", 30))
   await r.page.reload()
-  await shown(r.page, "Too many checks just now")
+  await shown(r.page, "Too many attempts")
 })
 screen(2070, "order-failed-generic-code-refused", async (r) => {
   const { code } = await codeFailed(r, r.id)
@@ -1477,7 +1477,7 @@ screen(2118, "order-pay-crypto-taken-on-chain", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
   await answerName(page, id, TAKEN_ANSWER)
   await page.reload()
-  await shown(page, "Someone has registered this name")
+  await shown(page, "Taken at")
 })
 screen(2120, "order-pay-crypto-unchecked", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
@@ -1495,7 +1495,7 @@ screen(2122, "order-pay-crypto-no-record", async (r) => {
 screen(2124, "order-pay-crypto-part-paid", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
   await control(r.request, `partial/${invoiceId}`)
-  await shown(r.page, "Part of the payment arrived")
+  await shown(r.page, "Part of the payment was received")
 })
 screen(2126, "order-pay-crypto-part-paid-expired", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
@@ -1517,7 +1517,7 @@ const copiedCheckout = async (page: Page, name: string, card: boolean): Promise<
   await chooseMethod(copy, card ? "Bitcoin" : "Monero")
   await payButton(copy).click()
   await copy.waitForURL(/\?order=/)
-  await shown(copy, "opened instead of")
+  await shown(copy, "You already have an open invoice for this name.")
   return copy
 }
 screen(2128, "order-pay-crypto-opened-instead", ({ page, id }) => copiedCheckout(page, id, false))
@@ -1525,7 +1525,7 @@ screen(2130, "order-pay-crypto-cancel-refused", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
   await cancelAnswer(page, (route) => answer(route, 409, "funded"))
   await press(page, "Cancel this invoice")
-  await shown(page, "A payment has reached this invoice")
+  await shown(page, "A payment was received, so the invoice cannot be cancelled.")
 })
 screen(2132, "order-pay-crypto-cancel-limited", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
@@ -1568,14 +1568,14 @@ screen(2142, "order-pay-card-cannot-persist", async ({ page, id }) => {
     }
   })
   await startOrder(page, id, { method: "card" })
-  await shown(page, "This browser cannot remember a card payment.")
+  await shown(page, "This order cannot be saved in this browser.")
 })
 screen(2144, "order-pay-card-opened-instead", ({ page, id }) => copiedCheckout(page, id, true))
 screen(2146, "order-pay-card-cancel-refused", async ({ page, id }) => {
   await startOrder(page, id, { method: "card" })
   await cancelAnswer(page, (route) => answer(route, 409, "funded"))
   await press(page, "Cancel this invoice")
-  await shown(page, "A payment has reached this invoice")
+  await shown(page, "A payment was received, so the invoice cannot be cancelled.")
 })
 screen(2148, "order-confirming-crypto", async (r) => {
   const { invoiceId } = await startOrder(r.page, r.id, { method: "btc" })
@@ -1692,7 +1692,7 @@ screen(2179, "order-ended", async (r) => {
   await waitRegistered(r.page, r.id)
   await control(r.request, `unregister/${registrationId}`)
   await r.page.reload()
-  await heading(r.page, "Registration ended")
+  await heading(r.page, "Registration cancelled")
 })
 screen(2180, "order-taken-chain", async (r) => { await takenOrder(r.page, r.request, r.id) })
 screen(2182, "order-taken-reserved", async (r) => {
@@ -1705,7 +1705,7 @@ screen(2182, "order-taken-reserved", async (r) => {
 screen(2184, "order-taken-no-record", async (r) => {
   const { invoiceId } = await takenOrder(r.page, r.request, r.id)
   const other = await elsewhere(r, `/?order=${invoiceId}`)
-  await heading(other, `${r.id}.simplex was taken`)
+  await heading(other, `${r.id}.simplex is no longer available`)
   return other
 })
 screen(2186, "order-taken-balance-spent", async (r) => {
@@ -1732,7 +1732,7 @@ const codeTaken = async (r: Reach) => {
 }
 screen(2194, "order-taken-code", async (r) => {
   await codeTaken(r)
-  await heading(r.page, `${r.id}.simplex was taken`)
+  await heading(r.page, `${r.id}.simplex is no longer available`)
 })
 screen(2196, "order-taken-code-reserved", async (r) => {
   await codeTaken(r)
@@ -1741,9 +1741,9 @@ screen(2196, "order-taken-code-reserved", async (r) => {
 })
 screen(2198, "order-taken-code-no-record", async (r) => {
   const registrationId = await codeTaken(r)
-  await heading(r.page, `${r.id}.simplex was taken`)
+  await heading(r.page, `${r.id}.simplex is no longer available`)
   const other = await elsewhere(r, `/?registration=${registrationId}`)
-  await heading(other, `${r.id}.simplex was taken`)
+  await heading(other, `${r.id}.simplex is no longer available`)
   return other
 })
 const closed = async (r: Reach, method: "btc" | "card" = "btc") => {
@@ -1778,41 +1778,41 @@ const closedPart = async (r: Reach) => {
 }
 screen(2208, "order-closed-received-confirming", async (r) => {
   await closedPart(r)
-  await shown(r.page, "which is not the full amount. Once confirmed")
+  await shown(r.page, "which is not the full amount. It will be added to your balance once confirmed")
 })
 screen(2210, "order-closed-received-crediting", async (r) => {
   const { invoiceId, paidPart } = await closedPart(r)
   await control(r.request, `late/${invoiceId}`, { waiting: "crediting" })
   await control(r.request, `settle/${invoiceId}`, { paid: paidPart })
-  await shown(r.page, "Once credited")
+  await shown(r.page, "It will be added to your balance shortly")
 })
 screen(2212, "order-closed-received-support", async (r) => {
   const { invoiceId } = await closedPart(r)
   await control(r.request, `late/${invoiceId}`, { waiting: "support" })
-  await shown(r.page, "It is not credited to your balance by itself")
+  await shown(r.page, "To have it credited, please")
 })
 const receivedOffer = async (r: Reach) => {
   const { invoiceId, paidPart } = await closedPart(r)
   await control(r.request, `settle/${invoiceId}`, { paid: paidPart })
-  await shown(r.page, "It is kept as your balance")
+  await shown(r.page, "It is in your balance")
   return invoiceId
 }
 screen(2214, "order-closed-received-offer", async (r) => { await receivedOffer(r) })
 screen(2216, "order-closed-late-confirming", async (r) => {
   const invoiceId = await closed(r)
   await control(r.request, `confirming/${invoiceId}`)
-  await shown(r.page, "A payment did not complete before the invoice closed")
+  await shown(r.page, "The payment was received after the invoice closed")
 })
 screen(2218, "order-closed-paid-late-offer", async (r) => {
   const invoiceId = await closed(r)
   await control(r.request, `settle/${invoiceId}`)
-  await shown(r.page, "The payment arrived after this invoice had closed")
+  await shown(r.page, "The payment was received after the invoice closed")
 })
 screen(2220, "order-closed-paid-late-support", async (r) => {
   const invoiceId = await closed(r)
   await control(r.request, `late/${invoiceId}`, { waiting: "support" })
   await control(r.request, `settle/${invoiceId}`)
-  await shown(r.page, "It is not credited to your balance by itself")
+  await shown(r.page, "To have it credited, please")
 })
 screen(2222, "order-closed-replaced", async (r) => {
   const old = await closed(r)
@@ -1853,7 +1853,7 @@ screen(2242, "order-reorder-cancel-refused", async (r) => {
   await cardFormFailed(r)
   await cancelAnswer(r.page, (route) => answer(route, 409, "funded"))
   await press(r.page, "Get a new invoice")
-  await shown(r.page, "A payment has reached this invoice, so it is kept.")
+  await shown(r.page, "A payment was received, so the invoice cannot be cancelled.")
 })
 screen(2244, "order-reorder-name-unchecked", async ({ page, id }) => {
   await startOrder(page, id, { method: "btc" })
@@ -1861,7 +1861,7 @@ screen(2244, "order-reorder-name-unchecked", async ({ page, id }) => {
   await heading(page, "Invoice closed")
   await page.route("**/api/name/**", (route) => answer(route, 503, "unavailable"))
   await press(page, "Order the name again")
-  await shown(page, "The name could not be checked now.")
+  await shown(page, "A new invoice was not created.")
 })
 screen(2246, "order-price-changed", async (r) => {
   await closed(r)
@@ -1872,7 +1872,7 @@ screen(2246, "order-price-changed", async (r) => {
 screen(2248, "order-unreadable", async ({ page, id }) => {
   await page.route(`**/api/invoice/inv-${id}*`, (route) => answer(route, 500, "internal"))
   await page.goto(`/?order=inv-${id}`)
-  await heading(page, "This order could not be loaded")
+  await heading(page, "The order could not be loaded now")
 })
 screen(2250, "order-loading", async ({ page, id }) => {
   await page.route(`**/api/invoice/inv-${id}*`, held)
@@ -1916,7 +1916,7 @@ screen(3008, "names-balance-outpaid", async (r) => {
 })
 screen(3009, "names-balance-taken-before-commit", async (r) => {
   await registeringAs(r, { phase: { type: "taken" }, commitTx: null, balance: BALANCE })
-  await heading(r.page, `${r.id}.simplex was taken`)
+  await heading(r.page, `${r.id}.simplex is no longer available`)
   await r.page.goto("/#/names")
   await expect(r.page.locator(".list-row", { hasText: r.id }).first()).toBeVisible()
   await r.page.waitForTimeout(1500)
@@ -1957,7 +1957,7 @@ screen(3013, "names-row-ended", async (r) => {
   await waitRegistered(r.page, r.id)
   await control(r.request, `unregister/${registrationId}`)
   await r.page.goto("/#/names")
-  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Ended")
+  await expect(r.page.locator(".list-row", { hasText: r.id }).locator(".chip")).toHaveText("Cancelled")
 })
 const seenListReloaded = async (r: Reach, unread: (page: Page) => Promise<unknown>) => {
   await codeOrder(r, r.id)
@@ -2143,7 +2143,7 @@ screen(3044, "names-rows-progress", async (r) => {
   await searchHere(r.page, "rows-taken-code")
   await toReview(r.page)
   await press(r.page, "Register with your code")
-  await heading(r.page, "rows-taken-code.simplex was taken")
+  await heading(r.page, "rows-taken-code.simplex is no longer available")
   await control(r.request, "search", { unsentSeconds: 120 })
   await useCode(r.page, await issued(r))
   await searchHere(r.page, "rows-committing")
@@ -2242,7 +2242,7 @@ screen(3054, "names-pending-held", async (r) => {
   const tab = await r.page.context().newPage()
   await tab.goto("/#/code")
   await codeField(tab).fill(ownerCode)
-  await shown(tab, "Too many checks just now")
+  await shown(tab, "Too many attempts")
   await tab.getByRole("link", { name: "Your names" }).first().click()
   await heading(tab, "Your names")
   await expect(listRow(tab, r.id)).toBeVisible()
@@ -2436,18 +2436,18 @@ screen(3124, "names-edit-unreadable", async (r) => {
   await kept(r, `reg-${r.id}`, null, r.id)
   await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => answer(route, 503, "provider_unavailable"))
   await r.page.goto(`/#/edit/reg-${r.id}`)
-  await shown(r.page, "The name could not be read now")
+  await shown(r.page, "The name could not be loaded now")
 })
 screen(3125, "names-edit-unregistered", async (r) => {
   await editFaked(r, { phase: registeredPhase(START_S + 2 * YEAR_S) }, () => AVAILABLE_AGAIN)
-  await shown(r.page, "The name could not be read now")
+  await shown(r.page, "The name could not be loaded now")
 })
 screen(3126, "names-edit-unreadable-reading", async (r) => {
   await kept(r, `reg-${r.id}`, null, r.id)
   let reads = 0
   await r.page.route(`**/api/registration/reg-${r.id}*`, (route) => reads++ === 0 ? answer(route, 503, "provider_unavailable") : held())
   await r.page.goto(`/#/edit/reg-${r.id}`)
-  await shown(r.page, "The name could not be read now")
+  await shown(r.page, "The name could not be loaded now")
   await press(r.page, "Try again")
   await r.page.waitForTimeout(500)
 })
@@ -2461,14 +2461,14 @@ screen(3130, "names-edit-expired-from", async (r) => {
 })
 screen(3132, "names-edit-expired-taken", async (r) => {
   await editFaked(r, { phase: registeredPhase(r.now - 100 * 86400) }, (order) => registeredFor(order, r.now + YEAR_S, OTHER_OWNER))
-  await shown(r.page, "This name has expired")
+  await shown(r.page, "This name has another owner")
 })
 screen(3133, "names-edit-ended", async (r) => {
   const { registrationId } = await codeOrder(r, r.id)
   await waitRegistered(r.page, r.id)
   await control(r.request, `unregister/${registrationId}`)
   await r.page.goto(`/#/edit/${registrationId}`)
-  await shown(r.page, "The registration was ended")
+  await shown(r.page, "The registration was cancelled")
 })
 screen(3134, "names-edit-other-owner", async (r) => {
   const expiresAt = START_S + 2 * YEAR_S
@@ -2479,7 +2479,7 @@ screen(3136, "names-edit-elsewhere", async (r) => {
   const registrationId = await registered(r, r.id)
   await ownerSetsResolver(await ownerCodeOf(r.page, registrationId), r.id, OTHER_OWNER)
   await r.page.goto(`/#/edit/${registrationId}`)
-  await shown(r.page, "This name's links are kept elsewhere")
+  await shown(r.page, "This name's links are kept by another resolver")
 })
 screen(3138, "names-edit-not-registered", async (r) => {
   await control(r.request, "search", { unsentSeconds: 120 })
@@ -2541,10 +2541,10 @@ screen(3160, "names-edit-moved", async (r) => {
       records: { ...json.found.records, contact: contactLink("MV"), channel: channelLink("MV"), nonce: json.found.records.nonce + 2 } } } })
   })
   await press(r.page, SAVE)
-  await shown(r.page, "An earlier save")
+  await shown(r.page, "The links were changed elsewhere")
   await expect(onStep(r.page).locator(".link-field .entity:not(.skeleton)")).toHaveCount(2)
 })
-screen(3162, "names-edit-refused", (r) => saveWith(r, (route) => answer(route, 400, "bad_request"), "The links were not saved."))
+screen(3162, "names-edit-refused", (r) => saveWith(r, (route) => answer(route, 400, "bad_request"), "Not saved."))
 screen(3164, "names-edit-held", (r) => saveWith(r, (route) => answer(route, 429, "rate_limited", 30), "Too many attempts"))
 screen(3166, "names-edit-held-at-open", async (r) => {
   const registrationId = await registered(r, r.id)
@@ -2627,7 +2627,7 @@ const editCamera = async (r: Reach, grant: boolean) => {
 }
 screen(3190, "names-edit-field-camera-refused", async (r) => {
   const phone = await editCamera(r, false)
-  await shown(phone, "Allow the camera, or paste the link.")
+  await shown(phone, "Please allow it, or paste the link.")
   return phone
 }, { sizes: ["phone"] })
 screen(3192, "names-edit-field-scanning", async (r) => {

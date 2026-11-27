@@ -22,20 +22,20 @@ const phaseOf = async (request: APIRequestContext, invoiceId: string) => ((await
 
 test("an order another buyer's paid order took first shows no stage done, as it never committed", async ({ page }) => {
   await paidOrder(page, "outpaid", { phase: { type: "taken" }, balance: { amount: 10000, refunded: 0 } })
-  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Someone has taken this name.")
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveCount(0)
   await expect(onStep(page).locator(".stage.done")).toHaveCount(0)
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Committing")
 })
 
 test("a paid order whose signature the service refused says to contact support in a whole sentence", async ({ page }) => {
   await paidOrder(page, "refused", { phase: { type: "failed", reason: "signatureRefused" }, commitTx: "0x02" })
-  await expect(onStep(page).locator(".notice", { hasText: "The name could not be registered" })).toContainText("and include order reference inv-refused.")
+  await expect(onStep(page).locator(".notice", { hasText: "The name could not be registered" })).toContainText("with the name and the order reference inv-refused.")
 })
 
 test("a name taken first keeps its payment as its balance, with which a name selected for the order is registered, owned by the same code", async ({ page, request }) => {
   const label = uniqueLabel("tk")
   const { invoiceId, ownerCode } = await takenOrder(page, request, label)
-  await expect(onStep(page).locator(".notice", { hasText: "What you paid is kept as your balance." })).toBeVisible()
+  await expect(onStep(page).locator(".notice", { hasText: "What you paid is in your balance." })).toBeVisible()
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Taken")
   await expect(page.getByText(`Reference ${invoiceId}`)).toBeVisible()
   await shot(page, "N8-taken")
@@ -84,7 +84,7 @@ test("a paid order whose name was reserved meanwhile says so, and keeps its paym
   await expect(page.getByRole("heading", { name: `${label}.simplex is reserved` })).toBeVisible({ timeout: REGISTRATION_MS })
   await expect(onStep(page).locator(".lead")).toHaveText("It was reserved meanwhile, so it can't be registered.")
   await expect(onStep(page).locator(".stage.failed")).toHaveText("Reserved")
-  await expect(onStep(page).locator(".notice", { hasText: "What you paid is kept as your balance." })).toBeVisible()
+  await expect(onStep(page).locator(".notice", { hasText: "What you paid is in your balance." })).toBeVisible()
   await expect(onStep(page).getByRole("button", { name: "Choose another name" })).toBeEnabled()
 })
 
@@ -126,8 +126,8 @@ test("a failed registration keeps its payment for support, also in another tab",
   // the page's sentence for the service's reason, then what the buyer can do, with support's address for the reference below
   const alert = onStep(page).locator(".notice", { hasText: "The name could not be registered" })
   // the lead above already says the payment is kept
-  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
-  await expect(alert).toHaveText(`The name could not be registeredContact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)
+  await expect(onStep(page).locator(".screen-head .lead")).toHaveText("Your payment is kept.")
+  await expect(alert).toHaveText(`The name could not be registeredPlease contact support via chat@simplex.chat or SimpleX, with the name and the order reference ${invoiceId}.`)
   await expect(alert.getByRole("link", { name: "chat@simplex.chat" })).toHaveAttribute("href", "mailto:chat@simplex.chat")
   await expect(alert.getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", /^https:\/\/smp6\.simplex\.im\/a#/)
   // the order's line centred under the heading and its lead, as it is when it is the lead
@@ -140,7 +140,7 @@ test("a failed registration keeps its payment for support, also in another tab",
   const other = await page.context().newPage()
   await other.goto(`/?order=${invoiceId}`)
   await expect(other.getByRole("heading", { name: "Paid, not registered" })).toBeVisible()
-  await expect(onStep(other).locator(".screen-head .lead")).toHaveText("Your payment is kept. Write to support.")
+  await expect(onStep(other).locator(".screen-head .lead")).toHaveText("Your payment is kept.")
   for (const tab of [page, other]) {
     await expect(tab.getByRole("button", { name: "Try again" })).toHaveCount(0)
     await expect(tab.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
@@ -177,7 +177,7 @@ test("an order failed while its page was not read says until when the name stays
   const view = await (await request.get(`${MOCK}/api/registration/${registrationId}`)).json() as { phase: { heldUntil: string } }
   const until = dateOf(Date.parse(view.phase.heldUntil) / 1000)
   await expect(onStep(page).locator(".notice", { hasText: "The order was not opened for 3 days" })).toHaveText(
-    `The order was not opened for 3 daysYour payment is received. Until ${until}, this service accepts no other order for the name. Choose Continue to sign the registration again, or contact support via chat@simplex.chat or SimpleX, and include order reference ${invoiceId}.`)
+    `The order was not opened for 3 daysPlease choose Continue before ${until} to finish the registration, or contact support via chat@simplex.chat or SimpleX, with the name and the order reference ${invoiceId}.`)
   await expect(page.getByRole("button", { name: "Choose another name" })).toHaveCount(0)
   await page.unrouteAll({ behavior: "wait" })
   await onStep(page).getByRole("button", { name: "Continue" }).click()
@@ -229,7 +229,7 @@ test("a late payment to a replaced invoice is kept by a restored browser after a
   await waitRegistered(restored, next)
   await control(request, `partial/${invoiceId}`)
   await restored.goto(`/?order=${invoiceId}`)
-  await expect(restored.getByText(/BTC arrived, which is not the full amount/)).toBeVisible()
+  await expect(restored.getByText(/BTC was received, which is not the full amount/)).toBeVisible()
   await restored.goto("/#/names")
   // the taken order and the replaced one that the money reached each have a row of the name
   await expect(restored.locator(".list-row:visible", { hasText: `${label}.simplex` }).filter({ hasText: "Part of the payment arrived; kept as your balance" })).toHaveCount(1)

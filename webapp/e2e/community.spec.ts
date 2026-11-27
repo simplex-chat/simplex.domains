@@ -18,7 +18,7 @@ const COMMUNITY_LABEL = "bakers"
 const TAKEN_COMMUNITY = "bakehouse"
 const ACCEPT_WORDS = "I accept the Names Conditions and will use this name to benefit its community."
 const PLAIN_WORDS = "I accept the SimpleX Names Conditions of Use."
-const TERMS_CHANGED = "The Names Conditions changed. Accept them again."
+const TERMS_CHANGED = "The Names Conditions changed. Please accept them to continue."
 // what the popup says of every community name after what the name is for
 const POPUP_END = "Its owner agrees to use it to benefit this community, not as the brand of one person or business."
 // what the tests put a name on the list for
@@ -232,9 +232,9 @@ test("a name whose terms can't be read now can't be ordered: its search says so,
   try {
     await payButton(page).click()
     await expect(onStep(page).getByRole("heading", { name: "Names can't be ordered right now" })).toBeVisible()
-    await expect(onStep(page).getByText("Nothing was charged.", { exact: false })).toBeVisible()
+    await expect(onStep(page).getByText("Please try again later.", { exact: false })).toBeVisible()
     await search(page, uniqueLabel("cu"))
-    await expect(onStep(page).locator(".answer .line", { hasText: "Names can't be ordered right now. Try again later." })).toBeVisible()
+    await expect(onStep(page).locator(".answer .line", { hasText: "Names can't be ordered right now. Please try again later." })).toBeVisible()
     await expect(onStep(page).getByRole("button", { name: "Register" })).toBeDisabled()
   } finally {
     await control(request, "general-terms", { text: null })
@@ -333,7 +333,7 @@ test("a card form that did not load asks for changed terms before cancelling its
   await withStripeKey(page)
   await page.route("https://js.stripe.com/**", (route) => route.abort())
   await page.reload()
-  await expect(page.getByText("Stripe's form was blocked or failed to load. Nothing was charged.")).toBeVisible()
+  await expect(page.getByText("The card form did not load, so your card was not charged. Please reload the page.")).toBeVisible()
   const again = onStep(page).getByRole("button", { name: "Get a new invoice" })
   await withGeneralTerms(request, "the general terms, changed for a card order", async (hash) => {
     await again.click()

@@ -20,10 +20,10 @@ test("search answers every kind of name", async ({ page, request }) => {
   await shot(page, "N1a-typed")
 
   await search(page, "abc")
-  await expect(page.getByText(/3 letters\. A name has 6 letters or more/)).toBeVisible()
+  await expect(page.getByText(/3 letters\. Please use 6 letters or more/)).toBeVisible()
   await shot(page, "N1b-short")
   await search(page, "bad_name")
-  await expect(page.getByText(/^Use only a\W+z, 0\W+9 and single hyphens between them\.$/)).toBeVisible()
+  await expect(page.getByText(/^Please use only a\W+z, 0\W+9 and single hyphens between them\.$/)).toBeVisible()
   await shot(page, "N1c-chars")
 
   await search(page, "bakery")
@@ -61,11 +61,11 @@ test("search answers every kind of name", async ({ page, request }) => {
 
   await control(request, "search", { chainDown: true })
   await search(page, uniqueLabel("down"))
-  await expect(page.locator(".answer .line")).toHaveText("This name could not be checked. Try again")
+  await expect(page.locator(".answer .line")).toHaveText("The name could not be checked now. Try again")
   await shot(page, "N2d-unchecked")
   await control(request, "search", { chainDown: false, limitSeconds: 30 })
   await search(page, uniqueLabel("lim"))
-  await expect(page.locator(".answer [aria-hidden=true]", { hasText: /^Searching is paused: try again in \d+ seconds\.$/ })).toBeVisible()
+  await expect(page.locator(".answer [aria-hidden=true]", { hasText: /^Too many attempts\. Please try again in \d+ seconds\.$/ })).toBeVisible()
   await expect(page.getByRole("button", { name: "Search" })).toBeDisabled()
   await shot(page, "N2e-rate-limited")
 })
@@ -113,7 +113,7 @@ test("the checkout explains every refusal and keeps the order", async ({ page, r
 
   await control(request, "search", { invoiceError: "provider_unavailable" })
   await pay()
-  await expect(page.getByText("Bitcoin is temporarily unavailable")).toBeVisible()
+  await expect(page.getByText("Bitcoin is unavailable right now")).toBeVisible()
   await shot(page, "N3a-method-unavailable")
   await page.getByRole("radio", { name: "Monero" }).click()
 
@@ -126,9 +126,9 @@ test("the checkout explains every refusal and keeps the order", async ({ page, r
 
   await control(request, "search", { invoiceError: "internal" })
   await pay()
-  await expect(page.getByRole("heading", { name: "That did not go through" })).toBeVisible()
-  await expect(page.getByText("Nothing was charged. If this happens again, contact support via chat@simplex.chat or SimpleX.")).toBeVisible()
-  await expect(page.locator(".notice", { hasText: "Nothing was charged" }).getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", /^https:\/\/smp6\.simplex\.im\/a#/)
+  await expect(page.getByRole("heading", { name: "The order could not be placed" })).toBeVisible()
+  await expect(page.getByText("Please try again. If this happens again, contact support via chat@simplex.chat or SimpleX.")).toBeVisible()
+  await expect(page.locator(".notice", { hasText: "Please try again" }).getByRole("link", { name: "SimpleX", exact: true })).toHaveAttribute("href", /^https:\/\/smp6\.simplex\.im\/a#/)
   await shot(page, "N3d-failed")
   // Try again sends the same order again, which meets the next refusal
   await control(request, "search", { invoiceError: "catalog_changed" })
@@ -161,7 +161,7 @@ test("without storage the name code step says the code shown is the only copy, a
   await search(page, label)
   await toCodeStep(page)
   await expect(onStep(page).getByText("This code could not be saved in this browser")).toBeVisible()
-  await expect(onStep(page).getByText("Save a copy now: it will be the only one.")).toBeVisible()
+  await expect(onStep(page).getByText("Please save a copy now.")).toBeVisible()
   await shot(page, "N3f-no-storage")
   await page.goto("/")
   const { invoiceId } = await startOrder(page, label, { method: "btc" })
@@ -235,7 +235,7 @@ test("a name code's lookup refused for a rate limit counts down its wait, and th
   await page.goto("/#/code")
   await codeField(page).fill(ownerCode)
   const count = page.locator(".code-entry .verdict [aria-hidden=true]")
-  await expect(count).toHaveText(/^Too many checks just now\. Your code may be fine\. Checking again in \d seconds\.$/)
+  await expect(count).toHaveText(/^Too many attempts\. Checking again in \d seconds\.$/)
   const add = page.getByRole("button", { name: "Add to Your names" })
   await expect(add).toHaveCount(0)
   // once the wait is over, the code is judged again by itself
@@ -277,8 +277,8 @@ test("Back to a search from the links step shows its answer at once", async ({ p
 })
 
 for (const [failure, change, shown] of [
-  ["the service is down", { chainDown: true }, "This name could not be checked"],
-  ["searching is rate limited", { limitSeconds: 10 }, "Searching is paused"],
+  ["the service is down", { chainDown: true }, "The name could not be checked now"],
+  ["searching is rate limited", { limitSeconds: 10 }, "Too many attempts"],
 ] as const) {
   test(`Back to a search whose check fails because ${failure} no longer offers the remembered answer`, async ({ page, request }) => {
     await search(page, uniqueLabel("backfail"))
@@ -300,7 +300,7 @@ test("a search pause reads the same after leaving the page and coming back", asy
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("pauseback"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
   const notice = page.locator(".answer .line")
-  await expect(notice).toContainText("Searching is paused: try again in")
+  await expect(notice).toContainText("Too many attempts. Please try again in")
   const before = (await notice.innerText()).replace(/try again in \d+ seconds?/g, "")
   await page.getByRole("link", { name: "Your names" }).first().click()
   await expect(page.getByRole("heading", { name: "Your names" })).toBeVisible()
@@ -328,7 +328,7 @@ test("search shows an expired name of yours with when it ran out and when it can
   await page.route("**/api/name/**", (route) => route.fulfill({ json: registeredAnswer(OWNER, expiresAt, { contact: "", channel: "" }, [], 0, GRACE_S) }))
   await page.goto(`/#/?name=${label}`)
   await expect(page.locator(".answer .row")).toContainText("Expired")
-  await expect(page.locator(".answer .line")).toHaveText(`Its registration ran out on ${dateOf(expiresAt)}. It can be registered again from ${dateOf(expiresAt + GRACE_S)}.`)
+  await expect(page.locator(".answer .line")).toHaveText(`Expired: ${dateOf(expiresAt)}. Anybody can register it from ${dateOf(expiresAt + GRACE_S)}.`)
 })
 
 const SEARCH_RTT_MS = 300
@@ -345,12 +345,12 @@ test("as a search pause ends, the paused line gives way to a checking line rathe
   await control(request, "search", { limitSeconds: 1 })
   await page.getByLabel("Name", { exact: true }).fill(uniqueLabel("resume"))
   await page.getByLabel("Name", { exact: true }).press("Enter")
-  await expect(page.locator(".answer .line", { hasText: "Searching is paused" })).toBeVisible()
+  await expect(page.locator(".answer .line", { hasText: "Too many attempts" })).toBeVisible()
   await expect(page.locator(".answer .row")).toBeVisible({ timeout: 30_000 })
   const frames = await recordedFrames<string>(page)
-  const paused = frames.findIndex((f) => f.startsWith("Searching is paused"))
+  const paused = frames.findIndex((f) => f.startsWith("Too many attempts"))
   const answered = frames.indexOf("answer")
   expect(paused, "a frame with the paused line").toBeGreaterThanOrEqual(0)
   const between = [...new Set(frames.slice(paused, answered))]
-  expect(between.filter((f) => !f.startsWith("Searching is paused") && f !== "Checking the name…"), "what showed between the pause and the answer").toEqual([])
+  expect(between.filter((f) => !f.startsWith("Too many attempts") && f !== "Checking the name…"), "what showed between the pause and the answer").toEqual([])
 })
